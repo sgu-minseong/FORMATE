@@ -42,6 +42,10 @@ const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관"
 const UNIT_OPTIONS = ["평", "㎡", "미터", "개소", "식"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
 const FLOORING_THICKNESS_OPTIONS = Array.from({ length: 28 }, (_, index) => (1.8 + index / 10).toFixed(1));
+const DEFAULT_FLOORING_SPEC = "기본";
+const DEFAULT_FLOORING_AUTO_SPECS = ["1.8", "2.2", "2.7"];
+const FLOORING_NAME_KEYWORDS = ["장판", "바닥", "바닥재"];
+const FLOORING_MATERIAL_KEYWORDS = ["장판", "마루", "데코타일", "바닥"];
 const EXTENDED_VARIANTS = ["확장형1", "확장형2", "확장형3", "확장형4", "확장형5"];
 const OLD_EXTENDED_VARIANTS = ["구형1", "구형2", "구형3", "구형4", "구형5"];
 const OLD_NO_EXTENSION_VARIANT = "구형0";
@@ -520,24 +524,96 @@ function makeTemplateLabel(template) {
   const parts = [`${template.pyeong}평`, houseType];
   if (houseType === "구형") parts.push(condition.has_extension ? "확장 있음" : "확장 없음");
   parts.push(condition.condition_variant);
-  return parts.join(" ");
+  return parts.join(" · ");
 }
 
 function getTemplateOptionValue(subitem) {
-  return parseFlooringThicknessName(subitem?.name)?.thickness ?? "";
+  const thickness = parseFlooringThicknessName(subitem?.name)?.thickness;
+  return thickness && thickness !== DEFAULT_FLOORING_SPEC ? thickness : "";
+}
+
+function isFlooringCategoryName(name) {
+  const normalized = `${name ?? ""}`.trim();
+  return FLOORING_NAME_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function isFlooringMaterialName(name) {
+  const normalized = `${name ?? ""}`.trim();
+  return FLOORING_MATERIAL_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function normalizeFlooringThickness(value) {
+  const raw = `${value ?? ""}`.trim();
+  if (!raw || raw === DEFAULT_FLOORING_SPEC) return DEFAULT_FLOORING_SPEC;
+  const withoutSuffix = raw.replace(/t$/i, "");
+  const numberValue = Number(withoutSuffix);
+  if (!Number.isFinite(numberValue)) return DEFAULT_FLOORING_SPEC;
+  const normalized = numberValue.toFixed(1);
+  return FLOORING_THICKNESS_OPTIONS.includes(normalized) ? normalized : DEFAULT_FLOORING_SPEC;
+}
+
+function formatFlooringThickness(thickness) {
+  const normalized = normalizeFlooringThickness(thickness);
+  if (normalized === DEFAULT_FLOORING_SPEC) return DEFAULT_FLOORING_SPEC;
+  const numberValue = Number(normalized);
+  const displayValue = Number.isInteger(numberValue) ? String(numberValue) : normalized;
+  return `${displayValue}T`;
+}
+
+function composeFlooringSubitemName(baseName, thickness) {
+  const nextBaseName = `${baseName ?? ""}`.trim() || "장판";
+  const normalizedThickness = normalizeFlooringThickness(thickness);
+  if (normalizedThickness === DEFAULT_FLOORING_SPEC) return nextBaseName;
+  return `${nextBaseName} ${formatFlooringThickness(normalizedThickness)}`;
+}
+
+function getFlooringThicknessSelectOptions(currentThickness) {
+  return [
+    ...new Set([
+      DEFAULT_FLOORING_SPEC,
+      ...DEFAULT_FLOORING_AUTO_SPECS,
+      normalizeFlooringThickness(currentThickness),
+      ...FLOORING_THICKNESS_OPTIONS,
+    ]),
+  ].filter(Boolean);
+}
+
+function compareFlooringThickness(a, b) {
+  if (a === b) return 0;
+  if (a === DEFAULT_FLOORING_SPEC) return -1;
+  if (b === DEFAULT_FLOORING_SPEC) return 1;
+  return Number(a) - Number(b);
 }
 
 function parseFlooringThicknessName(name) {
-  const match = `${name ?? ""}`.trim().match(/^(.+?)\s+([1-4]\.\d)$/);
-  if (!match || !FLOORING_THICKNESS_OPTIONS.includes(match[2])) return null;
+  const normalized = `${name ?? ""}`.trim();
+  const directThickness = normalized.match(/^([1-4](?:\.\d)?)T?$/i);
+  if (directThickness) {
+    return {
+      baseName: "장판",
+      thickness: normalizeFlooringThickness(directThickness[1]),
+    };
+  }
+
+  const match = normalized.match(/^(.+?)\s+(기본|[1-4](?:\.\d)?T?)$/i);
+  if (match) {
+    const thickness = match[2] === DEFAULT_FLOORING_SPEC ? DEFAULT_FLOORING_SPEC : normalizeFlooringThickness(match[2]);
+    if (thickness === DEFAULT_FLOORING_SPEC && match[2] !== DEFAULT_FLOORING_SPEC) return null;
+    return {
+      baseName: match[1].trim(),
+      thickness,
+    };
+  }
+
+  if (!isFlooringMaterialName(normalized)) return null;
   return {
-    baseName: match[1].trim(),
-    thickness: match[2],
+    baseName: normalized,
+    thickness: DEFAULT_FLOORING_SPEC,
   };
 }
 
 function isFlooringThicknessItem(item) {
-  return item?.name === "장판";
+  return isFlooringCategoryName(item?.name);
 }
 
 function getFlooringThicknessGroups(subitems = []) {
@@ -546,7 +622,7 @@ function getFlooringThicknessGroups(subitems = []) {
   subitems.forEach((subitem) => {
     const parsed = parseFlooringThicknessName(subitem.name);
     const baseName = parsed?.baseName ?? subitem.name;
-    const thickness = parsed?.thickness ?? "1.8";
+    const thickness = parsed?.thickness ?? DEFAULT_FLOORING_SPEC;
 
     if (!groupsByName.has(baseName)) {
       groupsByName.set(baseName, {
@@ -558,11 +634,13 @@ function getFlooringThicknessGroups(subitems = []) {
 
     const group = groupsByName.get(baseName);
     group.sort_order = Math.min(group.sort_order, subitem.sort_order ?? group.sort_order);
-    group.options[thickness] = {
-      ...subitem,
-      baseName,
-      thickness,
-    };
+    if (!group.options[thickness]) {
+      group.options[thickness] = {
+        ...subitem,
+        baseName,
+        thickness,
+      };
+    }
   });
 
   return [...groupsByName.values()].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -690,17 +768,23 @@ function buildEstimateItemsFromTemplate(catalog, pyeong) {
       const itemSubitems = item.item_type === "flat" ? item.subitems.slice(0, 1) : item.subitems;
       const rows = isFlooringThicknessItem(item)
         ? getFlooringThicknessGroups(itemSubitems).map((group) => {
-            const selectedThickness = group.options["1.8"] ? "1.8" : Object.keys(group.options)[0];
+            const optionKeys = Object.keys(group.options).sort(compareFlooringThickness);
+            const selectedThickness = group.options[DEFAULT_FLOORING_SPEC]
+              ? DEFAULT_FLOORING_SPEC
+              : group.options["1.8"]
+                ? "1.8"
+                : optionKeys[0];
             const selectedOption = group.options[selectedThickness];
             return createEstimateRowFromSubitem(item, selectedOption, pyeong, {
               material: group.baseName,
-              displayMaterial: `${group.baseName} ${selectedThickness}`,
+              displayMaterial: composeFlooringSubitemName(group.baseName, selectedThickness),
               selectedThickness,
-              thicknessOptions: FLOORING_THICKNESS_OPTIONS.map((thickness) => {
+              thicknessOptions: optionKeys.map((thickness) => {
                 const option = group.options[thickness];
                 return option
                   ? {
                       thickness,
+                      label: formatFlooringThickness(thickness),
                       subitemId: option.id,
                       quantity: option.quantity ?? "",
                       laborCount: option.labor_count ?? "",
@@ -1018,6 +1102,10 @@ export default function App() {
       return itemMatches || subitemMatches;
     });
   }, [adminFavoriteOnly, adminItems, adminSearchTerm]);
+  const currentAdminTemplateCondition = getAdminTemplateCondition();
+  const currentAdminConditionLabel = currentAdminTemplateCondition
+    ? makeTemplateLabel(currentAdminTemplateCondition)
+    : "";
 
   useEffect(() => {
     let active = true;
@@ -1505,14 +1593,15 @@ export default function App() {
       if (!isFlooringThicknessItem({ ...item, subitems: itemSubitems })) return;
 
       getFlooringThicknessGroups(itemSubitems).forEach((group) => {
-        const source = group.options["1.8"] ?? Object.values(group.options)[0];
+        if (!group.baseName.includes("장판")) return;
+        const source = group.options["1.8"] ?? group.options[DEFAULT_FLOORING_SPEC] ?? Object.values(group.options)[0];
         if (!source) return;
 
-        FLOORING_THICKNESS_OPTIONS.forEach((thickness, thicknessIndex) => {
+        DEFAULT_FLOORING_AUTO_SPECS.forEach((thickness, thicknessIndex) => {
           if (group.options[thickness]) return;
           payloads.push({
             item_id: item.id,
-            name: `${group.baseName} ${thickness}`,
+            name: composeFlooringSubitemName(group.baseName, thickness),
             unit: source.unit ?? "평",
             unit_price: 0,
             labor_rate: source.labor_rate ?? 0,
@@ -1832,6 +1921,30 @@ export default function App() {
     setExpandedAdminItemIds((current) => current.filter((id) => !visibleIds.has(id)));
   }
 
+  function updateLocalSubitemName(subitemId, name) {
+    setAdminItems((current) =>
+      current.map((item) => ({
+        ...item,
+        subitems: item.subitems.map((subitem) =>
+          subitem.id === subitemId ? { ...subitem, name, option_value: getTemplateOptionValue({ name }) } : subitem
+        ),
+      }))
+    );
+  }
+
+  async function updateAdminFlooringSubitemName(subitem, patch) {
+    const parsed = parseFlooringThicknessName(subitem.name) ?? {
+      baseName: subitem.name,
+      thickness: DEFAULT_FLOORING_SPEC,
+    };
+    const nextName = composeFlooringSubitemName(
+      Object.prototype.hasOwnProperty.call(patch, "baseName") ? patch.baseName : parsed.baseName,
+      Object.prototype.hasOwnProperty.call(patch, "thickness") ? patch.thickness : parsed.thickness
+    );
+    updateLocalSubitemName(subitem.id, nextName);
+    await renameAdminSubitem(subitem.id, nextName);
+  }
+
   function getVisibleAdminSubitems(item) {
     const subitems = item.subitems ?? [];
     if (!adminSearchTerm || item.name.toLowerCase().includes(adminSearchTerm)) return subitems;
@@ -1947,7 +2060,7 @@ export default function App() {
       setEstimatePyeong(String(pyeong));
       return true;
     } catch (error) {
-      setEstimateError(getFriendlyError(error, "조건별 단가표를 불러오지 못했어요. 다시 시도해주세요."));
+      setEstimateError(getFriendlyError(error, "조건별 기준을 불러오지 못했어요. 다시 시도해주세요."));
       return false;
     } finally {
       setEstimateLoading(false);
@@ -1994,7 +2107,7 @@ export default function App() {
       baseLaborRate: matchedOption.baseLaborRate,
       hasTemplateRecord: matchedOption.hasTemplateRecord,
       hasTemplateValue: matchedOption.hasTemplateValue,
-      displayMaterial: `${row.material} ${matchedOption.thickness}`,
+      displayMaterial: composeFlooringSubitemName(row.material, matchedOption.thickness),
     };
   }
 
@@ -2221,8 +2334,13 @@ export default function App() {
   }
 
   async function addAdminItem() {
-    const name = window.prompt("새 시공 항목명을 입력하세요.");
-    if (!name?.trim()) return;
+    const existingNames = new Set(adminItems.map((item) => item.name.trim()));
+    let name = "새 대분류";
+    let suffix = 2;
+    while (existingNames.has(name)) {
+      name = `새 대분류 ${suffix}`;
+      suffix += 1;
+    }
 
     setAdminSaving(true);
     setAdminError("");
@@ -2233,27 +2351,20 @@ export default function App() {
       const { data: item, error } = await supabase
         .from("construction_items")
         .insert({
-        company_id: requireSelectedCompanyId(),
-        name: name.trim(),
-        item_type: "flat",
-        is_favorite: false,
-        sort_order: nextSortOrder,
+          company_id: requireSelectedCompanyId(),
+          name,
+          item_type: "itemized",
+          is_favorite: false,
+          sort_order: nextSortOrder,
         })
         .select("id, name")
         .single();
       if (error) throw error;
-      const { error: subitemError } = await supabase.from("construction_subitems").insert({
-        item_id: item.id,
-        name: item.name,
-        unit: "식",
-        unit_price: 0,
-        labor_rate: 0,
-        sort_order: 0,
-      });
-      if (subitemError) throw subitemError;
       await fetchAdminItems();
+      setExpandedAdminItemIds((current) => [...new Set([...current, item.id])]);
+      setAdminNotice("새 대분류를 추가했습니다. 대분류명을 수정하고 하단의 소재 추가 버튼으로 소재를 넣어주세요.");
     } catch (error) {
-      setAdminError(getFriendlyError(error, "항목을 추가하지 못했어요. 다시 시도해주세요."));
+      setAdminError(getFriendlyError(error, "대분류를 추가하지 못했어요. 다시 시도해주세요."));
     } finally {
       setAdminSaving(false);
     }
@@ -2339,10 +2450,27 @@ export default function App() {
   }
 
   async function addAdminSubitem(itemId) {
-    const name = window.prompt("새 소재명을 입력하세요.");
-    if (!name?.trim()) return;
-
     const parent = adminItems.find((item) => item.id === itemId);
+    const defaultName = isFlooringThicknessItem(parent) ? "장판 1.8T" : "새 소재";
+    const name = window.prompt("새 소재명을 입력하세요.", defaultName);
+    if (!name?.trim()) return;
+    const nextName = name.trim();
+    const parsedNextFlooring = parseFlooringThicknessName(nextName);
+    const canonicalNextName = parsedNextFlooring
+      ? composeFlooringSubitemName(parsedNextFlooring.baseName, parsedNextFlooring.thickness)
+      : nextName;
+    const hasDuplicateSubitem = parent?.subitems?.some((subitem) => {
+      const parsedExisting = parseFlooringThicknessName(subitem.name);
+      const canonicalExisting = parsedExisting
+        ? composeFlooringSubitemName(parsedExisting.baseName, parsedExisting.thickness)
+        : subitem.name.trim();
+      return canonicalExisting === canonicalNextName;
+    });
+    if (hasDuplicateSubitem) {
+      setAdminError("같은 대분류 안에 동일한 소재명이 이미 있습니다.");
+      return;
+    }
+
     setAdminSaving(true);
     setAdminError("");
     try {
@@ -2360,7 +2488,7 @@ export default function App() {
         : 0;
       const { error } = await supabase.from("construction_subitems").insert({
         item_id: itemId,
-        name: name.trim(),
+        name: canonicalNextName,
         unit: "평",
         unit_price: 0,
         labor_rate: 0,
@@ -2487,7 +2615,9 @@ export default function App() {
         current.map((item) => ({
           ...item,
           subitems: item.subitems.map((subitem) =>
-            subitem.id === subitemId ? { ...subitem, name: nextName } : subitem
+            subitem.id === subitemId
+              ? { ...subitem, name: nextName, option_value: getTemplateOptionValue({ name: nextName }) }
+              : subitem
           ),
         }))
       );
@@ -2846,11 +2976,21 @@ export default function App() {
       <style>{styles}</style>
 
       {page !== "landing" && (
-        <header className="global-header">
+        <header className={`global-header ${page === "admin-items" && adminVerified ? "with-admin-condition" : ""}`.trim()}>
           <button className="global-brand" onClick={resetFlow} aria-label="FORMATE 홈으로 이동">
             <img src={logoUrl} alt="" />
             <strong>FORMATE</strong>
           </button>
+          {page === "admin-items" && adminVerified && (
+            <div className={`header-admin-condition ${currentAdminTemplateCondition ? "active" : ""}`.trim()} aria-live="polite">
+              <span>현재 관리 중</span>
+              <strong>
+                {currentAdminConditionLabel
+                  ? `현재 관리 중: ${currentAdminConditionLabel}`
+                  : "현재 관리 중인 조건 없음"}
+              </strong>
+            </div>
+          )}
           <div className="company-session">
             <span>현재 업체: {selectedCompanyName}</span>
             <button type="button" className="company-switch-button" onClick={handleChangeCompany}>
@@ -2971,14 +3111,14 @@ export default function App() {
               <button className="menu-card feature-card" onClick={() => setPage("condition")}>
                 <ClipboardList />
                 <span>신규 견적서 만들기</span>
-                <p>저장된 단가표를 바탕으로 고객 조건에 맞는 견적서를 빠르게 만듭니다.</p>
+                <p>저장된 기준표를 바탕으로 고객 조건에 맞는 견적서를 빠르게 만듭니다.</p>
                 <strong>바로 시작하기</strong>
               </button>
               <button className="menu-card feature-card" onClick={() => openAdminGate("admin")}>
                 <Settings />
-                <span>조건별 단가표 관리</span>
-                <p>평수, 확장형·구형 세부 유형에 따라 달라지는 우리 업체 기준을 관리합니다.</p>
-                <strong>단가표 관리하기</strong>
+                <span>조건별 수량/인원 관리</span>
+                <p>공통 단가/인건비와 조건별 수량/인원 기준을 관리합니다.</p>
+                <strong>기준표 관리하기</strong>
               </button>
             </div>
             <div className="secondary-action-grid">
@@ -3004,18 +3144,18 @@ export default function App() {
           </button>
           <section className="panel">
             <p className="eyebrow dark">FORMATE 관리</p>
-            <h2>조건별 단가표 관리</h2>
+            <h2>조건별 수량/인원 관리</h2>
             <p className="muted">
-              평수, 확장형·구형 세부 유형에 따라 달라지는 시공 항목, 단가, 수량 기준을 관리합니다.
+              단가/인건비는 모든 조건에 공통 적용되고, 수량/인원은 평수와 주택 조건별로 저장됩니다.
             </p>
             <p className="muted">
-              이 화면은 고객에게 보여주는 견적서가 아니라, 우리 업체 내부의 견적 기준 단가표를 설정하는 공간입니다.
+              이 화면은 고객에게 보여주는 견적서가 아니라, 우리 업체 내부의 수량/인원 기준표를 설정하는 공간입니다.
             </p>
             <div className="admin-menu">
               <button className="menu-card" onClick={() => setPage("admin-items")}>
                 <ClipboardList />
-                <span>조건별 단가표 편집</span>
-                <p>시공 항목, 소재, 단가, 수량, 인건비 기준을 조건별로 관리합니다.</p>
+                <span>조건별 수량/인원 편집</span>
+                <p>공통 단가/인건비를 확인하면서 조건별 수량과 인원을 관리합니다.</p>
               </button>
               <button className="menu-card" onClick={() => setPage("admin-detail-costs")}>
                 <FileText />
@@ -3206,7 +3346,7 @@ export default function App() {
           <section className="category-column">
             <h2>시공 항목 선택</h2>
             <p className="muted caption">
-              선택한 조건에 맞는 우리 업체 단가표를 불러왔습니다. 이번 문의에 맞게 수량과 단가를 조정할 수 있습니다.
+              선택한 조건에 맞는 우리 업체 기준표를 불러왔습니다. 이번 문의에 맞게 수량과 단가를 조정할 수 있습니다.
             </p>
             {conditionChips.length > 0 && (
               <div className="condition-chip-group" aria-label="현재 견적 조건">
@@ -3283,7 +3423,7 @@ export default function App() {
               <div>
                 <h2>{currentCategory?.name} 견적 내역</h2>
                 <p className="muted caption">
-                  {condition.size ? `${condition.size}평 기준 단가표` : "조건별 단가표"}
+                  {condition.size ? `${condition.size}평 기준표` : "조건별 기준표"}
                 </p>
               </div>
               <button className="secondary-button" onClick={() => setPage("preview")}>
@@ -3335,21 +3475,20 @@ export default function App() {
                         <div className="estimate-template-detail">
                           {row.thicknessOptions?.length > 0 && (
                             <div className="thickness-field">
-                              <span>두께</span>
+                              <span>규격/두께</span>
                               <label className="estimate-draft-field">
                                 <select
-                                  value={row.selectedThickness ?? "1.8"}
+                                  value={row.selectedThickness ?? DEFAULT_FLOORING_SPEC}
                                   onChange={(event) =>
                                     updateItem(openCategory, index, { selectedThickness: event.target.value })
                                   }
                                 >
                                   {row.thicknessOptions.map((option) => (
                                     <option key={option.thickness} value={option.thickness}>
-                                      {option.thickness}
+                                      {option.label ?? formatFlooringThickness(option.thickness)}
                                     </option>
                                   ))}
                                 </select>
-                                <em>T</em>
                               </label>
                             </div>
                           )}
@@ -3574,7 +3713,7 @@ export default function App() {
               <button className="ghost" onClick={() => setPage("admin")}>
                 <ArrowLeft size={18} /> 관리자 홈
               </button>
-              <h2>조건별 단가표 관리</h2>
+              <h2>조건별 수량/인원 관리</h2>
             </div>
             <div className="admin-actions">
               <button className="secondary-button" disabled={adminLoading || adminSaving} onClick={fetchAdminItems}>
@@ -3582,20 +3721,20 @@ export default function App() {
               </button>
               <button
                 className="primary-button"
-                disabled={adminLoading || adminSaving || !getAdminTemplateCondition()}
+                disabled={adminLoading || adminSaving || !currentAdminTemplateCondition}
                 onClick={saveAdminPrices}
               >
                 <Save size={18} /> 저장
               </button>
               <button className="primary-button" disabled={adminLoading || adminSaving} onClick={addAdminItem}>
-                <Plus size={18} /> 항목 추가
+                <Plus size={18} /> 대분류 추가
               </button>
             </div>
           </div>
 
           <section className="admin-pyeong-panel">
             <div className="admin-condition-title">
-              <strong>관리 기준 선택</strong>
+              <strong>조건 선택</strong>
               <span>단가/인건비는 모든 조건에 공통 적용되고, 수량/인원은 선택한 평수와 주택 조건별로 저장됩니다.</span>
             </div>
             <label>
@@ -3713,8 +3852,8 @@ export default function App() {
 
           <section className="template-list-panel">
             <div>
-              <strong>저장된 단가표</strong>
-              <span>불러오기를 누르면 해당 조건의 기준 단가, 수량, 인원이 표시됩니다.</span>
+              <strong>저장된 조건 기준</strong>
+              <span>불러오기를 누르면 해당 조건의 수량/인원 기준이 표시됩니다.</span>
             </div>
             {adminTemplates.length ? (
               <div className="template-list">
@@ -3739,7 +3878,38 @@ export default function App() {
           {adminNotice && <div className="status-box">{adminNotice}</div>}
           {adminError && <div className="error-box">{adminError}</div>}
 
-          {adminItems.length > 0 && (
+          <section className="admin-edit-panel">
+            <div className="admin-edit-title">
+              <div>
+                <strong>조건별 수량/인원 편집</strong>
+                <span>현재 조건의 수량과 인원을 입력하세요. 단가와 인건비는 모든 조건에 공통 적용되는 기준값입니다.</span>
+              </div>
+              {currentAdminConditionLabel && <em>{currentAdminConditionLabel}</em>}
+            </div>
+
+            <div className={`admin-edit-current ${currentAdminTemplateCondition ? "active" : ""}`.trim()}>
+              <span>현재 관리 중</span>
+              <strong>
+                {currentAdminConditionLabel || "현재 관리 중인 조건이 없습니다. 먼저 평수와 주택 조건을 선택하세요."}
+              </strong>
+              <p>
+                {currentAdminTemplateCondition
+                  ? "이 조건의 수량/인원을 입력하세요. 단가와 인건비는 모든 조건에 공통 적용됩니다."
+                  : "먼저 평수와 주택 유형을 선택한 뒤 저장된 기준을 불러오거나 새 기준을 입력하세요."}
+              </p>
+            </div>
+
+            <section className="admin-catalog-actions">
+              <div>
+                <strong>대분류/소재 구조</strong>
+                <span>대분류는 시공 항목, 소재는 해당 대분류 안의 세부 항목입니다.</span>
+              </div>
+              <button className="primary-button" type="button" disabled={adminLoading || adminSaving} onClick={addAdminItem}>
+                <Plus size={18} /> 대분류 추가
+              </button>
+            </section>
+
+          {currentAdminTemplateCondition && adminItems.length > 0 && (
             <section className="admin-tool-panel">
               <label className="admin-search-field">
                 <Search size={17} />
@@ -3768,19 +3938,21 @@ export default function App() {
             </section>
           )}
 
-          {!getAdminTemplateCondition() && (
-            <section className="panel">
-              <p className="muted">먼저 평수와 주택 유형을 선택하세요. 단가/인건비는 공통값, 수량/인원은 조건별 값으로 저장됩니다.</p>
+          {!currentAdminTemplateCondition && (
+            <section className="panel admin-empty-edit-notice">
+              <strong>조건을 먼저 선택하세요.</strong>
+              <p className="muted">먼저 평수와 주택 유형을 선택한 뒤 저장된 기준을 불러오거나 새 기준을 입력하세요.</p>
+              <p className="muted">단가/인건비는 모든 조건에 공통 적용되고, 수량/인원은 현재 조건에만 저장됩니다.</p>
             </section>
           )}
 
-          {getAdminTemplateCondition() && !adminLoading && adminItems.length > 0 && !filteredAdminItems.length && (
+          {currentAdminTemplateCondition && !adminLoading && adminItems.length > 0 && !filteredAdminItems.length && (
             <section className="panel">
               <p className="muted">검색 결과가 없습니다.</p>
             </section>
           )}
 
-          {getAdminTemplateCondition() && filteredAdminItems.length > 0 && (
+          {currentAdminTemplateCondition && filteredAdminItems.length > 0 && (
           <section className="admin-list">
             {filteredAdminItems.map((item) => {
               const itemSubitems = getVisibleAdminSubitems(item);
@@ -3812,21 +3984,24 @@ export default function App() {
                   >
                     <Star size={18} fill={item.is_favorite ? "currentColor" : "none"} />
                   </button>
-                  <input
-                    className="name-input"
-                    value={item.name}
-                    onChange={(event) =>
-                      setAdminItems((current) =>
-                        current.map((entry) =>
-                          entry.id === item.id ? { ...entry, name: event.target.value } : entry
+                  <label className="admin-item-name-field">
+                    <span>대분류명</span>
+                    <input
+                      className="name-input"
+                      value={item.name}
+                      onChange={(event) =>
+                        setAdminItems((current) =>
+                          current.map((entry) =>
+                            entry.id === item.id ? { ...entry, name: event.target.value } : entry
+                          )
                         )
-                      )
-                    }
-                    onBlur={(event) => renameAdminItem(item.id, event.target.value)}
-                  />
+                      }
+                      onBlur={(event) => renameAdminItem(item.id, event.target.value)}
+                    />
+                  </label>
                   <span className="type-badge">{item.item_type === "flat" ? "단일 항목" : "소재형"}</span>
                   <button className="secondary-button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
-                    <Plus size={18} /> 소재
+                    <Plus size={18} /> 소재 추가
                   </button>
                   <button className="danger-button" disabled={adminSaving} onClick={() => deleteAdminItem(item.id)}>
                     <Trash2 size={18} />
@@ -3835,68 +4010,134 @@ export default function App() {
 
                 {itemExpanded && isFlooringThicknessItem(item) ? (
                   <div className="flooring-thickness-list">
-                    {getFlooringThicknessGroups(itemSubitems).map((group) => (
-                      <details className="flooring-thickness-group" key={group.baseName} open>
-                        <summary>
-                          <strong>{group.baseName}</strong>
-                          <span>두께별 공통 단가와 조건별 수량</span>
-                        </summary>
-                        <div className="flooring-thickness-grid">
-                          {FLOORING_THICKNESS_OPTIONS.map((thickness) => {
-                            const subitem = group.options[thickness];
-                            return (
-                              <label key={thickness}>
-                                <span>{thickness}T</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={subitem?.quantity ?? ""}
-                                  disabled={!subitem}
-                                  placeholder="수량"
-                                  onChange={(event) =>
-                                    subitem &&
-                                    updateLocalSubitemPrice(subitem.id, { quantity: event.target.value })
-                                  }
-                                />
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={subitem?.unit_price ?? ""}
-                                  disabled={!subitem}
-                                  placeholder="단가"
-                                  onChange={(event) =>
-                                    subitem &&
-                                    updateLocalSubitemPrice(subitem.id, { unit_price: event.target.value })
-                                  }
-                                />
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={subitem?.labor_count ?? ""}
-                                  disabled={!subitem}
-                                  placeholder="인원"
-                                  onChange={(event) =>
-                                    subitem &&
-                                    updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })
-                                  }
-                                />
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={subitem?.labor_rate ?? ""}
-                                  disabled={!subitem}
-                                  placeholder="인건비"
-                                  onChange={(event) =>
-                                    subitem &&
-                                    updateLocalSubitemPrice(subitem.id, { labor_rate: event.target.value })
-                                  }
-                                />
-                              </label>
-                            );
-                          })}
+                    <div className="flooring-spec-guide">
+                      <strong>장판/바닥재 규격 관리</strong>
+                      <span>소재명과 규격/두께를 나눠 입력합니다. 저장은 기존 소재명에 함께 반영됩니다.</span>
+                    </div>
+                    {itemSubitems.map((subitem) => {
+                      const parsedFlooring = parseFlooringThicknessName(subitem.name) ?? {
+                        baseName: subitem.name,
+                        thickness: DEFAULT_FLOORING_SPEC,
+                      };
+                      return (
+                        <div
+                          key={subitem.id}
+                          className="admin-value-row flooring-value-row"
+                          draggable
+                          onDragStart={() => setDragSubitem({ itemId: item.id, subitemId: subitem.id })}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={() => reorderAdminSubitems(item.id, subitem.id)}
+                        >
+                          <span className="drag-handle">::</span>
+                          <label className="admin-material-name-field">
+                            소재명
+                            <input
+                              value={parsedFlooring.baseName}
+                              onChange={(event) =>
+                                updateLocalSubitemName(
+                                  subitem.id,
+                                  composeFlooringSubitemName(event.target.value, parsedFlooring.thickness)
+                                )
+                              }
+                              onBlur={(event) =>
+                                updateAdminFlooringSubitemName(subitem, { baseName: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            규격/두께
+                            <select
+                              value={parsedFlooring.thickness}
+                              onChange={(event) =>
+                                updateAdminFlooringSubitemName(subitem, { thickness: event.target.value })
+                              }
+                            >
+                              {getFlooringThicknessSelectOptions(parsedFlooring.thickness).map((thickness) => (
+                                <option key={thickness} value={thickness}>
+                                  {formatFlooringThickness(thickness)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            단위
+                            <select
+                              value={subitem.unit ?? ""}
+                              onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
+                            >
+                              {UNIT_OPTIONS.map((unit) => (
+                                <option key={unit} value={unit}>
+                                  {unit}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            단가 <span>모든 조건 공통</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={subitem.unit_price ?? ""}
+                              onChange={(event) =>
+                                updateLocalSubitemPrice(subitem.id, { unit_price: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            인건비 <span>모든 조건 공통</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={subitem.labor_rate ?? ""}
+                              onChange={(event) =>
+                                updateLocalSubitemPrice(subitem.id, { labor_rate: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            수량 <span>현재 조건</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={subitem.quantity ?? ""}
+                              onChange={(event) =>
+                                updateLocalSubitemPrice(subitem.id, { quantity: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            인원 <span>현재 조건</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={subitem.labor_count ?? ""}
+                              onChange={(event) =>
+                                updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })
+                              }
+                            />
+                          </label>
+                          <button
+                            className="danger-button"
+                            disabled={adminSaving}
+                            onClick={() => deleteAdminSubitem(subitem.id)}
+                          >
+                            <Trash2 size={18} />
+                          </button>
                         </div>
-                      </details>
-                    ))}
+                      );
+                    })}
+                    {!itemSubitems.length && (
+                      <p className="muted">소재가 없습니다. 예: 장판 1.8T, 장판 2.2T, 데코타일 3T처럼 소재를 추가하세요.</p>
+                    )}
+                    <div className="admin-add-subitem-row">
+                      <div>
+                        <strong>{item.name} 안에 소재 추가</strong>
+                        <span>예: 장판 1.8T, 장판 2.2T, 장판 2.7T, 데코타일 3T. 추가 후 규격/두께를 따로 조정할 수 있습니다.</span>
+                      </div>
+                      <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+                        <Plus size={18} /> 소재 추가
+                      </button>
+                    </div>
                   </div>
                 ) : itemExpanded ? (
                 <div className={item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"}>
@@ -3917,26 +4158,29 @@ export default function App() {
                       ) : (
                         <>
                           <span className="drag-handle">::</span>
-                          <input
-                            value={subitem.name}
-                            onChange={(event) =>
-                              setAdminItems((current) =>
-                                current.map((entry) =>
-                                  entry.id === item.id
-                                    ? {
-                                        ...entry,
-                                        subitems: entry.subitems.map((entrySubitem) =>
-                                          entrySubitem.id === subitem.id
-                                            ? { ...entrySubitem, name: event.target.value }
-                                            : entrySubitem
-                                        ),
-                                      }
-                                    : entry
+                          <label className="admin-material-name-field">
+                            소재명
+                            <input
+                              value={subitem.name}
+                              onChange={(event) =>
+                                setAdminItems((current) =>
+                                  current.map((entry) =>
+                                    entry.id === item.id
+                                      ? {
+                                          ...entry,
+                                          subitems: entry.subitems.map((entrySubitem) =>
+                                            entrySubitem.id === subitem.id
+                                              ? { ...entrySubitem, name: event.target.value }
+                                              : entrySubitem
+                                          ),
+                                        }
+                                      : entry
+                                  )
                                 )
-                              )
-                            }
-                            onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
-                          />
+                              }
+                              onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
+                            />
+                          </label>
                         </>
                       )}
 
@@ -3976,7 +4220,7 @@ export default function App() {
                         />
                       </label>
                       <label>
-                        수량 <span>선택 조건별</span>
+                        수량 <span>현재 조건</span>
                         <input
                           type="number"
                           min="0"
@@ -3987,7 +4231,7 @@ export default function App() {
                         />
                       </label>
                       <label>
-                        인원 <span>선택 조건별</span>
+                        인원 <span>현재 조건</span>
                         <input
                           type="number"
                           min="0"
@@ -4011,6 +4255,17 @@ export default function App() {
                   {item.item_type !== "flat" && !itemSubitems.length && (
                     <p className="muted">소재가 없습니다. 소재를 추가하거나 새 단일 항목으로 다시 등록하세요.</p>
                   )}
+                  {item.item_type !== "flat" && (
+                    <div className="admin-add-subitem-row">
+                      <div>
+                        <strong>{item.name} 안에 소재 추가</strong>
+                        <span>소재명, 단위, 공통 단가/인건비와 현재 조건의 수량/인원을 입력할 수 있습니다.</span>
+                      </div>
+                      <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+                        <Plus size={18} /> 소재 추가
+                      </button>
+                    </div>
+                  )}
                 </div>
                 ) : null}
               </article>
@@ -4018,6 +4273,7 @@ export default function App() {
             })}
           </section>
           )}
+          </section>
         </main>
       )}
 
@@ -4738,6 +4994,45 @@ const styles = `
   .global-brand strong {
     font-size: var(--font-size-title-sm);
     letter-spacing: 0;
+  }
+  .global-header.with-admin-condition {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(240px, auto) minmax(180px, 1fr);
+  }
+  .header-admin-condition {
+    display: grid;
+    justify-items: center;
+    gap: 2px;
+    min-width: 0;
+    max-width: min(54vw, 620px);
+    justify-self: center;
+    padding: 6px 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    text-align: center;
+  }
+  .header-admin-condition.active {
+    border-color: var(--brand-primary);
+    background: rgba(244, 246, 255, 0.98);
+    color: var(--text-primary);
+  }
+  .header-admin-condition span {
+    font-size: 11px;
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.1;
+  }
+  .header-admin-condition strong {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    color: inherit;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-bold);
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .company-session {
     display: inline-flex;
@@ -5478,6 +5773,105 @@ const styles = `
     color: var(--text-primary);
     font-weight: var(--font-weight-semibold);
   }
+  .admin-edit-panel {
+    display: grid;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+  }
+  .admin-edit-title {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-2);
+    align-items: flex-start;
+    padding: 2px 2px 0;
+  }
+  .admin-edit-title div {
+    display: grid;
+    gap: 4px;
+  }
+  .admin-edit-title strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+  }
+  .admin-edit-title span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.5;
+  }
+  .admin-edit-title em {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    border-radius: 9999px;
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+    font-weight: var(--font-weight-bold);
+  }
+  .admin-edit-current {
+    display: grid;
+    gap: 6px;
+    padding: 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+  .admin-edit-current.active {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-subtle);
+  }
+  .admin-edit-current span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+  }
+  .admin-edit-current strong {
+    color: var(--text-primary);
+    font-size: 22px;
+    line-height: 1.35;
+  }
+  .admin-edit-current p {
+    margin: 0;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+  .admin-catalog-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2);
+    align-items: center;
+    padding: 12px 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+  .admin-catalog-actions div {
+    display: grid;
+    gap: 4px;
+  }
+  .admin-catalog-actions strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+  }
+  .admin-catalog-actions span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.45;
+  }
+  .admin-empty-edit-notice {
+    border: 1px dashed var(--border-default);
+    background: var(--bg-surface);
+  }
+  .admin-empty-edit-notice strong {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+  }
   .status-box, .error-box {
     margin-bottom: var(--space-2);
     padding: 12px 14px;
@@ -5604,6 +5998,20 @@ const styles = `
   .name-input {
     font-weight: var(--font-weight-bold);
   }
+  .admin-item-name-field {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+  }
+  .admin-item-name-field input {
+    width: 100%;
+  }
+  .admin-material-name-field {
+    min-width: 0;
+  }
   .type-badge {
     min-height: 32px;
     display: inline-flex;
@@ -5648,6 +6056,9 @@ const styles = `
   .admin-flat-list .admin-value-row {
     grid-template-columns: minmax(150px, 1.1fr) 110px repeat(4, minmax(132px, 1fr));
   }
+  .flooring-value-row {
+    grid-template-columns: 28px minmax(140px, 1.1fr) 120px 100px repeat(4, minmax(118px, 1fr)) 42px;
+  }
   .admin-value-row label {
     display: grid;
     gap: 5px;
@@ -5660,10 +6071,50 @@ const styles = `
     font-size: 11px;
     font-weight: var(--font-weight-medium);
   }
+  .admin-add-subitem-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2);
+    align-items: center;
+    padding: 12px;
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+  .admin-add-subitem-row div {
+    display: grid;
+    gap: 4px;
+  }
+  .admin-add-subitem-row strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .admin-add-subitem-row span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.45;
+  }
   .flooring-thickness-list {
     display: grid;
     gap: var(--space-2);
     margin-top: var(--space-2);
+  }
+  .flooring-spec-guide {
+    display: grid;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+  }
+  .flooring-spec-guide strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .flooring-spec-guide span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.45;
   }
   .flooring-thickness-group {
     padding: var(--space-2);
@@ -6692,7 +7143,7 @@ const styles = `
   @media (max-width: 840px) {
     .hero, .primary-action-grid, .secondary-action-grid,
     .menu-grid, .admin-menu, .workspace, .form-grid, .material-row, .sticky-summary,
-    .admin-pyeong-panel, .admin-item-header, .admin-subitem-row, .admin-value-row,
+    .admin-pyeong-panel, .admin-catalog-actions, .admin-item-header, .admin-subitem-row, .admin-value-row, .admin-add-subitem-row,
     .admin-flat-list .admin-value-row, .price-item-header, .price-row,
     .template-list-row, .detail-cost-layout, .detail-add-row, .detail-cost-row, .estimate-card,
     .estimate-template-expanded-content, .estimate-template-detail, .estimate-pyeong-preview,
@@ -6710,6 +7161,35 @@ const styles = `
     }
     .global-header {
       padding: 0 var(--space-2);
+    }
+    .global-header.with-admin-condition {
+      height: auto;
+      min-height: 64px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "brand company"
+        "condition condition";
+      gap: 6px var(--space-1);
+      padding-top: 8px;
+      padding-bottom: 8px;
+    }
+    .global-header.with-admin-condition .global-brand {
+      grid-area: brand;
+    }
+    .global-header.with-admin-condition .company-session {
+      grid-area: company;
+    }
+    .global-header.with-admin-condition .header-admin-condition {
+      grid-area: condition;
+      width: 100%;
+      max-width: none;
+      padding: 5px 10px;
+    }
+    .global-header.with-admin-condition .header-admin-condition strong {
+      white-space: normal;
+    }
+    .global-header.with-admin-condition ~ .admin-page {
+      margin-top: 42px;
     }
     .company-session {
       gap: 6px;
@@ -6746,6 +7226,9 @@ const styles = `
       padding-left: 0;
     }
     .detail-cost-title {
+      flex-direction: column;
+    }
+    .admin-edit-title {
       flex-direction: column;
     }
     .pdf-title-row {
