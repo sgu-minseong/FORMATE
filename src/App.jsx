@@ -42,6 +42,9 @@ const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관"
 const UNIT_OPTIONS = ["평", "㎡", "미터", "개소", "식"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
 const FLOORING_THICKNESS_OPTIONS = Array.from({ length: 28 }, (_, index) => (1.8 + index / 10).toFixed(1));
+const EXTENDED_VARIANTS = ["확장형1", "확장형2", "확장형3", "확장형4", "확장형5"];
+const OLD_EXTENDED_VARIANTS = ["구형1", "구형2", "구형3", "구형4", "구형5"];
+const OLD_NO_EXTENSION_VARIANT = "구형0";
 const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
 const DEFAULT_CONSTRUCTION_CATALOG = [
   {
@@ -275,7 +278,7 @@ const categories = [
 
 const dummySavedData = {
   "32|new|powder:true|dress:false|empty": {
-    label: "32평 · 신축 · 파우더룸 O · 드레스룸 X · 빈집",
+    label: "32평 · 확장형 · 확장형1 · 빈집",
     items: {
       wallpaper: [
         { material: "실크", price: 1850000, selected: true },
@@ -288,7 +291,7 @@ const dummySavedData = {
     },
   },
   "24|old|expanded:true|spaces:거실,주방|occupied": {
-    label: "24평 · 구축 · 확장 있음 · 거실/주방 · 살림집",
+    label: "24평 · 구형 · 확장 있음 · 구형1 · 살림집",
     items: {
       woodwork: [
         { material: "몰딩", price: 760000, selected: true },
@@ -304,30 +307,30 @@ const dummySavedData = {
 function makeConditionKey(condition) {
   if (!condition.size || !condition.buildType || !condition.occupancy) return "";
 
-  if (condition.buildType === "new") {
-    return [condition.size, "new", condition.occupancy].join("|");
-  }
-
-  const expansionPart = condition.expanded
-    ? `expanded:true|spaces:${[...condition.expansionSpaces].sort().join(",")}`
-    : "expanded:false|spaces:";
-
-  return [condition.size, "old", expansionPart, condition.occupancy].join("|");
+  return [
+    condition.size,
+    getHouseTypeStateValue(condition.buildType),
+    getConditionVariant(condition),
+    condition.occupancy,
+  ].join("|");
 }
 
 function makeConditionSummary(condition) {
-  if (!condition.size || !condition.buildType || !condition.occupancy) return "";
+  if (!condition.size || !condition.buildType) return "";
 
   const base = [`${condition.size}평`];
-  if (condition.buildType === "new") {
-    base.push("신축");
+  if (isExtendedHouseType(condition.buildType)) {
+    base.push("확장형");
+    base.push(getConditionVariant(condition));
   } else {
-    base.push("구축");
+    base.push("구형");
     if (condition.expanded) {
       base.push("확장 있음");
+    } else {
+      base.push("확장 없음");
     }
+    base.push(getConditionVariant(condition));
   }
-  base.push(condition.occupancy === "empty" ? "빈집" : "살림집");
   return base.join(" · ");
 }
 
@@ -336,12 +339,14 @@ function makeConditionChips(condition) {
 
   const chips = [];
   if (condition.size) chips.push(`${condition.size}평`);
-  if (condition.buildType === "new") {
-    chips.push("신축");
-  }
-  if (condition.buildType === "old") {
-    chips.push("구축");
-    if (condition.expanded) chips.push("확장 있음");
+  if (condition.buildType) {
+    if (isExtendedHouseType(condition.buildType)) {
+      chips.push("확장형");
+    } else {
+      chips.push("구형");
+      chips.push(condition.expanded ? "확장 있음" : "확장 없음");
+    }
+    chips.push(getConditionVariant(condition));
   }
   if (condition.occupancy) chips.push(condition.occupancy === "empty" ? "빈집" : "살림집");
   return chips;
@@ -438,14 +443,74 @@ function getDefaultQuantityForUnit(unit, pyeong) {
   return 1;
 }
 
-function getBuildTypeLabel(value) {
-  return value === "new" || value === "신축" ? "신축" : "구축";
+function isExtendedHouseType(value) {
+  return value === "new" || value === "신축" || value === "확장형" || EXTENDED_VARIANTS.includes(value);
+}
+
+function getHouseTypeStateValue(value) {
+  return isExtendedHouseType(value) ? "new" : "old";
+}
+
+function normalizeConditionVariant(buildType, hasExtension, variant) {
+  const houseType = getHouseTypeStateValue(buildType);
+  if (houseType === "new") {
+    if (EXTENDED_VARIANTS.includes(variant)) return variant;
+    if (EXTENDED_VARIANTS.includes(buildType)) return buildType;
+    return "확장형1";
+  }
+  if (!hasExtension) return OLD_NO_EXTENSION_VARIANT;
+  if (OLD_EXTENDED_VARIANTS.includes(variant)) return variant;
+  if (OLD_EXTENDED_VARIANTS.includes(buildType)) return buildType;
+  return "구형1";
+}
+
+function getConditionVariant(condition) {
+  return normalizeConditionVariant(
+    condition?.buildType,
+    Boolean(condition?.expanded),
+    condition?.conditionVariant
+  );
+}
+
+function buildTemplateCondition({ pyeong, buildType, hasExtension = false, conditionVariant = "" }) {
+  const houseType = getHouseTypeStateValue(buildType);
+  const expanded = houseType === "old" ? Boolean(hasExtension) : false;
+  const variant = normalizeConditionVariant(buildType, expanded, conditionVariant);
+  return {
+    pyeong: Number(pyeong),
+    build_type: variant,
+    has_extension: houseType === "old" ? variant !== OLD_NO_EXTENSION_VARIANT : false,
+    condition_variant: variant,
+  };
+}
+
+function getLegacyTemplateConditions(condition) {
+  if (!condition) return [];
+  const legacy = [];
+  if (condition.condition_variant === "확장형1") {
+    legacy.push({ ...condition, build_type: "신축", has_extension: false, condition_variant: "" });
+  }
+  if (condition.condition_variant === OLD_NO_EXTENSION_VARIANT) {
+    legacy.push({ ...condition, build_type: "구축", has_extension: false, condition_variant: "" });
+  }
+  if (condition.condition_variant === "구형1") {
+    legacy.push({ ...condition, build_type: "구축", has_extension: true, condition_variant: "" });
+  }
+  return legacy;
 }
 
 function makeTemplateLabel(template) {
   if (!template) return "";
-  const parts = [`${template.pyeong}평`, template.build_type];
-  if (template.build_type === "구축" && template.has_extension) parts.push("확장있음");
+  const condition = buildTemplateCondition({
+    pyeong: template.pyeong,
+    buildType: template.condition_variant || template.build_type,
+    hasExtension: template.has_extension,
+    conditionVariant: template.condition_variant,
+  });
+  const houseType = condition.condition_variant.startsWith("확장형") ? "확장형" : "구형";
+  const parts = [`${template.pyeong}평`, houseType];
+  if (houseType === "구형") parts.push(condition.has_extension ? "확장 있음" : "확장 없음");
+  parts.push(condition.condition_variant);
   return parts.join(" ");
 }
 
@@ -555,15 +620,17 @@ function getFriendlyError(error, fallback = "일시적인 문제가 발생했어
 }
 
 function toDbCondition(condition, companyId) {
-  const isNew = condition.buildType === "new";
+  const isExtended = isExtendedHouseType(condition.buildType);
+  const conditionVariant = getConditionVariant(condition);
   return {
     company_id: companyId,
-    pyeong: Number(condition.size),
-    build_type: isNew ? "신축" : "구축",
+    pyeong: toNumberOrZero(condition.size),
+    build_type: isExtended ? "확장형" : "구형",
+    condition_variant: conditionVariant,
     powder_room: null,
     dress_room: null,
-    has_extension: isNew ? null : Boolean(condition.expanded),
-    extension_areas: isNew || !condition.expanded ? null : [...condition.expansionSpaces].sort(),
+    has_extension: isExtended ? false : conditionVariant !== OLD_NO_EXTENSION_VARIANT,
+    extension_areas: null,
     occupancy_type: condition.occupancy === "empty" ? "빈집" : "살림집",
   };
 }
@@ -781,6 +848,7 @@ export default function App() {
     powderRoom: false,
     dressRoom: false,
     expanded: false,
+    conditionVariant: "",
     expansionSpaces: [],
     occupancy: "",
   });
@@ -813,6 +881,7 @@ export default function App() {
   const [selectedAdminPyeong, setSelectedAdminPyeong] = useState("");
   const [selectedAdminBuildType, setSelectedAdminBuildType] = useState("");
   const [selectedAdminHasExtension, setSelectedAdminHasExtension] = useState(false);
+  const [selectedAdminConditionVariant, setSelectedAdminConditionVariant] = useState("");
   const [adminTemplates, setAdminTemplates] = useState([]);
   const [currentAdminTemplateId, setCurrentAdminTemplateId] = useState("");
   const [dragItemId, setDragItemId] = useState("");
@@ -1027,7 +1096,7 @@ export default function App() {
     if (page === "admin-estimates") {
       fetchEstimates();
     }
-  }, [page, selectedAdminPyeong, selectedAdminBuildType, selectedAdminHasExtension, selectedCompanyId]);
+  }, [page, selectedAdminPyeong, selectedAdminBuildType, selectedAdminHasExtension, selectedAdminConditionVariant, selectedCompanyId]);
 
   useEffect(() => {
     if (selectedCompanyId && page === "admin-detail-costs" && selectedDetailSubitemId) {
@@ -1480,22 +1549,22 @@ export default function App() {
 
   function getAdminTemplateCondition() {
     if (!selectedAdminPyeong || !selectedAdminBuildType) return null;
-    const buildType = getBuildTypeLabel(selectedAdminBuildType);
-    return {
+    return buildTemplateCondition({
       pyeong: Number(selectedAdminPyeong),
-      build_type: buildType,
-      has_extension: buildType === "구축" ? Boolean(selectedAdminHasExtension) : false,
-    };
+      buildType: selectedAdminBuildType,
+      hasExtension: selectedAdminBuildType === "old" ? Boolean(selectedAdminHasExtension) : false,
+      conditionVariant: selectedAdminConditionVariant,
+    });
   }
 
   function getEstimateTemplateCondition(nextCondition = condition) {
     if (!nextCondition.size || !nextCondition.buildType) return null;
-    const buildType = getBuildTypeLabel(nextCondition.buildType);
-    return {
+    return buildTemplateCondition({
       pyeong: Number(nextCondition.size),
-      build_type: buildType,
-      has_extension: buildType === "구축" ? Boolean(nextCondition.expanded) : false,
-    };
+      buildType: nextCondition.buildType,
+      hasExtension: nextCondition.buildType === "old" ? Boolean(nextCondition.expanded) : false,
+      conditionVariant: nextCondition.conditionVariant,
+    });
   }
 
   async function fetchAdminTemplateList() {
@@ -1506,10 +1575,30 @@ export default function App() {
       .eq("company_id", companyId)
       .order("pyeong", { ascending: true })
       .order("build_type", { ascending: true })
+      .order("condition_variant", { ascending: true })
       .order("has_extension", { ascending: true });
 
     if (error) throw error;
     setAdminTemplates(data ?? []);
+  }
+
+  async function fetchTemplateRowByCondition(companyId, condition) {
+    const candidates = [condition, ...getLegacyTemplateConditions(condition)].filter(Boolean);
+    for (const candidate of candidates) {
+      const { data, error } = await supabase
+        .from("admin_condition_templates")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("pyeong", candidate.pyeong)
+        .eq("build_type", candidate.build_type)
+        .eq("has_extension", candidate.has_extension)
+        .eq("condition_variant", candidate.condition_variant)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (data?.id) return data;
+    }
+    return null;
   }
 
   async function fetchAdminItems() {
@@ -1549,16 +1638,7 @@ export default function App() {
       let templateValueRows = [];
       const adminTemplateCondition = getAdminTemplateCondition();
       if (adminTemplateCondition) {
-        const { data: templateRow, error: templateError } = await supabase
-          .from("admin_condition_templates")
-          .select("*")
-          .eq("company_id", companyId)
-          .eq("pyeong", adminTemplateCondition.pyeong)
-          .eq("build_type", adminTemplateCondition.build_type)
-          .eq("has_extension", adminTemplateCondition.has_extension)
-          .maybeSingle();
-
-        if (templateError) throw templateError;
+        const templateRow = await fetchTemplateRowByCondition(companyId, adminTemplateCondition);
         setCurrentAdminTemplateId(templateRow?.id ?? "");
 
         if (templateRow?.id) {
@@ -1705,9 +1785,16 @@ export default function App() {
   }
 
   function loadAdminTemplate(template) {
+    const condition = buildTemplateCondition({
+      pyeong: template.pyeong,
+      buildType: template.condition_variant || template.build_type,
+      hasExtension: template.has_extension,
+      conditionVariant: template.condition_variant,
+    });
     setSelectedAdminPyeong(String(template.pyeong));
-    setSelectedAdminBuildType(template.build_type === "신축" ? "new" : "old");
-    setSelectedAdminHasExtension(Boolean(template.has_extension));
+    setSelectedAdminBuildType(condition.condition_variant.startsWith("확장형") ? "new" : "old");
+    setSelectedAdminHasExtension(Boolean(condition.has_extension));
+    setSelectedAdminConditionVariant(condition.condition_variant);
     setCurrentAdminTemplateId(template.id);
   }
 
@@ -1757,8 +1844,11 @@ export default function App() {
   function canGoNext() {
     if (step === 1) return Boolean(condition.size);
     if (step === 2) {
-      if (condition.buildType === "new") return true;
-      if (condition.buildType === "old") return !condition.expanded || condition.expansionSpaces.length > 0;
+      if (condition.buildType === "new") return EXTENDED_VARIANTS.includes(getConditionVariant(condition));
+      if (condition.buildType === "old") {
+        if (!condition.expanded) return getConditionVariant(condition) === OLD_NO_EXTENSION_VARIANT;
+        return OLD_EXTENDED_VARIANTS.includes(getConditionVariant(condition));
+      }
       return false;
     }
     return Boolean(condition.occupancy);
@@ -1814,16 +1904,7 @@ export default function App() {
       let templateValueRows = [];
       const templateCondition = getEstimateTemplateCondition(nextCondition);
       if (templateCondition) {
-        const { data: templateRow, error: templateError } = await supabase
-          .from("admin_condition_templates")
-          .select("*")
-          .eq("company_id", companyId)
-          .eq("pyeong", templateCondition.pyeong)
-          .eq("build_type", templateCondition.build_type)
-          .eq("has_extension", templateCondition.has_extension)
-          .maybeSingle();
-
-        if (templateError) throw templateError;
+        const templateRow = await fetchTemplateRowByCondition(companyId, templateCondition);
 
         if (templateRow?.id) {
           const { data: values, error: valuesError } = await supabase
@@ -2011,13 +2092,21 @@ export default function App() {
       });
     });
 
+    const restoredTemplateCondition = buildTemplateCondition({
+      pyeong: snapshot.condition_pyeong ?? snapshot.pyeong,
+      buildType: snapshot.condition_variant || snapshot.build_type,
+      hasExtension: snapshot.has_extension,
+      conditionVariant: snapshot.condition_variant,
+    });
+    const restoredBuildType = restoredTemplateCondition.condition_variant.startsWith("확장형") ? "new" : "old";
     const nextCondition = {
       size: `${snapshot.condition_pyeong ?? snapshot.pyeong ?? ""}`,
-      buildType: snapshot.build_type === "신축" ? "new" : snapshot.build_type === "구축" ? "old" : "",
+      buildType: restoredBuildType,
       powderRoom: false,
       dressRoom: false,
-      expanded: Boolean(snapshot.has_extension),
-      expansionSpaces: Array.isArray(snapshot.extension_areas) ? snapshot.extension_areas : [],
+      expanded: restoredBuildType === "old" ? restoredTemplateCondition.has_extension : false,
+      conditionVariant: restoredTemplateCondition.condition_variant,
+      expansionSpaces: [],
       occupancy: snapshot.occupancy_type === "빈집" ? "empty" : snapshot.occupancy_type === "살림집" ? "occupied" : "",
     };
 
@@ -2072,6 +2161,7 @@ export default function App() {
       powderRoom: false,
       dressRoom: false,
       expanded: false,
+      conditionVariant: "",
       expansionSpaces: [],
       occupancy: "",
     });
@@ -2105,6 +2195,7 @@ export default function App() {
     setSelectedAdminPyeong("");
     setSelectedAdminBuildType("");
     setSelectedAdminHasExtension(false);
+    setSelectedAdminConditionVariant("");
     setDetailSubitems([]);
     setSelectedDetailSubitemId("");
     setDetailCosts([]);
@@ -2523,7 +2614,7 @@ export default function App() {
     try {
       const adminTemplateCondition = getAdminTemplateCondition();
       if (!adminTemplateCondition) {
-        throw new Error("저장할 평수와 신축/구축 조건을 먼저 선택하세요.");
+        throw new Error("저장할 평수와 주택 유형을 먼저 선택하세요.");
       }
       const companyId = requireSelectedCompanyId();
       const adminSubitems = adminItems.flatMap((item) => item.subitems ?? []);
@@ -2552,7 +2643,7 @@ export default function App() {
             company_id: companyId,
             ...adminTemplateCondition,
           },
-          { onConflict: "company_id,pyeong,build_type,has_extension" }
+          { onConflict: "company_id,pyeong,build_type,has_extension,condition_variant" }
         )
         .select("id")
         .single();
@@ -2822,7 +2913,7 @@ export default function App() {
                 <span>인테리어 견적서</span>
               </h1>
               <p>
-                신축·구축·확장 여부에 따라 달라지는 시공 항목과 단가를 템플릿으로 저장하고,
+                확장형·구형 세부 유형에 따라 달라지는 시공 항목과 기준을 템플릿으로 저장하고,
                 반복되는 견적 업무를 엑셀보다 빠르게 처리하세요.
               </p>
             </div>
@@ -2830,7 +2921,7 @@ export default function App() {
               <div className="preview-top">
                 <div>
                   <span>견적 입력</span>
-                  <strong>32평 · 신축 · 빈집</strong>
+                  <strong>32평 · 확장형 · 확장형1</strong>
                 </div>
                 <button type="button">PDF 저장</button>
               </div>
@@ -2877,7 +2968,7 @@ export default function App() {
               <button className="menu-card feature-card" onClick={() => openAdminGate("admin")}>
                 <Settings />
                 <span>조건별 단가표 관리</span>
-                <p>평수, 신축·구축, 확장 여부에 따라 달라지는 우리 업체 단가 기준을 관리합니다.</p>
+                <p>평수, 확장형·구형 세부 유형에 따라 달라지는 우리 업체 기준을 관리합니다.</p>
                 <strong>단가표 관리하기</strong>
               </button>
             </div>
@@ -2906,7 +2997,7 @@ export default function App() {
             <p className="eyebrow dark">FORMATE 관리</p>
             <h2>조건별 단가표 관리</h2>
             <p className="muted">
-              평수, 신축·구축, 확장 여부에 따라 달라지는 시공 항목, 단가, 수량 기준을 관리합니다.
+              평수, 확장형·구형 세부 유형에 따라 달라지는 시공 항목, 단가, 수량 기준을 관리합니다.
             </p>
             <p className="muted">
               이 화면은 고객에게 보여주는 견적서가 아니라, 우리 업체 내부의 견적 기준 단가표를 설정하는 공간입니다.
@@ -2968,7 +3059,7 @@ export default function App() {
 
             {step === 2 && (
               <>
-                <h2>Step 2. 신축/구축 조건</h2>
+                <h2>Step 2. 주택 유형과 세부 유형</h2>
                 <div className="segmented">
                   <button
                     className={condition.buildType === "new" ? "selected" : ""}
@@ -2978,11 +3069,12 @@ export default function App() {
                         powderRoom: false,
                         dressRoom: false,
                         expanded: false,
+                        conditionVariant: "확장형1",
                         expansionSpaces: [],
                       })
                     }
                   >
-                    신축
+                    확장형
                   </button>
                   <button
                     className={condition.buildType === "old" ? "selected" : ""}
@@ -2991,40 +3083,73 @@ export default function App() {
                         buildType: "old",
                         powderRoom: false,
                         dressRoom: false,
+                        expanded: false,
+                        conditionVariant: OLD_NO_EXTENSION_VARIANT,
+                        expansionSpaces: [],
                       })
                     }
                   >
-                    구축
+                    구형
                   </button>
                 </div>
+
+                {condition.buildType === "new" && (
+                  <div>
+                    <p className="field-label">확장형 세부 유형</p>
+                    <div className="chips">
+                      {EXTENDED_VARIANTS.map((variant) => (
+                        <button
+                          key={variant}
+                          className={getConditionVariant(condition) === variant ? "selected" : ""}
+                          onClick={() => updateCondition({ conditionVariant: variant })}
+                        >
+                          {variant}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {condition.buildType === "old" && (
                   <div className="stack">
                     <div className="segmented compact">
                       <button
                         className={!condition.expanded ? "selected" : ""}
-                        onClick={() => updateCondition({ expanded: false, expansionSpaces: [] })}
+                        onClick={() =>
+                          updateCondition({
+                            expanded: false,
+                            conditionVariant: OLD_NO_EXTENSION_VARIANT,
+                            expansionSpaces: [],
+                          })
+                        }
                       >
                         확장 없음
                       </button>
                       <button
                         className={condition.expanded ? "selected" : ""}
-                        onClick={() => updateCondition({ expanded: true })}
+                        onClick={() =>
+                          updateCondition({
+                            expanded: true,
+                            conditionVariant: OLD_EXTENDED_VARIANTS.includes(condition.conditionVariant)
+                              ? condition.conditionVariant
+                              : "구형1",
+                          })
+                        }
                       >
                         확장 있음
                       </button>
                     </div>
                     {condition.expanded && (
                       <div>
-                        <p className="field-label">확장 공간 다중 선택</p>
+                        <p className="field-label">구형 세부 유형</p>
                         <div className="chips">
-                          {spaces.map((space) => (
+                          {OLD_EXTENDED_VARIANTS.map((variant) => (
                             <button
-                              key={space}
-                              className={condition.expansionSpaces.includes(space) ? "selected" : ""}
-                              onClick={() => toggleExpansionSpace(space)}
+                              key={variant}
+                              className={getConditionVariant(condition) === variant ? "selected" : ""}
+                              onClick={() => updateCondition({ conditionVariant: variant })}
                             >
-                              {space}
+                              {variant}
                             </button>
                           ))}
                         </div>
@@ -3484,7 +3609,7 @@ export default function App() {
               </div>
             </label>
             <label>
-              주택 조건
+              주택 유형
               <div className="segmented admin-condition-toggle">
                 <button
                   type="button"
@@ -3492,19 +3617,41 @@ export default function App() {
                   onClick={() => {
                     setSelectedAdminBuildType("new");
                     setSelectedAdminHasExtension(false);
+                    setSelectedAdminConditionVariant("확장형1");
                   }}
                 >
-                  신축
+                  확장형
                 </button>
                 <button
                   type="button"
                   className={selectedAdminBuildType === "old" ? "selected" : ""}
-                  onClick={() => setSelectedAdminBuildType("old")}
+                  onClick={() => {
+                    setSelectedAdminBuildType("old");
+                    setSelectedAdminHasExtension(false);
+                    setSelectedAdminConditionVariant(OLD_NO_EXTENSION_VARIANT);
+                  }}
                 >
-                  구축
+                  구형
                 </button>
               </div>
             </label>
+            {selectedAdminBuildType === "new" && (
+              <label>
+                확장형 세부 유형
+                <div className="chips">
+                  {EXTENDED_VARIANTS.map((variant) => (
+                    <button
+                      key={variant}
+                      type="button"
+                      className={normalizeConditionVariant("new", false, selectedAdminConditionVariant) === variant ? "selected" : ""}
+                      onClick={() => setSelectedAdminConditionVariant(variant)}
+                    >
+                      {variant}
+                    </button>
+                  ))}
+                </div>
+              </label>
+            )}
             {selectedAdminBuildType === "old" && (
               <label>
                 확장 여부
@@ -3512,17 +3659,44 @@ export default function App() {
                   <button
                     type="button"
                     className={!selectedAdminHasExtension ? "selected" : ""}
-                    onClick={() => setSelectedAdminHasExtension(false)}
+                    onClick={() => {
+                      setSelectedAdminHasExtension(false);
+                      setSelectedAdminConditionVariant(OLD_NO_EXTENSION_VARIANT);
+                    }}
                   >
                     확장 없음
                   </button>
                   <button
                     type="button"
                     className={selectedAdminHasExtension ? "selected" : ""}
-                    onClick={() => setSelectedAdminHasExtension(true)}
+                    onClick={() => {
+                      setSelectedAdminHasExtension(true);
+                      setSelectedAdminConditionVariant(
+                        OLD_EXTENDED_VARIANTS.includes(selectedAdminConditionVariant)
+                          ? selectedAdminConditionVariant
+                          : "구형1"
+                      );
+                    }}
                   >
                     확장 있음
                   </button>
+                </div>
+              </label>
+            )}
+            {selectedAdminBuildType === "old" && selectedAdminHasExtension && (
+              <label>
+                구형 세부 유형
+                <div className="chips">
+                  {OLD_EXTENDED_VARIANTS.map((variant) => (
+                    <button
+                      key={variant}
+                      type="button"
+                      className={normalizeConditionVariant("old", true, selectedAdminConditionVariant) === variant ? "selected" : ""}
+                      onClick={() => setSelectedAdminConditionVariant(variant)}
+                    >
+                      {variant}
+                    </button>
+                  ))}
                 </div>
               </label>
             )}
@@ -3587,7 +3761,7 @@ export default function App() {
 
           {!getAdminTemplateCondition() && (
             <section className="panel">
-              <p className="muted">먼저 평수와 신축/구축 조건을 선택하세요. 단가/인건비는 공통값, 수량/인원은 조건별 값으로 저장됩니다.</p>
+              <p className="muted">먼저 평수와 주택 유형을 선택하세요. 단가/인건비는 공통값, 수량/인원은 조건별 값으로 저장됩니다.</p>
             </section>
           )}
 

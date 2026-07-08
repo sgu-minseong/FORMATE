@@ -59,7 +59,13 @@ create table if not exists price_conditions (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,
   pyeong integer not null,
-  build_type text not null check (build_type in ('신축', '구축')),
+  build_type text not null check (
+    build_type in (
+      '신축', '구축', '확장형', '구형',
+      '확장형1', '확장형2', '확장형3', '확장형4', '확장형5',
+      '구형0', '구형1', '구형2', '구형3', '구형4', '구형5'
+    )
+  ),
   powder_room boolean,
   dress_room boolean,
   has_extension boolean,
@@ -86,8 +92,15 @@ create table if not exists admin_condition_templates (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,
   pyeong integer not null check (pyeong between 1 and 90),
-  build_type text not null check (build_type in ('신축', '구축')),
+  build_type text not null check (
+    build_type in (
+      '신축', '구축', '확장형', '구형',
+      '확장형1', '확장형2', '확장형3', '확장형4', '확장형5',
+      '구형0', '구형1', '구형2', '구형3', '구형4', '구형5'
+    )
+  ),
   has_extension boolean not null default false,
+  condition_variant text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -234,6 +247,19 @@ alter table detail_cost_categories
 alter table detail_cost_categories
   add column if not exists updated_at timestamptz not null default now();
 
+alter table price_conditions
+  drop constraint if exists price_conditions_build_type_check;
+
+alter table price_conditions
+  add constraint price_conditions_build_type_check
+  check (
+    build_type in (
+      '신축', '구축', '확장형', '구형',
+      '확장형1', '확장형2', '확장형3', '확장형4', '확장형5',
+      '구형0', '구형1', '구형2', '구형3', '구형4', '구형5'
+    )
+  );
+
 alter table admin_condition_templates
   add column if not exists company_id uuid;
 
@@ -245,6 +271,19 @@ alter table admin_condition_templates
 
 alter table admin_condition_templates
   add column if not exists has_extension boolean not null default false;
+
+alter table admin_condition_templates
+  add column if not exists condition_variant text not null default '';
+
+alter table admin_condition_templates
+  alter column condition_variant set default '';
+
+update admin_condition_templates
+set condition_variant = ''
+where condition_variant is null;
+
+alter table admin_condition_templates
+  alter column condition_variant set not null;
 
 alter table admin_condition_templates
   add column if not exists created_at timestamptz not null default now();
@@ -306,16 +345,18 @@ begin
       check (pyeong between 1 and 90);
   end if;
 
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'admin_condition_templates_build_type_check'
-      and conrelid = 'admin_condition_templates'::regclass
-  ) then
-    alter table admin_condition_templates
-      add constraint admin_condition_templates_build_type_check
-      check (build_type in ('신축', '구축'));
-  end if;
+  alter table admin_condition_templates
+    drop constraint if exists admin_condition_templates_build_type_check;
+
+  alter table admin_condition_templates
+    add constraint admin_condition_templates_build_type_check
+    check (
+      build_type in (
+        '신축', '구축', '확장형', '구형',
+        '확장형1', '확장형2', '확장형3', '확장형4', '확장형5',
+        '구형0', '구형1', '구형2', '구형3', '구형4', '구형5'
+      )
+    );
 
   if not exists (
     select 1
@@ -435,6 +476,9 @@ create index if not exists admin_condition_templates_company_id_idx
 
 create unique index if not exists admin_condition_templates_condition_uidx
   on admin_condition_templates(company_id, pyeong, build_type, has_extension);
+
+create unique index if not exists admin_condition_templates_condition_variant_uidx
+  on admin_condition_templates(company_id, pyeong, build_type, has_extension, condition_variant);
 
 create index if not exists admin_condition_template_values_template_id_idx
   on admin_condition_template_values(template_id);
