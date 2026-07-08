@@ -3,6 +3,7 @@ create extension if not exists "pgcrypto";
 create table if not exists companies (
   id uuid primary key default gen_random_uuid(),
   name text not null,
+  company_code text,
   admin_password_hash text,
   created_at timestamptz not null default now()
 );
@@ -81,7 +82,34 @@ create table if not exists estimates (
   created_at timestamptz not null default now()
 );
 
+create table if not exists admin_condition_templates (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  pyeong integer not null check (pyeong between 1 and 90),
+  build_type text not null check (build_type in ('신축', '구축')),
+  has_extension boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists admin_condition_template_values (
+  id uuid primary key default gen_random_uuid(),
+  template_id uuid not null references admin_condition_templates(id) on delete cascade,
+  item_id uuid not null references construction_items(id) on delete cascade,
+  subitem_id uuid not null references construction_subitems(id) on delete cascade,
+  option_value text not null default '',
+  quantity numeric,
+  labor_count numeric,
+  unit_price numeric not null default 0,
+  labor_rate numeric not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Normalize existing databases to the final column names used by App.jsx.
+alter table companies
+  add column if not exists company_code text;
+
 alter table construction_items
   add column if not exists item_type text not null default 'itemized';
 
@@ -206,6 +234,123 @@ alter table detail_cost_categories
 alter table detail_cost_categories
   add column if not exists updated_at timestamptz not null default now();
 
+alter table admin_condition_templates
+  add column if not exists company_id uuid;
+
+alter table admin_condition_templates
+  add column if not exists pyeong integer;
+
+alter table admin_condition_templates
+  add column if not exists build_type text;
+
+alter table admin_condition_templates
+  add column if not exists has_extension boolean not null default false;
+
+alter table admin_condition_templates
+  add column if not exists created_at timestamptz not null default now();
+
+alter table admin_condition_templates
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table admin_condition_template_values
+  add column if not exists template_id uuid;
+
+alter table admin_condition_template_values
+  add column if not exists item_id uuid;
+
+alter table admin_condition_template_values
+  add column if not exists subitem_id uuid;
+
+alter table admin_condition_template_values
+  add column if not exists option_value text not null default '';
+
+alter table admin_condition_template_values
+  add column if not exists quantity numeric;
+
+alter table admin_condition_template_values
+  add column if not exists labor_count numeric;
+
+alter table admin_condition_template_values
+  add column if not exists unit_price numeric not null default 0;
+
+alter table admin_condition_template_values
+  add column if not exists labor_rate numeric not null default 0;
+
+alter table admin_condition_template_values
+  add column if not exists created_at timestamptz not null default now();
+
+alter table admin_condition_template_values
+  add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'admin_condition_templates_company_id_fkey'
+      and conrelid = 'admin_condition_templates'::regclass
+  ) then
+    alter table admin_condition_templates
+      add constraint admin_condition_templates_company_id_fkey
+      foreign key (company_id) references companies(id) on delete cascade;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'admin_condition_templates_pyeong_check'
+      and conrelid = 'admin_condition_templates'::regclass
+  ) then
+    alter table admin_condition_templates
+      add constraint admin_condition_templates_pyeong_check
+      check (pyeong between 1 and 90);
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'admin_condition_templates_build_type_check'
+      and conrelid = 'admin_condition_templates'::regclass
+  ) then
+    alter table admin_condition_templates
+      add constraint admin_condition_templates_build_type_check
+      check (build_type in ('신축', '구축'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'admin_condition_template_values_template_id_fkey'
+      and conrelid = 'admin_condition_template_values'::regclass
+  ) then
+    alter table admin_condition_template_values
+      add constraint admin_condition_template_values_template_id_fkey
+      foreign key (template_id) references admin_condition_templates(id) on delete cascade;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'admin_condition_template_values_item_id_fkey'
+      and conrelid = 'admin_condition_template_values'::regclass
+  ) then
+    alter table admin_condition_template_values
+      add constraint admin_condition_template_values_item_id_fkey
+      foreign key (item_id) references construction_items(id) on delete cascade;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'admin_condition_template_values_subitem_id_fkey'
+      and conrelid = 'admin_condition_template_values'::regclass
+  ) then
+    alter table admin_condition_template_values
+      add constraint admin_condition_template_values_subitem_id_fkey
+      foreign key (subitem_id) references construction_subitems(id) on delete cascade;
+  end if;
+end $$;
+
 create or replace function set_updated_at()
 returns trigger as $$
 begin
@@ -239,11 +384,30 @@ create trigger set_price_conditions_updated_at
 before update on price_conditions
 for each row execute function set_updated_at();
 
+drop trigger if exists set_admin_condition_templates_updated_at on admin_condition_templates;
+create trigger set_admin_condition_templates_updated_at
+before update on admin_condition_templates
+for each row execute function set_updated_at();
+
+drop trigger if exists set_admin_condition_template_values_updated_at on admin_condition_template_values;
+create trigger set_admin_condition_template_values_updated_at
+before update on admin_condition_template_values
+for each row execute function set_updated_at();
+
+create unique index if not exists companies_company_code_uidx
+  on companies(company_code);
+
 create index if not exists construction_items_company_id_idx
   on construction_items(company_id);
 
+create unique index if not exists construction_items_company_name_uidx
+  on construction_items(company_id, name);
+
 create index if not exists construction_subitems_item_id_idx
   on construction_subitems(item_id);
+
+create unique index if not exists construction_subitems_item_name_uidx
+  on construction_subitems(item_id, name);
 
 create index if not exists subitem_pyeong_values_subitem_id_idx
   on subitem_pyeong_values(subitem_id);
@@ -266,15 +430,35 @@ create index if not exists estimates_company_id_idx
 create index if not exists estimates_condition_id_idx
   on estimates(condition_id);
 
-insert into companies (id, name, admin_password_hash)
+create index if not exists admin_condition_templates_company_id_idx
+  on admin_condition_templates(company_id);
+
+create unique index if not exists admin_condition_templates_condition_uidx
+  on admin_condition_templates(company_id, pyeong, build_type, has_extension);
+
+create index if not exists admin_condition_template_values_template_id_idx
+  on admin_condition_template_values(template_id);
+
+create index if not exists admin_condition_template_values_item_id_idx
+  on admin_condition_template_values(item_id);
+
+create index if not exists admin_condition_template_values_subitem_id_idx
+  on admin_condition_template_values(subitem_id);
+
+create unique index if not exists admin_condition_template_values_template_subitem_option_uidx
+  on admin_condition_template_values(template_id, subitem_id, option_value);
+
+insert into companies (id, name, company_code, admin_password_hash)
 values (
   '00000000-0000-4000-8000-000000000001',
   'FORMATE Demo Company',
+  'demo',
   'demo'
 )
 on conflict (id) do update
 set
   name = excluded.name,
+  company_code = excluded.company_code,
   admin_password_hash = excluded.admin_password_hash;
 
 alter table companies disable row level security;
@@ -284,6 +468,8 @@ alter table subitem_pyeong_values disable row level security;
 alter table detail_cost_categories disable row level security;
 alter table price_conditions disable row level security;
 alter table estimates disable row level security;
+alter table admin_condition_templates disable row level security;
+alter table admin_condition_template_values disable row level security;
 
 grant usage on schema public to anon, authenticated;
 
@@ -294,5 +480,7 @@ grant select, insert, update, delete on subitem_pyeong_values to anon, authentic
 grant select, insert, update, delete on detail_cost_categories to anon, authenticated;
 grant select, insert, update, delete on price_conditions to anon, authenticated;
 grant select, insert, update, delete on estimates to anon, authenticated;
+grant select, insert, update, delete on admin_condition_templates to anon, authenticated;
+grant select, insert, update, delete on admin_condition_template_values to anon, authenticated;
 
 notify pgrst, 'reload schema';

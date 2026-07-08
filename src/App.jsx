@@ -399,8 +399,8 @@ function normalizeAdminItems(itemsRows, subitemRows, templateValueRows = []) {
           return {
             ...subitem,
             option_value: getTemplateOptionValue(subitem),
-            unit_price: templateValue?.unit_price ?? "",
-            labor_rate: templateValue?.labor_rate ?? "",
+            unit_price: subitem.unit_price ?? "",
+            labor_rate: subitem.labor_rate ?? "",
             quantity: templateValue?.quantity ?? "",
             labor_count: templateValue?.labor_count ?? "",
             template_value_id: templateValue?.id ?? null,
@@ -413,6 +413,21 @@ function normalizeAdminItems(itemsRows, subitemRows, templateValueRows = []) {
 function toNumberOrZero(value) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function toNullableNumber(value) {
+  if (`${value ?? ""}`.trim() === "") return null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function toNonNegativeNumberOrZero(value) {
+  return Math.max(0, toNumberOrZero(value));
+}
+
+function hasNumericInput(value) {
+  if (`${value ?? ""}`.trim() === "") return false;
+  return Number.isFinite(Number(value));
 }
 
 function getDefaultQuantityForUnit(unit, pyeong) {
@@ -554,15 +569,15 @@ function toDbCondition(condition, companyId) {
 }
 
 function hasTemplateValue(row) {
-  return row?.template_value_id && row.quantity !== "" && row.quantity !== null && row.labor_count !== "" && row.labor_count !== null;
+  return hasNumericInput(row?.quantity) || hasNumericInput(row?.labor_count ?? row?.laborCount);
 }
 
 function createEstimateRowFromSubitem(item, subitem, pyeong, patch = {}) {
   const isReady = hasTemplateValue(subitem);
   const quantity = subitem.quantity ?? "";
   const laborCount = subitem.labor_count ?? "";
-  const unitPrice = toNumberOrZero(subitem.unit_price);
-  const laborRate = toNumberOrZero(subitem.labor_rate);
+  const unitPrice = toNonNegativeNumberOrZero(subitem.unit_price);
+  const laborRate = toNonNegativeNumberOrZero(subitem.labor_rate);
   const productAmount = toNumberOrZero(quantity) * unitPrice;
   const laborAmount = toNumberOrZero(laborCount) * laborRate;
   return {
@@ -585,6 +600,7 @@ function createEstimateRowFromSubitem(item, subitem, pyeong, patch = {}) {
     productAmount,
     laborAmount,
     totalAmount: productAmount + laborAmount,
+    hasTemplateRecord: Boolean(subitem.template_value_id),
     hasTemplateValue: isReady,
     expanded: false,
     selected: isReady,
@@ -612,13 +628,14 @@ function buildEstimateItemsFromTemplate(catalog, pyeong) {
                       subitemId: option.id,
                       quantity: option.quantity ?? "",
                       laborCount: option.labor_count ?? "",
-                      unitPrice: toNumberOrZero(option.unit_price),
-                      laborRate: toNumberOrZero(option.labor_rate),
+                      unitPrice: toNonNegativeNumberOrZero(option.unit_price),
+                      laborRate: toNonNegativeNumberOrZero(option.labor_rate),
                       baseQuantity: option.quantity ?? "",
                       baseLaborCount: option.labor_count ?? "",
-                      baseUnitPrice: toNumberOrZero(option.unit_price),
-                      baseLaborRate: toNumberOrZero(option.labor_rate),
+                      baseUnitPrice: toNonNegativeNumberOrZero(option.unit_price),
+                      baseLaborRate: toNonNegativeNumberOrZero(option.labor_rate),
                       templateValueId: option.template_value_id ?? null,
+                      hasTemplateRecord: Boolean(option.template_value_id),
                       hasTemplateValue: hasTemplateValue(option),
                     }
                   : null;
@@ -840,36 +857,41 @@ export default function App() {
       const fallbackCategory = categories.find((entry) => entry.id === categoryId);
       return (rows ?? [])
         .filter((row) => row.selected)
-        .map((row) => ({
-          categoryId,
-          itemId: row.itemId ?? categoryId,
-          categoryName: row.itemName ?? catalogItem?.name ?? fallbackCategory?.name ?? categoryId,
-          itemType: row.itemType ?? catalogItem?.item_type ?? "itemized",
-          subitemId: row.subitemId,
-          material: row.displayMaterial ?? row.material,
-          selectedThickness: row.selectedThickness ?? null,
-          pyeong: Number(row.pyeong ?? condition.size),
-          conditionPyeong: Number(condition.size),
-          estimatePyeong: toNumberOrZero(estimatePyeong || condition.size),
-          quantity: toNumberOrZero(row.quantity),
-          laborCount: toNumberOrZero(row.laborCount),
-          unit: row.unit ?? "평",
-          unitPrice: toNumberOrZero(row.unitPrice ?? row.unit_price),
-          laborRate: toNumberOrZero(row.laborRate),
-          baseQuantity: toNumberOrZero(row.baseQuantity),
-          baseUnitPrice: toNumberOrZero(row.baseUnitPrice),
-          baseLaborCount: toNumberOrZero(row.baseLaborCount),
-          baseLaborRate: toNumberOrZero(row.baseLaborRate),
-          modified: isEstimateRowModified(row),
-          productAmount: toNumberOrZero(row.unitPrice ?? row.unit_price) * toNumberOrZero(row.quantity),
-          laborAmount: toNumberOrZero(row.laborRate) * toNumberOrZero(row.laborCount),
-          totalAmount:
-            toNumberOrZero(row.unitPrice ?? row.unit_price) * toNumberOrZero(row.quantity) +
-            toNumberOrZero(row.laborRate) * toNumberOrZero(row.laborCount),
-          price:
-            toNumberOrZero(row.unitPrice ?? row.unit_price) * toNumberOrZero(row.quantity) +
-            toNumberOrZero(row.laborRate) * toNumberOrZero(row.laborCount),
-        }));
+        .map((row) => {
+          const quantity = toNumberOrZero(row.quantity);
+          const laborCount = toNumberOrZero(row.laborCount);
+          const unitPrice = toNonNegativeNumberOrZero(row.unitPrice ?? row.unit_price);
+          const laborRate = toNonNegativeNumberOrZero(row.laborRate);
+          const productAmount = unitPrice * quantity;
+          const laborAmount = laborRate * laborCount;
+          const totalAmount = productAmount + laborAmount;
+          return {
+            categoryId,
+            itemId: row.itemId ?? categoryId,
+            categoryName: row.itemName ?? catalogItem?.name ?? fallbackCategory?.name ?? categoryId,
+            itemType: row.itemType ?? catalogItem?.item_type ?? "itemized",
+            subitemId: row.subitemId,
+            material: row.displayMaterial ?? row.material,
+            selectedThickness: row.selectedThickness ?? null,
+            pyeong: toNumberOrZero(row.pyeong ?? condition.size),
+            conditionPyeong: toNumberOrZero(condition.size),
+            estimatePyeong: toNumberOrZero(estimatePyeong || condition.size),
+            quantity,
+            laborCount,
+            unit: row.unit ?? "평",
+            unitPrice,
+            laborRate,
+            baseQuantity: toNumberOrZero(row.baseQuantity),
+            baseUnitPrice: toNonNegativeNumberOrZero(row.baseUnitPrice),
+            baseLaborCount: toNumberOrZero(row.baseLaborCount),
+            baseLaborRate: toNonNegativeNumberOrZero(row.baseLaborRate),
+            modified: isEstimateRowModified(row),
+            productAmount,
+            laborAmount,
+            totalAmount,
+            price: totalAmount,
+          };
+        });
     });
   }, [condition.size, estimateCatalog, estimatePyeong, items]);
 
@@ -1542,18 +1564,18 @@ export default function App() {
         if (templateRow?.id) {
           const { data: values, error: valuesError } = await supabase
             .from("admin_condition_template_values")
-            .select("*")
+            .select("id, template_id, item_id, subitem_id, option_value, quantity, labor_count")
             .eq("template_id", templateRow.id);
 
           if (valuesError) throw valuesError;
           templateValueRows = values ?? [];
-          setAdminNotice("저장된 단가표를 불러왔습니다. 수정 후 저장하면 이 조건의 기준값이 업데이트됩니다.");
+          setAdminNotice("저장된 조건별 수량/인원을 불러왔습니다. 단가/인건비는 모든 조건에 공통으로 적용됩니다.");
         } else {
-          setAdminNotice("아직 이 조건의 단가표가 없습니다. 항목별 단가, 수량, 인원을 입력하고 저장하면 이 조건의 단가표로 저장됩니다.");
+          setAdminNotice("아직 이 조건의 수량/인원 기준이 없습니다. 공통 단가/인건비와 조건별 수량/인원을 입력한 뒤 저장하세요.");
         }
       } else {
         setCurrentAdminTemplateId("");
-        setAdminNotice(defaultCatalogPrepared ? "기본 시공항목이 준비되었습니다. 이제 조건별 단가표를 입력해보세요." : "");
+        setAdminNotice(defaultCatalogPrepared ? "기본 시공항목이 준비되었습니다. 단가/인건비는 공통값, 수량/인원은 조건별 값으로 입력하세요." : "");
       }
 
       setAdminItems(normalizeAdminItems(itemRows, subitemRows, templateValueRows));
@@ -1806,18 +1828,18 @@ export default function App() {
         if (templateRow?.id) {
           const { data: values, error: valuesError } = await supabase
             .from("admin_condition_template_values")
-            .select("*")
+            .select("id, template_id, item_id, subitem_id, option_value, quantity, labor_count")
             .eq("template_id", templateRow.id);
 
           if (valuesError) throw valuesError;
           templateValueRows = values ?? [];
           if (defaultCatalogPrepared) {
-            setEstimateNotice("기본 시공항목이 준비되었습니다. 저장된 단가표를 바탕으로 견적을 작성할 수 있습니다.");
+            setEstimateNotice("기본 시공항목이 준비되었습니다. 공통 단가/인건비와 조건별 수량/인원을 바탕으로 견적을 작성할 수 있습니다.");
           } else if (templateValueRows.length) {
-            setEstimateNotice("저장된 단가표를 적용해 견적서 초안을 만들었습니다. 필요 없는 항목은 체크 해제하고 수량과 단가만 조정하세요.");
+            setEstimateNotice("저장된 조건별 수량/인원을 적용해 견적서 초안을 만들었습니다. 단가/인건비는 공통 기준값을 사용합니다.");
           }
         } else {
-          setEstimateNotice("아직 이 조건의 단가표가 없습니다. 관리자 페이지에서 단가표를 저장하면 다음 견적부터 자동으로 불러옵니다.");
+          setEstimateNotice("아직 이 조건의 수량/인원 기준이 없습니다. 소재 구조와 공통 단가/인건비는 표시되며, 이번 견적에서 직접 입력할 수 있습니다.");
         }
       }
 
@@ -1848,8 +1870,8 @@ export default function App() {
   }
 
   function recalculateEstimateRow(row) {
-    const productAmount = toNumberOrZero(row.quantity) * toNumberOrZero(row.unitPrice);
-    const laborAmount = toNumberOrZero(row.laborCount) * toNumberOrZero(row.laborRate);
+    const productAmount = toNumberOrZero(row.quantity) * toNonNegativeNumberOrZero(row.unitPrice);
+    const laborAmount = toNumberOrZero(row.laborCount) * toNonNegativeNumberOrZero(row.laborRate);
     return {
       ...row,
       productAmount,
@@ -1880,6 +1902,7 @@ export default function App() {
       baseLaborCount: matchedOption.baseLaborCount,
       baseUnitPrice: matchedOption.baseUnitPrice,
       baseLaborRate: matchedOption.baseLaborRate,
+      hasTemplateRecord: matchedOption.hasTemplateRecord,
       hasTemplateValue: matchedOption.hasTemplateValue,
       displayMaterial: `${row.material} ${matchedOption.thickness}`,
     };
@@ -1970,18 +1993,18 @@ export default function App() {
         material: item.material ?? item.name ?? item.description ?? "소재",
         displayMaterial: item.material ?? item.name ?? item.description ?? "소재",
         unit: item.unit ?? "평",
-        pyeong: Number(item.pyeong ?? snapshot.estimate_pyeong ?? snapshot.condition_pyeong ?? 0),
+        pyeong: toNumberOrZero(item.pyeong ?? snapshot.estimate_pyeong ?? snapshot.condition_pyeong),
         baseQuantity: item.baseQuantity ?? item.quantity ?? "",
-        baseUnitPrice: item.baseUnitPrice ?? item.unitPrice ?? 0,
+        baseUnitPrice: toNonNegativeNumberOrZero(item.baseUnitPrice ?? item.unitPrice ?? item.unit_price),
         baseLaborCount: item.baseLaborCount ?? item.laborCount ?? item.labor_count ?? "",
-        baseLaborRate: item.baseLaborRate ?? item.laborRate ?? 0,
+        baseLaborRate: toNonNegativeNumberOrZero(item.baseLaborRate ?? item.laborRate ?? item.labor_rate),
         quantity: item.quantity ?? "",
         laborCount: item.laborCount ?? item.labor_count ?? "",
-        unitPrice: item.unitPrice ?? item.unit_price ?? 0,
-        laborRate: item.laborRate ?? item.labor_rate ?? 0,
-        productAmount: item.productAmount ?? 0,
-        laborAmount: item.laborAmount ?? 0,
-        totalAmount: item.totalAmount ?? item.price ?? item.amount ?? 0,
+        unitPrice: toNonNegativeNumberOrZero(item.unitPrice ?? item.unit_price),
+        laborRate: toNonNegativeNumberOrZero(item.laborRate ?? item.labor_rate),
+        productAmount: toNumberOrZero(item.productAmount),
+        laborAmount: toNumberOrZero(item.laborAmount),
+        totalAmount: toNumberOrZero(item.totalAmount ?? item.price ?? item.amount),
         hasTemplateValue: true,
         expanded: false,
         selected: true,
@@ -2503,6 +2526,24 @@ export default function App() {
         throw new Error("저장할 평수와 신축/구축 조건을 먼저 선택하세요.");
       }
       const companyId = requireSelectedCompanyId();
+      const adminSubitems = adminItems.flatMap((item) => item.subitems ?? []);
+
+      if (adminSubitems.length) {
+        await Promise.all(
+          adminSubitems.map((subitem) =>
+            supabase
+              .from("construction_subitems")
+              .update({
+                unit_price: toNonNegativeNumberOrZero(subitem.unit_price),
+                labor_rate: toNonNegativeNumberOrZero(subitem.labor_rate),
+              })
+              .eq("id", subitem.id)
+          )
+        ).then((results) => {
+          const failed = results.find((result) => result.error);
+          if (failed?.error) throw failed.error;
+        });
+      }
 
       const { data: templateRow, error: templateError } = await supabase
         .from("admin_condition_templates")
@@ -2518,18 +2559,14 @@ export default function App() {
 
       if (templateError) throw templateError;
 
-      const templateValuePayloads = adminItems
-        .flatMap((item) => item.subitems)
-        .map((subitem) => ({
-          template_id: templateRow.id,
-          item_id: subitem.item_id,
-          subitem_id: subitem.id,
-          option_value: subitem.option_value ?? getTemplateOptionValue(subitem),
-          quantity: `${subitem.quantity ?? ""}` === "" ? null : toNumberOrZero(subitem.quantity),
-          labor_count: `${subitem.labor_count ?? ""}` === "" ? null : toNumberOrZero(subitem.labor_count),
-          unit_price: `${subitem.unit_price ?? ""}` === "" ? 0 : toNumberOrZero(subitem.unit_price),
-          labor_rate: `${subitem.labor_rate ?? ""}` === "" ? 0 : toNumberOrZero(subitem.labor_rate),
-        }));
+      const templateValuePayloads = adminSubitems.map((subitem) => ({
+        template_id: templateRow.id,
+        item_id: subitem.item_id,
+        subitem_id: subitem.id,
+        option_value: subitem.option_value ?? getTemplateOptionValue(subitem),
+        quantity: toNullableNumber(subitem.quantity),
+        labor_count: toNullableNumber(subitem.labor_count),
+      }));
 
       if (templateValuePayloads.length) {
         const { error: valuesError } = await supabase
@@ -3158,7 +3195,7 @@ export default function App() {
                     <div className="estimate-template-expanded-content">
                       {!row.hasTemplateValue && (
                         <p className="muted template-missing">
-                          아직 이 조건의 단가표가 없습니다. 관리자 페이지에서 먼저 단가표를 저장하거나, 이번 견적에서 직접 입력해 사용할 수 있습니다.
+                          아직 이 조건의 수량/인원 기준이 없습니다. 이번 견적에서 직접 입력해 사용할 수 있습니다.
                         </p>
                       )}
                         <div className="estimate-template-detail">
@@ -3425,7 +3462,7 @@ export default function App() {
           <section className="admin-pyeong-panel">
             <div className="admin-condition-title">
               <strong>관리 기준 선택</strong>
-              <span>선택한 조건에 맞는 단가표를 편집합니다. 저장한 값은 신규 견적서 작성 시 자동으로 불러와집니다.</span>
+              <span>단가/인건비는 모든 조건에 공통 적용되고, 수량/인원은 선택한 평수와 주택 조건별로 저장됩니다.</span>
             </div>
             <label>
               평수 선택
@@ -3509,7 +3546,7 @@ export default function App() {
               </div>
             ) : (
               <p className="muted">
-                아직 저장된 단가표가 없습니다. 평수와 조건을 선택한 뒤 단가, 수량, 인원을 입력하고 저장하면 여기에 표시됩니다.
+                아직 저장된 조건 기준이 없습니다. 평수와 조건을 선택한 뒤 수량/인원을 저장하면 여기에 표시됩니다.
               </p>
             )}
           </section>
@@ -3550,7 +3587,7 @@ export default function App() {
 
           {!getAdminTemplateCondition() && (
             <section className="panel">
-              <p className="muted">먼저 평수와 신축/구축 조건을 선택하세요. 조건별 단가와 수량을 따로 저장할 수 있습니다.</p>
+              <p className="muted">먼저 평수와 신축/구축 조건을 선택하세요. 단가/인건비는 공통값, 수량/인원은 조건별 값으로 저장됩니다.</p>
             </section>
           )}
 
@@ -3619,7 +3656,7 @@ export default function App() {
                       <details className="flooring-thickness-group" key={group.baseName} open>
                         <summary>
                           <strong>{group.baseName}</strong>
-                          <span>두께별 단가</span>
+                          <span>두께별 공통 단가와 조건별 수량</span>
                         </summary>
                         <div className="flooring-thickness-grid">
                           {FLOORING_THICKNESS_OPTIONS.map((thickness) => {
@@ -3734,7 +3771,7 @@ export default function App() {
                         </select>
                       </label>
                       <label>
-                        단가 <span>선택 조건에만 적용</span>
+                        단가 <span>모든 조건 공통</span>
                         <input
                           type="number"
                           min="0"
@@ -3745,7 +3782,7 @@ export default function App() {
                         />
                       </label>
                       <label>
-                        인건비 <span>선택 조건에만 적용</span>
+                        인건비 <span>모든 조건 공통</span>
                         <input
                           type="number"
                           min="0"
@@ -3756,7 +3793,7 @@ export default function App() {
                         />
                       </label>
                       <label>
-                        수량 <span>선택 조건에만 적용</span>
+                        수량 <span>선택 조건별</span>
                         <input
                           type="number"
                           min="0"
@@ -3767,7 +3804,7 @@ export default function App() {
                         />
                       </label>
                       <label>
-                        인원 <span>선택 조건에만 적용</span>
+                        인원 <span>선택 조건별</span>
                         <input
                           type="number"
                           min="0"
