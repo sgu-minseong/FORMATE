@@ -478,7 +478,7 @@ function buildTemplateCondition({ pyeong, buildType, hasExtension = false, condi
   const variant = normalizeConditionVariant(buildType, expanded, conditionVariant);
   return {
     pyeong: Number(pyeong),
-    build_type: variant,
+    build_type: houseType === "new" ? "확장형" : "구형",
     has_extension: houseType === "old" ? variant !== OLD_NO_EXTENSION_VARIANT : false,
     condition_variant: variant,
   };
@@ -487,6 +487,15 @@ function buildTemplateCondition({ pyeong, buildType, hasExtension = false, condi
 function getLegacyTemplateConditions(condition) {
   if (!condition) return [];
   const legacy = [];
+  if (condition.condition_variant) {
+    legacy.push({
+      ...condition,
+      build_type: condition.condition_variant,
+      has_extension: condition.condition_variant.startsWith("구형")
+        ? condition.condition_variant !== OLD_NO_EXTENSION_VARIANT
+        : false,
+    });
+  }
   if (condition.condition_variant === "확장형1") {
     legacy.push({ ...condition, build_type: "신축", has_extension: false, condition_variant: "" });
   }

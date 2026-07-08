@@ -474,8 +474,12 @@ create index if not exists estimates_condition_id_idx
 create index if not exists admin_condition_templates_company_id_idx
   on admin_condition_templates(company_id);
 
-create unique index if not exists admin_condition_templates_condition_uidx
-  on admin_condition_templates(company_id, pyeong, build_type, has_extension);
+alter table admin_condition_templates
+  drop constraint if exists admin_condition_templates_company_id_pyeong_build_type_has_extension_key;
+
+drop index if exists admin_condition_templates_condition_uidx;
+
+drop index if exists admin_condition_templates_company_id_pyeong_build_type_has_extension_key;
 
 create unique index if not exists admin_condition_templates_condition_variant_uidx
   on admin_condition_templates(company_id, pyeong, build_type, has_extension, condition_variant);
