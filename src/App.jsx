@@ -286,33 +286,7 @@ const categories = [
   },
 ];
 
-const dummySavedData = {
-  "32|new|powder:true|dress:false|empty": {
-    label: "32평 · 확장형 · 확장형1 · 빈집",
-    items: {
-      wallpaper: [
-        { material: "실크", price: 1850000, selected: true },
-        { material: "광폭", price: 1320000, selected: true },
-      ],
-      flooring: [
-        { material: "2.2T", price: 980000, selected: true },
-        { material: "4.5T", price: 1460000, selected: false },
-      ],
-    },
-  },
-  "24|old|expanded:true|spaces:거실,주방|occupied": {
-    label: "24평 · 구형 · 확장 있음 · 구형1 · 살림집",
-    items: {
-      woodwork: [
-        { material: "몰딩", price: 760000, selected: true },
-        { material: "걸레받이", price: 520000, selected: true },
-      ],
-      bathroom: [
-        { material: "기본형", price: 2400000, selected: true },
-      ],
-    },
-  },
-};
+const dummySavedData = {};
 
 function makeConditionKey(condition) {
   if (!condition.size || !condition.buildType || !condition.occupancy) return "";
@@ -551,11 +525,7 @@ function hasNumericInput(value) {
 }
 
 function getDefaultQuantityForUnit(unit, pyeong) {
-  const normalizedUnit = `${unit ?? ""}`.trim().toLowerCase();
-  if (normalizedUnit === "평" || normalizedUnit === "m" || normalizedUnit === "미터") {
-    return Number(pyeong);
-  }
-  return 1;
+  return null;
 }
 
 function isExtendedHouseType(value) {
@@ -1833,7 +1803,7 @@ export default function App() {
             name: composeFlooringSubitemName(group.baseName, thickness),
             unit: source.unit ?? "평",
             unit_price: 0,
-            labor_rate: source.labor_rate ?? 0,
+            labor_rate: 0,
             sort_order: (source.sort_order ?? 0) * 100 + thicknessIndex,
           });
         });
@@ -1858,7 +1828,7 @@ export default function App() {
         subitem_id: subitem.id,
         pyeong: selectedPyeong,
         quantity: getDefaultQuantityForUnit(subitem.unit, selectedPyeong),
-        labor_count: 0,
+        labor_count: null,
       }));
 
     if (!missingPayloads.length) return false;
