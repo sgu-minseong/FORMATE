@@ -36,6 +36,7 @@ const COMPANY_STORAGE_KEYS = {
   name: "formate.selectedCompanyName",
   code: "formate.selectedCompanyCode",
 };
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs"];
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
@@ -210,17 +211,19 @@ function readStoredCompany() {
   const id = window.localStorage.getItem(COMPANY_STORAGE_KEYS.id);
   const name = window.localStorage.getItem(COMPANY_STORAGE_KEYS.name);
   const code = window.localStorage.getItem(COMPANY_STORAGE_KEYS.code);
+  const lookupCode = (!isValidUuid(id) && id) ? id : code;
 
-  if (!id || !name || !code) return null;
-  return { id, name, code };
+  if (!id && !lookupCode) return null;
+  return { id: id ?? "", name: name ?? "", code: lookupCode ?? "", company_code: lookupCode ?? "" };
 }
 
 function writeStoredCompany(company) {
   if (typeof window === "undefined") return;
 
-  window.localStorage.setItem(COMPANY_STORAGE_KEYS.id, company.id);
-  window.localStorage.setItem(COMPANY_STORAGE_KEYS.name, company.name);
-  window.localStorage.setItem(COMPANY_STORAGE_KEYS.code, company.code);
+  const normalizedCompany = normalizeCompanySession(company);
+  window.localStorage.setItem(COMPANY_STORAGE_KEYS.id, normalizedCompany.id);
+  window.localStorage.setItem(COMPANY_STORAGE_KEYS.name, normalizedCompany.name);
+  window.localStorage.setItem(COMPANY_STORAGE_KEYS.code, normalizedCompany.company_code);
 }
 
 function clearStoredCompany() {
@@ -239,6 +242,23 @@ function isAdminVerifiedForCompany(companyId) {
 function writeAdminVerifiedCompany(companyId) {
   if (typeof window === "undefined" || !companyId) return;
   window.sessionStorage.setItem(ADMIN_VERIFIED_STORAGE_KEY, companyId);
+}
+
+function isValidUuid(value) {
+  return UUID_PATTERN.test(`${value ?? ""}`.trim());
+}
+
+function normalizeCompanySession(company) {
+  return {
+    id: `${company?.id ?? ""}`.trim(),
+    name: `${company?.name ?? ""}`.trim(),
+    company_code: `${company?.company_code ?? company?.code ?? ""}`.trim(),
+    code: `${company?.company_code ?? company?.code ?? ""}`.trim(),
+  };
+}
+
+function getStoredCompanyLookupCode(company) {
+  return `${(!isValidUuid(company?.id) && company?.id) ? company.id : company?.company_code ?? company?.code ?? ""}`.trim();
 }
 
 function clearAdminVerifiedCompany() {
@@ -930,11 +950,13 @@ function buildEstimateItemsFromTemplate(catalog, pyeong) {
       const rows = isFlooringThicknessItem(item)
         ? getFlooringThicknessGroups(itemSubitems).map((group) => {
             const optionKeys = Object.keys(group.options).sort(compareFlooringThickness);
-            const selectedThickness = group.options[DEFAULT_FLOORING_SPEC]
+            const templateValueThickness = optionKeys.find((thickness) => hasTemplateValue(group.options[thickness]));
+            const selectedThickness = templateValueThickness
+              ?? (group.options[DEFAULT_FLOORING_SPEC]
               ? DEFAULT_FLOORING_SPEC
               : group.options["1.8"]
                 ? "1.8"
-                : optionKeys[0];
+                : optionKeys[0]);
             const selectedOption = group.options[selectedThickness];
             return createEstimateRowFromSubitem(item, selectedOption, pyeong, {
               material: group.baseName,
@@ -1095,7 +1117,7 @@ export default function App() {
     const company = readStoredCompany();
     return {
       company,
-      checking: Boolean(company?.id),
+      checking: Boolean(company?.id || company?.company_code || company?.code),
     };
   });
   const [loginCode, setLoginCode] = useState("");
@@ -1308,7 +1330,9 @@ export default function App() {
 
     async function verifyStoredCompany() {
       const storedCompany = readStoredCompany();
-      if (!storedCompany?.id) {
+      const storedCompanyId = `${storedCompany?.id ?? ""}`.trim();
+      const storedCompanyCode = getStoredCompanyLookupCode(storedCompany);
+      if (!storedCompanyId && !storedCompanyCode) {
         clearStoredCompany();
         if (active) setCompanySession({ company: null, checking: false });
         return;
@@ -1324,24 +1348,30 @@ export default function App() {
       }
 
       try {
-        const { data, error } = await supabase
+        let companyQuery = supabase
           .from("companies")
-          .select("id, name, company_code")
-          .eq("id", storedCompany.id)
-          .maybeSingle();
+          .select("id, name, company_code");
 
-        if (error) throw error;
-        if (!data?.id) {
+        if (isValidUuid(storedCompanyId)) {
+          companyQuery = companyQuery.eq("id", storedCompanyId);
+        } else if (storedCompanyCode) {
+          companyQuery = companyQuery.eq("company_code", storedCompanyCode);
+        } else {
           clearStoredCompany();
           if (active) setCompanySession({ company: null, checking: false });
           return;
         }
 
-        const verifiedCompany = {
-          id: data.id,
-          name: data.name,
-          code: data.company_code,
-        };
+        const { data, error } = await companyQuery.maybeSingle();
+
+        if (error) throw error;
+        if (!data?.id || !isValidUuid(data.id)) {
+          clearStoredCompany();
+          if (active) setCompanySession({ company: null, checking: false });
+          return;
+        }
+
+        const verifiedCompany = normalizeCompanySession(data);
         writeStoredCompany(verifiedCompany);
         if (active) {
           setCompanySession({ company: verifiedCompany, checking: false });
@@ -1426,6 +1456,9 @@ export default function App() {
     if (!selectedCompanyId) {
       throw new Error("업체 로그인 후 이용해주세요.");
     }
+    if (!isValidUuid(selectedCompanyId)) {
+      throw new Error("저장 기준으로 쓰는 업체 ID 형식이 올바르지 않습니다. 다시 로그인해주세요.");
+    }
     return selectedCompanyId;
   }
 
@@ -1458,7 +1491,7 @@ export default function App() {
         .maybeSingle();
 
       if (error) throw error;
-      if (!data?.id) {
+      if (!data?.id || !isValidUuid(data.id)) {
         setLoginError("업체 코드를 확인해주세요.");
         return;
       }
@@ -1467,11 +1500,7 @@ export default function App() {
         return;
       }
 
-      const nextCompany = {
-        id: data.id,
-        name: data.name,
-        code: data.company_code,
-      };
+      const nextCompany = normalizeCompanySession(data);
       clearAdminVerifiedCompany();
       writeStoredCompany(nextCompany);
       clearCompanyScopedState();
@@ -2503,6 +2532,7 @@ export default function App() {
       baseLaborRate: matchedOption.baseLaborRate,
       hasTemplateRecord: matchedOption.hasTemplateRecord,
       hasTemplateValue: matchedOption.hasTemplateValue,
+      selected: matchedOption.hasTemplateValue,
       displayMaterial: composeFlooringSubitemName(row.material, matchedOption.thickness),
     };
   }
