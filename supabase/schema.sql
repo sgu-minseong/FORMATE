@@ -119,6 +119,21 @@ create table if not exists admin_condition_template_values (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists condition_variant_labels (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  variant_key text not null check (
+    variant_key in (
+      '확장형1', '확장형2', '확장형3', '확장형4', '확장형5',
+      '구형0', '구형1', '구형2', '구형3', '구형4', '구형5'
+    )
+  ),
+  label text not null default '',
+  description text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Normalize existing databases to the final column names used by App.jsx.
 alter table companies
   add column if not exists company_code text;
@@ -435,6 +450,11 @@ create trigger set_admin_condition_template_values_updated_at
 before update on admin_condition_template_values
 for each row execute function set_updated_at();
 
+drop trigger if exists set_condition_variant_labels_updated_at on condition_variant_labels;
+create trigger set_condition_variant_labels_updated_at
+before update on condition_variant_labels
+for each row execute function set_updated_at();
+
 create unique index if not exists companies_company_code_uidx
   on companies(company_code);
 
@@ -496,6 +516,12 @@ create index if not exists admin_condition_template_values_subitem_id_idx
 create unique index if not exists admin_condition_template_values_template_subitem_option_uidx
   on admin_condition_template_values(template_id, subitem_id, option_value);
 
+create index if not exists condition_variant_labels_company_id_idx
+  on condition_variant_labels(company_id);
+
+create unique index if not exists condition_variant_labels_company_variant_uidx
+  on condition_variant_labels(company_id, variant_key);
+
 insert into companies (id, name, company_code, admin_password_hash)
 values (
   '00000000-0000-4000-8000-000000000001',
@@ -518,6 +544,7 @@ alter table price_conditions disable row level security;
 alter table estimates disable row level security;
 alter table admin_condition_templates disable row level security;
 alter table admin_condition_template_values disable row level security;
+alter table condition_variant_labels disable row level security;
 
 grant usage on schema public to anon, authenticated;
 
@@ -530,5 +557,6 @@ grant select, insert, update, delete on price_conditions to anon, authenticated;
 grant select, insert, update, delete on estimates to anon, authenticated;
 grant select, insert, update, delete on admin_condition_templates to anon, authenticated;
 grant select, insert, update, delete on admin_condition_template_values to anon, authenticated;
+grant select, insert, update, delete on condition_variant_labels to anon, authenticated;
 
 notify pgrst, 'reload schema';

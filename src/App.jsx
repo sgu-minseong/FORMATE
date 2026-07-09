@@ -28,7 +28,7 @@ import logoUrl from "./assets/logo.svg";
 
 const pageFromHash = () => {
   const page = window.location.hash.replace("#", "");
-  return ["landing", "condition", "admin", "admin-prices", "admin-items"].includes(page) ? page : "landing";
+  return ["landing", "condition", "admin", "admin-prices", "admin-items", "admin-condition-labels"].includes(page) ? page : "landing";
 };
 
 const COMPANY_STORAGE_KEYS = {
@@ -37,7 +37,7 @@ const COMPANY_STORAGE_KEYS = {
   code: "formate.selectedCompanyCode",
 };
 const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
-const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-detail-costs"];
+const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs"];
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const UNIT_OPTIONS = ["평", "㎡", "미터", "개소", "식"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
@@ -49,7 +49,13 @@ const FLOORING_MATERIAL_KEYWORDS = ["장판", "마루", "데코타일", "바닥"
 const EXTENDED_VARIANTS = ["확장형1", "확장형2", "확장형3", "확장형4", "확장형5"];
 const OLD_EXTENDED_VARIANTS = ["구형1", "구형2", "구형3", "구형4", "구형5"];
 const OLD_NO_EXTENSION_VARIANT = "구형0";
+const CONDITION_VARIANT_KEYS = [...EXTENDED_VARIANTS, OLD_NO_EXTENSION_VARIANT, ...OLD_EXTENDED_VARIANTS];
 const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
+const CATEGORY_DISPLAY_TARGETS = {
+  몰딩: "목공",
+  페인트: "도장/페인트",
+  도장: "도장/페인트",
+};
 const DEFAULT_CONSTRUCTION_CATALOG = [
   {
     name: "철거",
@@ -319,13 +325,58 @@ function makeConditionKey(condition) {
   ].join("|");
 }
 
-function makeConditionSummary(condition) {
+function createConditionVariantLabelRows(rows = []) {
+  const rowByKey = new Map((rows ?? []).map((row) => [row.variant_key, row]));
+  return CONDITION_VARIANT_KEYS.map((variantKey) => {
+    const row = rowByKey.get(variantKey) ?? {};
+    return {
+      id: row.id ?? "",
+      variant_key: variantKey,
+      label: row.label ?? "",
+      description: row.description ?? "",
+    };
+  });
+}
+
+function makeConditionVariantLabelMap(rows = []) {
+  return Object.fromEntries(
+    (rows ?? []).map((row) => [
+      row.variant_key,
+      {
+        label: `${row.label ?? ""}`.trim(),
+        description: `${row.description ?? ""}`.trim(),
+      },
+    ])
+  );
+}
+
+function getConditionVariantLabel(variantKey, variantLabels = {}) {
+  return `${variantLabels?.[variantKey]?.label ?? ""}`.trim();
+}
+
+function formatConditionVariantLabel(variantKey, variantLabels = {}) {
+  const label = getConditionVariantLabel(variantKey, variantLabels);
+  return label ? `${variantKey} (${label})` : variantKey;
+}
+
+function isMissingConditionVariantLabelsTable(error) {
+  const raw = `${error?.code ?? ""} ${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
+  return raw.includes("condition_variant_labels") && (
+    raw.includes("does not exist") ||
+    raw.includes("could not find") ||
+    raw.includes("schema cache") ||
+    raw.includes("42p01") ||
+    raw.includes("pgrst")
+  );
+}
+
+function makeConditionSummary(condition, variantLabels = {}) {
   if (!condition.size || !condition.buildType) return "";
 
   const base = [`${condition.size}평`];
   if (isExtendedHouseType(condition.buildType)) {
     base.push("확장형");
-    base.push(getConditionVariant(condition));
+    base.push(formatConditionVariantLabel(getConditionVariant(condition), variantLabels));
   } else {
     base.push("구형");
     if (condition.expanded) {
@@ -333,12 +384,12 @@ function makeConditionSummary(condition) {
     } else {
       base.push("확장 없음");
     }
-    base.push(getConditionVariant(condition));
+    base.push(formatConditionVariantLabel(getConditionVariant(condition), variantLabels));
   }
   return base.join(" · ");
 }
 
-function makeConditionChips(condition) {
+function makeConditionChips(condition, variantLabels = {}) {
   if (!condition.size && !condition.buildType && !condition.occupancy) return [];
 
   const chips = [];
@@ -350,7 +401,7 @@ function makeConditionChips(condition) {
       chips.push("구형");
       chips.push(condition.expanded ? "확장 있음" : "확장 없음");
     }
-    chips.push(getConditionVariant(condition));
+    chips.push(formatConditionVariantLabel(getConditionVariant(condition), variantLabels));
   }
   if (condition.occupancy) chips.push(condition.occupancy === "empty" ? "빈집" : "살림집");
   return chips;
@@ -387,6 +438,66 @@ function sortAdminItems(rows) {
   });
 }
 
+function getCategoryDisplayName(name) {
+  const trimmed = `${name ?? ""}`.trim();
+  return CATEGORY_DISPLAY_TARGETS[trimmed] ?? trimmed;
+}
+
+function getDefaultCatalogItemAliases(name) {
+  return name === "도장/페인트" ? ["도장/페인트", "도장"] : [name];
+}
+
+function findItemByDefaultCatalogName(itemRows, catalogName) {
+  const aliases = getDefaultCatalogItemAliases(catalogName);
+  return (itemRows ?? []).find((item) => aliases.includes(`${item.name ?? ""}`.trim()));
+}
+
+function getCategorySourceRank(sourceName, displayName) {
+  const trimmed = `${sourceName ?? ""}`.trim();
+  if (trimmed === displayName) return 0;
+  if (displayName === "도장/페인트" && trimmed === "도장") return 1;
+  return 2;
+}
+
+function mergeDisplayCategoryItems(items) {
+  const mergedByName = new Map();
+
+  sortAdminItems(items).forEach((item) => {
+    const sourceName = `${item.name ?? ""}`.trim();
+    const displayName = getCategoryDisplayName(sourceName);
+    const normalizedItem = {
+      ...item,
+      name: displayName,
+      item_type: sourceName === displayName ? item.item_type ?? "itemized" : "itemized",
+      _sourceName: sourceName,
+    };
+    const existing = mergedByName.get(displayName);
+
+    if (!existing) {
+      mergedByName.set(displayName, normalizedItem);
+      return;
+    }
+
+    const existingRank = getCategorySourceRank(existing._sourceName, displayName);
+    const currentRank = getCategorySourceRank(sourceName, displayName);
+    const useCurrentAsParent = currentRank < existingRank;
+    const parent = useCurrentAsParent ? normalizedItem : existing;
+    const other = useCurrentAsParent ? existing : normalizedItem;
+    mergedByName.set(displayName, {
+      ...parent,
+      is_favorite: Boolean(parent.is_favorite || other.is_favorite),
+      sort_order: Math.min(parent.sort_order ?? 0, other.sort_order ?? 0),
+      subitems: [...(existing.subitems ?? []), ...(normalizedItem.subitems ?? [])]
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+      _sourceName: parent._sourceName,
+    });
+  });
+
+  return sortAdminItems(
+    [...mergedByName.values()].map(({ _sourceName, ...item }) => item)
+  );
+}
+
 function normalizeAdminItems(itemsRows, subitemRows, templateValueRows = []) {
   const subitemsByItemId = subitemRows.reduce((acc, row) => {
     acc[row.item_id] = acc[row.item_id] ?? [];
@@ -397,7 +508,7 @@ function normalizeAdminItems(itemsRows, subitemRows, templateValueRows = []) {
     templateValueRows.map((row) => [row.subitem_id, row])
   );
 
-  return sortAdminItems(
+  return mergeDisplayCategoryItems(
     itemsRows.map((item) => ({
       ...item,
       item_type: item.item_type ?? "itemized",
@@ -488,6 +599,72 @@ function buildTemplateCondition({ pyeong, buildType, hasExtension = false, condi
   };
 }
 
+function normalizeTemplateRowCondition(template) {
+  if (!template) return null;
+  return buildTemplateCondition({
+    pyeong: template.pyeong,
+    buildType: template.condition_variant || template.build_type,
+    hasExtension: template.has_extension,
+    conditionVariant: template.condition_variant,
+  });
+}
+
+function getTemplateConditionKey(templateOrCondition) {
+  const isTemplateRow = Object.prototype.hasOwnProperty.call(templateOrCondition ?? {}, "build_type");
+  const condition = isTemplateRow
+    ? buildTemplateCondition({
+        pyeong: templateOrCondition.pyeong,
+        buildType: templateOrCondition.condition_variant || templateOrCondition.build_type,
+        hasExtension: templateOrCondition.has_extension,
+        conditionVariant: templateOrCondition.condition_variant,
+      })
+    : templateOrCondition;
+  if (!condition) return "";
+  return [
+    Number(condition.pyeong),
+    condition.build_type,
+    Boolean(condition.has_extension),
+    condition.condition_variant,
+  ].join("|");
+}
+
+function getTemplateTimestamp(template) {
+  const updatedAt = Date.parse(template?.updated_at ?? "");
+  if (Number.isFinite(updatedAt)) return updatedAt;
+  const createdAt = Date.parse(template?.created_at ?? "");
+  return Number.isFinite(createdAt) ? createdAt : 0;
+}
+
+function pickRepresentativeTemplate(templates = []) {
+  return [...templates].sort((a, b) => {
+    const timeDiff = getTemplateTimestamp(b) - getTemplateTimestamp(a);
+    if (timeDiff !== 0) return timeDiff;
+    return `${b.id ?? ""}`.localeCompare(`${a.id ?? ""}`);
+  })[0] ?? null;
+}
+
+function dedupeTemplatesByCondition(templates = []) {
+  const groups = new Map();
+  (templates ?? []).forEach((template) => {
+    const key = getTemplateConditionKey(template);
+    if (!key) return;
+    groups.set(key, [...(groups.get(key) ?? []), template]);
+  });
+  return [...groups.values()]
+    .map((group) => pickRepresentativeTemplate(group))
+    .filter(Boolean)
+    .sort((a, b) => {
+      const conditionA = normalizeTemplateRowCondition(a);
+      const conditionB = normalizeTemplateRowCondition(b);
+      return (
+        (conditionA?.pyeong ?? 0) - (conditionB?.pyeong ?? 0) ||
+        `${conditionA?.build_type ?? ""}`.localeCompare(`${conditionB?.build_type ?? ""}`) ||
+        Number(Boolean(conditionA?.has_extension)) - Number(Boolean(conditionB?.has_extension)) ||
+        `${conditionA?.condition_variant ?? ""}`.localeCompare(`${conditionB?.condition_variant ?? ""}`)
+      );
+    });
+}
+
 function getLegacyTemplateConditions(condition) {
   if (!condition) return [];
   const legacy = [];
@@ -512,7 +689,7 @@ function getLegacyTemplateConditions(condition) {
   return legacy;
 }
 
-function makeTemplateLabel(template) {
+function makeTemplateLabel(template, variantLabels = {}) {
   if (!template) return "";
   const condition = buildTemplateCondition({
     pyeong: template.pyeong,
@@ -523,7 +700,7 @@ function makeTemplateLabel(template) {
   const houseType = condition.condition_variant.startsWith("확장형") ? "확장형" : "구형";
   const parts = [`${template.pyeong}평`, houseType];
   if (houseType === "구형") parts.push(condition.has_extension ? "확장 있음" : "확장 없음");
-  parts.push(condition.condition_variant);
+  parts.push(formatConditionVariantLabel(condition.condition_variant, variantLabels));
   return parts.join(" · ");
 }
 
@@ -540,6 +717,10 @@ function isFlooringCategoryName(name) {
 function isFlooringMaterialName(name) {
   const normalized = `${name ?? ""}`.trim();
   return FLOORING_MATERIAL_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function isWallpaperCategoryName(name) {
+  return `${name ?? ""}`.trim().includes("도배");
 }
 
 function normalizeFlooringThickness(value) {
@@ -1002,6 +1183,8 @@ export default function App() {
   const [currentAdminTemplateId, setCurrentAdminTemplateId] = useState("");
   const [adminConditionLoaded, setAdminConditionLoaded] = useState(false);
   const [adminCommonPriceSavedAt, setAdminCommonPriceSavedAt] = useState("");
+  const [conditionVariantLabels, setConditionVariantLabels] = useState(() => createConditionVariantLabelRows());
+  const [wallpaperBulkInputs, setWallpaperBulkInputs] = useState({});
   const [dragItemId, setDragItemId] = useState("");
   const [dragSubitem, setDragSubitem] = useState(null);
   const [detailSubitems, setDetailSubitems] = useState([]);
@@ -1037,8 +1220,18 @@ export default function App() {
     () => `FM-${estimateIssuedAt.replaceAll("-", "")}-${String(Math.abs(conditionKey.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0))).padStart(4, "0").slice(-4)}`,
     [conditionKey, estimateIssuedAt]
   );
-  const conditionSummary = useMemo(() => makeConditionSummary(condition), [condition]);
-  const conditionChips = useMemo(() => makeConditionChips(condition), [condition]);
+  const conditionVariantLabelMap = useMemo(
+    () => makeConditionVariantLabelMap(conditionVariantLabels),
+    [conditionVariantLabels]
+  );
+  const conditionSummary = useMemo(
+    () => makeConditionSummary(condition, conditionVariantLabelMap),
+    [condition, conditionVariantLabelMap]
+  );
+  const conditionChips = useMemo(
+    () => makeConditionChips(condition, conditionVariantLabelMap),
+    [condition, conditionVariantLabelMap]
+  );
 
   const selectedRows = useMemo(() => {
     return Object.entries(items).flatMap(([categoryId, rows]) => {
@@ -1131,7 +1324,7 @@ export default function App() {
   }, [adminFavoriteOnly, adminItems, adminSearchTerm]);
   const currentAdminTemplateCondition = getAdminTemplateCondition();
   const currentAdminConditionLabel = currentAdminTemplateCondition
-    ? makeTemplateLabel(currentAdminTemplateCondition)
+    ? makeTemplateLabel(currentAdminTemplateCondition, conditionVariantLabelMap)
     : "";
   const canEditConditionQuantities = isConditionQuantityAdminPage && adminConditionLoaded && Boolean(currentAdminTemplateCondition);
   const adminCommonPriceSavedLabel = adminCommonPriceSavedAt ? formatDisplayDateTime(adminCommonPriceSavedAt) : "";
@@ -1197,6 +1390,11 @@ export default function App() {
 
   useEffect(() => {
     if (!selectedCompanyId) return;
+    fetchConditionVariantLabels({ silent: true });
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    if (!selectedCompanyId) return;
     if (!isProtectedAdminPage || adminVerified) return;
 
     setPendingAdminPage(page);
@@ -1214,8 +1412,12 @@ export default function App() {
       return;
     }
     if (page === "admin-items") {
-      setAdminConditionLoaded(false);
-      fetchAdminItems({ mode: "condition", condition: null });
+      const activeCondition = adminConditionLoaded ? getAdminTemplateCondition() : null;
+      if (!activeCondition) setAdminConditionLoaded(false);
+      fetchAdminItems({ mode: "condition", condition: activeCondition });
+    }
+    if (page === "admin-condition-labels") {
+      fetchConditionVariantLabels();
     }
     if (page === "admin-detail-costs") {
       fetchDetailSubitems();
@@ -1474,7 +1676,6 @@ export default function App() {
   }
 
   function hasDefaultCatalogGaps(itemRows = [], subitemRows = []) {
-    const itemByName = new Map(itemRows.map((item) => [item.name.trim(), item]));
     const subitemNamesByItemId = subitemRows.reduce((acc, subitem) => {
       acc[subitem.item_id] = acc[subitem.item_id] ?? new Set();
       acc[subitem.item_id].add(subitem.name.trim());
@@ -1482,7 +1683,7 @@ export default function App() {
     }, {});
 
     return DEFAULT_CONSTRUCTION_CATALOG.some((catalogItem) => {
-      const item = itemByName.get(catalogItem.name);
+      const item = findItemByDefaultCatalogName(itemRows, catalogItem.name);
       if (!item?.id) return true;
       const subitemNames = subitemNamesByItemId[item.id] ?? new Set();
       return catalogItem.subitems.some(([name]) => !subitemNames.has(name));
@@ -1491,9 +1692,8 @@ export default function App() {
 
   async function ensureDefaultConstructionCatalog(companyId, itemRows = [], subitemRows = []) {
     let nextItemRows = [...itemRows];
-    const itemByName = new Map(nextItemRows.map((item) => [item.name.trim(), item]));
     const missingItemPayloads = DEFAULT_CONSTRUCTION_CATALOG
-      .filter((item) => !itemByName.has(item.name))
+      .filter((item) => !findItemByDefaultCatalogName(nextItemRows, item.name))
       .map((item, index) => ({
         company_id: companyId,
         name: item.name,
@@ -1530,9 +1730,8 @@ export default function App() {
       acc[subitem.item_id].add(subitem.name.trim());
       return acc;
     }, {});
-    const nextItemByName = new Map(nextItemRows.map((item) => [item.name.trim(), item]));
     const missingSubitemPayloads = DEFAULT_CONSTRUCTION_CATALOG.flatMap((item) => {
-      const parent = nextItemByName.get(item.name);
+      const parent = findItemByDefaultCatalogName(nextItemRows, item.name);
       if (!parent?.id) return [];
       const existingNames = subitemsByItemId[parent.id] ?? new Set();
       return item.subitems
@@ -1695,6 +1894,94 @@ export default function App() {
     });
   }
 
+  async function fetchConditionVariantLabels(options = {}) {
+    if (!selectedCompanyId || !isSupabaseConfigured) {
+      setConditionVariantLabels(createConditionVariantLabelRows());
+      return;
+    }
+
+    if (!options.silent) {
+      setAdminLoading(true);
+      setAdminError("");
+      setAdminNotice("");
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("condition_variant_labels")
+        .select("*")
+        .eq("company_id", selectedCompanyId)
+        .order("variant_key", { ascending: true });
+
+      if (error) {
+        if (isMissingConditionVariantLabelsTable(error)) {
+          setConditionVariantLabels(createConditionVariantLabelRows());
+          if (!options.silent) {
+            setAdminError("확장형/구형 설명 테이블이 아직 없습니다. supabase/schema.sql의 condition_variant_labels SQL을 Supabase SQL Editor에 적용해주세요.");
+          }
+          return;
+        }
+        throw error;
+      }
+
+      setConditionVariantLabels(createConditionVariantLabelRows(data ?? []));
+      if (!options.silent && page === "admin-condition-labels") {
+        setAdminNotice("확장형/구형 설명을 불러왔습니다.");
+      }
+    } catch (error) {
+      if (options.silent) {
+        console.warn("[FORMATE condition variant labels]", error);
+      } else {
+        setAdminError(getFriendlyError(error, "확장형/구형 설명을 불러오지 못했어요. 다시 시도해주세요."));
+      }
+    } finally {
+      if (!options.silent) setAdminLoading(false);
+    }
+  }
+
+  function updateConditionVariantLabel(variantKey, patch) {
+    setConditionVariantLabels((current) =>
+      createConditionVariantLabelRows(current).map((row) =>
+        row.variant_key === variantKey ? { ...row, ...patch } : row
+      )
+    );
+  }
+
+  async function saveConditionVariantLabels() {
+    setAdminSaving(true);
+    setAdminError("");
+    setAdminNotice("");
+    try {
+      const companyId = requireSelectedCompanyId();
+      const payloads = createConditionVariantLabelRows(conditionVariantLabels).map((row) => ({
+        company_id: companyId,
+        variant_key: row.variant_key,
+        label: `${row.label ?? ""}`.trim(),
+        description: `${row.description ?? ""}`.trim(),
+      }));
+
+      const { data, error } = await supabase
+        .from("condition_variant_labels")
+        .upsert(payloads, { onConflict: "company_id,variant_key" })
+        .select("*");
+
+      if (error) {
+        if (isMissingConditionVariantLabelsTable(error)) {
+          throw new Error("condition_variant_labels 테이블이 아직 없습니다. supabase/schema.sql의 SQL을 Supabase SQL Editor에 적용한 뒤 다시 저장해주세요.");
+        }
+        throw error;
+      }
+
+      setConditionVariantLabels(createConditionVariantLabelRows(data ?? payloads));
+      setAdminNotice("확장형/구형 설명을 저장했습니다.");
+      setPage("admin-items");
+    } catch (error) {
+      setAdminError(getFriendlyError(error, "확장형/구형 설명을 저장하지 못했어요. 다시 시도해주세요."));
+    } finally {
+      setAdminSaving(false);
+    }
+  }
+
   async function fetchAdminTemplateList() {
     const companyId = requireSelectedCompanyId();
     const { data, error } = await supabase
@@ -1707,7 +1994,7 @@ export default function App() {
       .order("has_extension", { ascending: true });
 
     if (error) throw error;
-    setAdminTemplates(data ?? []);
+    setAdminTemplates(dedupeTemplatesByCondition(data ?? []));
   }
 
   async function fetchTemplateRowByCondition(companyId, condition) {
@@ -1720,11 +2007,11 @@ export default function App() {
         .eq("pyeong", candidate.pyeong)
         .eq("build_type", candidate.build_type)
         .eq("has_extension", candidate.has_extension)
-        .eq("condition_variant", candidate.condition_variant)
-        .maybeSingle();
+        .eq("condition_variant", candidate.condition_variant);
 
       if (error) throw error;
-      if (data?.id) return data;
+      const representative = pickRepresentativeTemplate(data ?? []);
+      if (representative?.id) return representative;
     }
     return null;
   }
@@ -2885,6 +3172,48 @@ export default function App() {
     );
   }
 
+  function updateWallpaperBulkInput(itemId, patch) {
+    setWallpaperBulkInputs((current) => ({
+      ...current,
+      [itemId]: {
+        quantity: "",
+        labor_count: "",
+        ...(current[itemId] ?? {}),
+        ...patch,
+      },
+    }));
+  }
+
+  function applyWallpaperBulkInput(itemId) {
+    const bulkInput = wallpaperBulkInputs[itemId] ?? {};
+    const hasQuantity = `${bulkInput.quantity ?? ""}`.trim() !== "";
+    const hasLaborCount = `${bulkInput.labor_count ?? ""}`.trim() !== "";
+    if (!hasQuantity && !hasLaborCount) {
+      setAdminError("도배 일괄 적용할 수량 또는 인원을 입력하세요.");
+      return;
+    }
+
+    setAdminItems((current) =>
+      current.map((item) => {
+        if (item.id !== itemId) return item;
+        return {
+          ...item,
+          subitems: item.subitems.map((subitem) => ({
+            ...subitem,
+            ...(hasQuantity && `${subitem.quantity ?? ""}`.trim() === ""
+              ? { quantity: bulkInput.quantity }
+              : {}),
+            ...(hasLaborCount && `${subitem.labor_count ?? ""}`.trim() === ""
+              ? { labor_count: bulkInput.labor_count }
+              : {}),
+          })),
+        };
+      })
+    );
+    setAdminError("");
+    setAdminNotice("도배 하위 소재의 빈 수량/인원에 일괄값을 적용했습니다. 저장 버튼을 눌러 반영하세요.");
+  }
+
   async function saveAdminPrices() {
     setAdminSaving(true);
     setAdminError("");
@@ -2943,19 +3272,28 @@ export default function App() {
         throw new Error("저장할 평수와 주택 유형을 먼저 선택하세요.");
       }
 
-      const { data: templateRow, error: templateError } = await supabase
-        .from("admin_condition_templates")
-        .upsert(
-          {
+      let templateRow = await fetchTemplateRowByCondition(companyId, adminTemplateCondition);
+      if (templateRow?.id) {
+        const { data: updatedTemplate, error: updateTemplateError } = await supabase
+          .from("admin_condition_templates")
+          .update(adminTemplateCondition)
+          .eq("id", templateRow.id)
+          .select("id")
+          .single();
+        if (updateTemplateError) throw updateTemplateError;
+        templateRow = updatedTemplate;
+      } else {
+        const { data: insertedTemplate, error: insertTemplateError } = await supabase
+          .from("admin_condition_templates")
+          .insert({
             company_id: companyId,
             ...adminTemplateCondition,
-          },
-          { onConflict: "company_id,pyeong,build_type,has_extension,condition_variant" }
-        )
-        .select("id")
-        .single();
-
-      if (templateError) throw templateError;
+          })
+          .select("id")
+          .single();
+        if (insertTemplateError) throw insertTemplateError;
+        templateRow = insertedTemplate;
+      }
 
       const templateValuePayloads = adminSubitems.map((subitem) => ({
         template_id: templateRow.id,
@@ -3355,6 +3693,75 @@ export default function App() {
         </main>
       )}
 
+      {page === "admin-condition-labels" && adminVerified && (
+        <main className="panel-page admin-page">
+          <div className="editor-header">
+            <div>
+              <button className="ghost" onClick={() => setPage("admin-items")}>
+                <ArrowLeft size={18} /> 조건별 수량/인원 관리
+              </button>
+              <h2>확장형/구형 설명 관리</h2>
+              <p className="muted caption">
+                조건 key는 확장형1, 구형2처럼 유지하고, 업체 내부에서 이해하기 쉬운 설명만 표시용으로 저장합니다.
+              </p>
+            </div>
+            <div className="admin-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={adminLoading || adminSaving}
+                onClick={() => fetchConditionVariantLabels()}
+              >
+                <RefreshCcw size={18} /> 되돌리기
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={adminLoading || adminSaving}
+                onClick={saveConditionVariantLabels}
+              >
+                <Save size={18} /> 저장
+              </button>
+            </div>
+          </div>
+
+          {adminLoading && <div className="status-box">불러오는 중...</div>}
+          {adminSaving && <div className="status-box">저장 중...</div>}
+          {adminNotice && <div className="status-box">{adminNotice}</div>}
+          {adminError && <div className="error-box">{adminError}</div>}
+
+          <section className="panel condition-label-panel">
+            <div className="condition-label-guide">
+              <strong>표시 설명</strong>
+              <span>예: 확장형1 = 드레스룸 1개, 구형2 = 거실 + 주방 확장. 비워두면 기존 코드만 표시됩니다.</span>
+            </div>
+            <div className="condition-label-list">
+              {conditionVariantLabels.map((row) => (
+                <div className="condition-label-row" key={row.variant_key}>
+                  <strong>{row.variant_key}</strong>
+                  <label>
+                    표시 이름
+                    <input
+                      value={row.label}
+                      onChange={(event) => updateConditionVariantLabel(row.variant_key, { label: event.target.value })}
+                      placeholder={row.variant_key === OLD_NO_EXTENSION_VARIANT ? "예: 확장 없음" : "예: 거실 + 주방 확장"}
+                    />
+                  </label>
+                  <label>
+                    상세 설명
+                    <input
+                      value={row.description}
+                      onChange={(event) => updateConditionVariantLabel(row.variant_key, { description: event.target.value })}
+                      placeholder="선택 기준이나 내부 메모"
+                    />
+                  </label>
+                </div>
+              ))}
+            </div>
+          </section>
+        </main>
+      )}
+
       {page === "ready" && (
         <main className="simple-page">
           <button className="ghost" onClick={() => setPage("landing")}>
@@ -3458,10 +3865,14 @@ export default function App() {
                     {EXTENDED_VARIANTS.map((variant) => (
                       <button
                         key={variant}
-                        className={getConditionVariant(condition) === variant ? "selected" : ""}
+                        type="button"
+                        className={`condition-variant-option ${getConditionVariant(condition) === variant ? "selected" : ""}`.trim()}
                         onClick={() => updateCondition({ conditionVariant: variant })}
                       >
-                        {variant}
+                        <span>{variant}</span>
+                        {getConditionVariantLabel(variant, conditionVariantLabelMap) && (
+                          <small>{getConditionVariantLabel(variant, conditionVariantLabelMap)}</small>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -3508,16 +3919,20 @@ export default function App() {
                         {OLD_EXTENDED_VARIANTS.map((variant) => (
                           <button
                             key={variant}
-                            className={getConditionVariant(condition) === variant ? "selected" : ""}
+                            type="button"
+                            className={`condition-variant-option ${getConditionVariant(condition) === variant ? "selected" : ""}`.trim()}
                             onClick={() => updateCondition({ conditionVariant: variant })}
                           >
-                            {variant}
+                            <span>{variant}</span>
+                            {getConditionVariantLabel(variant, conditionVariantLabelMap) && (
+                              <small>{getConditionVariantLabel(variant, conditionVariantLabelMap)}</small>
+                            )}
                           </button>
                         ))}
                       </div>
                     ) : (
                       <div className="condition-static-note">
-                        확장 없음은 <strong>{OLD_NO_EXTENSION_VARIANT}</strong> 기준으로 불러옵니다.
+                        확장 없음은 <strong>{formatConditionVariantLabel(OLD_NO_EXTENSION_VARIANT, conditionVariantLabelMap)}</strong> 기준으로 불러옵니다.
                       </div>
                     )}
                   </div>
@@ -3992,8 +4407,21 @@ export default function App() {
           {isConditionQuantityAdminPage && (
           <section className="admin-pyeong-panel">
             <div className="admin-condition-title">
-              <strong>조건 선택</strong>
-              <span>단가/인건비는 모든 조건에 공통 적용되고, 수량/인원은 선택한 평수와 주택 조건별로 저장됩니다.</span>
+              <div>
+                <strong>조건 선택</strong>
+                <span>단가/인건비는 모든 조건에 공통 적용되고, 수량/인원은 선택한 평수와 주택 조건별로 저장됩니다.</span>
+              </div>
+              <button
+                type="button"
+                className="secondary-button condition-label-link"
+                disabled={adminLoading || adminSaving}
+                onClick={() => {
+                  setPage("admin-condition-labels");
+                  fetchConditionVariantLabels();
+                }}
+              >
+                명칭 변경
+              </button>
             </div>
             <label>
               평수 선택
@@ -4055,14 +4483,17 @@ export default function App() {
                     <button
                       key={variant}
                       type="button"
-                      className={normalizeConditionVariant("new", false, selectedAdminConditionVariant) === variant ? "selected" : ""}
+                      className={`condition-variant-option ${normalizeConditionVariant("new", false, selectedAdminConditionVariant) === variant ? "selected" : ""}`.trim()}
                       onClick={() => {
                         setSelectedAdminConditionVariant(variant);
                         setAdminConditionLoaded(false);
                         setCurrentAdminTemplateId("");
                       }}
                     >
-                      {variant}
+                      <span>{variant}</span>
+                      {getConditionVariantLabel(variant, conditionVariantLabelMap) && (
+                        <small>{getConditionVariantLabel(variant, conditionVariantLabelMap)}</small>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -4111,18 +4542,26 @@ export default function App() {
                     <button
                       key={variant}
                       type="button"
-                      className={normalizeConditionVariant("old", true, selectedAdminConditionVariant) === variant ? "selected" : ""}
+                      className={`condition-variant-option ${normalizeConditionVariant("old", true, selectedAdminConditionVariant) === variant ? "selected" : ""}`.trim()}
                       onClick={() => {
                         setSelectedAdminConditionVariant(variant);
                         setAdminConditionLoaded(false);
                         setCurrentAdminTemplateId("");
                       }}
                     >
-                      {variant}
+                      <span>{variant}</span>
+                      {getConditionVariantLabel(variant, conditionVariantLabelMap) && (
+                        <small>{getConditionVariantLabel(variant, conditionVariantLabelMap)}</small>
+                      )}
                     </button>
                   ))}
                 </div>
               </label>
+            )}
+            {selectedAdminBuildType === "old" && !selectedAdminHasExtension && (
+              <div className="condition-static-note">
+                확장 없음은 <strong>{formatConditionVariantLabel(OLD_NO_EXTENSION_VARIANT, conditionVariantLabelMap)}</strong> 기준으로 저장됩니다.
+              </div>
             )}
             <div className="admin-condition-submit">
               <button
@@ -4147,7 +4586,7 @@ export default function App() {
               <div className="template-list">
                 {adminTemplates.map((template) => (
                   <div className="template-list-row" key={template.id}>
-                    <span>{makeTemplateLabel(template)}</span>
+                    <span>{makeTemplateLabel(template, conditionVariantLabelMap)}</span>
                     <button className="secondary-button" type="button" onClick={() => loadAdminTemplate(template)}>
                       불러오기
                     </button>
@@ -4477,6 +4916,42 @@ export default function App() {
                   </div>
                 ) : itemExpanded ? (
                 <div className={item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"}>
+                  {isConditionQuantityAdminPage && isWallpaperCategoryName(item.name) && (
+                    <div className="wallpaper-bulk-panel">
+                      <div>
+                        <strong>도배 일괄 입력</strong>
+                        <span>빈 수량/인원 항목에만 적용합니다. 이미 입력된 소재 값은 유지됩니다.</span>
+                      </div>
+                      <label>
+                        수량
+                        <input
+                          type="number"
+                          min="0"
+                          value={wallpaperBulkInputs[item.id]?.quantity ?? ""}
+                          onChange={(event) => updateWallpaperBulkInput(item.id, { quantity: event.target.value })}
+                          placeholder="예: 75"
+                        />
+                      </label>
+                      <label>
+                        인원
+                        <input
+                          type="number"
+                          min="0"
+                          value={wallpaperBulkInputs[item.id]?.labor_count ?? ""}
+                          onChange={(event) => updateWallpaperBulkInput(item.id, { labor_count: event.target.value })}
+                          placeholder="예: 3"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={adminSaving}
+                        onClick={() => applyWallpaperBulkInput(item.id)}
+                      >
+                        빈 항목에 적용
+                      </button>
+                    </div>
+                  )}
                   {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
                     <div
                       key={subitem.id}
@@ -5943,6 +6418,24 @@ const styles = `
   .chips button {
     padding: 0 14px;
   }
+  .chips button.condition-variant-option {
+    height: auto;
+    min-height: 48px;
+    display: inline-grid;
+    gap: 2px;
+    align-content: center;
+    justify-items: center;
+    padding: 8px 14px;
+    line-height: 1.2;
+  }
+  .condition-variant-option small {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+  }
+  .condition-variant-option.selected small {
+    color: var(--brand-primary);
+  }
   .condition-builder-panel {
     display: grid;
     gap: var(--space-3);
@@ -6147,9 +6640,17 @@ const styles = `
     font-weight: var(--font-weight-semibold);
   }
   .admin-condition-title {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-1);
+    align-self: center;
+  }
+  .admin-condition-title > div {
     display: grid;
     gap: 4px;
-    align-self: center;
+    min-width: 0;
   }
   .admin-condition-title strong,
   .template-list-panel strong {
@@ -6163,6 +6664,11 @@ const styles = `
   }
   .admin-condition-toggle {
     min-width: 0;
+  }
+  .condition-label-link {
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 0 12px;
   }
   .admin-condition-submit {
     display: flex;
@@ -6308,6 +6814,51 @@ const styles = `
     margin-bottom: 6px;
     color: var(--text-primary);
     font-size: var(--font-size-title-sm);
+  }
+  .condition-label-panel {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .condition-label-guide {
+    display: grid;
+    gap: 4px;
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+  }
+  .condition-label-guide strong {
+    color: var(--text-primary);
+  }
+  .condition-label-guide span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+  }
+  .condition-label-list {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .condition-label-row {
+    display: grid;
+    grid-template-columns: 92px minmax(180px, 1fr) minmax(220px, 1.4fr);
+    gap: var(--space-1);
+    align-items: end;
+    padding: var(--space-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-surface);
+  }
+  .condition-label-row > strong {
+    align-self: center;
+    color: var(--brand-primary);
+  }
+  .condition-label-row label {
+    display: grid;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
   }
   .status-box, .error-box {
     margin-bottom: var(--space-2);
@@ -6501,6 +7052,35 @@ const styles = `
   }
   .admin-flat-list {
     padding-left: 0;
+  }
+  .wallpaper-bulk-panel {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) 140px 140px auto;
+    gap: var(--space-1);
+    align-items: end;
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--brand-primary-subtle);
+  }
+  .wallpaper-bulk-panel > div {
+    display: grid;
+    gap: 4px;
+  }
+  .wallpaper-bulk-panel strong {
+    color: var(--text-primary);
+  }
+  .wallpaper-bulk-panel span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.5;
+  }
+  .wallpaper-bulk-panel label {
+    display: grid;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
   }
   .admin-subitem-row {
     display: grid;
@@ -7657,6 +8237,8 @@ const styles = `
     .condition-static-grid,
     .admin-pyeong-panel, .admin-catalog-actions, .admin-item-header, .admin-subitem-row, .admin-value-row, .admin-add-subitem-row,
     .admin-flat-list .admin-value-row, .price-item-header, .price-row,
+    .wallpaper-bulk-panel,
+    .condition-label-row,
     .template-list-row, .detail-cost-layout, .detail-add-row, .detail-cost-row, .estimate-card,
     .estimate-template-expanded-content, .estimate-template-detail, .estimate-pyeong-preview,
     .estimate-meta-grid, .adjustment-row, .estimate-editor-total {
@@ -7727,7 +8309,7 @@ const styles = `
       min-height: 190px;
       padding: var(--space-3);
     }
-    .editor-header, .actions, .condition-start-row, .estimate-selected-condition-panel {
+    .editor-header, .actions, .condition-start-row, .estimate-selected-condition-panel, .admin-condition-title {
       flex-direction: column;
       align-items: stretch;
     }
