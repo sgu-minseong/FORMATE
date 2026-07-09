@@ -28,7 +28,7 @@ import logoUrl from "./assets/logo.svg";
 
 const pageFromHash = () => {
   const page = window.location.hash.replace("#", "");
-  return ["landing", "condition", "admin", "admin-items"].includes(page) ? page : "landing";
+  return ["landing", "condition", "admin", "admin-prices", "admin-items"].includes(page) ? page : "landing";
 };
 
 const COMPANY_STORAGE_KEYS = {
@@ -37,7 +37,7 @@ const COMPANY_STORAGE_KEYS = {
   code: "formate.selectedCompanyCode",
 };
 const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
-const PROTECTED_ADMIN_PAGES = ["admin", "admin-items", "admin-detail-costs"];
+const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-detail-costs"];
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const UNIT_OPTIONS = ["평", "㎡", "미터", "개소", "식"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
@@ -887,6 +887,19 @@ function formatDisplayDate(dateInput) {
   return date.toLocaleDateString("ko-KR");
 }
 
+function formatDisplayDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function sanitizeFileNamePart(value, fallback) {
   const cleaned = `${value ?? ""}`
     .trim()
@@ -977,6 +990,8 @@ export default function App() {
   const [selectedAdminConditionVariant, setSelectedAdminConditionVariant] = useState("");
   const [adminTemplates, setAdminTemplates] = useState([]);
   const [currentAdminTemplateId, setCurrentAdminTemplateId] = useState("");
+  const [adminConditionLoaded, setAdminConditionLoaded] = useState(false);
+  const [adminCommonPriceSavedAt, setAdminCommonPriceSavedAt] = useState("");
   const [dragItemId, setDragItemId] = useState("");
   const [dragSubitem, setDragSubitem] = useState(null);
   const [detailSubitems, setDetailSubitems] = useState([]);
@@ -1004,6 +1019,8 @@ export default function App() {
   );
   const adminVerified = isAdminVerifiedForCompany(selectedCompanyId);
   const isProtectedAdminPage = PROTECTED_ADMIN_PAGES.includes(page);
+  const isCommonPriceAdminPage = page === "admin-prices";
+  const isConditionQuantityAdminPage = page === "admin-items";
 
   const conditionKey = useMemo(() => makeConditionKey(condition), [condition]);
   const estimateNumber = useMemo(
@@ -1106,6 +1123,8 @@ export default function App() {
   const currentAdminConditionLabel = currentAdminTemplateCondition
     ? makeTemplateLabel(currentAdminTemplateCondition)
     : "";
+  const canEditConditionQuantities = isConditionQuantityAdminPage && adminConditionLoaded && Boolean(currentAdminTemplateCondition);
+  const adminCommonPriceSavedLabel = adminCommonPriceSavedAt ? formatDisplayDateTime(adminCommonPriceSavedAt) : "";
 
   useEffect(() => {
     let active = true;
@@ -1181,11 +1200,12 @@ export default function App() {
     if (!selectedCompanyId) return;
     if (PROTECTED_ADMIN_PAGES.includes(page) && !isAdminVerifiedForCompany(selectedCompanyId)) return;
     if (page === "admin-prices") {
-      setPage("admin-items");
+      fetchAdminItems({ mode: "prices" });
       return;
     }
     if (page === "admin-items") {
-      fetchAdminItems();
+      setAdminConditionLoaded(false);
+      fetchAdminItems({ mode: "condition", condition: null });
     }
     if (page === "admin-detail-costs") {
       fetchDetailSubitems();
@@ -1193,7 +1213,7 @@ export default function App() {
     if (page === "admin-estimates") {
       fetchEstimates();
     }
-  }, [page, selectedAdminPyeong, selectedAdminBuildType, selectedAdminHasExtension, selectedAdminConditionVariant, selectedCompanyId]);
+  }, [page, selectedCompanyId]);
 
   useEffect(() => {
     if (selectedCompanyId && page === "admin-detail-costs" && selectedDetailSubitemId) {
@@ -1699,7 +1719,7 @@ export default function App() {
     return null;
   }
 
-  async function fetchAdminItems() {
+  async function fetchAdminItems(options = {}) {
     setAdminLoading(true);
     setAdminError("");
     try {
@@ -1707,6 +1727,8 @@ export default function App() {
         throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
       }
       const companyId = requireSelectedCompanyId();
+      const mode = options.mode ?? (page === "admin-prices" ? "prices" : "condition");
+      const shouldLoadConditionValues = mode === "condition";
 
       let { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
       let defaultCatalogPrepared = false;
@@ -1721,23 +1743,32 @@ export default function App() {
 
       const flatSubitemsChanged = await ensureFlatSubitems(itemRows, subitemRows);
       if (flatSubitemsChanged) {
-        await fetchAdminItems();
+        await fetchAdminItems(options);
         return;
       }
 
       const flooringThicknessChanged = await ensureFlooringThicknessSubitems(itemRows, subitemRows);
       if (flooringThicknessChanged) {
-        await fetchAdminItems();
+        await fetchAdminItems(options);
         return;
       }
 
-      await fetchAdminTemplateList();
+      if (shouldLoadConditionValues) {
+        await fetchAdminTemplateList();
+      } else {
+        setAdminTemplates([]);
+        setCurrentAdminTemplateId("");
+        setAdminConditionLoaded(false);
+      }
 
       let templateValueRows = [];
-      const adminTemplateCondition = getAdminTemplateCondition();
-      if (adminTemplateCondition) {
+      const adminTemplateCondition = Object.prototype.hasOwnProperty.call(options, "condition")
+        ? options.condition
+        : getAdminTemplateCondition();
+      if (shouldLoadConditionValues && adminTemplateCondition) {
         const templateRow = await fetchTemplateRowByCondition(companyId, adminTemplateCondition);
         setCurrentAdminTemplateId(templateRow?.id ?? "");
+        setAdminConditionLoaded(true);
 
         if (templateRow?.id) {
           const { data: values, error: valuesError } = await supabase
@@ -1753,7 +1784,18 @@ export default function App() {
         }
       } else {
         setCurrentAdminTemplateId("");
-        setAdminNotice(defaultCatalogPrepared ? "기본 시공항목이 준비되었습니다. 단가/인건비는 공통값, 수량/인원은 조건별 값으로 입력하세요." : "");
+        if (shouldLoadConditionValues) {
+          setAdminConditionLoaded(false);
+          setAdminNotice(defaultCatalogPrepared ? "기본 시공항목이 준비되었습니다. 먼저 조건을 선택한 뒤 관리하기를 눌러주세요." : "");
+        } else {
+          const latestUpdatedAt = subitemRows
+            .map((subitem) => subitem.updated_at)
+            .filter(Boolean)
+            .sort()
+            .at(-1);
+          if (latestUpdatedAt) setAdminCommonPriceSavedAt(latestUpdatedAt);
+          setAdminNotice(defaultCatalogPrepared ? "기본 시공항목이 준비되었습니다. 공통 단가와 인건비를 입력하세요." : "");
+        }
       }
 
       setAdminItems(normalizeAdminItems(itemRows, subitemRows, templateValueRows));
@@ -1882,7 +1924,7 @@ export default function App() {
     setCondition((current) => ({ ...current, ...patch }));
   }
 
-  function loadAdminTemplate(template) {
+  async function loadAdminTemplate(template) {
     const condition = buildTemplateCondition({
       pyeong: template.pyeong,
       buildType: template.condition_variant || template.build_type,
@@ -1894,6 +1936,8 @@ export default function App() {
     setSelectedAdminHasExtension(Boolean(condition.has_extension));
     setSelectedAdminConditionVariant(condition.condition_variant);
     setCurrentAdminTemplateId(template.id);
+    setAdminConditionLoaded(false);
+    await fetchAdminItems({ mode: "condition", condition });
   }
 
   function hasCurrentCompanySubitem(subitemId) {
@@ -2314,6 +2358,8 @@ export default function App() {
     setExpandedAdminItemIds([]);
     setAdminTemplates([]);
     setCurrentAdminTemplateId("");
+    setAdminConditionLoaded(false);
+    setAdminCommonPriceSavedAt("");
     setSelectedAdminPyeong("");
     setSelectedAdminBuildType("");
     setSelectedAdminHasExtension(false);
@@ -2751,19 +2797,17 @@ export default function App() {
     setAdminSaving(true);
     setAdminError("");
     try {
-      const adminTemplateCondition = getAdminTemplateCondition();
-      if (!adminTemplateCondition) {
-        throw new Error("저장할 평수와 주택 유형을 먼저 선택하세요.");
-      }
       const companyId = requireSelectedCompanyId();
       const adminSubitems = adminItems.flatMap((item) => item.subitems ?? []);
+      const isCommonPriceSave = page === "admin-prices";
 
-      if (adminSubitems.length) {
+      if (isCommonPriceSave) {
         await Promise.all(
           adminSubitems.map((subitem) =>
             supabase
               .from("construction_subitems")
               .update({
+                unit: subitem.unit ?? "평",
                 unit_price: toNonNegativeNumberOrZero(subitem.unit_price),
                 labor_rate: toNonNegativeNumberOrZero(subitem.labor_rate),
               })
@@ -2773,6 +2817,16 @@ export default function App() {
           const failed = results.find((result) => result.error);
           if (failed?.error) throw failed.error;
         });
+        const savedAt = new Date().toISOString();
+        setAdminCommonPriceSavedAt(savedAt);
+        setAdminNotice("공통 단가/인건비를 저장했습니다.");
+        await fetchAdminItems({ mode: "prices" });
+        return;
+      }
+
+      const adminTemplateCondition = getAdminTemplateCondition();
+      if (!adminTemplateCondition) {
+        throw new Error("저장할 평수와 주택 유형을 먼저 선택하세요.");
       }
 
       const { data: templateRow, error: templateError } = await supabase
@@ -2806,7 +2860,9 @@ export default function App() {
       }
 
       setCurrentAdminTemplateId(templateRow.id);
-      await fetchAdminItems();
+      setAdminConditionLoaded(true);
+      setAdminNotice("현재 조건의 수량/인원을 저장했습니다.");
+      await fetchAdminItems({ mode: "condition", condition: adminTemplateCondition });
     } catch (error) {
       setAdminError(getFriendlyError(error, "시공 항목 값을 저장하지 못했어요. 다시 시도해주세요."));
     } finally {
@@ -2976,16 +3032,16 @@ export default function App() {
       <style>{styles}</style>
 
       {page !== "landing" && (
-        <header className={`global-header ${page === "admin-items" && adminVerified ? "with-admin-condition" : ""}`.trim()}>
+        <header className={`global-header ${isConditionQuantityAdminPage && adminVerified ? "with-admin-condition" : ""}`.trim()}>
           <button className="global-brand" onClick={resetFlow} aria-label="FORMATE 홈으로 이동">
             <img src={logoUrl} alt="" />
             <strong>FORMATE</strong>
           </button>
-          {page === "admin-items" && adminVerified && (
-            <div className={`header-admin-condition ${currentAdminTemplateCondition ? "active" : ""}`.trim()} aria-live="polite">
+          {isConditionQuantityAdminPage && adminVerified && (
+            <div className={`header-admin-condition ${canEditConditionQuantities ? "active" : ""}`.trim()} aria-live="polite">
               <span>현재 관리 중</span>
               <strong>
-                {currentAdminConditionLabel
+                {canEditConditionQuantities && currentAdminConditionLabel
                   ? `현재 관리 중: ${currentAdminConditionLabel}`
                   : "현재 관리 중인 조건 없음"}
               </strong>
@@ -3144,18 +3200,36 @@ export default function App() {
           </button>
           <section className="panel">
             <p className="eyebrow dark">FORMATE 관리</p>
-            <h2>조건별 수량/인원 관리</h2>
+            <h2>관리자 홈</h2>
             <p className="muted">
-              단가/인건비는 모든 조건에 공통 적용되고, 수량/인원은 평수와 주택 조건별로 저장됩니다.
+              공통 단가/인건비와 조건별 수량/인원을 분리해서 관리합니다.
             </p>
             <p className="muted">
-              이 화면은 고객에게 보여주는 견적서가 아니라, 우리 업체 내부의 수량/인원 기준표를 설정하는 공간입니다.
+              이 화면은 고객에게 보여주는 견적서가 아니라, 우리 업체 내부 기준을 설정하는 공간입니다.
             </p>
             <div className="admin-menu">
-              <button className="menu-card" onClick={() => setPage("admin-items")}>
+              <button
+                className="menu-card"
+                onClick={() => {
+                  setPage("admin-prices");
+                  fetchAdminItems({ mode: "prices" });
+                }}
+              >
                 <ClipboardList />
-                <span>조건별 수량/인원 편집</span>
-                <p>공통 단가/인건비를 확인하면서 조건별 수량과 인원을 관리합니다.</p>
+                <span>공통 단가/인건비 관리</span>
+                <p>모든 평수와 주택 조건에 공통 적용되는 소재별 단가와 인건비를 관리합니다.</p>
+              </button>
+              <button
+                className="menu-card"
+                onClick={() => {
+                  setPage("admin-items");
+                  setAdminConditionLoaded(false);
+                  fetchAdminItems({ mode: "condition", condition: null });
+                }}
+              >
+                <ClipboardList />
+                <span>조건별 수량/인원 관리</span>
+                <p>평수와 주택 조건별로 필요한 수량과 인원을 관리합니다.</p>
               </button>
               <button className="menu-card" onClick={() => setPage("admin-detail-costs")}>
                 <FileText />
@@ -3706,32 +3780,54 @@ export default function App() {
         </main>
       )}
 
-      {page === "admin-items" && adminVerified && (
+      {(isCommonPriceAdminPage || isConditionQuantityAdminPage) && adminVerified && (
         <main className="panel-page admin-page">
           <div className="editor-header">
             <div>
               <button className="ghost" onClick={() => setPage("admin")}>
                 <ArrowLeft size={18} /> 관리자 홈
               </button>
-              <h2>조건별 수량/인원 관리</h2>
+              <h2>{isCommonPriceAdminPage ? "공통 단가/인건비 관리" : "조건별 수량/인원 관리"}</h2>
+              <p className="muted caption">
+                {isCommonPriceAdminPage
+                  ? "단가와 인건비는 모든 평수와 주택 유형에 공통 적용됩니다."
+                  : "평수와 주택 조건별로 필요한 수량과 인원을 관리합니다."}
+              </p>
             </div>
             <div className="admin-actions">
-              <button className="secondary-button" disabled={adminLoading || adminSaving} onClick={fetchAdminItems}>
+              <button
+                className="secondary-button"
+                disabled={adminLoading || adminSaving}
+                onClick={() => fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" })}
+              >
                 <RefreshCcw size={18} /> 되돌리기
               </button>
               <button
                 className="primary-button"
-                disabled={adminLoading || adminSaving || !currentAdminTemplateCondition}
+                disabled={adminLoading || adminSaving || (isConditionQuantityAdminPage && !canEditConditionQuantities)}
                 onClick={saveAdminPrices}
               >
                 <Save size={18} /> 저장
               </button>
-              <button className="primary-button" disabled={adminLoading || adminSaving} onClick={addAdminItem}>
-                <Plus size={18} /> 대분류 추가
-              </button>
+              {isCommonPriceAdminPage && (
+                <button className="primary-button" disabled={adminLoading || adminSaving} onClick={addAdminItem}>
+                  <Plus size={18} /> 대분류 추가
+                </button>
+              )}
             </div>
           </div>
 
+          {isCommonPriceAdminPage && (
+            <section className="template-list-panel">
+              <div>
+                <strong>공통 단가/인건비 기준</strong>
+                <span>소재명, 규격, 단위, 단가, 인건비만 관리합니다. 수량과 인원은 수량/인원 관리에서 입력합니다.</span>
+                <span>마지막 업데이트: {adminCommonPriceSavedLabel || "확인된 저장 시각 없음"}</span>
+              </div>
+            </section>
+          )}
+
+          {isConditionQuantityAdminPage && (
           <section className="admin-pyeong-panel">
             <div className="admin-condition-title">
               <strong>조건 선택</strong>
@@ -3752,6 +3848,8 @@ export default function App() {
                 {adminPyeongDropdownOpen &&
                   renderPyeongDropdownMenu(selectedAdminPyeong, (value) => {
                     setSelectedAdminPyeong(value);
+                    setAdminConditionLoaded(false);
+                    setCurrentAdminTemplateId("");
                     setAdminPyeongDropdownOpen(false);
                   })}
               </div>
@@ -3766,6 +3864,8 @@ export default function App() {
                     setSelectedAdminBuildType("new");
                     setSelectedAdminHasExtension(false);
                     setSelectedAdminConditionVariant("확장형1");
+                    setAdminConditionLoaded(false);
+                    setCurrentAdminTemplateId("");
                   }}
                 >
                   확장형
@@ -3777,6 +3877,8 @@ export default function App() {
                     setSelectedAdminBuildType("old");
                     setSelectedAdminHasExtension(false);
                     setSelectedAdminConditionVariant(OLD_NO_EXTENSION_VARIANT);
+                    setAdminConditionLoaded(false);
+                    setCurrentAdminTemplateId("");
                   }}
                 >
                   구형
@@ -3792,7 +3894,11 @@ export default function App() {
                       key={variant}
                       type="button"
                       className={normalizeConditionVariant("new", false, selectedAdminConditionVariant) === variant ? "selected" : ""}
-                      onClick={() => setSelectedAdminConditionVariant(variant)}
+                      onClick={() => {
+                        setSelectedAdminConditionVariant(variant);
+                        setAdminConditionLoaded(false);
+                        setCurrentAdminTemplateId("");
+                      }}
                     >
                       {variant}
                     </button>
@@ -3810,6 +3916,8 @@ export default function App() {
                     onClick={() => {
                       setSelectedAdminHasExtension(false);
                       setSelectedAdminConditionVariant(OLD_NO_EXTENSION_VARIANT);
+                      setAdminConditionLoaded(false);
+                      setCurrentAdminTemplateId("");
                     }}
                   >
                     확장 없음
@@ -3824,6 +3932,8 @@ export default function App() {
                           ? selectedAdminConditionVariant
                           : "구형1"
                       );
+                      setAdminConditionLoaded(false);
+                      setCurrentAdminTemplateId("");
                     }}
                   >
                     확장 있음
@@ -3840,7 +3950,11 @@ export default function App() {
                       key={variant}
                       type="button"
                       className={normalizeConditionVariant("old", true, selectedAdminConditionVariant) === variant ? "selected" : ""}
-                      onClick={() => setSelectedAdminConditionVariant(variant)}
+                      onClick={() => {
+                        setSelectedAdminConditionVariant(variant);
+                        setAdminConditionLoaded(false);
+                        setCurrentAdminTemplateId("");
+                      }}
                     >
                       {variant}
                     </button>
@@ -3848,8 +3962,20 @@ export default function App() {
                 </div>
               </label>
             )}
+            <div className="admin-condition-submit">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={adminLoading || adminSaving || !currentAdminTemplateCondition}
+                onClick={() => fetchAdminItems({ mode: "condition", condition: currentAdminTemplateCondition })}
+              >
+                관리하기
+              </button>
+            </div>
           </section>
+          )}
 
+          {isConditionQuantityAdminPage && (
           <section className="template-list-panel">
             <div>
               <strong>저장된 조건 기준</strong>
@@ -3872,6 +3998,7 @@ export default function App() {
               </p>
             )}
           </section>
+          )}
 
           {adminLoading && <div className="status-box">불러오는 중...</div>}
           {adminSaving && <div className="status-box">저장 중...</div>}
@@ -3881,35 +4008,45 @@ export default function App() {
           <section className="admin-edit-panel">
             <div className="admin-edit-title">
               <div>
-                <strong>조건별 수량/인원 편집</strong>
-                <span>현재 조건의 수량과 인원을 입력하세요. 단가와 인건비는 모든 조건에 공통 적용되는 기준값입니다.</span>
+                <strong>{isCommonPriceAdminPage ? "공통 단가/인건비 관리" : "조건별 수량/인원 관리"}</strong>
+                <span>
+                  {isCommonPriceAdminPage
+                    ? "소재별 단가와 인건비를 입력하세요. 수량과 인원은 수량/인원 관리에서 입력합니다."
+                    : "이 화면에서는 현재 조건의 수량과 인원만 입력합니다. 단가와 인건비는 공통 단가/인건비 관리 화면에서 수정합니다."}
+                </span>
               </div>
-              {currentAdminConditionLabel && <em>{currentAdminConditionLabel}</em>}
+              {isConditionQuantityAdminPage && currentAdminConditionLabel && <em>{currentAdminConditionLabel}</em>}
             </div>
 
-            <div className={`admin-edit-current ${currentAdminTemplateCondition ? "active" : ""}`.trim()}>
+            {isConditionQuantityAdminPage && (
+            <div className={`admin-edit-current ${canEditConditionQuantities ? "active" : ""}`.trim()}>
               <span>현재 관리 중</span>
               <strong>
-                {currentAdminConditionLabel || "현재 관리 중인 조건이 없습니다. 먼저 평수와 주택 조건을 선택하세요."}
+                {canEditConditionQuantities && currentAdminConditionLabel
+                  ? currentAdminConditionLabel
+                  : "현재 관리 중인 조건이 없습니다. 먼저 평수와 주택 조건을 선택하세요."}
               </strong>
               <p>
-                {currentAdminTemplateCondition
+                {canEditConditionQuantities
                   ? "이 조건의 수량/인원을 입력하세요. 단가와 인건비는 모든 조건에 공통 적용됩니다."
-                  : "먼저 평수와 주택 유형을 선택한 뒤 저장된 기준을 불러오거나 새 기준을 입력하세요."}
+                  : "먼저 평수와 주택 조건을 선택한 뒤 관리하기 또는 불러오기를 눌러주세요."}
               </p>
             </div>
+            )}
 
+            {isCommonPriceAdminPage && (
             <section className="admin-catalog-actions">
               <div>
                 <strong>대분류/소재 구조</strong>
-                <span>대분류는 시공 항목, 소재는 해당 대분류 안의 세부 항목입니다.</span>
+                <span>대분류는 시공 항목, 소재는 해당 대분류 안의 세부 항목입니다. 단위, 규격, 단가, 인건비를 여기서 관리합니다.</span>
               </div>
               <button className="primary-button" type="button" disabled={adminLoading || adminSaving} onClick={addAdminItem}>
                 <Plus size={18} /> 대분류 추가
               </button>
             </section>
+            )}
 
-          {currentAdminTemplateCondition && adminItems.length > 0 && (
+          {((isCommonPriceAdminPage && adminItems.length > 0) || (canEditConditionQuantities && adminItems.length > 0)) && (
             <section className="admin-tool-panel">
               <label className="admin-search-field">
                 <Search size={17} />
@@ -3938,21 +4075,21 @@ export default function App() {
             </section>
           )}
 
-          {!currentAdminTemplateCondition && (
+          {isConditionQuantityAdminPage && !canEditConditionQuantities && (
             <section className="panel admin-empty-edit-notice">
               <strong>조건을 먼저 선택하세요.</strong>
-              <p className="muted">먼저 평수와 주택 유형을 선택한 뒤 저장된 기준을 불러오거나 새 기준을 입력하세요.</p>
-              <p className="muted">단가/인건비는 모든 조건에 공통 적용되고, 수량/인원은 현재 조건에만 저장됩니다.</p>
+              <p className="muted">먼저 평수와 주택 조건을 선택한 뒤 관리하기 또는 불러오기를 눌러주세요.</p>
+              <p className="muted">단가와 인건비는 공통 단가/인건비 관리 화면에서 수정합니다.</p>
             </section>
           )}
 
-          {currentAdminTemplateCondition && !adminLoading && adminItems.length > 0 && !filteredAdminItems.length && (
+          {((isCommonPriceAdminPage && adminItems.length > 0) || (canEditConditionQuantities && adminItems.length > 0)) && !adminLoading && !filteredAdminItems.length && (
             <section className="panel">
               <p className="muted">검색 결과가 없습니다.</p>
             </section>
           )}
 
-          {currentAdminTemplateCondition && filteredAdminItems.length > 0 && (
+          {((isCommonPriceAdminPage && filteredAdminItems.length > 0) || (canEditConditionQuantities && filteredAdminItems.length > 0)) && (
           <section className="admin-list">
             {filteredAdminItems.map((item) => {
               const itemSubitems = getVisibleAdminSubitems(item);
@@ -3961,10 +4098,10 @@ export default function App() {
               <article
                 key={item.id}
                 className="admin-item-card"
-                draggable
-                onDragStart={() => setDragItemId(item.id)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => reorderAdminItems(item.id)}
+                draggable={isCommonPriceAdminPage}
+                onDragStart={() => isCommonPriceAdminPage && setDragItemId(item.id)}
+                onDragOver={(event) => isCommonPriceAdminPage && event.preventDefault()}
+                onDrop={() => isCommonPriceAdminPage && reorderAdminItems(item.id)}
               >
                 <div className="admin-item-header">
                   <button
@@ -3976,36 +4113,52 @@ export default function App() {
                     {itemExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                   </button>
                   <span className="drag-handle">::</span>
-                  <button
-                    className={`icon-button ${item.is_favorite ? "active" : ""}`}
-                    title="즐겨찾기"
-                    disabled={adminSaving}
-                    onClick={() => toggleAdminFavorite(item)}
-                  >
-                    <Star size={18} fill={item.is_favorite ? "currentColor" : "none"} />
-                  </button>
-                  <label className="admin-item-name-field">
-                    <span>대분류명</span>
-                    <input
-                      className="name-input"
-                      value={item.name}
-                      onChange={(event) =>
-                        setAdminItems((current) =>
-                          current.map((entry) =>
-                            entry.id === item.id ? { ...entry, name: event.target.value } : entry
+                  {isCommonPriceAdminPage ? (
+                    <button
+                      className={`icon-button ${item.is_favorite ? "active" : ""}`}
+                      title="즐겨찾기"
+                      disabled={adminSaving}
+                      onClick={() => toggleAdminFavorite(item)}
+                    >
+                      <Star size={18} fill={item.is_favorite ? "currentColor" : "none"} />
+                    </button>
+                  ) : (
+                    <span className="admin-item-placeholder" />
+                  )}
+                  {isCommonPriceAdminPage ? (
+                    <label className="admin-item-name-field">
+                      <span>대분류명</span>
+                      <input
+                        className="name-input"
+                        value={item.name}
+                        onChange={(event) =>
+                          setAdminItems((current) =>
+                            current.map((entry) =>
+                              entry.id === item.id ? { ...entry, name: event.target.value } : entry
+                            )
                           )
-                        )
-                      }
-                      onBlur={(event) => renameAdminItem(item.id, event.target.value)}
-                    />
-                  </label>
+                        }
+                        onBlur={(event) => renameAdminItem(item.id, event.target.value)}
+                      />
+                    </label>
+                  ) : (
+                    <strong className="admin-item-title">{item.name}</strong>
+                  )}
                   <span className="type-badge">{item.item_type === "flat" ? "단일 항목" : "소재형"}</span>
-                  <button className="secondary-button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
-                    <Plus size={18} /> 소재 추가
-                  </button>
-                  <button className="danger-button" disabled={adminSaving} onClick={() => deleteAdminItem(item.id)}>
-                    <Trash2 size={18} />
-                  </button>
+                  {isCommonPriceAdminPage ? (
+                    <button className="secondary-button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+                      <Plus size={18} /> 소재 추가
+                    </button>
+                  ) : (
+                    <span className="admin-item-placeholder" />
+                  )}
+                  {isCommonPriceAdminPage ? (
+                    <button className="danger-button" disabled={adminSaving} onClick={() => deleteAdminItem(item.id)}>
+                      <Trash2 size={18} />
+                    </button>
+                  ) : (
+                    <span className="admin-item-placeholder" />
+                  )}
                 </div>
 
                 {itemExpanded && isFlooringThicknessItem(item) ? (
@@ -4022,113 +4175,133 @@ export default function App() {
                       return (
                         <div
                           key={subitem.id}
-                          className="admin-value-row flooring-value-row"
-                          draggable
-                          onDragStart={() => setDragSubitem({ itemId: item.id, subitemId: subitem.id })}
-                          onDragOver={(event) => event.preventDefault()}
-                          onDrop={() => reorderAdminSubitems(item.id, subitem.id)}
+                          className={`admin-value-row flooring-value-row ${isCommonPriceAdminPage ? "common-price-row" : "condition-quantity-row"}`.trim()}
+                          draggable={isCommonPriceAdminPage}
+                          onDragStart={() => isCommonPriceAdminPage && setDragSubitem({ itemId: item.id, subitemId: subitem.id })}
+                          onDragOver={(event) => isCommonPriceAdminPage && event.preventDefault()}
+                          onDrop={() => isCommonPriceAdminPage && reorderAdminSubitems(item.id, subitem.id)}
                         >
-                          <span className="drag-handle">::</span>
-                          <label className="admin-material-name-field">
-                            소재명
-                            <input
-                              value={parsedFlooring.baseName}
-                              onChange={(event) =>
-                                updateLocalSubitemName(
-                                  subitem.id,
-                                  composeFlooringSubitemName(event.target.value, parsedFlooring.thickness)
-                                )
-                              }
-                              onBlur={(event) =>
-                                updateAdminFlooringSubitemName(subitem, { baseName: event.target.value })
-                              }
-                            />
-                          </label>
-                          <label>
-                            규격/두께
-                            <select
-                              value={parsedFlooring.thickness}
-                              onChange={(event) =>
-                                updateAdminFlooringSubitemName(subitem, { thickness: event.target.value })
-                              }
+                          {isCommonPriceAdminPage && <span className="drag-handle">::</span>}
+                          {isCommonPriceAdminPage ? (
+                            <>
+                              <label className="admin-material-name-field">
+                                소재명
+                                <input
+                                  value={parsedFlooring.baseName}
+                                  onChange={(event) =>
+                                    updateLocalSubitemName(
+                                      subitem.id,
+                                      composeFlooringSubitemName(event.target.value, parsedFlooring.thickness)
+                                    )
+                                  }
+                                  onBlur={(event) =>
+                                    updateAdminFlooringSubitemName(subitem, { baseName: event.target.value })
+                                  }
+                                />
+                              </label>
+                              <label>
+                                규격/두께
+                                <select
+                                  value={parsedFlooring.thickness}
+                                  onChange={(event) =>
+                                    updateAdminFlooringSubitemName(subitem, { thickness: event.target.value })
+                                  }
+                                >
+                                  {getFlooringThicknessSelectOptions(parsedFlooring.thickness).map((thickness) => (
+                                    <option key={thickness} value={thickness}>
+                                      {formatFlooringThickness(thickness)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                단위
+                                <select
+                                  value={subitem.unit ?? ""}
+                                  onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
+                                >
+                                  {UNIT_OPTIONS.map((unit) => (
+                                    <option key={unit} value={unit}>
+                                      {unit}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                단가 <span>공통</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={subitem.unit_price ?? ""}
+                                  onChange={(event) =>
+                                    updateLocalSubitemPrice(subitem.id, { unit_price: event.target.value })
+                                  }
+                                />
+                              </label>
+                              <label>
+                                인건비 <span>공통</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={subitem.labor_rate ?? ""}
+                                  onChange={(event) =>
+                                    updateLocalSubitemPrice(subitem.id, { labor_rate: event.target.value })
+                                  }
+                                />
+                              </label>
+                            </>
+                          ) : (
+                            <div className="admin-readonly-material">
+                              <strong>{parsedFlooring.baseName}</strong>
+                              <span>{formatFlooringThickness(parsedFlooring.thickness)}</span>
+                            </div>
+                          )}
+                          {isConditionQuantityAdminPage && (
+                            <>
+                              <label>
+                                수량 <span>현재 조건</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={subitem.quantity ?? ""}
+                                  onChange={(event) =>
+                                    updateLocalSubitemPrice(subitem.id, { quantity: event.target.value })
+                                  }
+                                />
+                              </label>
+                              <label>
+                                인원 <span>현재 조건</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={subitem.labor_count ?? ""}
+                                  onChange={(event) =>
+                                    updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })
+                                  }
+                                />
+                              </label>
+                            </>
+                          )}
+                          {isCommonPriceAdminPage && (
+                            <button
+                              className="danger-button"
+                              disabled={adminSaving}
+                              onClick={() => deleteAdminSubitem(subitem.id)}
                             >
-                              {getFlooringThicknessSelectOptions(parsedFlooring.thickness).map((thickness) => (
-                                <option key={thickness} value={thickness}>
-                                  {formatFlooringThickness(thickness)}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            단위
-                            <select
-                              value={subitem.unit ?? ""}
-                              onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
-                            >
-                              {UNIT_OPTIONS.map((unit) => (
-                                <option key={unit} value={unit}>
-                                  {unit}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            단가 <span>모든 조건 공통</span>
-                            <input
-                              type="number"
-                              min="0"
-                              value={subitem.unit_price ?? ""}
-                              onChange={(event) =>
-                                updateLocalSubitemPrice(subitem.id, { unit_price: event.target.value })
-                              }
-                            />
-                          </label>
-                          <label>
-                            인건비 <span>모든 조건 공통</span>
-                            <input
-                              type="number"
-                              min="0"
-                              value={subitem.labor_rate ?? ""}
-                              onChange={(event) =>
-                                updateLocalSubitemPrice(subitem.id, { labor_rate: event.target.value })
-                              }
-                            />
-                          </label>
-                          <label>
-                            수량 <span>현재 조건</span>
-                            <input
-                              type="number"
-                              min="0"
-                              value={subitem.quantity ?? ""}
-                              onChange={(event) =>
-                                updateLocalSubitemPrice(subitem.id, { quantity: event.target.value })
-                              }
-                            />
-                          </label>
-                          <label>
-                            인원 <span>현재 조건</span>
-                            <input
-                              type="number"
-                              min="0"
-                              value={subitem.labor_count ?? ""}
-                              onChange={(event) =>
-                                updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })
-                              }
-                            />
-                          </label>
-                          <button
-                            className="danger-button"
-                            disabled={adminSaving}
-                            onClick={() => deleteAdminSubitem(subitem.id)}
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                              <Trash2 size={18} />
+                            </button>
+                          )}
                         </div>
                       );
                     })}
                     {!itemSubitems.length && (
-                      <p className="muted">소재가 없습니다. 예: 장판 1.8T, 장판 2.2T, 데코타일 3T처럼 소재를 추가하세요.</p>
+                      <p className="muted">
+                        {isCommonPriceAdminPage
+                          ? "소재가 없습니다. 예: 장판 1.8T, 장판 2.2T, 데코타일 3T처럼 소재를 추가하세요."
+                          : "등록된 소재가 없습니다. 공통 단가/인건비 관리 화면에서 소재를 먼저 추가하세요."}
+                      </p>
                     )}
+                    {isCommonPriceAdminPage && (
                     <div className="admin-add-subitem-row">
                       <div>
                         <strong>{item.name} 안에 소재 추가</strong>
@@ -4138,24 +4311,26 @@ export default function App() {
                         <Plus size={18} /> 소재 추가
                       </button>
                     </div>
+                    )}
                   </div>
                 ) : itemExpanded ? (
                 <div className={item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"}>
                   {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
                     <div
                       key={subitem.id}
-                      className="admin-value-row"
-                      draggable={item.item_type !== "flat"}
+                      className={`admin-value-row ${isCommonPriceAdminPage ? "common-price-row" : "condition-quantity-row"}`.trim()}
+                      draggable={isCommonPriceAdminPage && item.item_type !== "flat"}
                       onDragStart={() =>
+                        isCommonPriceAdminPage &&
                         item.item_type !== "flat" &&
                         setDragSubitem({ itemId: item.id, subitemId: subitem.id })
                       }
-                      onDragOver={(event) => item.item_type !== "flat" && event.preventDefault()}
-                      onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
+                      onDragOver={(event) => isCommonPriceAdminPage && item.item_type !== "flat" && event.preventDefault()}
+                      onDrop={() => isCommonPriceAdminPage && item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
                     >
-                      {item.item_type === "flat" ? (
+                      {item.item_type === "flat" && isCommonPriceAdminPage ? (
                         <strong className="flat-subitem-name">{item.name}</strong>
-                      ) : (
+                      ) : isCommonPriceAdminPage ? (
                         <>
                           <span className="drag-handle">::</span>
                           <label className="admin-material-name-field">
@@ -4182,66 +4357,79 @@ export default function App() {
                             />
                           </label>
                         </>
+                      ) : (
+                        <div className="admin-readonly-material">
+                          <strong>{item.item_type === "flat" ? item.name : subitem.name}</strong>
+                          {isFlooringMaterialName(subitem.name) && <span>{formatFlooringThickness(parseFlooringThicknessName(subitem.name)?.thickness)}</span>}
+                        </div>
                       )}
 
-                      <label>
-                        단위
-                        <select
-                          value={subitem.unit ?? ""}
-                          onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
-                        >
-                          {UNIT_OPTIONS.map((unit) => (
-                            <option key={unit} value={unit}>
-                              {unit}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        단가 <span>모든 조건 공통</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={subitem.unit_price ?? ""}
-                          onChange={(event) =>
-                            updateLocalSubitemPrice(subitem.id, { unit_price: event.target.value })
-                          }
-                        />
-                      </label>
-                      <label>
-                        인건비 <span>모든 조건 공통</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={subitem.labor_rate ?? ""}
-                          onChange={(event) =>
-                            updateLocalSubitemPrice(subitem.id, { labor_rate: event.target.value })
-                          }
-                        />
-                      </label>
-                      <label>
-                        수량 <span>현재 조건</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={subitem.quantity ?? ""}
-                          onChange={(event) =>
-                            updateLocalSubitemPrice(subitem.id, { quantity: event.target.value })
-                          }
-                        />
-                      </label>
-                      <label>
-                        인원 <span>현재 조건</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={subitem.labor_count ?? ""}
-                          onChange={(event) =>
-                            updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })
-                          }
-                        />
-                      </label>
-                      {item.item_type !== "flat" && (
+                      {isCommonPriceAdminPage && (
+                        <>
+                          <label>
+                            단위
+                            <select
+                              value={subitem.unit ?? ""}
+                              onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
+                            >
+                              {UNIT_OPTIONS.map((unit) => (
+                                <option key={unit} value={unit}>
+                                  {unit}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            단가 <span>공통</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={subitem.unit_price ?? ""}
+                              onChange={(event) =>
+                                updateLocalSubitemPrice(subitem.id, { unit_price: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            인건비 <span>공통</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={subitem.labor_rate ?? ""}
+                              onChange={(event) =>
+                                updateLocalSubitemPrice(subitem.id, { labor_rate: event.target.value })
+                              }
+                            />
+                          </label>
+                        </>
+                      )}
+                      {isConditionQuantityAdminPage && (
+                        <>
+                          <label>
+                            수량 <span>현재 조건</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={subitem.quantity ?? ""}
+                              onChange={(event) =>
+                                updateLocalSubitemPrice(subitem.id, { quantity: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            인원 <span>현재 조건</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={subitem.labor_count ?? ""}
+                              onChange={(event) =>
+                                updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })
+                              }
+                            />
+                          </label>
+                        </>
+                      )}
+                      {isCommonPriceAdminPage && item.item_type !== "flat" && (
                         <button
                           className="danger-button"
                           disabled={adminSaving}
@@ -4253,13 +4441,17 @@ export default function App() {
                     </div>
                   ))}
                   {item.item_type !== "flat" && !itemSubitems.length && (
-                    <p className="muted">소재가 없습니다. 소재를 추가하거나 새 단일 항목으로 다시 등록하세요.</p>
+                    <p className="muted">
+                      {isCommonPriceAdminPage
+                        ? "소재가 없습니다. 소재를 추가하거나 새 단일 항목으로 다시 등록하세요."
+                        : "등록된 소재가 없습니다. 공통 단가/인건비 관리 화면에서 소재를 먼저 추가하세요."}
+                    </p>
                   )}
-                  {item.item_type !== "flat" && (
+                  {isCommonPriceAdminPage && item.item_type !== "flat" && (
                     <div className="admin-add-subitem-row">
                       <div>
                         <strong>{item.name} 안에 소재 추가</strong>
-                        <span>소재명, 단위, 공통 단가/인건비와 현재 조건의 수량/인원을 입력할 수 있습니다.</span>
+                        <span>소재명, 단위, 단가, 인건비를 입력할 수 있습니다.</span>
                       </div>
                       <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
                         <Plus size={18} /> 소재 추가
@@ -5732,6 +5924,11 @@ const styles = `
   .admin-condition-toggle {
     min-width: 0;
   }
+  .admin-condition-submit {
+    display: flex;
+    align-items: end;
+    justify-content: flex-end;
+  }
   .admin-pyeong-select {
     max-width: none;
   }
@@ -6012,6 +6209,34 @@ const styles = `
   .admin-material-name-field {
     min-width: 0;
   }
+  .admin-item-title {
+    min-width: 0;
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+  }
+  .admin-item-placeholder {
+    min-width: 0;
+  }
+  .admin-readonly-material {
+    display: grid;
+    gap: 4px;
+    align-self: center;
+    min-width: 0;
+  }
+  .admin-readonly-material strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body);
+  }
+  .admin-readonly-material span {
+    width: fit-content;
+    padding: 3px 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 9999px;
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+  }
   .type-badge {
     min-height: 32px;
     display: inline-flex;
@@ -6058,6 +6283,19 @@ const styles = `
   }
   .flooring-value-row {
     grid-template-columns: 28px minmax(140px, 1.1fr) 120px 100px repeat(4, minmax(118px, 1fr)) 42px;
+  }
+  .admin-value-row.common-price-row {
+    grid-template-columns: 28px minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr)) 42px;
+  }
+  .admin-flat-list .admin-value-row.common-price-row {
+    grid-template-columns: minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr));
+  }
+  .flooring-value-row.common-price-row {
+    grid-template-columns: 28px minmax(140px, 1.1fr) 120px 100px repeat(2, minmax(118px, 1fr)) 42px;
+  }
+  .admin-value-row.condition-quantity-row,
+  .flooring-value-row.condition-quantity-row {
+    grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(132px, 180px));
   }
   .admin-value-row label {
     display: grid;
