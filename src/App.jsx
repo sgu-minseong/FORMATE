@@ -2087,28 +2087,23 @@ export default function App() {
     });
   }
 
-  function canGoNext() {
-    if (step === 1) return Boolean(condition.size);
-    if (step === 2) {
-      if (condition.buildType === "new") return EXTENDED_VARIANTS.includes(getConditionVariant(condition));
-      if (condition.buildType === "old") {
-        if (!condition.expanded) return getConditionVariant(condition) === OLD_NO_EXTENSION_VARIANT;
-        return OLD_EXTENDED_VARIANTS.includes(getConditionVariant(condition));
-      }
-      return false;
+  function isEstimateConditionComplete(nextCondition = condition) {
+    if (!nextCondition.size || !nextCondition.buildType || !nextCondition.occupancy) return false;
+    const variant = getConditionVariant(nextCondition);
+    if (nextCondition.buildType === "new") return EXTENDED_VARIANTS.includes(variant);
+    if (nextCondition.buildType === "old") {
+      if (!nextCondition.expanded) return variant === OLD_NO_EXTENSION_VARIANT;
+      return OLD_EXTENDED_VARIANTS.includes(variant);
     }
-    return Boolean(condition.occupancy);
+    return false;
+  }
+
+  function canGoNext() {
+    return isEstimateConditionComplete(condition);
   }
 
   async function goNext() {
-    if (step === 1) {
-      setStep(2);
-      return;
-    }
-    if (step === 2) {
-      setStep(3);
-      return;
-    }
+    if (!canGoNext()) return;
     const loaded = await fetchEstimateCatalog(condition.size, condition);
     if (loaded) setPage("items");
   }
@@ -3374,12 +3369,34 @@ export default function App() {
       )}
 
       {page === "condition" && (
-        <main className="panel-page">
-          <Progress step={step} />
-          <section className="panel">
-            {step === 1 && (
-              <>
-                <h2>Step 1. 평수 선택</h2>
+        <main className="panel-page condition-page">
+          <section className="panel condition-builder-panel">
+            <div className="editor-header condition-builder-header">
+              <div>
+                <p className="eyebrow dark">신규 견적서 작성</p>
+                <h2>견적 조건 선택</h2>
+                <p className="muted caption">
+                  평수와 주택 조건을 한 화면에서 선택한 뒤 견적을 시작하세요.
+                </p>
+              </div>
+              <button className="ghost" onClick={resetFlow}>
+                <ArrowLeft size={18} /> 이전
+              </button>
+            </div>
+
+            <div className={`estimate-current-condition ${canGoNext() ? "active" : ""}`.trim()}>
+              <span>현재 기준</span>
+              <strong>
+                {conditionChips.length > 0 ? conditionChips.join(" · ") : "조건을 선택하세요."}
+              </strong>
+              <p>
+                빈집/살림집은 견적서 정보에만 남고, 조건별 수량/인원 기준 조회에는 포함하지 않습니다.
+              </p>
+            </div>
+
+            <div className="condition-static-grid">
+              <div className="condition-static-field">
+                <p className="field-label">평수 선택</p>
                 <div className="custom-select">
                   <button
                     type="button"
@@ -3396,13 +3413,11 @@ export default function App() {
                       setPyeongDropdownOpen(false);
                     })}
                 </div>
-              </>
-            )}
+              </div>
 
-            {step === 2 && (
-              <>
-                <h2>Step 2. 주택 유형과 세부 유형</h2>
-                <div className="segmented">
+              <div className="condition-static-field">
+                <p className="field-label">주택 유형</p>
+                <div className="segmented flush">
                   <button
                     className={condition.buildType === "new" ? "selected" : ""}
                     onClick={() =>
@@ -3434,27 +3449,30 @@ export default function App() {
                     구형
                   </button>
                 </div>
+              </div>
 
-                {condition.buildType === "new" && (
-                  <div>
-                    <p className="field-label">확장형 세부 유형</p>
-                    <div className="chips">
-                      {EXTENDED_VARIANTS.map((variant) => (
-                        <button
-                          key={variant}
-                          className={getConditionVariant(condition) === variant ? "selected" : ""}
-                          onClick={() => updateCondition({ conditionVariant: variant })}
-                        >
-                          {variant}
-                        </button>
-                      ))}
-                    </div>
+              {condition.buildType === "new" && (
+                <div className="condition-static-field condition-static-wide">
+                  <p className="field-label">확장형 세부 유형</p>
+                  <div className="chips">
+                    {EXTENDED_VARIANTS.map((variant) => (
+                      <button
+                        key={variant}
+                        className={getConditionVariant(condition) === variant ? "selected" : ""}
+                        onClick={() => updateCondition({ conditionVariant: variant })}
+                      >
+                        {variant}
+                      </button>
+                    ))}
                   </div>
-                )}
+                </div>
+              )}
 
-                {condition.buildType === "old" && (
-                  <div className="stack">
-                    <div className="segmented compact">
+              {condition.buildType === "old" && (
+                <>
+                  <div className="condition-static-field">
+                    <p className="field-label">확장 여부</p>
+                    <div className="segmented flush">
                       <button
                         className={!condition.expanded ? "selected" : ""}
                         onClick={() =>
@@ -3481,31 +3499,34 @@ export default function App() {
                         확장 있음
                       </button>
                     </div>
-                    {condition.expanded && (
-                      <div>
-                        <p className="field-label">구형 세부 유형</p>
-                        <div className="chips">
-                          {OLD_EXTENDED_VARIANTS.map((variant) => (
-                            <button
-                              key={variant}
-                              className={getConditionVariant(condition) === variant ? "selected" : ""}
-                              onClick={() => updateCondition({ conditionVariant: variant })}
-                            >
-                              {variant}
-                            </button>
-                          ))}
-                        </div>
+                  </div>
+
+                  <div className="condition-static-field condition-static-wide">
+                    <p className="field-label">구형 세부 유형</p>
+                    {condition.expanded ? (
+                      <div className="chips">
+                        {OLD_EXTENDED_VARIANTS.map((variant) => (
+                          <button
+                            key={variant}
+                            className={getConditionVariant(condition) === variant ? "selected" : ""}
+                            onClick={() => updateCondition({ conditionVariant: variant })}
+                          >
+                            {variant}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="condition-static-note">
+                        확장 없음은 <strong>{OLD_NO_EXTENSION_VARIANT}</strong> 기준으로 불러옵니다.
                       </div>
                     )}
                   </div>
-                )}
-              </>
-            )}
+                </>
+              )}
 
-            {step === 3 && (
-              <>
-                <h2>Step 3. 빈집/살림집 선택</h2>
-                <div className="segmented">
+              <div className="condition-static-field">
+                <p className="field-label">거주 상태</p>
+                <div className="segmented flush">
                   <button
                     className={condition.occupancy === "empty" ? "selected" : ""}
                     onClick={() => updateCondition({ occupancy: "empty" })}
@@ -3519,15 +3540,20 @@ export default function App() {
                     살림집
                   </button>
                 </div>
-              </>
-            )}
+              </div>
+            </div>
 
-            <div className="actions">
-              <button className="ghost" onClick={step === 1 ? resetFlow : () => setStep(step - 1)}>
-                <ArrowLeft size={18} /> 이전
-              </button>
+            {estimateNotice && <div className="status-box">{estimateNotice}</div>}
+            {estimateError && <div className="error-box">{estimateError}</div>}
+
+            <div className="condition-start-row">
+              <p className="muted caption">
+                {canGoNext()
+                  ? "견적 시작을 누르면 공통 단가/인건비와 선택 조건의 수량/인원을 합쳐 초안을 만듭니다."
+                  : "평수, 주택 유형, 세부 유형, 거주 상태를 모두 선택하면 견적을 시작할 수 있습니다."}
+              </p>
               <button className="primary-button" disabled={!canGoNext() || estimateLoading} onClick={goNext}>
-                {estimateLoading ? "템플릿 불러오는 중..." : step === 3 ? "시공 항목 선택" : "다음"}
+                {estimateLoading ? "템플릿 불러오는 중..." : "견적 시작"}
               </button>
             </div>
           </section>
@@ -3536,6 +3562,23 @@ export default function App() {
 
       {page === "items" && (
         <main className="workspace">
+          <section className="estimate-selected-condition-panel">
+            <div>
+              <span>현재 기준</span>
+              <strong>{conditionChips.length > 0 ? conditionChips.join(" · ") : "조건 미선택"}</strong>
+              <p>공통 단가/인건비와 선택 조건의 수량/인원을 합쳐 견적 초안을 만들었습니다.</p>
+            </div>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setPage("condition");
+                setStep(1);
+              }}
+            >
+              조건 다시 선택
+            </button>
+          </section>
           <section className="category-column">
             <h2>시공 항목 선택</h2>
             <p className="muted caption">
@@ -5730,6 +5773,9 @@ const styles = `
     gap: var(--space-1);
     margin: var(--space-3) 0;
   }
+  .segmented.flush {
+    margin: 0;
+  }
   .segmented.compact {
     max-width: 420px;
   }
@@ -5896,6 +5942,81 @@ const styles = `
   }
   .chips button {
     padding: 0 14px;
+  }
+  .condition-builder-panel {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .condition-builder-header {
+    align-items: flex-start;
+  }
+  .estimate-current-condition {
+    display: grid;
+    gap: 6px;
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+  }
+  .estimate-current-condition.active {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-subtle);
+  }
+  .estimate-current-condition span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .estimate-current-condition strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+    line-height: 1.4;
+  }
+  .estimate-current-condition p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+  }
+  .condition-static-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+    align-items: start;
+  }
+  .condition-static-field {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .condition-static-wide {
+    grid-column: 1 / -1;
+  }
+  .condition-static-note {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+  }
+  .condition-static-note strong {
+    color: var(--text-primary);
+  }
+  .condition-start-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-subtle);
+  }
+  .condition-start-row p {
+    margin: 0;
   }
   .actions {
     display: flex;
@@ -6754,6 +6875,39 @@ const styles = `
     margin: 0 auto;
     padding: var(--space-4) var(--space-3);
   }
+  .estimate-selected-condition-panel {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border: 1px solid var(--brand-primary);
+    border-radius: var(--radius-card);
+    background: var(--brand-primary-subtle);
+    box-shadow: var(--shadow-sm);
+  }
+  .estimate-selected-condition-panel div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .estimate-selected-condition-panel span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .estimate-selected-condition-panel strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+    line-height: 1.4;
+  }
+  .estimate-selected-condition-panel p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+  }
   .category-column, .editor {
     padding: var(--space-3);
     border: 1px solid var(--border-subtle);
@@ -7500,6 +7654,7 @@ const styles = `
   @media (max-width: 840px) {
     .hero, .primary-action-grid, .secondary-action-grid,
     .menu-grid, .admin-menu, .workspace, .form-grid, .material-row, .sticky-summary,
+    .condition-static-grid,
     .admin-pyeong-panel, .admin-catalog-actions, .admin-item-header, .admin-subitem-row, .admin-value-row, .admin-add-subitem-row,
     .admin-flat-list .admin-value-row, .price-item-header, .price-row,
     .template-list-row, .detail-cost-layout, .detail-add-row, .detail-cost-row, .estimate-card,
@@ -7572,7 +7727,7 @@ const styles = `
       min-height: 190px;
       padding: var(--space-3);
     }
-    .editor-header, .actions {
+    .editor-header, .actions, .condition-start-row, .estimate-selected-condition-panel {
       flex-direction: column;
       align-items: stretch;
     }
