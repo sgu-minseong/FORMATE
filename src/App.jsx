@@ -575,7 +575,7 @@ function getFlooringThicknessSelectOptions(currentThickness) {
       normalizeFlooringThickness(currentThickness),
       ...FLOORING_THICKNESS_OPTIONS,
     ]),
-  ].filter(Boolean);
+  ].filter(Boolean).sort(compareFlooringThickness);
 }
 
 function compareFlooringThickness(a, b) {
@@ -610,6 +610,16 @@ function parseFlooringThicknessName(name) {
     baseName: normalized,
     thickness: DEFAULT_FLOORING_SPEC,
   };
+}
+
+function getCanonicalFlooringSubitemName(name) {
+  const parsed = parseFlooringThicknessName(name);
+  if (!parsed) return `${name ?? ""}`.trim();
+  return composeFlooringSubitemName(parsed.baseName, parsed.thickness);
+}
+
+function isLocalSubitemId(subitemId) {
+  return `${subitemId ?? ""}`.startsWith("local-subitem-");
 }
 
 function isFlooringThicknessItem(item) {
@@ -1977,6 +1987,9 @@ export default function App() {
   }
 
   async function updateAdminFlooringSubitemName(subitem, patch) {
+    const parent = adminItems.find((item) =>
+      item.subitems?.some((entrySubitem) => entrySubitem.id === subitem.id)
+    );
     const parsed = parseFlooringThicknessName(subitem.name) ?? {
       baseName: subitem.name,
       thickness: DEFAULT_FLOORING_SPEC,
@@ -1985,8 +1998,75 @@ export default function App() {
       Object.prototype.hasOwnProperty.call(patch, "baseName") ? patch.baseName : parsed.baseName,
       Object.prototype.hasOwnProperty.call(patch, "thickness") ? patch.thickness : parsed.thickness
     );
+    const canonicalNextName = getCanonicalFlooringSubitemName(nextName);
+    const hasDuplicate = parent?.subitems?.some(
+      (entrySubitem) =>
+        entrySubitem.id !== subitem.id &&
+        getCanonicalFlooringSubitemName(entrySubitem.name) === canonicalNextName
+    );
+
+    if (hasDuplicate) {
+      setAdminError("같은 대분류 안에 동일한 소재명과 규격/두께가 이미 있습니다.");
+      if (!isLocalSubitemId(subitem.id)) {
+        await fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" });
+      }
+      return;
+    }
+
     updateLocalSubitemName(subitem.id, nextName);
+    if (isLocalSubitemId(subitem.id)) return;
     await renameAdminSubitem(subitem.id, nextName);
+  }
+
+  function switchAdminFlooringSubitemThickness(subitem, nextThickness) {
+    const parsed = parseFlooringThicknessName(subitem.name) ?? {
+      baseName: subitem.name,
+      thickness: DEFAULT_FLOORING_SPEC,
+    };
+    const nextName = composeFlooringSubitemName(parsed.baseName, nextThickness);
+    const canonicalNextName = getCanonicalFlooringSubitemName(nextName);
+    const canonicalCurrentName = getCanonicalFlooringSubitemName(subitem.name);
+    if (canonicalNextName === canonicalCurrentName) return;
+
+    setAdminError("");
+    setAdminItems((current) =>
+      current.map((item) => {
+        const currentIndex = item.subitems.findIndex((entrySubitem) => entrySubitem.id === subitem.id);
+        if (currentIndex < 0) return item;
+
+        const nextSubitems = [...item.subitems];
+        const targetIndex = nextSubitems.findIndex(
+          (entrySubitem, index) =>
+            index !== currentIndex &&
+            getCanonicalFlooringSubitemName(entrySubitem.name) === canonicalNextName
+        );
+
+        if (targetIndex >= 0) {
+          const targetSubitem = nextSubitems[targetIndex];
+          nextSubitems[targetIndex] = nextSubitems[currentIndex];
+          nextSubitems[currentIndex] = targetSubitem;
+          return { ...item, subitems: nextSubitems };
+        }
+
+        const currentSubitem = nextSubitems[currentIndex];
+        const nextSubitem = {
+          ...currentSubitem,
+          id: createLocalId("local-subitem"),
+          name: canonicalNextName,
+          option_value: getTemplateOptionValue({ name: canonicalNextName }),
+          unit_price: "",
+          labor_rate: "",
+          quantity: "",
+          labor_count: "",
+          template_value_id: null,
+          sort_order: (currentSubitem.sort_order ?? currentIndex) + 0.01,
+        };
+
+        nextSubitems[currentIndex] = nextSubitem;
+        nextSubitems.splice(currentIndex + 1, 0, currentSubitem);
+        return { ...item, subitems: nextSubitems };
+      })
+    );
   }
 
   function getVisibleAdminSubitems(item) {
@@ -2570,6 +2650,15 @@ export default function App() {
   }
 
   async function deleteAdminSubitem(subitemId) {
+    if (isLocalSubitemId(subitemId)) {
+      setAdminItems((current) =>
+        current.map((item) => ({
+          ...item,
+          subitems: item.subitems.filter((subitem) => subitem.id !== subitemId),
+        }))
+      );
+      return;
+    }
     if (!hasCurrentCompanySubitem(subitemId)) return;
 
     setAdminSaving(true);
@@ -2648,6 +2737,10 @@ export default function App() {
   async function renameAdminSubitem(subitemId, name) {
     const nextName = name.trim();
     if (!nextName) return fetchAdminItems();
+    if (isLocalSubitemId(subitemId)) {
+      updateLocalSubitemName(subitemId, nextName);
+      return;
+    }
     if (!hasCurrentCompanySubitem(subitemId)) return;
 
     setAdminError("");
@@ -2674,6 +2767,10 @@ export default function App() {
   }
 
   async function updateAdminSubitemUnit(subitemId, unit) {
+    if (isLocalSubitemId(subitemId)) {
+      updateLocalSubitemPrice(subitemId, { unit });
+      return;
+    }
     if (!hasCurrentCompanySubitem(subitemId)) return;
 
     setAdminError("");
@@ -2802,21 +2899,43 @@ export default function App() {
       const isCommonPriceSave = page === "admin-prices";
 
       if (isCommonPriceSave) {
-        await Promise.all(
-          adminSubitems.map((subitem) =>
-            supabase
-              .from("construction_subitems")
-              .update({
+        const existingSubitems = adminSubitems.filter((subitem) => !isLocalSubitemId(subitem.id));
+        const localSubitems = adminSubitems.filter((subitem) => isLocalSubitemId(subitem.id));
+
+        if (existingSubitems.length) {
+          await Promise.all(
+            existingSubitems.map((subitem) =>
+              supabase
+                .from("construction_subitems")
+                .update({
+                  unit: subitem.unit ?? "평",
+                  unit_price: toNonNegativeNumberOrZero(subitem.unit_price),
+                  labor_rate: toNonNegativeNumberOrZero(subitem.labor_rate),
+                })
+                .eq("id", subitem.id)
+            )
+          ).then((results) => {
+            const failed = results.find((result) => result.error);
+            if (failed?.error) throw failed.error;
+          });
+        }
+
+        if (localSubitems.length) {
+          const { error: insertError } = await supabase
+            .from("construction_subitems")
+            .insert(
+              localSubitems.map((subitem) => ({
+                item_id: subitem.item_id,
+                name: getCanonicalFlooringSubitemName(subitem.name),
                 unit: subitem.unit ?? "평",
                 unit_price: toNonNegativeNumberOrZero(subitem.unit_price),
                 labor_rate: toNonNegativeNumberOrZero(subitem.labor_rate),
-              })
-              .eq("id", subitem.id)
-          )
-        ).then((results) => {
-          const failed = results.find((result) => result.error);
-          if (failed?.error) throw failed.error;
-        });
+                sort_order: subitem.sort_order ?? 0,
+              }))
+            );
+          if (insertError) throw insertError;
+        }
+
         const savedAt = new Date().toISOString();
         setAdminCommonPriceSavedAt(savedAt);
         setAdminNotice("공통 단가/인건비를 저장했습니다.");
@@ -4204,7 +4323,7 @@ export default function App() {
                                 <select
                                   value={parsedFlooring.thickness}
                                   onChange={(event) =>
-                                    updateAdminFlooringSubitemName(subitem, { thickness: event.target.value })
+                                    switchAdminFlooringSubitemThickness(subitem, event.target.value)
                                   }
                                 >
                                   {getFlooringThicknessSelectOptions(parsedFlooring.thickness).map((thickness) => (
