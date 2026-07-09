@@ -1152,6 +1152,7 @@ export default function App() {
   const [adminTemplates, setAdminTemplates] = useState([]);
   const [currentAdminTemplateId, setCurrentAdminTemplateId] = useState("");
   const [adminConditionLoaded, setAdminConditionLoaded] = useState(false);
+  const [adminConditionStep, setAdminConditionStep] = useState("select");
   const [adminCommonPriceSavedAt, setAdminCommonPriceSavedAt] = useState("");
   const [conditionVariantLabels, setConditionVariantLabels] = useState(() => createConditionVariantLabelRows());
   const [wallpaperBulkInputs, setWallpaperBulkInputs] = useState({});
@@ -1297,6 +1298,9 @@ export default function App() {
     ? makeTemplateLabel(currentAdminTemplateCondition, conditionVariantLabelMap)
     : "";
   const canEditConditionQuantities = isConditionQuantityAdminPage && adminConditionLoaded && Boolean(currentAdminTemplateCondition);
+  const showAdminConditionSelect = isConditionQuantityAdminPage && adminConditionStep === "select";
+  const showAdminConditionEditor = isConditionQuantityAdminPage && adminConditionStep === "edit";
+  const showAdminCatalogEditor = isCommonPriceAdminPage || showAdminConditionEditor;
   const adminCommonPriceSavedLabel = adminCommonPriceSavedAt ? formatDisplayDateTime(adminCommonPriceSavedAt) : "";
 
   useEffect(() => {
@@ -1382,8 +1386,11 @@ export default function App() {
       return;
     }
     if (page === "admin-items") {
-      const activeCondition = adminConditionLoaded ? getAdminTemplateCondition() : null;
-      if (!activeCondition) setAdminConditionLoaded(false);
+      const activeCondition = adminConditionStep === "edit" && adminConditionLoaded ? getAdminTemplateCondition() : null;
+      if (!activeCondition) {
+        setAdminConditionLoaded(false);
+        setCurrentAdminTemplateId("");
+      }
       fetchAdminItems({ mode: "condition", condition: activeCondition });
     }
     if (page === "admin-condition-labels") {
@@ -2191,6 +2198,19 @@ export default function App() {
     setCondition((current) => ({ ...current, ...patch }));
   }
 
+  async function openAdminConditionEditor(condition) {
+    if (!condition) return;
+    await fetchAdminItems({ mode: "condition", condition });
+    setAdminConditionStep("edit");
+  }
+
+  async function returnToAdminConditionSelect() {
+    setAdminConditionStep("select");
+    setAdminConditionLoaded(false);
+    setCurrentAdminTemplateId("");
+    await fetchAdminItems({ mode: "condition", condition: null });
+  }
+
   async function loadAdminTemplate(template) {
     const condition = buildTemplateCondition({
       pyeong: template.pyeong,
@@ -2204,7 +2224,7 @@ export default function App() {
     setSelectedAdminConditionVariant(condition.condition_variant);
     setCurrentAdminTemplateId(template.id);
     setAdminConditionLoaded(false);
-    await fetchAdminItems({ mode: "condition", condition });
+    await openAdminConditionEditor(condition);
   }
 
   function hasCurrentCompanySubitem(subitemId) {
@@ -3281,10 +3301,11 @@ export default function App() {
         if (valuesError) throw valuesError;
       }
 
-      setCurrentAdminTemplateId(templateRow.id);
-      setAdminConditionLoaded(true);
+      setCurrentAdminTemplateId("");
+      setAdminConditionLoaded(false);
+      setAdminConditionStep("select");
       setAdminNotice("현재 조건의 수량/인원을 저장했습니다.");
-      await fetchAdminItems({ mode: "condition", condition: adminTemplateCondition });
+      await fetchAdminTemplateList();
     } catch (error) {
       setAdminError(getFriendlyError(error, "시공 항목 값을 저장하지 못했어요. 다시 시도해주세요."));
     } finally {
@@ -3454,12 +3475,12 @@ export default function App() {
       <style>{styles}</style>
 
       {page !== "landing" && (
-        <header className={`global-header ${isConditionQuantityAdminPage && adminVerified ? "with-admin-condition" : ""}`.trim()}>
+        <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""}`.trim()}>
           <button className="global-brand" onClick={resetFlow} aria-label="FORMATE 홈으로 이동">
             <img src={logoUrl} alt="" />
             <strong>FORMATE</strong>
           </button>
-          {isConditionQuantityAdminPage && adminVerified && (
+          {isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" && (
             <div className={`header-admin-condition ${canEditConditionQuantities ? "active" : ""}`.trim()} aria-live="polite">
               <span>현재 관리 중</span>
               <strong>
@@ -3645,6 +3666,7 @@ export default function App() {
                 className="menu-card"
                 onClick={() => {
                   setPage("admin-items");
+                  setAdminConditionStep("select");
                   setAdminConditionLoaded(false);
                   fetchAdminItems({ mode: "condition", condition: null });
                 }}
@@ -4331,8 +4353,17 @@ export default function App() {
         <main className="panel-page admin-page">
           <div className="editor-header">
             <div>
-              <button className="ghost" onClick={() => setPage("admin")}>
-                <ArrowLeft size={18} /> 관리자 홈
+              <button
+                className="ghost"
+                onClick={() => {
+                  if (showAdminConditionEditor) {
+                    returnToAdminConditionSelect();
+                    return;
+                  }
+                  setPage("admin");
+                }}
+              >
+                <ArrowLeft size={18} /> {showAdminConditionEditor ? "되돌리기" : "관리자 홈"}
               </button>
               <h2>{isCommonPriceAdminPage ? "공통 단가/인건비 관리" : "조건별 수량/인원 관리"}</h2>
               <p className="muted caption">
@@ -4342,13 +4373,16 @@ export default function App() {
               </p>
             </div>
             <div className="admin-actions">
+              {isCommonPriceAdminPage && (
               <button
                 className="secondary-button"
                 disabled={adminLoading || adminSaving}
-                onClick={() => fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" })}
+                onClick={() => fetchAdminItems({ mode: "prices" })}
               >
                 <RefreshCcw size={18} /> 되돌리기
               </button>
+              )}
+              {(isCommonPriceAdminPage || showAdminConditionEditor) && (
               <button
                 className="primary-button"
                 disabled={adminLoading || adminSaving || (isConditionQuantityAdminPage && !canEditConditionQuantities)}
@@ -4356,6 +4390,7 @@ export default function App() {
               >
                 <Save size={18} /> 저장
               </button>
+              )}
               {isCommonPriceAdminPage && (
                 <button className="primary-button" disabled={adminLoading || adminSaving} onClick={addAdminItem}>
                   <Plus size={18} /> 대분류 추가
@@ -4374,7 +4409,7 @@ export default function App() {
             </section>
           )}
 
-          {isConditionQuantityAdminPage && (
+          {showAdminConditionSelect && (
           <section className="admin-pyeong-panel">
             <div className="admin-condition-title">
               <div>
@@ -4538,7 +4573,7 @@ export default function App() {
                 type="button"
                 className="primary-button"
                 disabled={adminLoading || adminSaving || !currentAdminTemplateCondition}
-                onClick={() => fetchAdminItems({ mode: "condition", condition: currentAdminTemplateCondition })}
+                onClick={() => openAdminConditionEditor(currentAdminTemplateCondition)}
               >
                 관리하기
               </button>
@@ -4546,7 +4581,7 @@ export default function App() {
           </section>
           )}
 
-          {isConditionQuantityAdminPage && (
+          {showAdminConditionSelect && (
           <section className="template-list-panel">
             <div>
               <strong>저장된 조건 기준</strong>
@@ -4576,6 +4611,7 @@ export default function App() {
           {adminNotice && <div className="status-box">{adminNotice}</div>}
           {adminError && <div className="error-box">{adminError}</div>}
 
+          {showAdminCatalogEditor && (
           <section className="admin-edit-panel">
             <div className="admin-edit-title">
               <div>
@@ -5073,6 +5109,7 @@ export default function App() {
           </section>
           )}
           </section>
+          )}
         </main>
       )}
 
