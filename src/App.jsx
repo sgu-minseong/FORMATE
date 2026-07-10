@@ -257,6 +257,75 @@ function normalizeCompanySession(company) {
   };
 }
 
+function normalizeCompanyCode(code) {
+  return `${code ?? ""}`.trim();
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.slice(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return globalThis.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function companyCodeToAuthEmail(companyCode) {
+  const normalizedCode = normalizeCompanyCode(companyCode);
+  if (!normalizedCode) return "";
+
+  const bytes = new TextEncoder().encode(normalizedCode);
+  return `company-${bytesToBase64Url(bytes)}@formate.local`;
+}
+
+async function fetchCompanyForAuthUser(userId) {
+  if (!isValidUuid(userId)) {
+    throw new Error("로그인 세션이 올바르지 않습니다.");
+  }
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("company_members")
+    .select("company_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (membershipError) throw membershipError;
+  if (!membership?.company_id || !isValidUuid(membership.company_id)) {
+    throw new Error("로그인된 계정에 연결된 업체가 없습니다.");
+  }
+
+  const { data: company, error: companyError } = await supabase
+    .from("companies")
+    .select("id, name, company_code")
+    .eq("id", membership.company_id)
+    .maybeSingle();
+
+  if (companyError) throw companyError;
+  if (!company?.id || !isValidUuid(company.id)) {
+    throw new Error("업체 정보를 확인할 수 없습니다.");
+  }
+
+  return normalizeCompanySession(company);
+}
+
+async function fetchCompanyFromAuthSession() {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+
+  const sessionUser = sessionData?.session?.user;
+  if (sessionUser?.id) {
+    return fetchCompanyForAuthUser(sessionUser.id);
+  }
+
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!userData?.user?.id) return null;
+
+  return fetchCompanyForAuthUser(userData.user.id);
+}
+
 function getStoredCompanyLookupCode(company) {
   return `${(!isValidUuid(company?.id) && company?.id) ? company.id : company?.company_code ?? company?.code ?? ""}`.trim();
 }
@@ -1114,10 +1183,9 @@ function isEstimateRowModified(row) {
 export default function App() {
   const previewPdfRef = useRef(null);
   const [companySession, setCompanySession] = useState(() => {
-    const company = readStoredCompany();
     return {
-      company,
-      checking: Boolean(company?.id || company?.company_code || company?.code),
+      company: null,
+      checking: isSupabaseConfigured,
     };
   });
   const [loginCode, setLoginCode] = useState("");
@@ -1328,65 +1396,46 @@ export default function App() {
   useEffect(() => {
     let active = true;
 
-    async function verifyStoredCompany() {
-      const storedCompany = readStoredCompany();
-      const storedCompanyId = `${storedCompany?.id ?? ""}`.trim();
-      const storedCompanyCode = getStoredCompanyLookupCode(storedCompany);
-      if (!storedCompanyId && !storedCompanyCode) {
-        clearStoredCompany();
-        if (active) setCompanySession({ company: null, checking: false });
-        return;
-      }
-
+    async function restoreCompanySession() {
       if (!isSupabaseConfigured) {
         clearStoredCompany();
         if (active) {
-          setLoginError("로그인 중 문제가 발생했습니다.");
+          setLoginError("로그인 정보를 다시 확인해주세요.");
           setCompanySession({ company: null, checking: false });
         }
         return;
       }
 
       try {
-        let companyQuery = supabase
-          .from("companies")
-          .select("id, name, company_code");
+        const authenticatedCompany = await fetchCompanyFromAuthSession();
 
-        if (isValidUuid(storedCompanyId)) {
-          companyQuery = companyQuery.eq("id", storedCompanyId);
-        } else if (storedCompanyCode) {
-          companyQuery = companyQuery.eq("company_code", storedCompanyCode);
-        } else {
+        if (!authenticatedCompany) {
           clearStoredCompany();
           if (active) setCompanySession({ company: null, checking: false });
           return;
         }
 
-        const { data, error } = await companyQuery.maybeSingle();
-
-        if (error) throw error;
-        if (!data?.id || !isValidUuid(data.id)) {
-          clearStoredCompany();
-          if (active) setCompanySession({ company: null, checking: false });
-          return;
-        }
-
-        const verifiedCompany = normalizeCompanySession(data);
-        writeStoredCompany(verifiedCompany);
+        writeStoredCompany(authenticatedCompany);
         if (active) {
-          setCompanySession({ company: verifiedCompany, checking: false });
+          setCompanySession({ company: authenticatedCompany, checking: false });
         }
       } catch (error) {
         console.error("[FORMATE company session]", error);
+        try {
+          await supabase.auth.signOut();
+        } catch (signOutError) {
+          console.error("[FORMATE auth sign out]", signOutError);
+        }
         clearStoredCompany();
+        clearAdminVerifiedCompany();
         if (active) {
-          setLoginError("로그인 중 문제가 발생했습니다.");
+          setLoginError("로그인 정보를 다시 확인해주세요.");
           setCompanySession({ company: null, checking: false });
         }
       }
     }
 
-    verifyStoredCompany();
+    restoreCompanySession();
     return () => {
       active = false;
     };
@@ -1452,6 +1501,17 @@ export default function App() {
     window.localStorage.setItem(FAVORITE_PYEONG_STORAGE_KEY, JSON.stringify(favoritePyeongs));
   }, [favoritePyeongs]);
 
+  async function loadCurrentCompanyFromAuth() {
+    const authenticatedCompany = await fetchCompanyFromAuthSession();
+    if (!authenticatedCompany?.id || !isValidUuid(authenticatedCompany.id)) {
+      throw new Error("로그인된 계정에 연결된 업체가 없습니다.");
+    }
+
+    writeStoredCompany(authenticatedCompany);
+    setCompanySession({ company: authenticatedCompany, checking: false });
+    return authenticatedCompany;
+  }
+
   function requireSelectedCompanyId() {
     if (!selectedCompanyId) {
       throw new Error("업체 로그인 후 이용해주세요.");
@@ -1465,7 +1525,7 @@ export default function App() {
   async function handleCompanyLogin(event) {
     event.preventDefault();
 
-    const companyCode = loginCode.trim();
+    const companyCode = normalizeCompanyCode(loginCode);
     const password = loginPassword.trim();
 
     if (!companyCode) {
@@ -1484,39 +1544,40 @@ export default function App() {
     setLoginLoading(true);
     setLoginError("");
     try {
-      const { data, error } = await supabase
-        .from("companies")
-        .select("id, name, company_code, admin_password_hash")
-        .eq("company_code", companyCode)
-        .maybeSingle();
+      const email = companyCodeToAuthEmail(companyCode);
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-      if (error) throw error;
-      if (!data?.id || !isValidUuid(data.id)) {
-        setLoginError("업체 코드를 확인해주세요.");
-        return;
-      }
-      if (`${data.admin_password_hash ?? ""}` !== password) {
-        setLoginError("비밀번호를 확인해주세요.");
+      if (error) {
+        setLoginError("업체 코드 또는 비밀번호를 확인해주세요.");
         return;
       }
 
-      const nextCompany = normalizeCompanySession(data);
       clearAdminVerifiedCompany();
-      writeStoredCompany(nextCompany);
       clearCompanyScopedState();
-      setCompanySession({ company: nextCompany, checking: false });
+      await loadCurrentCompanyFromAuth();
       setLoginCode("");
       setLoginPassword("");
       setLoginError("");
     } catch (error) {
       console.error("[FORMATE company login]", error);
-      setLoginError("로그인 중 문제가 발생했습니다.");
+      setLoginError("업체 코드 또는 비밀번호를 확인해주세요.");
     } finally {
       setLoginLoading(false);
     }
   }
 
-  function handleChangeCompany() {
+  async function handleChangeCompany() {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.auth.signOut();
+      } catch (error) {
+        console.error("[FORMATE auth sign out]", error);
+      }
+    }
+
     clearStoredCompany();
     clearAdminVerifiedCompany();
     clearCompanyScopedState();
@@ -1574,14 +1635,18 @@ export default function App() {
     setAdminVerifyLoading(true);
     setAdminVerifyError("");
     try {
-      const { data, error } = await supabase
-        .from("companies")
-        .select("id, admin_password_hash")
-        .eq("id", selectedCompanyId)
-        .maybeSingle();
+      const email = companyCodeToAuthEmail(selectedCompany?.company_code ?? selectedCompany?.code ?? "");
+      if (!email) {
+        setAdminVerifyError("업체 정보를 다시 확인해주세요.");
+        return;
+      }
 
-      if (error) throw error;
-      if (!data?.id || `${data.admin_password_hash ?? ""}` !== password) {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
         setAdminVerifyError("비밀번호를 확인해주세요.");
         return;
       }
