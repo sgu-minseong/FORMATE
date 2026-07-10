@@ -3466,9 +3466,9 @@ export default function App() {
             <strong>FORMATE</strong>
           </div>
           <div>
-            <p className="eyebrow dark">Internal Test</p>
-            <h1>FORMATE 업체 로그인</h1>
-            <p className="login-helper">테스트용 계정은 관리자에게 문의하세요.</p>
+            <p className="eyebrow dark">업체 전용</p>
+            <h1>업체 코드로 시작하기</h1>
+            <p className="login-helper">업체 코드와 비밀번호만 입력하면 바로 사용할 수 있습니다.</p>
           </div>
           <form className="login-form" onSubmit={handleCompanyLogin}>
             <label>
@@ -3477,7 +3477,7 @@ export default function App() {
                 value={loginCode}
                 onChange={(event) => setLoginCode(event.target.value)}
                 autoComplete="username"
-                placeholder="예: dad"
+                placeholder="예: 삼풍"
               />
             </label>
             <label>
@@ -3492,7 +3492,7 @@ export default function App() {
             </label>
             {loginError && <div className="error-box">{loginError}</div>}
             <button className="primary-button" type="submit" disabled={loginLoading}>
-              {loginLoading ? "확인 중..." : "입장하기"}
+              {loginLoading ? "확인 중..." : "FORMATE 시작하기"}
             </button>
           </form>
         </section>
@@ -3587,7 +3587,7 @@ export default function App() {
                 </button>
               </div>
               <h1>
-                우리 업체 단가표로 빠르게 만드는
+                우리 업체 기준으로 빠르게 만드는
                 <span>인테리어 견적서</span>
               </h1>
               <p>
@@ -3634,32 +3634,32 @@ export default function App() {
 
           <section className="landing-actions">
             <div className="section-heading">
-              <h2>바로 시작하기</h2>
+              <h2>오늘 할 일</h2>
             </div>
             <div className="primary-action-grid">
               <button className="menu-card feature-card" onClick={() => setPage("condition")}>
                 <ClipboardList />
-                <span>신규 견적서 만들기</span>
-                <p>저장된 기준표를 바탕으로 고객 조건에 맞는 견적서를 빠르게 만듭니다.</p>
-                <strong>바로 시작하기</strong>
+                <span>새 견적 만들기</span>
+                <p>평수와 주택 조건을 고르면 저장한 기준표로 초안을 만듭니다.</p>
+                <strong>견적 시작</strong>
               </button>
               <button className="menu-card feature-card" onClick={() => openAdminGate("admin")}>
                 <Settings />
-                <span>조건별 수량/인원 관리</span>
-                <p>공통 단가/인건비와 조건별 수량/인원 기준을 관리합니다.</p>
-                <strong>기준표 관리하기</strong>
+                <span>기준표 입력</span>
+                <p>단가와 조건별 수량을 미리 넣어 견적 시간을 줄입니다.</p>
+                <strong>입력하러 가기</strong>
               </button>
             </div>
             <div className="secondary-action-grid">
               <button className="menu-card support-card" onClick={() => setPage("ready")}>
                 <CalendarDays />
-                <span>상담/공사 메모</span>
-                <p>고객 상담 내용과 공사 관련 메모를 정리합니다.</p>
+                <span>상담 메모</span>
+                <p>고객 요청과 현장 메모를 간단히 정리합니다.</p>
               </button>
               <button className="menu-card support-card" onClick={() => setPage("admin-estimates")}>
                 <Wrench />
-                <span>저장된 견적서</span>
-                <p>작성한 견적서를 다시 확인하고 고객 문의에 이어서 대응합니다.</p>
+                <span>저장 견적 보기</span>
+                <p>이전에 만든 견적을 찾고 다시 엽니다.</p>
               </button>
             </div>
           </section>
@@ -3672,13 +3672,13 @@ export default function App() {
             <ArrowLeft size={18} /> 돌아가기
           </button>
           <section className="panel">
-            <p className="eyebrow dark">FORMATE 관리</p>
-            <h2>관리자 홈</h2>
+            <p className="eyebrow dark">기준표 입력</p>
+            <h2>먼저 단가, 그다음 수량</h2>
             <p className="muted">
-              공통 단가/인건비와 조건별 수량/인원을 분리해서 관리합니다.
+              견적에 쓰는 기준값을 순서대로 입력합니다.
             </p>
             <p className="muted">
-              이 화면은 고객에게 보여주는 견적서가 아니라, 우리 업체 내부 기준을 설정하는 공간입니다.
+              고객에게 보여주는 견적서가 아니라, 우리 업체 내부 기준표입니다.
             </p>
             <div className="admin-menu">
               <button
@@ -3689,8 +3689,9 @@ export default function App() {
                 }}
               >
                 <ClipboardList />
-                <span>공통 단가/인건비 관리</span>
-                <p>모든 평수와 주택 조건에 공통 적용되는 소재별 단가와 인건비를 관리합니다.</p>
+                <span>1. 단가 입력</span>
+                <p>모든 견적에 공통으로 쓰는 자재 단가와 인건비를 넣습니다.</p>
+                <strong>단가 입력하기</strong>
               </button>
               <button
                 className="menu-card"
@@ -3702,13 +3703,15 @@ export default function App() {
                 }}
               >
                 <ClipboardList />
-                <span>조건별 수량/인원 관리</span>
-                <p>평수와 주택 조건별로 필요한 수량과 인원을 관리합니다.</p>
+                <span>2. 수량 입력</span>
+                <p>평수와 주택 조건별로 필요한 수량과 인원을 넣습니다.</p>
+                <strong>수량 입력하기</strong>
               </button>
               <button className="menu-card" onClick={() => setPage("admin-detail-costs")}>
                 <FileText />
-                <span>세부견적 관리</span>
-                <p>세부 견적 항목과 기준을 관리합니다.</p>
+                <span>3. 세부 비용</span>
+                <p>필요할 때만 쓰는 내부 비용 기준입니다.</p>
+                <strong>세부 비용 보기</strong>
               </button>
             </div>
           </section>
@@ -3802,10 +3805,10 @@ export default function App() {
           <section className="panel condition-builder-panel">
             <div className="editor-header condition-builder-header">
               <div>
-                <p className="eyebrow dark">신규 견적서 작성</p>
-                <h2>견적 조건 선택</h2>
+                <p className="eyebrow dark">새 견적</p>
+                <h2>어떤 집 견적을 만들까요?</h2>
                 <p className="muted caption">
-                  평수와 주택 조건을 한 화면에서 선택한 뒤 견적을 시작하세요.
+                  조건을 고르면 저장한 기준표로 견적 초안을 만듭니다.
                 </p>
               </div>
               <button className="ghost" onClick={resetFlow}>
@@ -3814,7 +3817,7 @@ export default function App() {
             </div>
 
             <div className={`estimate-current-condition ${canGoNext() ? "active" : ""}`.trim()}>
-              <span>현재 기준</span>
+              <span>현재 선택</span>
               <strong>
                 {conditionChips.length > 0 ? conditionChips.join(" · ") : "조건을 선택하세요."}
               </strong>
@@ -3986,8 +3989,8 @@ export default function App() {
             <div className="condition-start-row">
               <p className="muted caption">
                 {canGoNext()
-                  ? "견적 시작을 누르면 공통 단가/인건비와 선택 조건의 수량/인원을 합쳐 초안을 만듭니다."
-                  : "평수, 주택 유형, 세부 유형, 거주 상태를 모두 선택하면 견적을 시작할 수 있습니다."}
+                  ? "선택한 기준표로 바로 견적 초안을 만듭니다."
+                  : "평수, 주택 유형, 세부 유형, 거주 상태를 선택하세요."}
               </p>
               <button className="primary-button" disabled={!canGoNext() || estimateLoading} onClick={goNext}>
                 {estimateLoading ? "템플릿 불러오는 중..." : "견적 시작"}
@@ -4001,9 +4004,9 @@ export default function App() {
         <main className="workspace">
           <section className="estimate-selected-condition-panel">
             <div>
-              <span>현재 기준</span>
+              <span>현재 견적 기준</span>
               <strong>{conditionChips.length > 0 ? conditionChips.join(" · ") : "조건 미선택"}</strong>
-              <p>공통 단가/인건비와 선택 조건의 수량/인원을 합쳐 견적 초안을 만들었습니다.</p>
+              <p>선택된 항목만 견적서에 들어갑니다.</p>
             </div>
             <button
               type="button"
@@ -4017,9 +4020,9 @@ export default function App() {
             </button>
           </section>
           <section className="category-column">
-            <h2>시공 항목 선택</h2>
+            <h2>공사 항목</h2>
             <p className="muted caption">
-              선택한 조건에 맞는 우리 업체 기준표를 불러왔습니다. 이번 문의에 맞게 수량과 단가를 조정할 수 있습니다.
+              이번 견적에 넣을 항목을 고르고 수량을 확인하세요.
             </p>
             {conditionChips.length > 0 && (
               <div className="condition-chip-group" aria-label="현재 견적 조건">
@@ -4100,7 +4103,7 @@ export default function App() {
                 </p>
               </div>
               <button className="secondary-button" onClick={() => setPage("preview")}>
-                견적서 미리보기
+                미리보기
               </button>
             </div>
 
@@ -4118,6 +4121,7 @@ export default function App() {
                         onChange={(event) => updateItem(openCategory, index, { selected: event.target.checked })}
                       />
                       <strong>{row.itemType === "flat" ? row.itemName : row.material}</strong>
+                      <span className="include-copy">견적 포함</span>
                     </label>
                     <div className="estimate-row-actions">
                       <span className="estimate-row-total-preview">
@@ -4395,11 +4399,11 @@ export default function App() {
               >
                 <ArrowLeft size={18} /> {showAdminConditionEditor ? "되돌리기" : "관리자 홈"}
               </button>
-              <h2>{isCommonPriceAdminPage ? "공통 단가/인건비 관리" : "조건별 수량/인원 관리"}</h2>
+              <h2>{isCommonPriceAdminPage ? "단가 입력" : "수량 입력"}</h2>
               <p className="muted caption">
                 {isCommonPriceAdminPage
-                  ? "단가와 인건비는 모든 평수와 주택 유형에 공통 적용됩니다."
-                  : "평수와 주택 조건별로 필요한 수량과 인원을 관리합니다."}
+                  ? "모든 견적에 공통으로 쓰는 가격입니다."
+                  : "평수와 주택 조건별로 필요한 수량과 인원을 입력합니다."}
               </p>
             </div>
             <div className="admin-actions">
@@ -4418,7 +4422,7 @@ export default function App() {
                 disabled={adminLoading || adminSaving || (isConditionQuantityAdminPage && !canEditConditionQuantities)}
                 onClick={saveAdminPrices}
               >
-                <Save size={18} /> 저장
+                <Save size={18} /> 저장하기
               </button>
               )}
               {isCommonPriceAdminPage && (
@@ -4432,8 +4436,8 @@ export default function App() {
           {isCommonPriceAdminPage && (
             <section className="template-list-panel">
               <div>
-                <strong>공통 단가/인건비 기준</strong>
-                <span>소재명, 규격, 단위, 단가, 인건비만 관리합니다. 수량과 인원은 수량/인원 관리에서 입력합니다.</span>
+                <strong>공통 가격 기준</strong>
+                <span>소재명, 규격, 단위, 단가, 인건비만 입력합니다. 수량은 수량 입력 화면에서 관리합니다.</span>
                 <span>마지막 업데이트: {adminCommonPriceSavedLabel || "확인된 저장 시각 없음"}</span>
               </div>
             </section>
@@ -4443,8 +4447,8 @@ export default function App() {
           <section className="admin-pyeong-panel">
             <div className="admin-condition-title">
               <div>
-                <strong>조건 선택</strong>
-                <span>단가/인건비는 모든 조건에 공통 적용되고, 수량/인원은 선택한 평수와 주택 조건별로 저장됩니다.</span>
+                <strong>어떤 기준표를 입력할까요?</strong>
+                <span>평수와 주택 조건을 고른 뒤 이 조건의 수량과 인원만 입력합니다.</span>
               </div>
               <button
                 type="button"
@@ -4455,7 +4459,7 @@ export default function App() {
                   fetchConditionVariantLabels();
                 }}
               >
-                명칭 변경
+                유형명 설정
               </button>
             </div>
             <label>
@@ -4605,7 +4609,7 @@ export default function App() {
                 disabled={adminLoading || adminSaving || !currentAdminTemplateCondition}
                 onClick={() => openAdminConditionEditor(currentAdminTemplateCondition)}
               >
-                관리하기
+                이 조건 수량 입력하기
               </button>
             </div>
           </section>
@@ -4614,8 +4618,8 @@ export default function App() {
           {showAdminConditionSelect && (
           <section className="template-list-panel">
             <div>
-              <strong>저장된 조건 기준</strong>
-              <span>불러오기를 누르면 해당 조건의 수량/인원 기준이 표시됩니다.</span>
+              <strong>저장한 기준표</strong>
+              <span>수정할 기준표를 다시 열 수 있습니다.</span>
             </div>
             {adminTemplates.length ? (
               <div className="template-list">
@@ -4623,14 +4627,14 @@ export default function App() {
                   <div className="template-list-row" key={template.id}>
                     <span>{makeTemplateLabel(template, conditionVariantLabelMap)}</span>
                     <button className="secondary-button" type="button" onClick={() => loadAdminTemplate(template)}>
-                      불러오기
+                      다시 열기
                     </button>
                   </div>
                 ))}
               </div>
             ) : (
               <p className="muted">
-                아직 저장된 조건 기준이 없습니다. 평수와 조건을 선택한 뒤 수량/인원을 저장하면 여기에 표시됩니다.
+                아직 저장한 기준표가 없습니다. 평수와 조건을 고른 뒤 수량을 저장하면 여기에 표시됩니다.
               </p>
             )}
           </section>
@@ -4645,11 +4649,11 @@ export default function App() {
           <section className="admin-edit-panel">
             <div className="admin-edit-title">
               <div>
-                <strong>{isCommonPriceAdminPage ? "공통 단가/인건비 관리" : "조건별 수량/인원 관리"}</strong>
+                <strong>{isCommonPriceAdminPage ? "단가와 인건비 입력" : "수량과 인원 입력"}</strong>
                 <span>
                   {isCommonPriceAdminPage
-                    ? "소재별 단가와 인건비를 입력하세요. 수량과 인원은 수량/인원 관리에서 입력합니다."
-                    : "이 화면에서는 현재 조건의 수량과 인원만 입력합니다. 단가와 인건비는 공통 단가/인건비 관리 화면에서 수정합니다."}
+                    ? "모든 조건에 공통으로 쓰는 단가와 인건비만 입력하세요."
+                    : "현재 조건의 수량과 인원만 입력하세요. 단가는 단가 입력 화면에서 관리합니다."}
                 </span>
               </div>
               {isConditionQuantityAdminPage && currentAdminConditionLabel && <em>{currentAdminConditionLabel}</em>}
@@ -4657,7 +4661,7 @@ export default function App() {
 
             {isConditionQuantityAdminPage && (
             <div className={`admin-edit-current ${canEditConditionQuantities ? "active" : ""}`.trim()}>
-              <span>현재 관리 중</span>
+              <span>입력 중인 기준표</span>
               <strong>
                 {canEditConditionQuantities && currentAdminConditionLabel
                   ? currentAdminConditionLabel
@@ -4665,8 +4669,8 @@ export default function App() {
               </strong>
               <p>
                 {canEditConditionQuantities
-                  ? "이 조건의 수량/인원을 입력하세요. 단가와 인건비는 모든 조건에 공통 적용됩니다."
-                  : "먼저 평수와 주택 조건을 선택한 뒤 관리하기 또는 불러오기를 눌러주세요."}
+                  ? "수량과 인원만 입력하세요. 단가와 인건비는 모든 조건에 공통 적용됩니다."
+                  : "먼저 평수와 주택 조건을 선택한 뒤 기준표를 열어주세요."}
               </p>
             </div>
             )}
@@ -4715,8 +4719,8 @@ export default function App() {
           {isConditionQuantityAdminPage && !canEditConditionQuantities && (
             <section className="panel admin-empty-edit-notice">
               <strong>조건을 먼저 선택하세요.</strong>
-              <p className="muted">먼저 평수와 주택 조건을 선택한 뒤 관리하기 또는 불러오기를 눌러주세요.</p>
-              <p className="muted">단가와 인건비는 공통 단가/인건비 관리 화면에서 수정합니다.</p>
+              <p className="muted">먼저 평수와 주택 조건을 선택한 뒤 기준표를 열어주세요.</p>
+              <p className="muted">단가와 인건비는 단가 입력 화면에서 수정합니다.</p>
             </section>
           )}
 
@@ -4935,7 +4939,7 @@ export default function App() {
                       <p className="muted">
                         {isCommonPriceAdminPage
                           ? "소재가 없습니다. 예: 장판 1.8T, 장판 2.2T, 데코타일 3T처럼 소재를 추가하세요."
-                          : "등록된 소재가 없습니다. 공통 단가/인건비 관리 화면에서 소재를 먼저 추가하세요."}
+                          : "등록된 소재가 없습니다. 단가 입력 화면에서 소재를 먼저 추가하세요."}
                       </p>
                     )}
                     {isCommonPriceAdminPage && (
@@ -5117,7 +5121,7 @@ export default function App() {
                     <p className="muted">
                       {isCommonPriceAdminPage
                         ? "소재가 없습니다. 소재를 추가하거나 새 단일 항목으로 다시 등록하세요."
-                        : "등록된 소재가 없습니다. 공통 단가/인건비 관리 화면에서 소재를 먼저 추가하세요."}
+                        : "등록된 소재가 없습니다. 단가 입력 화면에서 소재를 먼저 추가하세요."}
                     </p>
                   )}
                   {isCommonPriceAdminPage && item.item_type !== "flat" && (
@@ -5308,8 +5312,8 @@ export default function App() {
               <button className="ghost" onClick={() => setPage("landing")}>
                 <ArrowLeft size={18} /> 홈으로
               </button>
-              <h2>CS/사후관리</h2>
-              <p className="muted caption">저장된 견적서와 고객 요청사항을 관리합니다.</p>
+              <h2>저장한 견적</h2>
+              <p className="muted caption">고객명이나 주소로 찾고 다시 열 수 있습니다.</p>
             </div>
             <div className="admin-actions">
               <button className="secondary-button" disabled={adminLoading} onClick={() => fetchEstimates()}>
@@ -5362,13 +5366,13 @@ export default function App() {
                     className="secondary-button"
                     onClick={() => loadSavedEstimateDraft(estimate, { destination: "preview" })}
                   >
-                    다시 열기/PDF
+                    보기
                   </button>
                   <button
                     className="secondary-button"
                     onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
                   >
-                    복사해서 새 견적서
+                    복사해서 새 견적
                   </button>
                 </div>
               </article>
@@ -5403,13 +5407,13 @@ export default function App() {
                     className="secondary-button"
                     onClick={() => loadSavedEstimateDraft(selectedEstimate, { destination: "preview" })}
                   >
-                    다시 열기/PDF 다운로드
+                    보기
                   </button>
                   <button
                     className="secondary-button"
                     onClick={() => loadSavedEstimateDraft(selectedEstimate, { copy: true, destination: "items" })}
                   >
-                    복사해서 새 견적서 만들기
+                    복사해서 새 견적
                   </button>
                 </div>
 
@@ -5482,7 +5486,7 @@ export default function App() {
           <section className="panel wide">
             <div className="editor-header">
               <div>
-                <h2>견적서 미리보기</h2>
+                <h2>견적서 확인</h2>
               </div>
               <button className="ghost" onClick={() => setPage("items")}>
                 <ArrowLeft size={18} /> 항목 수정
@@ -5692,13 +5696,13 @@ export default function App() {
                 disabled={estimateSaving}
                 onClick={saveEstimateToSupabase}
               >
-                <Save size={18} /> 견적서 저장
+                <Save size={18} /> 견적 저장
               </button>
               <button
                 className="secondary-button"
                 onClick={downloadEstimatePdf}
               >
-                <Printer size={18} /> PDF 다운로드
+                <Printer size={18} /> PDF 받기
               </button>
             </div>
           </section>
@@ -8397,6 +8401,461 @@ const styles = `
     }
     .estimate-editor-total {
       align-items: flex-start;
+    }
+  }
+
+  /* taste redesign layer: trust-first B2B tool, low cognitive load, one clear next action */
+  :root {
+    --bg-base: #f6f7fb;
+    --bg-surface: #ffffff;
+    --bg-subtle: #f2f5fa;
+    --bg-surface-overlay: rgba(255, 255, 255, 0.94);
+    --text-primary: #172033;
+    --text-secondary: #5f6d82;
+    --text-tertiary: #8a95a8;
+    --brand-primary: #24304f;
+    --brand-primary-hover: #17213a;
+    --brand-primary-subtle: #eef3ff;
+    --brand-accent-line: #aeb9dd;
+    --border-default: #d6deea;
+    --border-subtle: #e6ebf2;
+    --radius-card: 16px;
+    --radius-button: 12px;
+    --shadow-sm: 0 10px 30px rgba(23, 32, 51, 0.06);
+    --shadow-md: 0 22px 54px rgba(23, 32, 51, 0.12);
+    --focus-ring: 0 0 0 4px rgba(36, 48, 79, 0.14);
+  }
+  body {
+    background:
+      radial-gradient(circle at 18% 0%, rgba(238, 243, 255, 0.9), transparent 30%),
+      var(--bg-base);
+  }
+  button {
+    transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+  }
+  button:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .app-shell {
+    padding-top: 72px;
+  }
+  .global-header {
+    height: 72px;
+    padding: 0 clamp(16px, 3vw, 36px);
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .global-brand strong,
+  .hero-brand strong,
+  .login-brand strong {
+    letter-spacing: -0.01em;
+  }
+  .company-session {
+    padding: 6px 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--bg-surface);
+  }
+  .company-switch-button {
+    border-radius: 999px;
+  }
+  .login-shell {
+    padding: 24px;
+  }
+  .login-card {
+    width: min(460px, 100%);
+    gap: 22px;
+    padding: 34px;
+    border-radius: 22px;
+    box-shadow: 0 26px 70px rgba(23, 32, 51, 0.14);
+  }
+  .login-card h1 {
+    margin-bottom: 10px;
+    font-size: clamp(28px, 4vw, 36px);
+    line-height: 1.18;
+  }
+  .login-form {
+    gap: 16px;
+  }
+  .login-form label {
+    gap: 8px;
+  }
+  select, input, textarea,
+  .custom-select-trigger,
+  .admin-search-field {
+    min-height: 50px;
+    border-radius: 12px;
+    background: #fbfcfe;
+  }
+  textarea {
+    line-height: 1.55;
+  }
+  .primary-button, .secondary-button, .ghost {
+    min-height: 48px;
+    border-radius: 12px;
+    padding: 0 18px;
+    font-weight: 800;
+  }
+  .primary-button {
+    box-shadow: 0 14px 28px rgba(36, 48, 79, 0.2);
+  }
+  .primary-button:hover:not(:disabled) {
+    box-shadow: 0 18px 34px rgba(36, 48, 79, 0.24);
+    transform: translateY(-1px);
+  }
+  .secondary-button,
+  .ghost {
+    box-shadow: none;
+  }
+  .ghost {
+    color: var(--text-secondary);
+  }
+  .landing,
+  .panel-page,
+  .simple-page {
+    max-width: 1160px;
+  }
+  .hero {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 0.85fr);
+    align-items: center;
+    min-height: calc(100dvh - 110px);
+    padding: 34px 0 44px;
+  }
+  .hero h1 {
+    max-width: 620px;
+    font-size: clamp(42px, 5vw, 64px);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+  }
+  .hero p {
+    max-width: 540px;
+    font-size: 18px;
+    line-height: 1.65;
+  }
+  .hero-preview {
+    border-radius: 22px;
+    background: #ffffff;
+    box-shadow: 0 30px 80px rgba(23, 32, 51, 0.16);
+  }
+  .preview-lines div {
+    border-radius: 14px;
+  }
+  .landing-actions {
+    gap: 18px;
+  }
+  .section-heading h2 {
+    font-size: clamp(24px, 3vw, 32px);
+    letter-spacing: -0.01em;
+  }
+  .primary-action-grid {
+    grid-template-columns: 1.15fr 0.85fr;
+  }
+  .secondary-action-grid {
+    opacity: 0.92;
+  }
+  .menu-card {
+    border-radius: 18px;
+    box-shadow: var(--shadow-sm);
+  }
+  .menu-card:hover,
+  .menu-card:focus-visible {
+    transform: translateY(-2px);
+    background: #ffffff;
+    box-shadow: 0 18px 46px rgba(23, 32, 51, 0.12);
+  }
+  .menu-card span {
+    font-size: 20px;
+    letter-spacing: -0.01em;
+  }
+  .menu-card strong {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .admin-menu .menu-card:nth-child(3) {
+    background: #fbfcfe;
+  }
+  .admin-menu .menu-card:nth-child(3) svg,
+  .admin-menu .menu-card:nth-child(3) strong {
+    opacity: 0.72;
+  }
+  .panel {
+    border-radius: 22px;
+    padding: clamp(22px, 3vw, 34px);
+    box-shadow: var(--shadow-sm);
+  }
+  .panel h2,
+  .category-column h2,
+  .editor h2 {
+    font-size: clamp(26px, 3vw, 36px);
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+  }
+  .muted,
+  .caption {
+    color: var(--text-secondary);
+  }
+  .eyebrow {
+    letter-spacing: 0.04em;
+  }
+  .condition-builder-panel {
+    gap: 22px;
+  }
+  .estimate-current-condition,
+  .admin-edit-current {
+    border-radius: 18px;
+    padding: 18px;
+  }
+  .estimate-current-condition.active,
+  .admin-edit-current.active {
+    background: linear-gradient(180deg, #f4f7ff, #ffffff);
+    box-shadow: inset 0 0 0 1px rgba(36, 48, 79, 0.04);
+  }
+  .estimate-current-condition strong,
+  .admin-edit-current strong {
+    font-size: clamp(22px, 3vw, 30px);
+    letter-spacing: -0.01em;
+  }
+  .condition-static-grid,
+  .admin-pyeong-panel {
+    gap: 16px;
+  }
+  .condition-static-field,
+  .admin-pyeong-panel label {
+    padding: 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    background: #ffffff;
+  }
+  .condition-static-wide {
+    padding: 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    background: #ffffff;
+  }
+  .condition-static-wide .field-label {
+    margin-bottom: 12px;
+  }
+  .segmented button,
+  .chips button {
+    min-height: 50px;
+    border-radius: 12px;
+  }
+  .condition-variant-option small {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .condition-start-row {
+    padding: 18px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 18px;
+    background: #ffffff;
+  }
+  .condition-start-row .primary-button {
+    min-width: 180px;
+  }
+  .admin-pyeong-panel,
+  .template-list-panel,
+  .admin-edit-panel,
+  .admin-tool-panel,
+  .admin-catalog-actions {
+    border-radius: 18px;
+    box-shadow: var(--shadow-sm);
+  }
+  .admin-pyeong-panel {
+    padding: 18px;
+    background: linear-gradient(180deg, #ffffff, #fbfcff);
+  }
+  .admin-condition-title {
+    padding: 4px 2px 8px;
+  }
+  .admin-condition-title strong,
+  .template-list-panel strong,
+  .admin-edit-title strong,
+  .admin-catalog-actions strong {
+    font-size: 20px;
+    letter-spacing: -0.01em;
+  }
+  .condition-label-link {
+    min-height: 42px;
+    color: var(--text-secondary);
+  }
+  .admin-condition-submit .primary-button {
+    width: 100%;
+  }
+  .template-list-panel {
+    padding: 18px;
+    background: #ffffff;
+  }
+  .template-list-row {
+    min-height: 58px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #fbfcfe;
+  }
+  .admin-edit-panel {
+    padding: 18px;
+    background: #ffffff;
+  }
+  .admin-tool-panel {
+    padding: 12px;
+    background: #fbfcfe;
+  }
+  .admin-tool-panel .secondary-button,
+  .admin-tool-panel .ghost {
+    min-height: 42px;
+    color: var(--text-secondary);
+  }
+  .admin-list {
+    gap: 14px;
+  }
+  .admin-item {
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  .admin-item-header,
+  .admin-add-subitem-row,
+  .wallpaper-bulk-panel {
+    border-radius: 14px;
+  }
+  .admin-value-row input,
+  .admin-subitem-row input,
+  .estimate-template-detail input,
+  .estimate-template-detail select {
+    min-height: 52px;
+    font-size: 17px;
+  }
+  .workspace {
+    gap: 18px;
+    padding: 22px;
+  }
+  .estimate-selected-condition-panel,
+  .category-column,
+  .editor,
+  .total-box,
+  .estimate-card,
+  .estimate-modal,
+  .pdf-capture-area {
+    border-radius: 20px;
+    box-shadow: var(--shadow-sm);
+  }
+  .category-card {
+    min-height: 54px;
+    border-radius: 14px;
+  }
+  .total-box strong {
+    font-size: 32px;
+  }
+  .estimate-template-row {
+    border-radius: 18px;
+    padding: 18px;
+  }
+  .estimate-template-row.selected {
+    box-shadow: 0 16px 42px rgba(36, 48, 79, 0.12);
+  }
+  .estimate-template-row.missing-template {
+    opacity: 0.82;
+  }
+  .material-check {
+    align-items: center;
+  }
+  .material-check input {
+    width: 22px;
+    min-height: 22px;
+  }
+  .include-copy {
+    flex: 0 0 auto;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: 800;
+  }
+  .estimate-template-row.selected .include-copy {
+    background: #ffffff;
+    color: var(--brand-primary);
+  }
+  .selected-badge,
+  .modified-badge,
+  .modified-inline-badge {
+    border-radius: 999px;
+  }
+  .estimate-row-total-preview {
+    font-size: 16px;
+  }
+  .estimate-expand-toggle {
+    border-radius: 12px;
+  }
+  .estimate-card-actions .secondary-button,
+  .estimate-card-actions .primary-button {
+    min-height: 42px;
+  }
+  .status-box,
+  .error-box {
+    border-radius: 14px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    main,
+    button,
+    .menu-card,
+    .estimate-template-row,
+    .estimate-template-expand {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+  @media (max-width: 840px) {
+    .app-shell {
+      padding-top: 86px;
+    }
+    .global-header {
+      min-height: 86px;
+      height: auto;
+      flex-wrap: wrap;
+      align-content: center;
+    }
+    .primary-action-grid,
+    .hero,
+    .condition-static-grid {
+      grid-template-columns: 1fr;
+    }
+    .hero {
+      min-height: auto;
+      padding-top: 18px;
+    }
+    .hero h1 {
+      font-size: 38px;
+    }
+    .condition-static-field,
+    .condition-static-wide {
+      padding: 14px;
+    }
+    .condition-start-row {
+      align-items: stretch;
+    }
+    .condition-start-row .primary-button {
+      width: 100%;
+    }
+    .company-session {
+      width: 100%;
+      justify-content: space-between;
+      border-radius: 14px;
+    }
+    .admin-pyeong-panel,
+    .admin-tool-panel,
+    .admin-catalog-actions,
+    .estimate-template-expanded-content {
+      grid-template-columns: 1fr;
     }
   }
 `;
