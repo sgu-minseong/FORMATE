@@ -8,6 +8,16 @@ create table if not exists companies (
   created_at timestamptz not null default now()
 );
 
+create table if not exists company_members (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null default 'admin',
+  created_at timestamptz not null default now(),
+  unique (company_id, user_id),
+  unique (user_id)
+);
+
 create table if not exists construction_items (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,
@@ -408,12 +418,15 @@ begin
 end $$;
 
 create or replace function set_updated_at()
-returns trigger as $$
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $$
 begin
   new.updated_at = now();
   return new;
 end;
-$$ language plpgsql;
+$$;
 
 drop trigger if exists set_construction_items_updated_at on construction_items;
 create trigger set_construction_items_updated_at
@@ -457,6 +470,12 @@ for each row execute function set_updated_at();
 
 create unique index if not exists companies_company_code_uidx
   on companies(company_code);
+
+create index if not exists company_members_company_id_idx
+  on company_members(company_id);
+
+create index if not exists company_members_user_id_idx
+  on company_members(user_id);
 
 create index if not exists construction_items_company_id_idx
   on construction_items(company_id);
@@ -535,28 +554,277 @@ set
   company_code = excluded.company_code,
   admin_password_hash = excluded.admin_password_hash;
 
-alter table companies disable row level security;
-alter table construction_items disable row level security;
-alter table construction_subitems disable row level security;
-alter table subitem_pyeong_values disable row level security;
-alter table detail_cost_categories disable row level security;
-alter table price_conditions disable row level security;
-alter table estimates disable row level security;
-alter table admin_condition_templates disable row level security;
-alter table admin_condition_template_values disable row level security;
-alter table condition_variant_labels disable row level security;
+grant usage on schema public to authenticated;
 
-grant usage on schema public to anon, authenticated;
+revoke all on company_members from anon;
+revoke all on companies from anon;
+revoke all on construction_items from anon;
+revoke all on construction_subitems from anon;
+revoke all on subitem_pyeong_values from anon;
+revoke all on detail_cost_categories from anon;
+revoke all on price_conditions from anon;
+revoke all on estimates from anon;
+revoke all on admin_condition_templates from anon;
+revoke all on admin_condition_template_values from anon;
+revoke all on condition_variant_labels from anon;
 
-grant select, insert, update, delete on companies to anon, authenticated;
-grant select, insert, update, delete on construction_items to anon, authenticated;
-grant select, insert, update, delete on construction_subitems to anon, authenticated;
-grant select, insert, update, delete on subitem_pyeong_values to anon, authenticated;
-grant select, insert, update, delete on detail_cost_categories to anon, authenticated;
-grant select, insert, update, delete on price_conditions to anon, authenticated;
-grant select, insert, update, delete on estimates to anon, authenticated;
-grant select, insert, update, delete on admin_condition_templates to anon, authenticated;
-grant select, insert, update, delete on admin_condition_template_values to anon, authenticated;
-grant select, insert, update, delete on condition_variant_labels to anon, authenticated;
+grant select on company_members to authenticated;
+grant select on companies to authenticated;
+grant select, insert, update, delete on construction_items to authenticated;
+grant select, insert, update, delete on construction_subitems to authenticated;
+grant select, insert, update, delete on subitem_pyeong_values to authenticated;
+grant select, insert, update, delete on detail_cost_categories to authenticated;
+grant select, insert, update, delete on price_conditions to authenticated;
+grant select, insert, update, delete on estimates to authenticated;
+grant select, insert, update, delete on admin_condition_templates to authenticated;
+grant select, insert, update, delete on admin_condition_template_values to authenticated;
+grant select, insert, update, delete on condition_variant_labels to authenticated;
+
+drop policy if exists "members can read own membership" on company_members;
+create policy "members can read own membership"
+on company_members
+for select
+to authenticated
+using (user_id = auth.uid());
+
+drop policy if exists "members can read own company" on companies;
+create policy "members can read own company"
+on companies
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = companies.id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can manage own construction items" on construction_items;
+create policy "members can manage own construction items"
+on construction_items
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = construction_items.company_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = construction_items.company_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can manage own construction subitems" on construction_subitems;
+create policy "members can manage own construction subitems"
+on construction_subitems
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from construction_items ci
+    join company_members cm on cm.company_id = ci.company_id
+    where ci.id = construction_subitems.item_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from construction_items ci
+    join company_members cm on cm.company_id = ci.company_id
+    where ci.id = construction_subitems.item_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can manage own condition templates" on admin_condition_templates;
+create policy "members can manage own condition templates"
+on admin_condition_templates
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = admin_condition_templates.company_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = admin_condition_templates.company_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can manage own template values" on admin_condition_template_values;
+create policy "members can manage own template values"
+on admin_condition_template_values
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from admin_condition_templates t
+    join construction_items i on i.id = admin_condition_template_values.item_id
+    join construction_subitems s on s.id = admin_condition_template_values.subitem_id
+    join company_members cm on cm.company_id = t.company_id
+    where t.id = admin_condition_template_values.template_id
+      and s.item_id = i.id
+      and i.company_id = t.company_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from admin_condition_templates t
+    join construction_items i on i.id = admin_condition_template_values.item_id
+    join construction_subitems s on s.id = admin_condition_template_values.subitem_id
+    join company_members cm on cm.company_id = t.company_id
+    where t.id = admin_condition_template_values.template_id
+      and s.item_id = i.id
+      and i.company_id = t.company_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can manage own condition labels" on condition_variant_labels;
+create policy "members can manage own condition labels"
+on condition_variant_labels
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = condition_variant_labels.company_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = condition_variant_labels.company_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can manage own detail costs" on detail_cost_categories;
+create policy "members can manage own detail costs"
+on detail_cost_categories
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = detail_cost_categories.company_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = detail_cost_categories.company_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can manage own estimates" on estimates;
+create policy "members can manage own estimates"
+on estimates
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = estimates.company_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = estimates.company_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can manage own price conditions" on price_conditions;
+create policy "members can manage own price conditions"
+on price_conditions
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = price_conditions.company_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from company_members cm
+    where cm.company_id = price_conditions.company_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can manage own legacy pyeong values" on subitem_pyeong_values;
+create policy "members can manage own legacy pyeong values"
+on subitem_pyeong_values
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from construction_subitems cs
+    join construction_items ci on ci.id = cs.item_id
+    join company_members cm on cm.company_id = ci.company_id
+    where cs.id = subitem_pyeong_values.subitem_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from construction_subitems cs
+    join construction_items ci on ci.id = cs.item_id
+    join company_members cm on cm.company_id = ci.company_id
+    where cs.id = subitem_pyeong_values.subitem_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+alter table company_members enable row level security;
+alter table companies enable row level security;
+alter table construction_items enable row level security;
+alter table construction_subitems enable row level security;
+alter table subitem_pyeong_values enable row level security;
+alter table detail_cost_categories enable row level security;
+alter table price_conditions enable row level security;
+alter table estimates enable row level security;
+alter table admin_condition_templates enable row level security;
+alter table admin_condition_template_values enable row level security;
+alter table condition_variant_labels enable row level security;
 
 notify pgrst, 'reload schema';
