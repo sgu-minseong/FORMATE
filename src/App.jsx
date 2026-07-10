@@ -1220,6 +1220,7 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [authScreenMode, setAuthScreenMode] = useState("landing");
   const [adminVerifyOpen, setAdminVerifyOpen] = useState(false);
   const [adminVerifyPassword, setAdminVerifyPassword] = useState("");
   const [adminVerifyLoading, setAdminVerifyLoading] = useState(false);
@@ -1618,6 +1619,7 @@ export default function App() {
     setLoginCode("");
     setLoginPassword("");
     setLoginError("");
+    setAuthScreenMode("landing");
     setAdminVerifyOpen(false);
     setAdminVerifyPassword("");
     setAdminVerifyError("");
@@ -3556,44 +3558,121 @@ export default function App() {
 
   if (!selectedCompany) {
     return (
-      <div className="app-shell login-shell">
+      <div className={`app-shell ${authScreenMode === "login" ? "login-shell" : "public-shell"}`}>
         <style>{styles}</style>
-        <section className="login-card">
-          <div className="login-brand">
-            <img src={logoUrl} alt="" />
-            <strong>FORMATE</strong>
-          </div>
-          <div>
-            <p className="eyebrow dark">업체 전용</p>
-            <h1>업체 코드로 시작하기</h1>
-            <p className="login-helper">업체 코드와 비밀번호만 입력하면 바로 사용할 수 있습니다.</p>
-          </div>
-          <form className="login-form" onSubmit={handleCompanyLogin}>
-            <label>
-              업체 코드
-              <input
-                value={loginCode}
-                onChange={(event) => setLoginCode(event.target.value)}
-                autoComplete="username"
-                placeholder="예: 삼풍"
-              />
-            </label>
-            <label>
-              비밀번호
-              <input
-                type="password"
-                value={loginPassword}
-                onChange={(event) => setLoginPassword(event.target.value)}
-                autoComplete="current-password"
-                placeholder="비밀번호"
-              />
-            </label>
-            {loginError && <div className="error-box">{loginError}</div>}
-            <button className="primary-button" type="submit" disabled={loginLoading}>
-              {loginLoading ? "확인 중..." : "FORMATE 시작하기"}
+        {authScreenMode === "login" ? (
+          <section className="login-card">
+            <button
+              type="button"
+              className="ghost login-back-button"
+              onClick={() => {
+                setLoginError("");
+                setAuthScreenMode("landing");
+              }}
+            >
+              <ArrowLeft size={18} /> 처음 화면으로
             </button>
-          </form>
-        </section>
+            <div className="login-brand">
+              <img src={logoUrl} alt="" />
+              <strong>FORMATE</strong>
+            </div>
+            <div>
+              <p className="eyebrow dark">업체 전용</p>
+              <h1>업체 코드로 시작하기</h1>
+              <p className="login-helper">업체 코드와 비밀번호만 입력하면 바로 사용할 수 있습니다.</p>
+            </div>
+            <form className="login-form" onSubmit={handleCompanyLogin}>
+              <label>
+                업체 코드
+                <input
+                  value={loginCode}
+                  onChange={(event) => setLoginCode(event.target.value)}
+                  autoComplete="username"
+                  placeholder="예: 삼풍"
+                />
+              </label>
+              <label>
+                비밀번호
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(event) => setLoginPassword(event.target.value)}
+                  autoComplete="current-password"
+                  placeholder="비밀번호"
+                />
+              </label>
+              {loginError && <div className="error-box">{loginError}</div>}
+              <button className="primary-button" type="submit" disabled={loginLoading}>
+                {loginLoading ? "확인 중..." : "FORMATE 시작하기"}
+              </button>
+            </form>
+          </section>
+        ) : (
+          <main className="public-landing">
+            <header className="public-header">
+              <button
+                type="button"
+                className="secondary-button public-login-button"
+                onClick={() => setAuthScreenMode("login")}
+              >
+                업체 로그인
+              </button>
+            </header>
+            <section className="hero public-hero">
+              <div className="hero-copy">
+                <div className="hero-brand public-hero-brand" aria-label="FORMATE">
+                  <img src={logoUrl} alt="" />
+                  <strong>FORMATE</strong>
+                </div>
+                <p className="eyebrow dark">우리 업체 단가표로 만드는 견적서</p>
+                <h1 className="public-hero-title">
+                  <span>우리 업체 기준으로</span>
+                  <span>빠르게 만드는</span>
+                  <span>인테리어 견적서</span>
+                </h1>
+                <p>
+                  평수와 주택 조건을 고르면 미리 입력한 단가와 수량 기준으로 견적 초안을 바로 만듭니다.
+                  복잡한 설정 없이 상담 내용을 빠르게 견적서로 정리하세요.
+                </p>
+              </div>
+              <div className="hero-preview" aria-hidden="true">
+                <div className="preview-top">
+                  <div>
+                    <span>견적 입력</span>
+                    <strong>32평 · 확장형 · 확장형1</strong>
+                  </div>
+                  <button type="button">PDF 저장</button>
+                </div>
+                <div className="preview-conditions">
+                  <span>도배</span>
+                  <span>장판</span>
+                  <span>목공</span>
+                </div>
+                <div className="preview-lines">
+                  <div>
+                    <span>도배 · 실크</span>
+                    <strong>수량 32평</strong>
+                    <b>1,920,000원</b>
+                  </div>
+                  <div>
+                    <span>장판 · 2.2T</span>
+                    <strong>수량 32평</strong>
+                    <b>1,280,000원</b>
+                  </div>
+                  <div>
+                    <span>목공 · 몰딩</span>
+                    <strong>인원 2명</strong>
+                    <b>680,000원</b>
+                  </div>
+                </div>
+                <div className="preview-total">
+                  <span>총 견적 금액</span>
+                  <strong>3,880,000원</strong>
+                </div>
+              </div>
+            </section>
+          </main>
+        )}
       </div>
     );
   }
@@ -3602,8 +3681,7 @@ export default function App() {
     <div className="app-shell">
       <style>{styles}</style>
 
-      {page !== "landing" && (
-        <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""}`.trim()}>
+      <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""}`.trim()}>
           <button className="global-brand" onClick={resetFlow} aria-label="FORMATE 홈으로 이동">
             <img src={logoUrl} alt="" />
             <strong>FORMATE</strong>
@@ -3619,13 +3697,13 @@ export default function App() {
             </div>
           )}
           <div className="company-session">
-            <span>현재 업체: {selectedCompanyName}</span>
+            <span className="session-status-dot">로그인됨</span>
+            <span>{selectedCompanyName}님 반갑습니다.</span>
             <button type="button" className="company-switch-button" onClick={handleChangeCompany}>
-              업체 변경
+              로그아웃
             </button>
           </div>
-        </header>
-      )}
+      </header>
 
       {adminVerifyOpen && (
         <div className="modal-backdrop" onClick={closeAdminGate}>
@@ -3671,68 +3749,12 @@ export default function App() {
       )}
 
       {page === "landing" && (
-        <main className="landing">
-          <section className="hero">
-            <div className="hero-copy">
-              <div className="landing-session-bar">
-                <button className="hero-brand" onClick={resetFlow} aria-label="FORMATE 홈으로 이동">
-                  <img src={logoUrl} alt="" />
-                  <strong>FORMATE</strong>
-                </button>
-                <span className="landing-company-greeting">{selectedCompanyName}님 반갑습니다.</span>
-                <button type="button" className="company-switch-button" onClick={handleChangeCompany}>
-                  업체 변경
-                </button>
-              </div>
-              <h1>
-                우리 업체 기준으로 빠르게 만드는
-                <span>인테리어 견적서</span>
-              </h1>
-              <p>
-                확장형·구형 세부 유형에 따라 달라지는 시공 항목과 기준을 템플릿으로 저장하고,
-                반복되는 견적 업무를 엑셀보다 빠르게 처리하세요.
-              </p>
-            </div>
-            <div className="hero-preview" aria-hidden="true">
-              <div className="preview-top">
-                <div>
-                  <span>견적 입력</span>
-                  <strong>32평 · 확장형 · 확장형1</strong>
-                </div>
-                <button type="button">PDF 저장</button>
-              </div>
-              <div className="preview-conditions">
-                <span>도배</span>
-                <span>장판</span>
-                <span>목공</span>
-              </div>
-              <div className="preview-lines">
-                <div>
-                  <span>도배 · 실크</span>
-                  <strong>수량 32평</strong>
-                  <b>1,920,000원</b>
-                </div>
-                <div>
-                  <span>장판 · 2.2T</span>
-                  <strong>수량 32평</strong>
-                  <b>1,280,000원</b>
-                </div>
-                <div>
-                  <span>목공 · 몰딩</span>
-                  <strong>인원 2명</strong>
-                  <b>680,000원</b>
-                </div>
-              </div>
-              <div className="preview-total">
-                <span>총 견적 금액</span>
-                <strong>3,880,000원</strong>
-              </div>
-            </div>
-          </section>
-
+        <main className="landing work-home">
           <section className="landing-actions">
-            <div className="section-heading">
-              <h2>오늘 할 일</h2>
+            <div className="section-heading work-home-heading">
+              <span>업무 홈</span>
+              <h1>오늘 할 일</h1>
+              <p>자주 쓰는 작업만 모았습니다. 필요한 순서대로 눌러 진행하세요.</p>
             </div>
             <div className="primary-action-grid">
               <button className="menu-card feature-card" onClick={() => setPage("condition")}>
@@ -5858,6 +5880,44 @@ const styles = `
     place-items: center;
     padding: var(--space-3);
   }
+  .public-shell {
+    min-height: 100dvh;
+    overflow: hidden;
+    padding: 0;
+  }
+  .public-landing {
+    width: min(1120px, 100%);
+    margin: 0 auto;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    padding: 14px var(--space-3) 22px;
+  }
+  .public-header {
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-bottom: 0;
+  }
+  .public-login-button {
+    flex: 0 0 auto;
+  }
+  .public-hero {
+    min-height: 0;
+    align-items: center;
+    padding: 0 0 12px;
+    transform: translateY(-16px);
+  }
+  .public-hero-title {
+    max-width: 500px;
+  }
+  .public-hero-title span {
+    display: block;
+    white-space: nowrap;
+  }
   .login-card {
     width: min(420px, 100%);
     display: grid;
@@ -5867,6 +5927,10 @@ const styles = `
     border-radius: var(--radius-card);
     background: var(--bg-surface);
     box-shadow: var(--shadow-md);
+  }
+  .login-back-button {
+    justify-self: start;
+    margin: -6px 0 2px;
   }
   .login-brand {
     display: inline-flex;
@@ -6018,6 +6082,24 @@ const styles = `
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .session-status-dot {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-caption);
+  }
+  .session-status-dot::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--brand-primary);
+  }
   .company-switch-button {
     flex: 0 0 auto;
     min-height: 32px;
@@ -6042,14 +6124,17 @@ const styles = `
   }
   .hero {
     display: grid;
-    grid-template-columns: minmax(0, 0.95fr) minmax(360px, 1.05fr);
-    gap: var(--space-4);
+    grid-template-columns: minmax(0, 0.98fr) minmax(320px, 0.88fr);
+    gap: var(--space-3);
     align-items: start;
-    padding: var(--space-4) 0 var(--space-4);
+    padding: var(--space-3) 0;
     color: var(--text-primary);
   }
   .hero-copy {
-    padding-top: 10px;
+    padding-top: 4px;
+  }
+  .public-hero-brand {
+    margin-bottom: 18px;
   }
   .landing-session-bar {
     display: flex;
@@ -6069,8 +6154,8 @@ const styles = `
     font-weight: var(--font-weight-bold);
   }
   .hero-brand img {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     display: block;
   }
   .hero-brand strong {
@@ -6084,9 +6169,9 @@ const styles = `
   }
   .hero h1 {
     max-width: 560px;
-    margin: 0 0 16px;
-    font-size: clamp(38px, 4.3vw, 48px);
-    line-height: 1.18;
+    margin: 0 0 12px;
+    font-size: clamp(33px, 3.75vw, 42px);
+    line-height: 1.1;
     letter-spacing: 0;
   }
   .hero h1 span {
@@ -6096,11 +6181,13 @@ const styles = `
     max-width: 560px;
     margin: 0;
     color: var(--text-secondary);
-    font-size: 18px;
-    line-height: 1.65;
+    font-size: 16px;
+    line-height: 1.52;
   }
   .hero-preview {
-    padding: var(--space-3);
+    width: min(100%, 452px);
+    justify-self: end;
+    padding: var(--space-2);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-card);
     background: linear-gradient(180deg, var(--bg-surface), #FBFAF7);
@@ -6111,7 +6198,7 @@ const styles = `
     justify-content: space-between;
     gap: var(--space-2);
     align-items: flex-start;
-    padding-bottom: var(--space-2);
+    padding-bottom: 12px;
     border-bottom: 1px solid var(--border-subtle);
   }
   .preview-top span,
@@ -6123,12 +6210,12 @@ const styles = `
   }
   .preview-top strong {
     display: block;
-    margin-top: 6px;
-    font-size: var(--font-size-title-sm);
+    margin-top: 4px;
+    font-size: var(--font-size-body);
   }
   .preview-top button {
-    min-height: 34px;
-    padding: 0 12px;
+    min-height: 32px;
+    padding: 0 10px;
     border: 1px solid var(--border-default);
     border-radius: var(--radius-button);
     background: var(--bg-surface);
@@ -6140,10 +6227,10 @@ const styles = `
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-1);
-    margin: var(--space-2) 0;
+    margin: 12px 0;
   }
   .preview-conditions span {
-    padding: 7px 10px;
+    padding: 6px 9px;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-button);
     background: #F7F1E8;
@@ -6160,7 +6247,7 @@ const styles = `
     grid-template-columns: minmax(100px, 1fr) auto auto;
     gap: var(--space-1);
     align-items: center;
-    padding: 12px;
+    padding: 9px 10px;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-surface);
@@ -6181,8 +6268,8 @@ const styles = `
     justify-content: space-between;
     gap: var(--space-2);
     align-items: baseline;
-    margin-top: var(--space-2);
-    padding: var(--space-2);
+    margin-top: 12px;
+    padding: 12px;
     border-radius: var(--radius-card);
     background: var(--brand-primary);
     color: var(--text-inverse);
@@ -6193,7 +6280,7 @@ const styles = `
   .preview-total strong {
     font-family: var(--font-number);
     font-variant-numeric: tabular-nums;
-    font-size: 26px;
+    font-size: 22px;
   }
   .eyebrow {
     margin: 0 0 12px;
@@ -6209,6 +6296,35 @@ const styles = `
     gap: var(--space-2);
     margin-top: var(--space-2);
   }
+  .work-home {
+    padding-top: 42px;
+    padding-bottom: 32px;
+  }
+  .work-home .landing-actions {
+    gap: var(--space-2);
+  }
+  .work-home-heading {
+    display: grid;
+    gap: 5px;
+    margin-bottom: 2px;
+  }
+  .work-home-heading span {
+    color: var(--brand-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .work-home-heading h1 {
+    margin: 0;
+    font-size: clamp(28px, 3.4vw, 36px);
+    line-height: 1.16;
+    letter-spacing: 0;
+  }
+  .work-home-heading p {
+    max-width: 520px;
+    margin: 0;
+    color: var(--text-secondary);
+    line-height: 1.45;
+  }
   .section-heading h2 {
     margin: 0;
     font-size: var(--font-size-title-md);
@@ -6216,21 +6332,21 @@ const styles = `
   .primary-action-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-2);
+    gap: 14px;
   }
   .secondary-action-grid,
   .menu-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-    gap: var(--space-2);
+    gap: 14px;
   }
   .menu-card {
-    min-height: 140px;
+    min-height: 124px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     align-items: flex-start;
-    padding: var(--space-3);
+    padding: 18px;
     border: 1px solid var(--border-default);
     border-radius: var(--radius-card);
     background: var(--bg-surface);
@@ -6253,32 +6369,32 @@ const styles = `
     color: var(--brand-primary);
   }
   .menu-card p {
-    margin: 12px 0 0;
+    margin: 8px 0 0;
     color: var(--text-secondary);
     font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-regular);
-    line-height: 1.55;
+    line-height: 1.45;
   }
   .feature-card {
-    min-height: 220px;
-    padding: var(--space-4);
+    min-height: 172px;
+    padding: 22px;
     border-color: var(--border-default);
   }
   .feature-card span {
-    margin-top: var(--space-2);
-    font-size: var(--font-size-title-md);
+    margin-top: 10px;
+    font-size: var(--font-size-title-sm);
   }
   .feature-card strong {
-    margin-top: var(--space-3);
-    padding: 9px 12px;
+    margin-top: 14px;
+    padding: 8px 11px;
     border-radius: var(--radius-button);
     background: var(--brand-primary-subtle);
     color: var(--brand-primary);
     font-size: var(--font-size-body-sm);
   }
   .support-card {
-    min-height: 132px;
-    padding: var(--space-2);
+    min-height: 116px;
+    padding: 16px;
     color: var(--text-primary);
   }
   .support-card span {
@@ -8386,6 +8502,31 @@ const styles = `
     .hero {
       padding: var(--space-3) 0;
     }
+    .public-landing {
+      padding: var(--space-2) var(--space-2) var(--space-4);
+      min-height: 100dvh;
+      max-height: none;
+    }
+    .public-shell {
+      overflow: auto;
+    }
+    .public-header {
+      margin-bottom: var(--space-1);
+    }
+    .public-hero {
+      min-height: auto;
+      transform: none;
+    }
+    .public-hero .hero-preview {
+      width: 100%;
+      justify-self: stretch;
+    }
+    .public-hero-title span {
+      white-space: normal;
+    }
+    .work-home {
+      padding-top: 30px;
+    }
     .hero-copy {
       padding-top: 0;
     }
@@ -8429,6 +8570,9 @@ const styles = `
     }
     .company-session span {
       max-width: 46vw;
+    }
+    .company-session .session-status-dot {
+      display: none;
     }
     .landing-session-bar {
       gap: var(--space-1);
