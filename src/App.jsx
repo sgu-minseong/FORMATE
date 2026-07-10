@@ -277,7 +277,7 @@ function companyCodeToAuthEmail(companyCode) {
   if (!normalizedCode) return "";
 
   const bytes = new TextEncoder().encode(normalizedCode);
-  return `company-${bytesToBase64Url(bytes)}@formate.local`;
+  return `company-${bytesToBase64Url(bytes)}@formate.local`.toLowerCase();
 }
 
 async function fetchCompanyForAuthUser(userId) {
@@ -285,25 +285,53 @@ async function fetchCompanyForAuthUser(userId) {
     throw new Error("로그인 세션이 올바르지 않습니다.");
   }
 
+  console.debug("[FORMATE auth] lookup company_members by user_id", { userId });
   const { data: membership, error: membershipError } = await supabase
     .from("company_members")
-    .select("company_id")
+    .select("company_id, user_id, role")
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (membershipError) throw membershipError;
+  console.debug("[FORMATE auth] company_members lookup result", { userId, membership, membershipError });
+  if (membershipError) {
+    console.error("[FORMATE auth] company_members lookup failed", { userId, membershipError });
+    throw membershipError;
+  }
   if (!membership?.company_id || !isValidUuid(membership.company_id)) {
+    console.error("[FORMATE auth] no company_members row for auth user", { userId, membership });
     throw new Error("로그인된 계정에 연결된 업체가 없습니다.");
   }
 
+  console.debug("[FORMATE auth] lookup company by membership.company_id", {
+    userId,
+    companyId: membership.company_id,
+  });
   const { data: company, error: companyError } = await supabase
     .from("companies")
     .select("id, name, company_code")
     .eq("id", membership.company_id)
     .maybeSingle();
 
-  if (companyError) throw companyError;
+  console.debug("[FORMATE auth] company lookup result", {
+    userId,
+    companyId: membership.company_id,
+    company,
+    companyError,
+  });
+  if (companyError) {
+    console.error("[FORMATE auth] company lookup failed", {
+      userId,
+      companyId: membership.company_id,
+      companyError,
+    });
+    throw companyError;
+  }
   if (!company?.id || !isValidUuid(company.id)) {
+    console.error("[FORMATE auth] invalid company row for auth user", {
+      userId,
+      companyId: membership.company_id,
+      company,
+    });
     throw new Error("업체 정보를 확인할 수 없습니다.");
   }
 
@@ -1501,8 +1529,10 @@ export default function App() {
     window.localStorage.setItem(FAVORITE_PYEONG_STORAGE_KEY, JSON.stringify(favoritePyeongs));
   }, [favoritePyeongs]);
 
-  async function loadCurrentCompanyFromAuth() {
-    const authenticatedCompany = await fetchCompanyFromAuthSession();
+  async function loadCurrentCompanyFromAuth(userId = "") {
+    const authenticatedCompany = userId
+      ? await fetchCompanyForAuthUser(userId)
+      : await fetchCompanyFromAuthSession();
     if (!authenticatedCompany?.id || !isValidUuid(authenticatedCompany.id)) {
       throw new Error("로그인된 계정에 연결된 업체가 없습니다.");
     }
@@ -1545,7 +1575,8 @@ export default function App() {
     setLoginError("");
     try {
       const email = companyCodeToAuthEmail(companyCode);
-      const { error } = await supabase.auth.signInWithPassword({
+      console.debug("[FORMATE auth] signInWithPassword email", { email });
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -1555,9 +1586,11 @@ export default function App() {
         return;
       }
 
+      const authUserId = data?.user?.id ?? data?.session?.user?.id ?? "";
+      console.debug("[FORMATE auth] signInWithPassword success", { authUserId, email });
       clearAdminVerifiedCompany();
       clearCompanyScopedState();
-      await loadCurrentCompanyFromAuth();
+      await loadCurrentCompanyFromAuth(authUserId);
       setLoginCode("");
       setLoginPassword("");
       setLoginError("");
