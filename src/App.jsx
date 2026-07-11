@@ -1269,6 +1269,10 @@ export default function App() {
   const [selectedAdminHasExtension, setSelectedAdminHasExtension] = useState(false);
   const [selectedAdminConditionVariant, setSelectedAdminConditionVariant] = useState("");
   const [adminTemplates, setAdminTemplates] = useState([]);
+  const [templateDeleteTarget, setTemplateDeleteTarget] = useState(null);
+  const [templateDeletePassword, setTemplateDeletePassword] = useState("");
+  const [templateDeleteLoading, setTemplateDeleteLoading] = useState(false);
+  const [templateDeleteError, setTemplateDeleteError] = useState("");
   const [currentAdminTemplateId, setCurrentAdminTemplateId] = useState("");
   const [adminConditionLoaded, setAdminConditionLoaded] = useState(false);
   const [adminConditionStep, setAdminConditionStep] = useState("select");
@@ -2123,6 +2127,98 @@ export default function App() {
     return null;
   }
 
+  function openTemplateDeleteDialog(template) {
+    setTemplateDeleteTarget(template);
+    setTemplateDeletePassword("");
+    setTemplateDeleteError("");
+    setAdminError("");
+  }
+
+  function closeTemplateDeleteDialog() {
+    if (templateDeleteLoading) return;
+    setTemplateDeleteTarget(null);
+    setTemplateDeletePassword("");
+    setTemplateDeleteError("");
+  }
+
+  async function confirmDeleteAdminTemplate(event) {
+    event.preventDefault();
+
+    if (!templateDeleteTarget?.id) {
+      setTemplateDeleteError("삭제할 기준표를 다시 선택해주세요.");
+      return;
+    }
+
+    const password = templateDeletePassword.trim();
+    if (!password) {
+      setTemplateDeleteError("비밀번호를 확인해주세요.");
+      return;
+    }
+
+    if (!isSupabaseConfigured) {
+      setTemplateDeleteError("삭제 중 문제가 발생했습니다.");
+      return;
+    }
+
+    setTemplateDeleteLoading(true);
+    setTemplateDeleteError("");
+    setAdminNotice("");
+    setAdminError("");
+
+    try {
+      const companyId = requireSelectedCompanyId();
+      const email = companyCodeToAuthEmail(selectedCompany?.company_code ?? selectedCompany?.code ?? "");
+      if (!email) {
+        throw new Error("업체 정보를 다시 확인해주세요.");
+      }
+
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (verifyError) {
+        setTemplateDeleteError("비밀번호를 확인해주세요.");
+        return;
+      }
+
+      const { error: valuesDeleteError } = await supabase
+        .from("admin_condition_template_values")
+        .delete()
+        .eq("template_id", templateDeleteTarget.id);
+
+      if (valuesDeleteError) throw valuesDeleteError;
+
+      const { data: deletedTemplates, error: templateDeleteError } = await supabase
+        .from("admin_condition_templates")
+        .delete()
+        .eq("id", templateDeleteTarget.id)
+        .eq("company_id", companyId)
+        .select("id");
+
+      if (templateDeleteError) throw templateDeleteError;
+      if (!deletedTemplates?.length) {
+        throw new Error("삭제할 기준표를 찾지 못했습니다.");
+      }
+
+      if (currentAdminTemplateId === templateDeleteTarget.id) {
+        setCurrentAdminTemplateId("");
+        setAdminConditionLoaded(false);
+      }
+      setAdminTemplates((current) => current.filter((template) => template.id !== templateDeleteTarget.id));
+      setAdminNotice("기준표를 삭제했습니다.");
+      setTemplateDeleteTarget(null);
+      setTemplateDeletePassword("");
+      setTemplateDeleteError("");
+      await fetchAdminTemplateList();
+    } catch (error) {
+      console.error("[FORMATE delete admin template]", error);
+      setTemplateDeleteError(getFriendlyError(error, "기준표를 삭제하지 못했어요. 다시 시도해주세요."));
+    } finally {
+      setTemplateDeleteLoading(false);
+    }
+  }
+
   async function fetchAdminItems(options = {}) {
     setAdminLoading(true);
     setAdminError("");
@@ -2182,7 +2278,7 @@ export default function App() {
 
           if (valuesError) throw valuesError;
           templateValueRows = values ?? [];
-          setAdminNotice("저장된 조건별 수량/인원을 불러왔습니다. 단가/인건비는 모든 조건에 공통으로 적용됩니다.");
+          setAdminNotice("");
         } else {
           setAdminNotice("아직 이 조건의 수량/인원 기준이 없습니다. 공통 단가/인건비와 조건별 수량/인원을 입력한 뒤 저장하세요.");
         }
@@ -3854,6 +3950,42 @@ export default function App() {
         </div>
       )}
 
+      {templateDeleteTarget && (
+        <div className="modal-backdrop" onClick={closeTemplateDeleteDialog}>
+          <section className="admin-verify-modal template-delete-modal" onClick={(event) => event.stopPropagation()}>
+            <div>
+              <p className="eyebrow danger">기준표 삭제</p>
+              <h2>저장한 기준표를 삭제할까요?</h2>
+              <p className="muted">
+                <strong>{makeTemplateLabel(templateDeleteTarget, conditionVariantLabelMap)}</strong> 기준표와 이 기준표의 수량/인원 값이 삭제됩니다.
+              </p>
+            </div>
+            <form className="login-form" onSubmit={confirmDeleteAdminTemplate}>
+              <label>
+                관리자 비밀번호
+                <input
+                  type="password"
+                  value={templateDeletePassword}
+                  onChange={(event) => setTemplateDeletePassword(event.target.value)}
+                  autoComplete="current-password"
+                  placeholder="비밀번호"
+                  autoFocus
+                />
+              </label>
+              {templateDeleteError && <div className="error-box">{templateDeleteError}</div>}
+              <div className="actions">
+                <button type="button" className="secondary-button" onClick={closeTemplateDeleteDialog} disabled={templateDeleteLoading}>
+                  취소
+                </button>
+                <button type="submit" className="danger-button" disabled={templateDeleteLoading}>
+                  {templateDeleteLoading ? "삭제 중..." : "삭제하기"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
       {conditionSummary && page !== "landing" && page !== "ready" && page !== "condition" && page !== "items" && !page.startsWith("admin") && (
         <div className="sticky-summary">
           <span>견적 조건</span>
@@ -3906,10 +4038,7 @@ export default function App() {
           </button>
           <section className="panel">
             <p className="eyebrow dark">기준표 입력</p>
-            <h2>먼저 단가, 그다음 수량</h2>
-            <p className="muted">
-              견적에 쓰는 기준값을 순서대로 입력합니다.
-            </p>
+            <h2>단가/인건비 입력</h2>
             <p className="muted">
               고객에게 보여주는 견적서가 아니라, 우리 업체 내부 기준표입니다.
             </p>
@@ -3924,7 +4053,6 @@ export default function App() {
                 <ClipboardList />
                 <span>1. 단가 입력</span>
                 <p>모든 견적에 공통으로 쓰는 자재 단가와 인건비를 넣습니다.</p>
-                <strong>단가 입력하기</strong>
               </button>
               <button
                 className="menu-card"
@@ -3938,13 +4066,11 @@ export default function App() {
                 <ClipboardList />
                 <span>2. 수량 입력</span>
                 <p>평수와 주택 조건별로 필요한 수량과 인원을 넣습니다.</p>
-                <strong>수량 입력하기</strong>
               </button>
               <button className="menu-card" onClick={() => setPage("admin-detail-costs")}>
                 <FileText />
                 <span>3. 세부 비용</span>
                 <p>필요할 때만 쓰는 내부 비용 기준입니다.</p>
-                <strong>세부 비용 보기</strong>
               </button>
             </div>
           </section>
@@ -4615,7 +4741,7 @@ export default function App() {
               >
                 <ArrowLeft size={18} /> {showAdminConditionEditor ? "되돌리기" : "관리자 홈"}
               </button>
-              <h2>{isCommonPriceAdminPage ? "단가 입력" : "수량 입력"}</h2>
+              <h2>{isCommonPriceAdminPage ? "단가 입력" : "수량/인원 입력"}</h2>
               <p className="muted caption">
                 {isCommonPriceAdminPage
                   ? "모든 견적에 공통으로 쓰는 가격입니다."
@@ -4656,158 +4782,160 @@ export default function App() {
                 <strong>어떤 기준표를 입력할까요?</strong>
                 <span>평수와 주택 조건을 고른 뒤 이 조건의 수량과 인원만 입력합니다.</span>
               </div>
-              <button
-                type="button"
-                className="secondary-button condition-label-link"
-                disabled={adminLoading || adminSaving}
-                onClick={() => {
-                  setPage("admin-condition-labels");
-                  fetchConditionVariantLabels();
-                }}
-              >
-                유형명 설정
-              </button>
             </div>
-            <label>
-              평수 선택
-              <div className="custom-select admin-pyeong-select">
-                <button
-                  type="button"
-                  className={`custom-select-trigger ${adminPyeongDropdownOpen ? "open" : ""}`.trim()}
-                  onClick={() => setAdminPyeongDropdownOpen((current) => !current)}
-                  aria-expanded={adminPyeongDropdownOpen}
-                >
-                  <span>{selectedAdminPyeong ? `${selectedAdminPyeong}평` : "관리할 평수 선택"}</span>
-                  <span aria-hidden="true">⌄</span>
-                </button>
-                {adminPyeongDropdownOpen &&
-                  renderPyeongDropdownMenu(selectedAdminPyeong, (value) => {
-                    setSelectedAdminPyeong(value);
-                    setAdminConditionLoaded(false);
-                    setCurrentAdminTemplateId("");
-                    setAdminPyeongDropdownOpen(false);
-                  })}
-              </div>
-            </label>
-            <label>
-              주택 유형
-              <div className="segmented admin-condition-toggle">
-                <button
-                  type="button"
-                  className={selectedAdminBuildType === "new" ? "selected" : ""}
-                  onClick={() => {
-                    setSelectedAdminBuildType("new");
-                    setSelectedAdminHasExtension(false);
-                    setSelectedAdminConditionVariant("확장형1");
-                    setAdminConditionLoaded(false);
-                    setCurrentAdminTemplateId("");
-                  }}
-                >
-                  확장형
-                </button>
-                <button
-                  type="button"
-                  className={selectedAdminBuildType === "old" ? "selected" : ""}
-                  onClick={() => {
-                    setSelectedAdminBuildType("old");
-                    setSelectedAdminHasExtension(false);
-                    setSelectedAdminConditionVariant(OLD_NO_EXTENSION_VARIANT);
-                    setAdminConditionLoaded(false);
-                    setCurrentAdminTemplateId("");
-                  }}
-                >
-                  구형
-                </button>
-              </div>
-            </label>
-            {selectedAdminBuildType === "new" && (
-              <label>
-                확장형 세부 유형
-                <div className="chips">
-                  {EXTENDED_VARIANTS.map((variant) => (
-                    <button
-                      key={variant}
-                      type="button"
-                      className={`condition-variant-option ${normalizeConditionVariant("new", false, selectedAdminConditionVariant) === variant ? "selected" : ""}`.trim()}
-                      onClick={() => {
-                        setSelectedAdminConditionVariant(variant);
-                        setAdminConditionLoaded(false);
-                        setCurrentAdminTemplateId("");
-                      }}
-                    >
-                      <span>{variant}</span>
-                      {getConditionVariantLabel(variant, conditionVariantLabelMap) && (
-                        <small>{getConditionVariantLabel(variant, conditionVariantLabelMap)}</small>
-                      )}
-                    </button>
-                  ))}
+            <div className="admin-condition-grid">
+              <label className="admin-condition-field">
+                <span className="admin-condition-field-title">평수 선택</span>
+                <div className="custom-select admin-pyeong-select">
+                  <button
+                    type="button"
+                    className={`custom-select-trigger ${adminPyeongDropdownOpen ? "open" : ""}`.trim()}
+                    onClick={() => setAdminPyeongDropdownOpen((current) => !current)}
+                    aria-expanded={adminPyeongDropdownOpen}
+                  >
+                    <span>{selectedAdminPyeong ? `${selectedAdminPyeong}평` : "관리할 평수 선택"}</span>
+                    <span aria-hidden="true">⌄</span>
+                  </button>
+                  {adminPyeongDropdownOpen &&
+                    renderPyeongDropdownMenu(selectedAdminPyeong, (value) => {
+                      setSelectedAdminPyeong(value);
+                      setAdminConditionLoaded(false);
+                      setCurrentAdminTemplateId("");
+                      setAdminPyeongDropdownOpen(false);
+                    })}
                 </div>
               </label>
-            )}
-            {selectedAdminBuildType === "old" && (
-              <label>
-                확장 여부
+              <div className="admin-condition-field">
+                <span className="admin-condition-field-title">주택 유형</span>
                 <div className="segmented admin-condition-toggle">
                   <button
                     type="button"
-                    className={!selectedAdminHasExtension ? "selected" : ""}
+                    className={selectedAdminBuildType === "new" ? "selected" : ""}
                     onClick={() => {
+                      setSelectedAdminBuildType("new");
+                      setSelectedAdminHasExtension(false);
+                      setSelectedAdminConditionVariant("확장형1");
+                      setAdminConditionLoaded(false);
+                      setCurrentAdminTemplateId("");
+                    }}
+                  >
+                    확장형
+                  </button>
+                  <button
+                    type="button"
+                    className={selectedAdminBuildType === "old" ? "selected" : ""}
+                    onClick={() => {
+                      setSelectedAdminBuildType("old");
                       setSelectedAdminHasExtension(false);
                       setSelectedAdminConditionVariant(OLD_NO_EXTENSION_VARIANT);
                       setAdminConditionLoaded(false);
                       setCurrentAdminTemplateId("");
                     }}
                   >
-                    확장 없음
+                    구형
                   </button>
+                </div>
+              </div>
+              <div className="admin-condition-field admin-condition-detail-card">
+                <div className="admin-condition-detail-head">
+                  <span className="admin-condition-field-title">세부 유형</span>
                   <button
                     type="button"
-                    className={selectedAdminHasExtension ? "selected" : ""}
+                    className="ghost condition-label-link"
+                    disabled={adminLoading || adminSaving}
                     onClick={() => {
-                      setSelectedAdminHasExtension(true);
-                      setSelectedAdminConditionVariant(
-                        OLD_EXTENDED_VARIANTS.includes(selectedAdminConditionVariant)
-                          ? selectedAdminConditionVariant
-                          : "구형1"
-                      );
-                      setAdminConditionLoaded(false);
-                      setCurrentAdminTemplateId("");
+                      setPage("admin-condition-labels");
+                      fetchConditionVariantLabels();
                     }}
                   >
-                    확장 있음
+                    이름 변경
                   </button>
                 </div>
-              </label>
-            )}
-            {selectedAdminBuildType === "old" && selectedAdminHasExtension && (
-              <label>
-                구형 세부 유형
-                <div className="chips">
-                  {OLD_EXTENDED_VARIANTS.map((variant) => (
-                    <button
-                      key={variant}
-                      type="button"
-                      className={`condition-variant-option ${normalizeConditionVariant("old", true, selectedAdminConditionVariant) === variant ? "selected" : ""}`.trim()}
-                      onClick={() => {
-                        setSelectedAdminConditionVariant(variant);
-                        setAdminConditionLoaded(false);
-                        setCurrentAdminTemplateId("");
-                      }}
-                    >
-                      <span>{variant}</span>
-                      {getConditionVariantLabel(variant, conditionVariantLabelMap) && (
-                        <small>{getConditionVariantLabel(variant, conditionVariantLabelMap)}</small>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </label>
-            )}
-            {selectedAdminBuildType === "old" && !selectedAdminHasExtension && (
-              <div className="condition-static-note">
-                확장 없음은 <strong>{formatConditionVariantLabel(OLD_NO_EXTENSION_VARIANT, conditionVariantLabelMap)}</strong> 기준으로 저장됩니다.
+                {selectedAdminBuildType === "new" ? (
+                  <div className="chips">
+                    {EXTENDED_VARIANTS.map((variant) => (
+                      <button
+                        key={variant}
+                        type="button"
+                        className={`condition-variant-option ${normalizeConditionVariant("new", false, selectedAdminConditionVariant) === variant ? "selected" : ""}`.trim()}
+                        onClick={() => {
+                          setSelectedAdminConditionVariant(variant);
+                          setAdminConditionLoaded(false);
+                          setCurrentAdminTemplateId("");
+                        }}
+                      >
+                        <span>{variant}</span>
+                        {getConditionVariantLabel(variant, conditionVariantLabelMap) && (
+                          <small>{getConditionVariantLabel(variant, conditionVariantLabelMap)}</small>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                ) : selectedAdminBuildType === "old" ? (
+                  <>
+                    <div className="segmented admin-condition-toggle admin-extension-toggle">
+                      <button
+                        type="button"
+                        className={!selectedAdminHasExtension ? "selected" : ""}
+                        onClick={() => {
+                          setSelectedAdminHasExtension(false);
+                          setSelectedAdminConditionVariant(OLD_NO_EXTENSION_VARIANT);
+                          setAdminConditionLoaded(false);
+                          setCurrentAdminTemplateId("");
+                        }}
+                      >
+                        확장 없음
+                      </button>
+                      <button
+                        type="button"
+                        className={selectedAdminHasExtension ? "selected" : ""}
+                        onClick={() => {
+                          setSelectedAdminHasExtension(true);
+                          setSelectedAdminConditionVariant(
+                            OLD_EXTENDED_VARIANTS.includes(selectedAdminConditionVariant)
+                              ? selectedAdminConditionVariant
+                              : "구형1"
+                          );
+                          setAdminConditionLoaded(false);
+                          setCurrentAdminTemplateId("");
+                        }}
+                      >
+                        확장 있음
+                      </button>
+                    </div>
+                    {selectedAdminHasExtension ? (
+                      <div className="chips">
+                        {OLD_EXTENDED_VARIANTS.map((variant) => (
+                          <button
+                            key={variant}
+                            type="button"
+                            className={`condition-variant-option ${normalizeConditionVariant("old", true, selectedAdminConditionVariant) === variant ? "selected" : ""}`.trim()}
+                            onClick={() => {
+                              setSelectedAdminConditionVariant(variant);
+                              setAdminConditionLoaded(false);
+                              setCurrentAdminTemplateId("");
+                            }}
+                          >
+                            <span>{variant}</span>
+                            {getConditionVariantLabel(variant, conditionVariantLabelMap) && (
+                              <small>{getConditionVariantLabel(variant, conditionVariantLabelMap)}</small>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="condition-static-note">
+                        확장 없음은 <strong>{formatConditionVariantLabel(OLD_NO_EXTENSION_VARIANT, conditionVariantLabelMap)}</strong> 기준으로 저장됩니다.
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="condition-static-note muted">
+                    주택 유형을 선택하면 세부 유형이 표시됩니다.
+                  </div>
+                )}
               </div>
-            )}
+            </div>
             <div className="admin-condition-submit">
               <button
                 type="button"
@@ -4831,6 +4959,15 @@ export default function App() {
               <div className="template-list">
                 {adminTemplates.map((template) => (
                   <div className="template-list-row" key={template.id}>
+                    <button
+                      type="button"
+                      className="template-delete-button"
+                      disabled={adminLoading || adminSaving || templateDeleteLoading}
+                      aria-label={`${makeTemplateLabel(template, conditionVariantLabelMap)} 기준표 삭제`}
+                      onClick={() => openTemplateDeleteDialog(template)}
+                    >
+                      <Trash2 size={15} />
+                    </button>
                     <span>{makeTemplateLabel(template, conditionVariantLabelMap)}</span>
                     <button className="secondary-button" type="button" onClick={() => loadAdminTemplate(template)}>
                       다시 열기
@@ -4853,18 +4990,6 @@ export default function App() {
 
           {showAdminCatalogEditor && (
           <section className="admin-edit-panel">
-            {isConditionQuantityAdminPage && (
-            <div className="admin-edit-title">
-              <div>
-                <strong>수량과 인원 입력</strong>
-                <span>
-                  현재 조건의 수량과 인원만 입력하세요. 단가는 단가 입력 화면에서 관리합니다.
-                </span>
-              </div>
-              {isConditionQuantityAdminPage && currentAdminConditionLabel && <em>{currentAdminConditionLabel}</em>}
-            </div>
-            )}
-
             {isConditionQuantityAdminPage && (
             <div className={`admin-edit-current ${canEditConditionQuantities ? "active" : ""}`.trim()}>
               <span>입력 중인 기준표</span>
@@ -4952,7 +5077,7 @@ export default function App() {
                   ) : (
                     <span className="admin-item-placeholder" />
                   )}
-                  {isCommonPriceAdminPage ? (
+                  {(isCommonPriceAdminPage || isConditionQuantityAdminPage) ? (
                     <label className="admin-item-name-field">
                       <span>대분류명</span>
                       <input
@@ -4990,11 +5115,29 @@ export default function App() {
                 </div>
 
                 {itemExpanded && isFlooringThicknessItem(item) ? (
-                  <div className="flooring-thickness-list">
+                  <div className={`flooring-thickness-list ${isCommonPriceAdminPage ? "price-table-list" : isConditionQuantityAdminPage ? "quantity-table-list" : ""}`.trim()}>
                     <div className="flooring-spec-guide">
                       <strong>장판/바닥재 규격 관리</strong>
                       <span>소재명과 규격/두께를 나눠 입력합니다. 저장은 기존 소재명에 함께 반영됩니다.</span>
                     </div>
+                    {isCommonPriceAdminPage && (
+                      <div className="admin-price-table-header flooring-price-table-header">
+                        <span>소재명</span>
+                        <span>규격/두께</span>
+                        <span>단위</span>
+                        <span>단가</span>
+                        <span>인건비</span>
+                        <span>삭제</span>
+                      </div>
+                    )}
+                    {isConditionQuantityAdminPage && (
+                      <div className="admin-quantity-table-header flooring-quantity-table-header">
+                        <span>소재명</span>
+                        <span>규격/두께</span>
+                        <span>수량</span>
+                        <span>인원</span>
+                      </div>
+                    )}
                     {getFlooringThicknessGroups(itemSubitems).map((group) => {
                       const optionEntries = getFlooringOptionEntries(group);
                       const optionIds = optionEntries.map((option) => option.id);
@@ -5006,11 +5149,11 @@ export default function App() {
                       return (
                         <div
                           key={group.baseName}
-                          className={`admin-value-row flooring-value-row ${isCommonPriceAdminPage ? "common-price-row" : "condition-quantity-row"}`.trim()}
+                          className={`admin-value-row flooring-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row" : "condition-quantity-row quantity-table-row"}`.trim()}
                         >
-                          {isCommonPriceAdminPage ? (
+                          {(isCommonPriceAdminPage || isConditionQuantityAdminPage) ? (
                             <label className="admin-material-name-field">
-                              소재명
+                              <span className="field-label">소재명</span>
                               <input
                                 value={group.baseName}
                                 onChange={(event) =>
@@ -5027,7 +5170,7 @@ export default function App() {
                             </div>
                           )}
                           <label>
-                            규격/두께
+                            <span className="field-label">규격/두께</span>
                             <select
                               value={activeThickness}
                               onChange={(event) =>
@@ -5047,7 +5190,7 @@ export default function App() {
                           {isCommonPriceAdminPage ? (
                             <>
                               <label>
-                                단위
+                                <span className="field-label">단위</span>
                                 <select
                                   value={activeSubitem.unit ?? ""}
                                   onChange={(event) => updateAdminSubitemUnit(activeSubitem.id, event.target.value)}
@@ -5060,7 +5203,7 @@ export default function App() {
                                 </select>
                               </label>
                               <label>
-                                단가 <span>공통</span>
+                                <span className="field-label">단가</span>
                                 <input
                                   type="number"
                                   min="0"
@@ -5071,7 +5214,7 @@ export default function App() {
                                 />
                               </label>
                               <label>
-                                인건비 <span>공통</span>
+                                <span className="field-label">인건비</span>
                                 <input
                                   type="number"
                                   min="0"
@@ -5092,7 +5235,7 @@ export default function App() {
                           ) : (
                             <>
                               <label>
-                                수량 <span>현재 조건</span>
+                                <span className="field-label">수량</span>
                                 <input
                                   type="number"
                                   min="0"
@@ -5103,7 +5246,7 @@ export default function App() {
                                 />
                               </label>
                               <label>
-                                인원 <span>현재 조건</span>
+                                <span className="field-label">인원</span>
                                 <input
                                   type="number"
                                   min="0"
@@ -5122,14 +5265,18 @@ export default function App() {
                       <p className="muted">
                         {isCommonPriceAdminPage
                           ? "소재가 없습니다. 예: 장판, KCC장판, LG장판처럼 소재를 먼저 추가하세요."
-                          : "등록된 소재가 없습니다. 단가 입력 화면에서 소재를 먼저 추가하세요."}
+                          : "등록된 소재가 없습니다. 이 대분류 안에 소재를 추가하세요."}
                       </p>
                     )}
-                    {isCommonPriceAdminPage && (
+                    {(isCommonPriceAdminPage || isConditionQuantityAdminPage) && (
                     <div className="admin-add-subitem-row">
                       <div>
                         <strong>{item.name} 안에 소재 추가</strong>
-                        <span>예: 장판, KCC장판, LG장판, 비닐장판. 규격/두께는 소재 row의 dropdown에서 선택합니다.</span>
+                        <span>
+                          {isCommonPriceAdminPage
+                            ? "예: 장판, KCC장판, LG장판, 비닐장판. 규격/두께는 소재 row의 dropdown에서 선택합니다."
+                            : "추가한 소재는 단가 입력 화면에도 함께 보입니다. 수량과 인원은 빈칸으로 시작합니다."}
+                        </span>
                       </div>
                       <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
                         <Plus size={18} /> 소재 추가
@@ -5138,7 +5285,7 @@ export default function App() {
                     )}
                   </div>
                 ) : itemExpanded ? (
-                <div className={item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"}>
+                <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} ${isCommonPriceAdminPage ? "price-table-list" : isConditionQuantityAdminPage ? "quantity-table-list" : ""}`.trim()}>
                   {isConditionQuantityAdminPage && isWallpaperCategoryName(item.name) && (
                     <div className="wallpaper-bulk-panel">
                       <div>
@@ -5175,10 +5322,27 @@ export default function App() {
                       </button>
                     </div>
                   )}
+                  {isCommonPriceAdminPage && (
+                    <div className={`admin-price-table-header ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"}`.trim()}>
+                      {item.item_type !== "flat" && <span />}
+                      <span>소재명</span>
+                      <span>단위</span>
+                      <span>단가</span>
+                      <span>인건비</span>
+                      {item.item_type !== "flat" && <span>삭제</span>}
+                    </div>
+                  )}
+                  {isConditionQuantityAdminPage && (
+                    <div className="admin-quantity-table-header standard-quantity-table-header">
+                      <span>소재명</span>
+                      <span>수량</span>
+                      <span>인원</span>
+                    </div>
+                  )}
                   {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
                     <div
                       key={subitem.id}
-                      className={`admin-value-row ${isCommonPriceAdminPage ? "common-price-row" : "condition-quantity-row"}`.trim()}
+                      className={`admin-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row" : "condition-quantity-row quantity-table-row"}`.trim()}
                       draggable={isCommonPriceAdminPage && item.item_type !== "flat"}
                       onDragStart={() =>
                         isCommonPriceAdminPage &&
@@ -5188,13 +5352,13 @@ export default function App() {
                       onDragOver={(event) => isCommonPriceAdminPage && item.item_type !== "flat" && event.preventDefault()}
                       onDrop={() => isCommonPriceAdminPage && item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
                     >
-                      {item.item_type === "flat" && isCommonPriceAdminPage ? (
+                      {item.item_type === "flat" ? (
                         <strong className="flat-subitem-name">{item.name}</strong>
-                      ) : isCommonPriceAdminPage ? (
+                      ) : isCommonPriceAdminPage || isConditionQuantityAdminPage ? (
                         <>
-                          <span className="drag-handle">::</span>
+                          {isCommonPriceAdminPage && <span className="drag-handle">::</span>}
                           <label className="admin-material-name-field">
-                            소재명
+                            <span className="field-label">소재명</span>
                             <input
                               value={subitem.name}
                               onChange={(event) =>
@@ -5227,7 +5391,7 @@ export default function App() {
                       {isCommonPriceAdminPage && (
                         <>
                           <label>
-                            단위
+                            <span className="field-label">단위</span>
                             <select
                               value={subitem.unit ?? ""}
                               onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
@@ -5240,7 +5404,7 @@ export default function App() {
                             </select>
                           </label>
                           <label>
-                            단가 <span>공통</span>
+                            <span className="field-label">단가</span>
                             <input
                               type="number"
                               min="0"
@@ -5251,7 +5415,7 @@ export default function App() {
                             />
                           </label>
                           <label>
-                            인건비 <span>공통</span>
+                            <span className="field-label">인건비</span>
                             <input
                               type="number"
                               min="0"
@@ -5266,7 +5430,7 @@ export default function App() {
                       {isConditionQuantityAdminPage && (
                         <>
                           <label>
-                            수량 <span>현재 조건</span>
+                            <span className="field-label">수량</span>
                             <input
                               type="number"
                               min="0"
@@ -5277,7 +5441,7 @@ export default function App() {
                             />
                           </label>
                           <label>
-                            인원 <span>현재 조건</span>
+                            <span className="field-label">인원</span>
                             <input
                               type="number"
                               min="0"
@@ -5304,14 +5468,18 @@ export default function App() {
                     <p className="muted">
                       {isCommonPriceAdminPage
                         ? "소재가 없습니다. 소재를 추가하거나 새 단일 항목으로 다시 등록하세요."
-                        : "등록된 소재가 없습니다. 단가 입력 화면에서 소재를 먼저 추가하세요."}
+                        : "등록된 소재가 없습니다. 이 대분류 안에 소재를 추가하세요."}
                     </p>
                   )}
-                  {isCommonPriceAdminPage && item.item_type !== "flat" && (
+                  {(isCommonPriceAdminPage || isConditionQuantityAdminPage) && item.item_type !== "flat" && (
                     <div className="admin-add-subitem-row">
                       <div>
                         <strong>{item.name} 안에 소재 추가</strong>
-                        <span>소재명, 단위, 단가, 인건비를 입력할 수 있습니다.</span>
+                        <span>
+                          {isCommonPriceAdminPage
+                            ? "소재명, 단위, 단가, 인건비를 입력할 수 있습니다."
+                            : "추가한 소재는 단가 입력 화면에도 함께 보입니다. 수량과 인원은 빈칸으로 시작합니다."}
+                        </span>
                       </div>
                       <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
                         <Plus size={18} /> 소재 추가
@@ -5325,7 +5493,7 @@ export default function App() {
             })}
           </section>
           )}
-          {isCommonPriceAdminPage && (
+          {(isCommonPriceAdminPage || canEditConditionQuantities) && (
             <div className="admin-bottom-add-category">
               <button className="secondary-button" type="button" disabled={adminLoading || adminSaving} onClick={addAdminItem}>
                 <Plus size={18} /> 대분류 추가
@@ -6366,6 +6534,9 @@ const styles = `
   .eyebrow.dark {
     color: var(--brand-primary);
   }
+  .eyebrow.danger {
+    color: #a33a3a;
+  }
   .landing-actions {
     display: grid;
     gap: var(--space-2);
@@ -6943,6 +7114,14 @@ const styles = `
     gap: var(--space-2);
     margin-top: var(--space-3);
   }
+  .admin-menu .menu-card {
+    min-height: 158px;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+  .admin-menu .menu-card p {
+    margin-top: 0;
+  }
   .admin-page {
     max-width: 1180px;
   }
@@ -6996,12 +7175,63 @@ const styles = `
   .admin-condition-toggle {
     min-width: 0;
   }
+  .admin-condition-grid {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+    align-items: stretch;
+  }
+  .admin-condition-field {
+    display: grid;
+    align-content: start;
+    gap: var(--space-1);
+    min-width: 0;
+    min-height: 186px;
+    padding: 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: #ffffff;
+  }
+  .admin-condition-field-title {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .admin-condition-field .segmented,
+  .admin-condition-field .chips {
+    margin: 0;
+  }
+  .admin-condition-detail-card {
+    grid-template-rows: auto auto 1fr;
+  }
+  .admin-condition-detail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+  .admin-condition-detail-card .chips {
+    gap: 8px;
+  }
+  .admin-condition-detail-card .condition-variant-option {
+    flex: 1 1 86px;
+  }
+  .admin-condition-detail-card .condition-static-note {
+    min-height: 54px;
+    margin-top: 4px;
+  }
+  .admin-extension-toggle {
+    margin-bottom: 4px;
+  }
   .condition-label-link {
     flex: 0 0 auto;
     min-height: 36px;
     padding: 0 12px;
+    font-size: var(--font-size-caption);
   }
   .admin-condition-submit {
+    grid-column: 1 / -1;
     display: flex;
     align-items: end;
     justify-content: flex-end;
@@ -7035,7 +7265,7 @@ const styles = `
   }
   .template-list-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: var(--space-1);
     align-items: center;
     padding: 10px;
@@ -7046,6 +7276,25 @@ const styles = `
   .template-list-row span {
     color: var(--text-primary);
     font-weight: var(--font-weight-semibold);
+  }
+  .template-delete-button {
+    width: 34px;
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid rgba(190, 62, 62, 0.22);
+    border-radius: 999px;
+    background: rgba(190, 62, 62, 0.05);
+    color: #a33a3a;
+  }
+  .template-delete-button:hover:not(:disabled) {
+    border-color: rgba(190, 62, 62, 0.38);
+    background: rgba(190, 62, 62, 0.09);
+  }
+  .template-delete-modal .muted strong {
+    color: var(--text-primary);
   }
   .admin-edit-panel {
     display: grid;
@@ -8613,6 +8862,42 @@ const styles = `
     .hero {
       padding: var(--space-3) 0;
     }
+    .admin-condition-grid {
+      grid-template-columns: 1fr;
+    }
+    .admin-condition-field {
+      min-height: auto;
+    }
+    .admin-condition-submit {
+      justify-content: stretch;
+    }
+    .admin-price-table-header,
+    .admin-quantity-table-header {
+      display: none;
+    }
+    .price-table-row .field-label,
+    .quantity-table-row .field-label {
+      position: static;
+      width: auto;
+      height: auto;
+      overflow: visible;
+      clip: auto;
+      white-space: normal;
+      margin-bottom: 5px;
+      color: var(--text-tertiary);
+      font-size: 11px;
+      font-weight: var(--font-weight-medium);
+    }
+    .price-table-list .admin-value-row.common-price-row {
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-card);
+      margin-bottom: var(--space-1);
+    }
+    .quantity-table-list .admin-value-row.condition-quantity-row {
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-card);
+      margin-bottom: var(--space-1);
+    }
     .public-landing {
       padding: var(--space-2) var(--space-2) var(--space-4);
       min-height: 100dvh;
@@ -8945,8 +9230,7 @@ const styles = `
   .admin-menu .menu-card:nth-child(3) {
     background: #fbfcfe;
   }
-  .admin-menu .menu-card:nth-child(3) svg,
-  .admin-menu .menu-card:nth-child(3) strong {
+  .admin-menu .menu-card:nth-child(3) svg {
     opacity: 0.72;
   }
   .panel {
@@ -9072,6 +9356,13 @@ const styles = `
     min-height: 42px;
     color: var(--text-secondary);
   }
+  .admin-condition-detail-head .condition-label-link {
+    min-height: 32px;
+    padding: 0 10px;
+    border-color: var(--border-subtle);
+    background: #ffffff;
+    font-size: var(--font-size-caption);
+  }
   .admin-condition-submit .primary-button {
     width: 100%;
   }
@@ -9100,6 +9391,118 @@ const styles = `
   }
   .admin-list {
     gap: 14px;
+  }
+  .price-table-list {
+    gap: 0;
+  }
+  .price-table-list .flooring-spec-guide {
+    margin-bottom: 12px;
+  }
+  .admin-price-table-header,
+  .admin-quantity-table-header {
+    display: grid;
+    gap: var(--space-1);
+    align-items: center;
+    min-height: 38px;
+    padding: 0 10px;
+    border: 1px solid var(--border-subtle);
+    border-bottom: 0;
+    border-radius: 14px 14px 0 0;
+    background: #f7f8fb;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .standard-price-table-header {
+    grid-template-columns: 28px minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr)) 42px;
+  }
+  .flat-price-table-header {
+    grid-template-columns: minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr));
+  }
+  .flooring-price-table-header {
+    grid-template-columns: minmax(140px, 1.1fr) 120px 100px repeat(2, minmax(118px, 1fr)) 42px;
+  }
+  .standard-quantity-table-header {
+    grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(132px, 180px));
+  }
+  .flooring-quantity-table-header {
+    grid-template-columns: minmax(170px, 1fr) 120px repeat(2, minmax(132px, 180px));
+  }
+  .quantity-table-list {
+    gap: 0;
+  }
+  .quantity-table-list .wallpaper-bulk-panel {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: #fbfcff;
+  }
+  .quantity-table-list .wallpaper-bulk-panel input {
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 15px;
+  }
+  .quantity-table-list .admin-value-row.condition-quantity-row {
+    border-radius: 0;
+    border-color: var(--border-subtle);
+    border-top: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    background: #ffffff;
+    padding: 8px 10px;
+  }
+  .quantity-table-list .admin-value-row.condition-quantity-row:hover {
+    background: #fbfcff;
+  }
+  .quantity-table-list .admin-value-row.condition-quantity-row input,
+  .quantity-table-list .admin-value-row.condition-quantity-row select {
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 15px;
+  }
+  .quantity-table-list .admin-value-row.condition-quantity-row label {
+    gap: 0;
+  }
+  .price-table-list .admin-value-row.common-price-row {
+    border-radius: 0;
+    border-color: var(--border-subtle);
+    border-top: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    background: #ffffff;
+    padding: 8px 10px;
+  }
+  .price-table-list .admin-value-row.common-price-row:hover {
+    background: #fbfcff;
+  }
+  .price-table-list .admin-value-row.common-price-row input,
+  .price-table-list .admin-value-row.common-price-row select {
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 15px;
+  }
+  .price-table-list .admin-value-row.common-price-row label {
+    gap: 0;
+  }
+  .price-table-row .field-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .quantity-table-row .field-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .price-table-list .admin-add-subitem-row {
+    margin-top: 12px;
+  }
+  .quantity-table-list .admin-add-subitem-row {
+    margin-top: 12px;
   }
   .admin-item {
     border-radius: 18px;
