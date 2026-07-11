@@ -52,6 +52,7 @@ const OLD_EXTENDED_VARIANTS = ["구형1", "구형2", "구형3", "구형4", "구�
 const OLD_NO_EXTENSION_VARIANT = "구형0";
 const CONDITION_VARIANT_KEYS = [...EXTENDED_VARIANTS, OLD_NO_EXTENSION_VARIANT, ...OLD_EXTENDED_VARIANTS];
 const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
+const ADMIN_AUTOSAVE_DELAY_MS = 1200;
 const CATEGORY_DISPLAY_TARGETS = {
   몰딩: "목공",
   페인트: "도장/페인트",
@@ -1210,6 +1211,14 @@ function isEstimateRowModified(row) {
 
 export default function App() {
   const previewPdfRef = useRef(null);
+  const autoSaveTimerRef = useRef(null);
+  const autoSaveRunningRef = useRef(false);
+  const autoSaveQueuedRef = useRef(false);
+  const autoSaveTargetRef = useRef("");
+  const pendingAdminLeaveActionRef = useRef(null);
+  const adminItemsRef = useRef([]);
+  const pageRef = useRef("");
+  const currentAdminTemplateConditionRef = useRef(null);
   const [companySession, setCompanySession] = useState(() => {
     return {
       company: null,
@@ -1284,6 +1293,13 @@ export default function App() {
   const [dragOverItemId, setDragOverItemId] = useState("");
   const [dragSubitem, setDragSubitem] = useState(null);
   const [dragOverSubitem, setDragOverSubitem] = useState(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState("idle");
+  const [autoSaveTarget, setAutoSaveTarget] = useState("");
+  const [autoSaveSavedAt, setAutoSaveSavedAt] = useState("");
+  const [autoSaveError, setAutoSaveError] = useState("");
+  const [adminUnsavedLeaveOpen, setAdminUnsavedLeaveOpen] = useState(false);
+  const [adminUnsavedLeaveSaving, setAdminUnsavedLeaveSaving] = useState(false);
+  const [adminUnsavedLeaveError, setAdminUnsavedLeaveError] = useState("");
   const [detailSubitems, setDetailSubitems] = useState([]);
   const [selectedDetailSubitemId, setSelectedDetailSubitemId] = useState("");
   const [detailCosts, setDetailCosts] = useState([]);
@@ -1429,6 +1445,13 @@ export default function App() {
   const showAdminConditionEditor = isConditionQuantityAdminPage && adminConditionStep === "edit";
   const showAdminCatalogEditor = isCommonPriceAdminPage || showAdminConditionEditor;
   const adminCommonPriceSavedLabel = adminCommonPriceSavedAt ? formatDisplayDateTime(adminCommonPriceSavedAt) : "";
+  const isAdminCatalogEditing = isCommonPriceAdminPage || showAdminConditionEditor;
+  const hasUnsavedAdminCatalogChanges =
+    isAdminCatalogEditing && ["dirty", "saving", "error"].includes(autoSaveStatus);
+
+  adminItemsRef.current = adminItems;
+  pageRef.current = page;
+  currentAdminTemplateConditionRef.current = currentAdminTemplateCondition;
 
   useEffect(() => {
     let active = true;
@@ -1525,6 +1548,31 @@ export default function App() {
       fetchDetailCosts(selectedDetailSubitemId);
     }
   }, [page, selectedDetailSubitemId, selectedCompanyId]);
+
+  useEffect(() => {
+    if (isAdminCatalogEditing) return;
+    clearAutoSaveTimer();
+    autoSaveRunningRef.current = false;
+    autoSaveQueuedRef.current = false;
+    autoSaveTargetRef.current = "";
+    pendingAdminLeaveActionRef.current = null;
+    setAutoSaveStatus("idle");
+    setAutoSaveTarget("");
+    setAutoSaveError("");
+    setAdminUnsavedLeaveOpen(false);
+    setAdminUnsavedLeaveError("");
+  }, [isAdminCatalogEditing]);
+
+  useEffect(() => {
+    if (!hasUnsavedAdminCatalogChanges) return undefined;
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedAdminCatalogChanges]);
 
   useEffect(() => {
     if (!selectedCompanyId || page !== "admin-estimates") return;
@@ -2423,6 +2471,137 @@ export default function App() {
     }
   }
 
+  function clearAutoSaveTimer() {
+    if (autoSaveTimerRef.current) {
+      window.clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+  }
+
+  function getCurrentAutoSaveTarget() {
+    if (pageRef.current === "admin-prices") return "prices";
+    if (pageRef.current === "admin-items" && adminConditionStep === "edit") return "quantities";
+    return "";
+  }
+
+  function markAdminCatalogDirty(target = getCurrentAutoSaveTarget()) {
+    if (!target) return;
+    autoSaveTargetRef.current = target;
+    setAutoSaveTarget(target);
+    setAutoSaveStatus("dirty");
+    setAutoSaveError("");
+
+    clearAutoSaveTimer();
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      runAdminAutoSave(target);
+    }, ADMIN_AUTOSAVE_DELAY_MS);
+  }
+
+  async function runAdminAutoSave(target = autoSaveTargetRef.current) {
+    if (!target) return;
+    clearAutoSaveTimer();
+    if (autoSaveRunningRef.current) {
+      autoSaveQueuedRef.current = true;
+      return;
+    }
+
+    autoSaveRunningRef.current = true;
+    setAutoSaveStatus("saving");
+    setAutoSaveTarget(target);
+    setAutoSaveError("");
+    try {
+      const saved = await saveAdminPrices({
+        auto: true,
+        target,
+        stayOnPage: true,
+        refetch: false,
+      });
+      if (saved) {
+        const savedAt = new Date().toISOString();
+        setAutoSaveSavedAt(savedAt);
+        setAutoSaveStatus("saved");
+        setAutoSaveError("");
+      }
+    } catch (error) {
+      setAutoSaveStatus("error");
+      setAutoSaveError(getFriendlyError(error, "자동 저장에 실패했습니다. 저장하기 버튼을 눌러주세요."));
+    } finally {
+      autoSaveRunningRef.current = false;
+      if (autoSaveQueuedRef.current) {
+        autoSaveQueuedRef.current = false;
+        markAdminCatalogDirty(target);
+      }
+    }
+  }
+
+  function getAutoSaveStatusLabel() {
+    if (autoSaveStatus === "dirty") return "변경사항 있음";
+    if (autoSaveStatus === "saving") return "자동 저장 중...";
+    if (autoSaveStatus === "error") return "자동 저장 실패";
+    if (autoSaveStatus === "saved" && autoSaveSavedAt) {
+      const savedDate = new Date(autoSaveSavedAt);
+      const savedTime = Number.isNaN(savedDate.getTime())
+        ? ""
+        : savedDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+      return savedTime ? `자동 저장됨 · ${savedTime}` : "자동 저장됨";
+    }
+    return "자동 저장 대기";
+  }
+
+  function markAdminCatalogSavedNow(target = getCurrentAutoSaveTarget()) {
+    clearAutoSaveTimer();
+    autoSaveQueuedRef.current = false;
+    autoSaveTargetRef.current = target;
+    setAutoSaveTarget(target);
+    setAutoSaveStatus("saved");
+    setAutoSaveSavedAt(new Date().toISOString());
+    setAutoSaveError("");
+  }
+
+  function requestAdminCatalogLeave(action) {
+    if (!hasUnsavedAdminCatalogChanges) {
+      action();
+      return;
+    }
+    pendingAdminLeaveActionRef.current = action;
+    setAdminUnsavedLeaveOpen(true);
+    setAdminUnsavedLeaveError("");
+  }
+
+  function closeAdminUnsavedLeaveDialog() {
+    pendingAdminLeaveActionRef.current = null;
+    setAdminUnsavedLeaveOpen(false);
+    setAdminUnsavedLeaveSaving(false);
+    setAdminUnsavedLeaveError("");
+  }
+
+  async function saveAndLeaveAdminCatalog() {
+    setAdminUnsavedLeaveSaving(true);
+    setAdminUnsavedLeaveError("");
+    try {
+      const target = autoSaveTargetRef.current || getCurrentAutoSaveTarget();
+      const saved = await saveAdminPrices({
+        target,
+        stayOnPage: true,
+        refetch: false,
+      });
+      if (!saved) throw new Error("저장하지 못했습니다.");
+      clearAutoSaveTimer();
+      autoSaveRunningRef.current = false;
+      autoSaveQueuedRef.current = false;
+      setAutoSaveStatus("saved");
+      setAutoSaveSavedAt(new Date().toISOString());
+      setAutoSaveError("");
+      const action = pendingAdminLeaveActionRef.current;
+      closeAdminUnsavedLeaveDialog();
+      if (action) action();
+    } catch (error) {
+      setAdminUnsavedLeaveError(getFriendlyError(error, "저장하지 못했습니다. 다시 시도해주세요."));
+    } finally {
+      setAdminUnsavedLeaveSaving(false);
+    }
+  }
+
   function updateCondition(patch) {
     setCondition((current) => ({ ...current, ...patch }));
   }
@@ -2490,6 +2669,7 @@ export default function App() {
         ),
       }))
     );
+    markAdminCatalogDirty();
   }
 
   async function updateAdminFlooringSubitemName(subitem, patch) {
@@ -2563,6 +2743,7 @@ export default function App() {
         }),
       }))
     );
+    markAdminCatalogDirty();
   }
 
   async function renameAdminFlooringGroup(itemId, subitemIds, nextBaseName) {
@@ -2674,6 +2855,7 @@ export default function App() {
           : item
       )
     );
+    markAdminCatalogDirty("prices");
   }
 
   function getVisibleAdminSubitems(item) {
@@ -3062,6 +3244,18 @@ export default function App() {
     setDragOverItemId("");
     setDragSubitem(null);
     setDragOverSubitem(null);
+    clearAutoSaveTimer();
+    autoSaveRunningRef.current = false;
+    autoSaveQueuedRef.current = false;
+    autoSaveTargetRef.current = "";
+    pendingAdminLeaveActionRef.current = null;
+    setAutoSaveStatus("idle");
+    setAutoSaveTarget("");
+    setAutoSaveSavedAt("");
+    setAutoSaveError("");
+    setAdminUnsavedLeaveOpen(false);
+    setAdminUnsavedLeaveSaving(false);
+    setAdminUnsavedLeaveError("");
   }
 
   async function addAdminItem() {
@@ -3094,6 +3288,7 @@ export default function App() {
       await fetchAdminItems();
       setExpandedAdminItemIds((current) => [...new Set([...current, item.id])]);
       setAdminNotice("새 대분류를 추가했습니다. 대분류명을 수정하고 하단의 소재 추가 버튼으로 소재를 넣어주세요.");
+      markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "대분류를 추가하지 못했어요. 다시 시도해주세요."));
     } finally {
@@ -3244,6 +3439,7 @@ export default function App() {
       await fetchAdminItems();
       setExpandedAdminItemIds((current) => [...new Set([...current, itemId])]);
       setAdminNotice("새 소재를 추가했습니다. row 안에서 소재명을 수정해 주세요.");
+      markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "소재를 추가하지 못했어요. 다시 시도해주세요."));
     } finally {
@@ -3264,6 +3460,7 @@ export default function App() {
         .eq("company_id", requireSelectedCompanyId());
       if (error) throw error;
       await fetchAdminItems();
+      markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "항목을 삭제하지 못했어요. 다시 시도해주세요."));
     } finally {
@@ -3279,6 +3476,7 @@ export default function App() {
           subitems: item.subitems.filter((subitem) => subitem.id !== subitemId),
         }))
       );
+      markAdminCatalogDirty();
       return;
     }
     if (!hasCurrentCompanySubitem(subitemId)) return;
@@ -3289,6 +3487,7 @@ export default function App() {
       const { error } = await supabase.from("construction_subitems").delete().eq("id", subitemId);
       if (error) throw error;
       await fetchAdminItems();
+      markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "소재를 삭제하지 못했어요. 다시 시도해주세요."));
     } finally {
@@ -3388,32 +3587,9 @@ export default function App() {
     }
   }
 
-  async function updateAdminSubitemUnit(subitemId, unit) {
-    if (isLocalSubitemId(subitemId)) {
-      updateLocalSubitemPrice(subitemId, { unit });
-      return;
-    }
-    if (!hasCurrentCompanySubitem(subitemId)) return;
-
+  function updateAdminSubitemUnit(subitemId, unit) {
     setAdminError("");
-    try {
-      const { error } = await supabase
-        .from("construction_subitems")
-        .update({ unit })
-        .eq("id", subitemId);
-      if (error) throw error;
-      setAdminItems((current) =>
-        current.map((item) => ({
-          ...item,
-          subitems: item.subitems.map((subitem) =>
-            subitem.id === subitemId ? { ...subitem, unit } : subitem
-          ),
-        }))
-      );
-    } catch (error) {
-      setAdminError(getFriendlyError(error, "단위를 수정하지 못했어요. 다시 시도해주세요."));
-      await fetchAdminItems();
-    }
+    updateLocalSubitemPrice(subitemId, { unit });
   }
 
   function handleAdminItemDragStart(event, itemId) {
@@ -3494,6 +3670,7 @@ export default function App() {
         if (failed?.error) throw failed.error;
       });
       await fetchAdminItems();
+      markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "항목 순서를 저장하지 못했어요. 다시 시도해주세요."));
       await fetchAdminItems();
@@ -3552,6 +3729,7 @@ export default function App() {
         if (failed?.error) throw failed.error;
       });
       await fetchAdminItems();
+      markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "소재 순서를 저장하지 못했어요. 다시 시도해주세요."));
       await fetchAdminItems();
@@ -3604,6 +3782,7 @@ export default function App() {
         if (failed?.error) throw failed.error;
       });
       await fetchAdminItems();
+      markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "소재 순서를 저장하지 못했어요. 다시 시도해주세요."));
       await fetchAdminItems();
@@ -3618,6 +3797,7 @@ export default function App() {
     setAdminItems((current) =>
       current.map((item) => (item.id === itemId ? { ...item, ...patch } : item))
     );
+    markAdminCatalogDirty();
   }
 
   function updateLocalSubitemPrice(subitemId, patch) {
@@ -3629,6 +3809,7 @@ export default function App() {
         ),
       }))
     );
+    markAdminCatalogDirty();
   }
 
   function updateWallpaperBulkInput(itemId, patch) {
@@ -3670,63 +3851,103 @@ export default function App() {
       })
     );
     setAdminError("");
-    setAdminNotice("도배 하위 소재의 빈 수량/인원에 일괄값을 적용했습니다. 저장 버튼을 눌러 반영하세요.");
+    setAdminNotice("도배 하위 소재의 빈 수량/인원에 일괄값을 적용했습니다.");
+    markAdminCatalogDirty("quantities");
   }
 
-  async function saveAdminPrices() {
-    setAdminSaving(true);
+  async function saveAdminPrices(options = {}) {
+    const {
+      auto = false,
+      target = pageRef.current === "admin-prices" ? "prices" : "quantities",
+      stayOnPage = false,
+      refetch = true,
+    } = options;
+    if (!auto) setAdminSaving(true);
+    if (!auto) clearAutoSaveTimer();
     setAdminError("");
     try {
       const companyId = requireSelectedCompanyId();
-      const adminSubitems = adminItems.flatMap((item) => item.subitems ?? []);
-      const isCommonPriceSave = page === "admin-prices";
+      const snapshotItems = adminItemsRef.current;
+      const adminSubitems = snapshotItems.flatMap((item) => item.subitems ?? []);
+      const isCommonPriceSave = target === "prices";
 
-      if (isCommonPriceSave) {
-        const existingSubitems = adminSubitems.filter((subitem) => !isLocalSubitemId(subitem.id));
-        const localSubitems = adminSubitems.filter((subitem) => isLocalSubitemId(subitem.id));
-
-        if (existingSubitems.length) {
-          await Promise.all(
-            existingSubitems.map((subitem) =>
-              supabase
-                .from("construction_subitems")
-                .update({
-                  unit: subitem.unit ?? "평",
-                  unit_price: toNonNegativeNumberOrZero(subitem.unit_price),
-                  labor_rate: toNonNegativeNumberOrZero(subitem.labor_rate),
-                })
-                .eq("id", subitem.id)
-            )
-          ).then((results) => {
-            const failed = results.find((result) => result.error);
-            if (failed?.error) throw failed.error;
-          });
-        }
-
-        if (localSubitems.length) {
-          const { error: insertError } = await supabase
-            .from("construction_subitems")
-            .insert(
-              localSubitems.map((subitem) => ({
-                item_id: subitem.item_id,
-                name: getCanonicalFlooringSubitemName(subitem.name),
-                unit: subitem.unit ?? "평",
-                unit_price: toNonNegativeNumberOrZero(subitem.unit_price),
-                labor_rate: toNonNegativeNumberOrZero(subitem.labor_rate),
-                sort_order: subitem.sort_order ?? 0,
-              }))
-            );
-          if (insertError) throw insertError;
-        }
-
-        const savedAt = new Date().toISOString();
-        setAdminCommonPriceSavedAt(savedAt);
-        setAdminNotice("공통 단가/인건비를 저장했습니다.");
-        await fetchAdminItems({ mode: "prices" });
-        return;
+      if (snapshotItems.length) {
+        await Promise.all(
+          snapshotItems.map((item) =>
+            supabase
+              .from("construction_items")
+              .update({
+                name: `${item.name ?? ""}`.trim() || "새 대분류",
+                item_type: item.item_type ?? "itemized",
+                is_favorite: Boolean(item.is_favorite),
+                sort_order: item.sort_order ?? 0,
+              })
+              .eq("id", item.id)
+              .eq("company_id", companyId)
+          )
+        ).then((results) => {
+          const failed = results.find((result) => result.error);
+          if (failed?.error) throw failed.error;
+        });
       }
 
-      const adminTemplateCondition = getAdminTemplateCondition();
+      const existingSubitems = adminSubitems.filter((subitem) => !isLocalSubitemId(subitem.id));
+      const localSubitems = adminSubitems.filter((subitem) => isLocalSubitemId(subitem.id));
+
+      if (existingSubitems.length) {
+        await Promise.all(
+          existingSubitems.map((subitem) => {
+            const payload = {
+              name: getCanonicalFlooringSubitemName(subitem.name),
+              unit: subitem.unit ?? "평",
+              sort_order: subitem.sort_order ?? 0,
+            };
+            if (isCommonPriceSave) {
+              payload.unit_price = toNonNegativeNumberOrZero(subitem.unit_price);
+              payload.labor_rate = toNonNegativeNumberOrZero(subitem.labor_rate);
+            }
+            return supabase
+              .from("construction_subitems")
+              .update(payload)
+              .eq("id", subitem.id);
+          })
+        ).then((results) => {
+          const failed = results.find((result) => result.error);
+          if (failed?.error) throw failed.error;
+        });
+      }
+
+      if (isCommonPriceSave && localSubitems.length) {
+        const { error: insertError } = await supabase
+          .from("construction_subitems")
+          .insert(
+            localSubitems.map((subitem) => ({
+              item_id: subitem.item_id,
+              name: getCanonicalFlooringSubitemName(subitem.name),
+              unit: subitem.unit ?? "평",
+              unit_price: toNonNegativeNumberOrZero(subitem.unit_price),
+              labor_rate: toNonNegativeNumberOrZero(subitem.labor_rate),
+              sort_order: subitem.sort_order ?? 0,
+            }))
+          );
+        if (insertError) throw insertError;
+      }
+
+      if (isCommonPriceSave) {
+        const savedAt = new Date().toISOString();
+        setAdminCommonPriceSavedAt(savedAt);
+        if (!auto) setAdminNotice("공통 단가/인건비를 저장했습니다.");
+        if (refetch) await fetchAdminItems({ mode: "prices" });
+        if (!auto) {
+          clearAutoSaveTimer();
+          setAutoSaveStatus("saved");
+          setAutoSaveSavedAt(savedAt);
+          setAutoSaveError("");
+        }
+        return true;
+      }
+
+      const adminTemplateCondition = currentAdminTemplateConditionRef.current ?? getAdminTemplateCondition();
       if (!adminTemplateCondition) {
         throw new Error("저장할 평수와 주택 유형을 먼저 선택하세요.");
       }
@@ -3754,11 +3975,11 @@ export default function App() {
         templateRow = insertedTemplate;
       }
 
-      const templateValuePayloads = adminSubitems.map((subitem) => ({
+      const templateValuePayloads = existingSubitems.map((subitem) => ({
         template_id: templateRow.id,
         item_id: subitem.item_id,
         subitem_id: subitem.id,
-        option_value: subitem.option_value ?? getTemplateOptionValue(subitem),
+        option_value: getTemplateOptionValue(subitem),
         quantity: toNullableNumber(subitem.quantity),
         labor_count: toNullableNumber(subitem.labor_count),
       }));
@@ -3770,15 +3991,32 @@ export default function App() {
         if (valuesError) throw valuesError;
       }
 
-      setCurrentAdminTemplateId("");
-      setAdminConditionLoaded(false);
-      setAdminConditionStep("select");
-      setAdminNotice("현재 조건의 수량/인원을 저장했습니다.");
-      await fetchAdminTemplateList();
+      if (!stayOnPage) {
+        setCurrentAdminTemplateId("");
+        setAdminConditionLoaded(false);
+        setAdminConditionStep("select");
+        await fetchAdminTemplateList();
+      }
+      if (!auto) setAdminNotice("현재 조건의 수량/인원을 저장했습니다.");
+      if (refetch && stayOnPage) {
+        await fetchAdminItems({ mode: "condition", condition: adminTemplateCondition });
+      }
+      if (!auto) {
+        clearAutoSaveTimer();
+        setAutoSaveStatus("saved");
+        setAutoSaveSavedAt(new Date().toISOString());
+        setAutoSaveError("");
+      }
+      return true;
     } catch (error) {
-      setAdminError(getFriendlyError(error, "시공 항목 값을 저장하지 못했어요. 다시 시도해주세요."));
+      const message = getFriendlyError(error, "시공 항목 값을 저장하지 못했어요. 다시 시도해주세요.");
+      setAdminError(message);
+      if (auto) throw error;
+      setAutoSaveStatus("error");
+      setAutoSaveError(message);
+      return false;
     } finally {
-      setAdminSaving(false);
+      if (!auto) setAdminSaving(false);
     }
   }
 
@@ -4021,7 +4259,7 @@ export default function App() {
       <style>{styles}</style>
 
       <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""} ${page === "items" ? "with-estimate-condition" : ""}`.trim()}>
-          <button className="global-brand" onClick={resetFlow} aria-label="FORMATE 홈으로 이동">
+          <button className="global-brand" onClick={() => requestAdminCatalogLeave(resetFlow)} aria-label="FORMATE 홈으로 이동">
             <img src={logoUrl} alt="" />
             <strong>FORMATE</strong>
           </button>
@@ -4044,7 +4282,7 @@ export default function App() {
           <div className="company-session">
             <span className="session-status-dot">로그인됨</span>
             <span>{selectedCompanyName}님 반갑습니다.</span>
-            <button type="button" className="company-switch-button" onClick={handleChangeCompany}>
+            <button type="button" className="company-switch-button" onClick={() => requestAdminCatalogLeave(handleChangeCompany)}>
               로그아웃
             </button>
           </div>
@@ -4118,6 +4356,37 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+
+      {adminUnsavedLeaveOpen && (
+        <div className="modal-backdrop" onClick={closeAdminUnsavedLeaveDialog}>
+          <section className="admin-verify-modal unsaved-leave-modal" onClick={(event) => event.stopPropagation()}>
+            <div>
+              <p className="eyebrow danger">저장 확인</p>
+              <h2>저장되지 않은 항목이 있습니다.</h2>
+              <p className="muted">저장되지 않은 항목이 있습니다. 저장하기 버튼을 눌러주세요.</p>
+            </div>
+            {adminUnsavedLeaveError && <div className="error-box">{adminUnsavedLeaveError}</div>}
+            <div className="actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={closeAdminUnsavedLeaveDialog}
+                disabled={adminUnsavedLeaveSaving}
+              >
+                계속 편집하기
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={saveAndLeaveAdminCatalog}
+                disabled={adminUnsavedLeaveSaving}
+              >
+                {adminUnsavedLeaveSaving ? "저장 중..." : "저장하고 나가기"}
+              </button>
+            </div>
           </section>
         </div>
       )}
@@ -4868,11 +5137,13 @@ export default function App() {
               <button
                 className="ghost"
                 onClick={() => {
-                  if (showAdminConditionEditor) {
-                    returnToAdminConditionSelect();
-                    return;
-                  }
-                  setPage("admin");
+                  requestAdminCatalogLeave(() => {
+                    if (showAdminConditionEditor) {
+                      returnToAdminConditionSelect();
+                      return;
+                    }
+                    setPage("admin");
+                  });
                 }}
               >
                 <ArrowLeft size={18} /> {showAdminConditionEditor ? "되돌리기" : "관리자 홈"}
@@ -4890,11 +5161,16 @@ export default function App() {
               )}
             </div>
             <div className="admin-actions">
+              {(isCommonPriceAdminPage || showAdminConditionEditor) && (
+                <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
+                  {getAutoSaveStatusLabel()}
+                </span>
+              )}
               {isCommonPriceAdminPage && (
               <button
                 className="secondary-button"
                 disabled={adminLoading || adminSaving}
-                onClick={() => fetchAdminItems({ mode: "prices" })}
+                onClick={() => requestAdminCatalogLeave(() => fetchAdminItems({ mode: "prices" }))}
               >
                 <RefreshCcw size={18} /> 되돌리기
               </button>
@@ -5233,6 +5509,7 @@ export default function App() {
                             )
                           )
                         }
+                        onInput={() => markAdminCatalogDirty()}
                         onBlur={(event) => renameAdminItem(item.id, event.target.value)}
                       />
                     </label>
@@ -5547,6 +5824,7 @@ export default function App() {
                                   )
                                 )
                               }
+                              onInput={() => markAdminCatalogDirty()}
                               onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
                             />
                           </label>
@@ -6387,6 +6665,9 @@ const styles = `
   .admin-verify-modal h2 {
     margin: 0 0 8px;
     font-size: var(--font-size-title-md);
+  }
+  .unsaved-leave-modal .actions {
+    justify-content: flex-end;
   }
   main {
     animation: page-enter 180ms ease-out both;
@@ -7299,6 +7580,7 @@ const styles = `
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
+    align-items: center;
     gap: var(--space-1);
   }
   .admin-pyeong-panel {
@@ -8435,6 +8717,34 @@ const styles = `
     color: var(--text-secondary);
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-semibold);
+  }
+  .autosave-pill {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 11px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: #f8fafc;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    white-space: nowrap;
+  }
+  .autosave-pill.dirty,
+  .autosave-pill.saving {
+    border-color: rgba(43, 53, 104, 0.16);
+    background: rgba(244, 246, 255, 0.8);
+    color: var(--brand-primary);
+  }
+  .autosave-pill.saved {
+    background: #ffffff;
+    color: var(--text-secondary);
+  }
+  .autosave-pill.error {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-subtle);
+    color: var(--color-danger);
   }
   .material-list {
     display: grid;
