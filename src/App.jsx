@@ -1281,7 +1281,9 @@ export default function App() {
   const [wallpaperBulkInputs, setWallpaperBulkInputs] = useState({});
   const [activeFlooringThicknessByGroup, setActiveFlooringThicknessByGroup] = useState({});
   const [dragItemId, setDragItemId] = useState("");
+  const [dragOverItemId, setDragOverItemId] = useState("");
   const [dragSubitem, setDragSubitem] = useState(null);
+  const [dragOverSubitem, setDragOverSubitem] = useState(null);
   const [detailSubitems, setDetailSubitems] = useState([]);
   const [selectedDetailSubitemId, setSelectedDetailSubitemId] = useState("");
   const [detailCosts, setDetailCosts] = useState([]);
@@ -1422,6 +1424,7 @@ export default function App() {
     ? makeTemplateLabel(currentAdminTemplateCondition, conditionVariantLabelMap)
     : "";
   const canEditConditionQuantities = isConditionQuantityAdminPage && adminConditionLoaded && Boolean(currentAdminTemplateCondition);
+  const canReorderAdminCatalog = isCommonPriceAdminPage || canEditConditionQuantities;
   const showAdminConditionSelect = isConditionQuantityAdminPage && adminConditionStep === "select";
   const showAdminConditionEditor = isConditionQuantityAdminPage && adminConditionStep === "edit";
   const showAdminCatalogEditor = isCommonPriceAdminPage || showAdminConditionEditor;
@@ -3056,7 +3059,9 @@ export default function App() {
     setEstimateSearch("");
     setSelectedEstimate(null);
     setDragItemId("");
+    setDragOverItemId("");
     setDragSubitem(null);
+    setDragOverSubitem(null);
   }
 
   async function addAdminItem() {
@@ -3179,28 +3184,38 @@ export default function App() {
     const parent = adminItems.find((item) => item.id === itemId);
     const isFlooringParent = isFlooringThicknessItem(parent);
     const defaultName = isFlooringParent ? "새 장판" : "새 소재";
-    const name = window.prompt("새 소재명을 입력하세요.", defaultName);
-    if (!name?.trim()) return;
-    const nextName = name.trim();
+    let nextName = defaultName;
+    let suffix = 2;
+
+    const hasMatchingSubitemName = (candidateName) => {
+      const parsedCandidate = parseFlooringThicknessName(candidateName);
+      const canonicalCandidate = isFlooringParent
+        ? composeFlooringSubitemName(parsedCandidate?.baseName ?? candidateName, DEFAULT_FLOORING_SPEC)
+        : parsedCandidate
+          ? composeFlooringSubitemName(parsedCandidate.baseName, parsedCandidate.thickness)
+          : candidateName.trim();
+      return parent?.subitems?.some((subitem) => {
+        const parsedExisting = parseFlooringThicknessName(subitem.name);
+        const canonicalExisting = isFlooringParent
+          ? composeFlooringSubitemName(parsedExisting?.baseName ?? subitem.name, DEFAULT_FLOORING_SPEC)
+          : parsedExisting
+            ? composeFlooringSubitemName(parsedExisting.baseName, parsedExisting.thickness)
+            : subitem.name.trim();
+        return getCanonicalFlooringSubitemName(canonicalExisting) === getCanonicalFlooringSubitemName(canonicalCandidate);
+      });
+    };
+
+    while (hasMatchingSubitemName(nextName)) {
+      nextName = `${defaultName} ${suffix}`;
+      suffix += 1;
+    }
+
     const parsedNextFlooring = parseFlooringThicknessName(nextName);
     const canonicalNextName = isFlooringParent
       ? composeFlooringSubitemName(parsedNextFlooring?.baseName ?? nextName, DEFAULT_FLOORING_SPEC)
       : parsedNextFlooring
         ? composeFlooringSubitemName(parsedNextFlooring.baseName, parsedNextFlooring.thickness)
         : nextName;
-    const hasDuplicateSubitem = parent?.subitems?.some((subitem) => {
-      const parsedExisting = parseFlooringThicknessName(subitem.name);
-      const canonicalExisting = isFlooringParent
-        ? composeFlooringSubitemName(parsedExisting?.baseName ?? subitem.name, DEFAULT_FLOORING_SPEC)
-        : parsedExisting
-          ? composeFlooringSubitemName(parsedExisting.baseName, parsedExisting.thickness)
-          : subitem.name.trim();
-      return getCanonicalFlooringSubitemName(canonicalExisting) === getCanonicalFlooringSubitemName(canonicalNextName);
-    });
-    if (hasDuplicateSubitem) {
-      setAdminError("같은 대분류 안에 동일한 소재명이 이미 있습니다.");
-      return;
-    }
 
     setAdminSaving(true);
     setAdminError("");
@@ -3227,6 +3242,8 @@ export default function App() {
       });
       if (error) throw error;
       await fetchAdminItems();
+      setExpandedAdminItemIds((current) => [...new Set([...current, itemId])]);
+      setAdminNotice("새 소재를 추가했습니다. row 안에서 소재명을 수정해 주세요.");
     } catch (error) {
       setAdminError(getFriendlyError(error, "소재를 추가하지 못했어요. 다시 시도해주세요."));
     } finally {
@@ -3399,12 +3416,59 @@ export default function App() {
     }
   }
 
+  function handleAdminItemDragStart(event, itemId) {
+    if (!canReorderAdminCatalog) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", itemId);
+    setDragItemId(itemId);
+    setDragOverItemId("");
+  }
+
+  function handleAdminItemDragOver(event, itemId) {
+    if (!canReorderAdminCatalog || !dragItemId || dragItemId === itemId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverItemId(itemId);
+  }
+
+  function handleAdminSubitemDragStart(event, itemId, subitemId, groupBaseName = "") {
+    if (!canReorderAdminCatalog || !subitemId) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", subitemId);
+    setDragSubitem({ itemId, subitemId, groupBaseName });
+    setDragOverSubitem(null);
+  }
+
+  function handleAdminSubitemDragOver(event, itemId, subitemId, groupBaseName = "") {
+    if (!canReorderAdminCatalog || !dragSubitem || dragSubitem.itemId !== itemId) return;
+    const isSameTarget = groupBaseName
+      ? dragSubitem.groupBaseName === groupBaseName
+      : dragSubitem.subitemId === subitemId;
+    if (isSameTarget) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverSubitem({ itemId, subitemId, groupBaseName });
+  }
+
+  function clearAdminDragState() {
+    setDragItemId("");
+    setDragOverItemId("");
+    setDragSubitem(null);
+    setDragOverSubitem(null);
+  }
+
   async function reorderAdminItems(dropItemId) {
-    if (!dragItemId || dragItemId === dropItemId) return;
+    if (!dragItemId || dragItemId === dropItemId) {
+      clearAdminDragState();
+      return;
+    }
 
     const fromIndex = adminItems.findIndex((item) => item.id === dragItemId);
     const toIndex = adminItems.findIndex((item) => item.id === dropItemId);
-    if (fromIndex < 0 || toIndex < 0) return;
+    if (fromIndex < 0 || toIndex < 0) {
+      clearAdminDragState();
+      return;
+    }
 
     const nextItems = [...adminItems];
     const [moved] = nextItems.splice(fromIndex, 1);
@@ -3412,6 +3476,7 @@ export default function App() {
     const reordered = nextItems.map((item, index) => ({ ...item, sort_order: index }));
     setAdminItems(reordered);
     setDragItemId("");
+    setDragOverItemId("");
 
     setAdminSaving(true);
     setAdminError("");
@@ -3434,26 +3499,43 @@ export default function App() {
       await fetchAdminItems();
     } finally {
       setAdminSaving(false);
+      setDragItemId("");
+      setDragOverItemId("");
     }
   }
 
-  async function reorderAdminSubitems(itemId, dropSubitemId) {
-    if (!dragSubitem || dragSubitem.itemId !== itemId || dragSubitem.subitemId === dropSubitemId) return;
+  async function reorderAdminFlooringGroups(itemId, dropGroupBaseName) {
+    if (!dragSubitem || dragSubitem.itemId !== itemId || !dragSubitem.groupBaseName || dragSubitem.groupBaseName === dropGroupBaseName) {
+      setDragSubitem(null);
+      setDragOverSubitem(null);
+      return;
+    }
 
     const parent = adminItems.find((item) => item.id === itemId);
-    const fromIndex = parent?.subitems.findIndex((subitem) => subitem.id === dragSubitem.subitemId) ?? -1;
-    const toIndex = parent?.subitems.findIndex((subitem) => subitem.id === dropSubitemId) ?? -1;
-    if (!parent || fromIndex < 0 || toIndex < 0) return;
+    const groups = getFlooringThicknessGroups(parent?.subitems ?? []);
+    const fromIndex = groups.findIndex((group) => group.baseName === dragSubitem.groupBaseName);
+    const toIndex = groups.findIndex((group) => group.baseName === dropGroupBaseName);
+    if (!parent || fromIndex < 0 || toIndex < 0) {
+      setDragSubitem(null);
+      setDragOverSubitem(null);
+      return;
+    }
 
-    const nextSubitems = [...parent.subitems];
-    const [moved] = nextSubitems.splice(fromIndex, 1);
-    nextSubitems.splice(toIndex, 0, moved);
-    const reorderedSubitems = nextSubitems.map((subitem, index) => ({ ...subitem, sort_order: index }));
+    const nextGroups = [...groups];
+    const [moved] = nextGroups.splice(fromIndex, 1);
+    nextGroups.splice(toIndex, 0, moved);
+    const reorderedSubitems = nextGroups.flatMap((group, groupIndex) =>
+      getFlooringOptionEntries(group).map((subitem, optionIndex) => ({
+        ...subitem,
+        sort_order: groupIndex * 100 + optionIndex,
+      }))
+    );
 
     setAdminItems((current) =>
       current.map((item) => (item.id === itemId ? { ...item, subitems: reorderedSubitems } : item))
     );
     setDragSubitem(null);
+    setDragOverSubitem(null);
 
     setAdminSaving(true);
     setAdminError("");
@@ -3475,6 +3557,60 @@ export default function App() {
       await fetchAdminItems();
     } finally {
       setAdminSaving(false);
+      setDragSubitem(null);
+      setDragOverSubitem(null);
+    }
+  }
+
+  async function reorderAdminSubitems(itemId, dropSubitemId) {
+    if (!dragSubitem || dragSubitem.itemId !== itemId || dragSubitem.subitemId === dropSubitemId) {
+      setDragSubitem(null);
+      setDragOverSubitem(null);
+      return;
+    }
+
+    const parent = adminItems.find((item) => item.id === itemId);
+    const fromIndex = parent?.subitems.findIndex((subitem) => subitem.id === dragSubitem.subitemId) ?? -1;
+    const toIndex = parent?.subitems.findIndex((subitem) => subitem.id === dropSubitemId) ?? -1;
+    if (!parent || fromIndex < 0 || toIndex < 0) {
+      setDragSubitem(null);
+      setDragOverSubitem(null);
+      return;
+    }
+
+    const nextSubitems = [...parent.subitems];
+    const [moved] = nextSubitems.splice(fromIndex, 1);
+    nextSubitems.splice(toIndex, 0, moved);
+    const reorderedSubitems = nextSubitems.map((subitem, index) => ({ ...subitem, sort_order: index }));
+
+    setAdminItems((current) =>
+      current.map((item) => (item.id === itemId ? { ...item, subitems: reorderedSubitems } : item))
+    );
+    setDragSubitem(null);
+    setDragOverSubitem(null);
+
+    setAdminSaving(true);
+    setAdminError("");
+    try {
+      await Promise.all(
+        reorderedSubitems.map((subitem) =>
+          supabase
+            .from("construction_subitems")
+            .update({ sort_order: subitem.sort_order })
+            .eq("id", subitem.id)
+        )
+      ).then((results) => {
+        const failed = results.find((result) => result.error);
+        if (failed?.error) throw failed.error;
+      });
+      await fetchAdminItems();
+    } catch (error) {
+      setAdminError(getFriendlyError(error, "소재 순서를 저장하지 못했어요. 다시 시도해주세요."));
+      await fetchAdminItems();
+    } finally {
+      setAdminSaving(false);
+      setDragSubitem(null);
+      setDragOverSubitem(null);
     }
   }
 
@@ -5057,14 +5193,21 @@ export default function App() {
               return (
               <article
                 key={item.id}
-                className="admin-item-card"
-                draggable={isCommonPriceAdminPage}
-                onDragStart={() => isCommonPriceAdminPage && setDragItemId(item.id)}
-                onDragOver={(event) => isCommonPriceAdminPage && event.preventDefault()}
-                onDrop={() => isCommonPriceAdminPage && reorderAdminItems(item.id)}
+                className={`admin-item-card ${dragItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drop-target" : ""}`.trim()}
+                onDragOver={(event) => handleAdminItemDragOver(event, item.id)}
+                onDrop={() => reorderAdminItems(item.id)}
+                onDragEnd={clearAdminDragState}
               >
                 <div className="admin-item-header">
-                  <span className="drag-handle">::</span>
+                  <span
+                    className={`drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                    title="대분류 순서 변경"
+                    draggable={canReorderAdminCatalog && !adminSaving}
+                    onDragStart={(event) => handleAdminItemDragStart(event, item.id)}
+                    onDragEnd={clearAdminDragState}
+                  >
+                    ::
+                  </span>
                   {isCommonPriceAdminPage ? (
                     <button
                       className={`icon-button favorite-button ${item.is_favorite ? "active" : ""}`}
@@ -5097,7 +5240,7 @@ export default function App() {
                     <strong className="admin-item-title">{item.name}</strong>
                   )}
                   <span className="type-badge">{item.item_type === "flat" ? "단일 항목" : "소재형"}</span>
-                  {isCommonPriceAdminPage ? (
+                  {(isCommonPriceAdminPage || isConditionQuantityAdminPage) ? (
                     <button className="danger-button" disabled={adminSaving} onClick={() => deleteAdminItem(item.id)}>
                       <Trash2 size={18} />
                     </button>
@@ -5122,6 +5265,7 @@ export default function App() {
                     </div>
                     {isCommonPriceAdminPage && (
                       <div className="admin-price-table-header flooring-price-table-header">
+                        <span />
                         <span>소재명</span>
                         <span>규격/두께</span>
                         <span>단위</span>
@@ -5132,10 +5276,12 @@ export default function App() {
                     )}
                     {isConditionQuantityAdminPage && (
                       <div className="admin-quantity-table-header flooring-quantity-table-header">
+                        <span />
                         <span>소재명</span>
                         <span>규격/두께</span>
                         <span>수량</span>
                         <span>인원</span>
+                        <span>삭제</span>
                       </div>
                     )}
                     {getFlooringThicknessGroups(itemSubitems).map((group) => {
@@ -5149,8 +5295,20 @@ export default function App() {
                       return (
                         <div
                           key={group.baseName}
-                          className={`admin-value-row flooring-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row" : "condition-quantity-row quantity-table-row"}`.trim()}
+                          className={`admin-value-row flooring-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row" : "condition-quantity-row quantity-table-row"} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                          onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
+                          onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
+                          onDragEnd={clearAdminDragState}
                         >
+                          <span
+                            className={`drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                            title="소재 순서 변경"
+                            draggable={canReorderAdminCatalog && !adminSaving}
+                            onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, activeSubitem.id, group.baseName)}
+                            onDragEnd={clearAdminDragState}
+                          >
+                            ::
+                          </span>
                           {(isCommonPriceAdminPage || isConditionQuantityAdminPage) ? (
                             <label className="admin-material-name-field">
                               <span className="field-label">소재명</span>
@@ -5256,6 +5414,13 @@ export default function App() {
                                   }
                                 />
                               </label>
+                              <button
+                                className="danger-button"
+                                disabled={adminSaving}
+                                onClick={() => deleteAdminSubitem(activeSubitem.id)}
+                              >
+                                <Trash2 size={18} />
+                              </button>
                             </>
                           )}
                         </div>
@@ -5333,30 +5498,35 @@ export default function App() {
                     </div>
                   )}
                   {isConditionQuantityAdminPage && (
-                    <div className="admin-quantity-table-header standard-quantity-table-header">
+                    <div className={`admin-quantity-table-header ${item.item_type === "flat" ? "flat-quantity-table-header" : "standard-quantity-table-header"}`.trim()}>
+                      {item.item_type !== "flat" && <span />}
                       <span>소재명</span>
                       <span>수량</span>
                       <span>인원</span>
+                      {item.item_type !== "flat" && <span>삭제</span>}
                     </div>
                   )}
                   {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
                     <div
                       key={subitem.id}
-                      className={`admin-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row" : "condition-quantity-row quantity-table-row"}`.trim()}
-                      draggable={isCommonPriceAdminPage && item.item_type !== "flat"}
-                      onDragStart={() =>
-                        isCommonPriceAdminPage &&
-                        item.item_type !== "flat" &&
-                        setDragSubitem({ itemId: item.id, subitemId: subitem.id })
-                      }
-                      onDragOver={(event) => isCommonPriceAdminPage && item.item_type !== "flat" && event.preventDefault()}
-                      onDrop={() => isCommonPriceAdminPage && item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
+                      className={`admin-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row" : "condition-quantity-row quantity-table-row"} ${item.item_type !== "flat" && isConditionQuantityAdminPage ? "itemized-quantity-row" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+                      onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
+                      onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
+                      onDragEnd={clearAdminDragState}
                     >
                       {item.item_type === "flat" ? (
                         <strong className="flat-subitem-name">{item.name}</strong>
                       ) : isCommonPriceAdminPage || isConditionQuantityAdminPage ? (
                         <>
-                          {isCommonPriceAdminPage && <span className="drag-handle">::</span>}
+                          <span
+                            className={`drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                            title="소재 순서 변경"
+                            draggable={canReorderAdminCatalog && !adminSaving}
+                            onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, subitem.id)}
+                            onDragEnd={clearAdminDragState}
+                          >
+                            ::
+                          </span>
                           <label className="admin-material-name-field">
                             <span className="field-label">소재명</span>
                             <input
@@ -5453,7 +5623,7 @@ export default function App() {
                           </label>
                         </>
                       )}
-                      {isCommonPriceAdminPage && item.item_type !== "flat" && (
+                      {(isCommonPriceAdminPage || isConditionQuantityAdminPage) && item.item_type !== "flat" && (
                         <button
                           className="danger-button"
                           disabled={adminSaving}
@@ -7528,12 +7698,13 @@ const styles = `
     gap: var(--space-2);
   }
   .admin-item-card {
+    position: relative;
     padding: var(--space-3);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-surface);
     box-shadow: var(--shadow-sm);
-    transition: border-color 150ms ease, box-shadow 150ms ease;
+    transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease, background 150ms ease, opacity 150ms ease;
   }
   .admin-item-card:hover {
     border-color: var(--border-default);
@@ -7546,10 +7717,28 @@ const styles = `
     align-items: center;
   }
   .drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    border-radius: 10px;
     color: var(--text-tertiary);
     font-weight: 800;
     letter-spacing: 0;
+    cursor: default;
+    user-select: none;
+    transition: color 150ms ease, background 150ms ease, transform 150ms ease;
+  }
+  .drag-handle.enabled {
     cursor: grab;
+  }
+  .drag-handle.enabled:hover,
+  .drag-handle.enabled:focus-visible {
+    background: var(--bg-subtle);
+    color: var(--brand-primary);
+  }
+  .drag-handle.enabled:active {
+    cursor: grabbing;
   }
   .icon-button, .danger-button {
     width: 42px;
@@ -7701,6 +7890,7 @@ const styles = `
     align-items: center;
   }
   .admin-value-row {
+    position: relative;
     display: grid;
     grid-template-columns: 28px minmax(150px, 1.1fr) 110px repeat(4, minmax(132px, 1fr)) 42px;
     gap: var(--space-1);
@@ -7709,6 +7899,7 @@ const styles = `
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-subtle);
+    transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease, background 150ms ease, opacity 150ms ease;
   }
   .admin-flat-list .admin-value-row {
     grid-template-columns: minmax(150px, 1.1fr) 110px repeat(4, minmax(132px, 1fr));
@@ -7723,14 +7914,16 @@ const styles = `
     grid-template-columns: minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr));
   }
   .flooring-value-row.common-price-row {
-    grid-template-columns: minmax(140px, 1.1fr) 120px 100px repeat(2, minmax(118px, 1fr)) 42px;
+    grid-template-columns: 28px minmax(140px, 1.1fr) 120px 100px repeat(2, minmax(118px, 1fr)) 42px;
   }
-  .admin-value-row.condition-quantity-row,
-  .flooring-value-row.condition-quantity-row {
+  .admin-value-row.condition-quantity-row {
     grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(132px, 180px));
   }
+  .admin-value-row.condition-quantity-row.itemized-quantity-row {
+    grid-template-columns: 28px minmax(180px, 1fr) repeat(2, minmax(132px, 180px)) 42px;
+  }
   .flooring-value-row.condition-quantity-row {
-    grid-template-columns: minmax(170px, 1fr) 120px repeat(2, minmax(132px, 180px));
+    grid-template-columns: 28px minmax(170px, 1fr) 120px repeat(2, minmax(132px, 180px)) 42px;
   }
   .admin-value-row label {
     display: grid;
@@ -9420,13 +9613,16 @@ const styles = `
     grid-template-columns: minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr));
   }
   .flooring-price-table-header {
-    grid-template-columns: minmax(140px, 1.1fr) 120px 100px repeat(2, minmax(118px, 1fr)) 42px;
+    grid-template-columns: 28px minmax(140px, 1.1fr) 120px 100px repeat(2, minmax(118px, 1fr)) 42px;
   }
   .standard-quantity-table-header {
+    grid-template-columns: 28px minmax(180px, 1fr) repeat(2, minmax(132px, 180px)) 42px;
+  }
+  .flat-quantity-table-header {
     grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(132px, 180px));
   }
   .flooring-quantity-table-header {
-    grid-template-columns: minmax(170px, 1fr) 120px repeat(2, minmax(132px, 180px));
+    grid-template-columns: 28px minmax(170px, 1fr) 120px repeat(2, minmax(132px, 180px)) 42px;
   }
   .quantity-table-list {
     gap: 0;
@@ -9481,6 +9677,33 @@ const styles = `
   }
   .price-table-list .admin-value-row.common-price-row label {
     gap: 0;
+  }
+  .admin-item-card.dragging,
+  .admin-value-row.dragging {
+    opacity: 0.62;
+    transform: scale(0.996);
+    box-shadow: 0 14px 30px rgba(36, 48, 79, 0.14);
+  }
+  .admin-item-card.drop-target,
+  .admin-value-row.drop-target {
+    border-color: rgba(43, 53, 104, 0.38);
+    background: #fbfcff;
+  }
+  .admin-item-card.drop-target::before,
+  .admin-value-row.drop-target::before {
+    content: "";
+    position: absolute;
+    top: -3px;
+    left: 16px;
+    right: 16px;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--brand-primary);
+    box-shadow: 0 0 0 3px rgba(43, 53, 104, 0.08);
+  }
+  .admin-value-row.drop-target::before {
+    left: 10px;
+    right: 10px;
   }
   .price-table-row .field-label {
     position: absolute;
@@ -9596,9 +9819,16 @@ const styles = `
     button,
     .menu-card,
     .estimate-template-row,
-    .estimate-template-expand {
+    .estimate-template-expand,
+    .admin-item-card,
+    .admin-value-row,
+    .drag-handle {
       animation: none !important;
       transition: none !important;
+    }
+    .admin-item-card.dragging,
+    .admin-value-row.dragging {
+      transform: none;
     }
   }
   @media (max-width: 840px) {
