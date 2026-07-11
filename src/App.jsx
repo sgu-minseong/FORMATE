@@ -1275,6 +1275,7 @@ export default function App() {
   const [adminCommonPriceSavedAt, setAdminCommonPriceSavedAt] = useState("");
   const [conditionVariantLabels, setConditionVariantLabels] = useState(() => createConditionVariantLabelRows());
   const [wallpaperBulkInputs, setWallpaperBulkInputs] = useState({});
+  const [activeFlooringThicknessByGroup, setActiveFlooringThicknessByGroup] = useState({});
   const [dragItemId, setDragItemId] = useState("");
   const [dragSubitem, setDragSubitem] = useState(null);
   const [detailSubitems, setDetailSubitems] = useState([]);
@@ -2424,54 +2425,155 @@ export default function App() {
     await renameAdminSubitem(subitem.id, nextName);
   }
 
-  function switchAdminFlooringSubitemThickness(subitem, nextThickness) {
-    const parsed = parseFlooringThicknessName(subitem.name) ?? {
-      baseName: subitem.name,
-      thickness: DEFAULT_FLOORING_SPEC,
-    };
-    const nextName = composeFlooringSubitemName(parsed.baseName, nextThickness);
-    const canonicalNextName = getCanonicalFlooringSubitemName(nextName);
-    const canonicalCurrentName = getCanonicalFlooringSubitemName(subitem.name);
-    if (canonicalNextName === canonicalCurrentName) return;
+  function getFlooringOptionEntries(group) {
+    return Object.values(group?.options ?? {})
+      .filter(Boolean)
+      .sort((a, b) => compareFlooringThickness(a.thickness, b.thickness));
+  }
+
+  function getAdminFlooringGroupKey(itemId, baseName) {
+    return `${itemId}::${baseName}`;
+  }
+
+  function getAdminFlooringActiveThickness(itemId, group) {
+    const optionKeys = Object.keys(group?.options ?? {}).sort(compareFlooringThickness);
+    const savedThickness = activeFlooringThicknessByGroup[getAdminFlooringGroupKey(itemId, group?.baseName)];
+    if (savedThickness && optionKeys.includes(savedThickness)) return savedThickness;
+    if (optionKeys.includes(DEFAULT_FLOORING_SPEC)) return DEFAULT_FLOORING_SPEC;
+    if (optionKeys.includes("1.8")) return "1.8";
+    return optionKeys[0] ?? DEFAULT_FLOORING_SPEC;
+  }
+
+  function updateLocalFlooringGroupBaseName(subitemIds, nextBaseName) {
+    const targetIds = new Set(subitemIds);
+    setAdminItems((current) =>
+      current.map((item) => ({
+        ...item,
+        subitems: item.subitems.map((subitem) => {
+          if (!targetIds.has(subitem.id)) return subitem;
+          const parsed = parseFlooringThicknessName(subitem.name) ?? {
+            baseName: subitem.name,
+            thickness: DEFAULT_FLOORING_SPEC,
+          };
+          const name = composeFlooringSubitemName(nextBaseName, parsed.thickness);
+          return {
+            ...subitem,
+            name,
+            option_value: getTemplateOptionValue({ name }),
+          };
+        }),
+      }))
+    );
+  }
+
+  async function renameAdminFlooringGroup(itemId, subitemIds, nextBaseName) {
+    const trimmedBaseName = `${nextBaseName ?? ""}`.trim();
+    if (!trimmedBaseName) return fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" });
+
+    const targetIds = new Set(subitemIds);
+    const parent = adminItems.find((item) => item.id === itemId);
+    const targetSubitems = parent?.subitems?.filter((subitem) => targetIds.has(subitem.id)) ?? [];
+    if (!targetSubitems.length) return;
+
+    const nextCanonicalNames = new Set(
+      targetSubitems.map((subitem) => {
+        const parsed = parseFlooringThicknessName(subitem.name) ?? {
+          thickness: DEFAULT_FLOORING_SPEC,
+        };
+        return getCanonicalFlooringSubitemName(composeFlooringSubitemName(trimmedBaseName, parsed.thickness));
+      })
+    );
+    const hasDuplicateOutsideGroup = parent?.subitems?.some(
+      (subitem) =>
+        !targetIds.has(subitem.id) &&
+        nextCanonicalNames.has(getCanonicalFlooringSubitemName(subitem.name))
+    );
+
+    if (hasDuplicateOutsideGroup) {
+      setAdminError("같은 대분류 안에 동일한 소재명과 규격/두께가 이미 있습니다.");
+      await fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" });
+      return;
+    }
+
+    updateLocalFlooringGroupBaseName(subitemIds, trimmedBaseName);
+    const existingSubitems = targetSubitems.filter((subitem) => !isLocalSubitemId(subitem.id));
+    if (!existingSubitems.length) return;
 
     setAdminError("");
+    try {
+      await Promise.all(
+        existingSubitems.map((subitem) => {
+          const parsed = parseFlooringThicknessName(subitem.name) ?? {
+            thickness: DEFAULT_FLOORING_SPEC,
+          };
+          const name = composeFlooringSubitemName(trimmedBaseName, parsed.thickness);
+          return supabase
+            .from("construction_subitems")
+            .update({ name })
+            .eq("id", subitem.id);
+        })
+      ).then((results) => {
+        const failed = results.find((result) => result.error);
+        if (failed?.error) throw failed.error;
+      });
+    } catch (error) {
+      setAdminError(getFriendlyError(error, "소재명을 수정하지 못했어요. 다시 시도해주세요."));
+      await fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" });
+    }
+  }
+
+  function selectAdminFlooringThickness(itemId, baseName, nextThickness) {
+    const normalizedThickness = normalizeFlooringThickness(nextThickness);
+    const groupKey = getAdminFlooringGroupKey(itemId, baseName);
+    const parent = adminItems.find((item) => item.id === itemId);
+    const group = getFlooringThicknessGroups(parent?.subitems ?? [])
+      .find((entry) => entry.baseName === baseName);
+
+    setActiveFlooringThicknessByGroup((current) => ({
+      ...current,
+      [groupKey]: normalizedThickness,
+    }));
+
+    if (!parent || group?.options?.[normalizedThickness]) return;
+    if (!isCommonPriceAdminPage) return;
+
+    const canonicalNextName = getCanonicalFlooringSubitemName(
+      composeFlooringSubitemName(baseName, normalizedThickness)
+    );
+    const duplicate = parent.subitems?.some(
+      (subitem) => getCanonicalFlooringSubitemName(subitem.name) === canonicalNextName
+    );
+    if (duplicate) return;
+
+    const source = group ? getFlooringOptionEntries(group)[0] : parent.subitems?.[0];
+    const nextSortOrder = parent.subitems?.length
+      ? Math.max(...parent.subitems.map((subitem) => subitem.sort_order ?? 0)) + 1
+      : 0;
+
     setAdminItems((current) =>
-      current.map((item) => {
-        const currentIndex = item.subitems.findIndex((entrySubitem) => entrySubitem.id === subitem.id);
-        if (currentIndex < 0) return item;
-
-        const nextSubitems = [...item.subitems];
-        const targetIndex = nextSubitems.findIndex(
-          (entrySubitem, index) =>
-            index !== currentIndex &&
-            getCanonicalFlooringSubitemName(entrySubitem.name) === canonicalNextName
-        );
-
-        if (targetIndex >= 0) {
-          const targetSubitem = nextSubitems[targetIndex];
-          nextSubitems[targetIndex] = nextSubitems[currentIndex];
-          nextSubitems[currentIndex] = targetSubitem;
-          return { ...item, subitems: nextSubitems };
-        }
-
-        const currentSubitem = nextSubitems[currentIndex];
-        const nextSubitem = {
-          ...currentSubitem,
-          id: createLocalId("local-subitem"),
-          name: canonicalNextName,
-          option_value: getTemplateOptionValue({ name: canonicalNextName }),
-          unit_price: "",
-          labor_rate: "",
-          quantity: "",
-          labor_count: "",
-          template_value_id: null,
-          sort_order: (currentSubitem.sort_order ?? currentIndex) + 0.01,
-        };
-
-        nextSubitems[currentIndex] = nextSubitem;
-        nextSubitems.splice(currentIndex + 1, 0, currentSubitem);
-        return { ...item, subitems: nextSubitems };
-      })
+      current.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              subitems: [
+                ...(item.subitems ?? []),
+                {
+                  id: createLocalId("local-subitem"),
+                  item_id: itemId,
+                  name: canonicalNextName,
+                  option_value: getTemplateOptionValue({ name: canonicalNextName }),
+                  unit: source?.unit ?? "평",
+                  unit_price: "",
+                  labor_rate: "",
+                  quantity: "",
+                  labor_count: "",
+                  template_value_id: null,
+                  sort_order: nextSortOrder,
+                },
+              ],
+            }
+          : item
+      )
     );
   }
 
@@ -2979,20 +3081,25 @@ export default function App() {
 
   async function addAdminSubitem(itemId) {
     const parent = adminItems.find((item) => item.id === itemId);
-    const defaultName = isFlooringThicknessItem(parent) ? "장판 1.8T" : "새 소재";
+    const isFlooringParent = isFlooringThicknessItem(parent);
+    const defaultName = isFlooringParent ? "새 장판" : "새 소재";
     const name = window.prompt("새 소재명을 입력하세요.", defaultName);
     if (!name?.trim()) return;
     const nextName = name.trim();
     const parsedNextFlooring = parseFlooringThicknessName(nextName);
-    const canonicalNextName = parsedNextFlooring
-      ? composeFlooringSubitemName(parsedNextFlooring.baseName, parsedNextFlooring.thickness)
-      : nextName;
+    const canonicalNextName = isFlooringParent
+      ? composeFlooringSubitemName(parsedNextFlooring?.baseName ?? nextName, DEFAULT_FLOORING_SPEC)
+      : parsedNextFlooring
+        ? composeFlooringSubitemName(parsedNextFlooring.baseName, parsedNextFlooring.thickness)
+        : nextName;
     const hasDuplicateSubitem = parent?.subitems?.some((subitem) => {
       const parsedExisting = parseFlooringThicknessName(subitem.name);
-      const canonicalExisting = parsedExisting
-        ? composeFlooringSubitemName(parsedExisting.baseName, parsedExisting.thickness)
-        : subitem.name.trim();
-      return canonicalExisting === canonicalNextName;
+      const canonicalExisting = isFlooringParent
+        ? composeFlooringSubitemName(parsedExisting?.baseName ?? subitem.name, DEFAULT_FLOORING_SPEC)
+        : parsedExisting
+          ? composeFlooringSubitemName(parsedExisting.baseName, parsedExisting.thickness)
+          : subitem.name.trim();
+      return getCanonicalFlooringSubitemName(canonicalExisting) === getCanonicalFlooringSubitemName(canonicalNextName);
     });
     if (hasDuplicateSubitem) {
       setAdminError("같은 대분류 안에 동일한 소재명이 이미 있습니다.");
@@ -3681,11 +3788,17 @@ export default function App() {
     <div className="app-shell">
       <style>{styles}</style>
 
-      <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""}`.trim()}>
+      <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""} ${page === "items" ? "with-estimate-condition" : ""}`.trim()}>
           <button className="global-brand" onClick={resetFlow} aria-label="FORMATE 홈으로 이동">
             <img src={logoUrl} alt="" />
             <strong>FORMATE</strong>
           </button>
+          {page === "items" && (
+            <div className="header-estimate-condition" aria-live="polite">
+              <span>견적 조건</span>
+              <strong>{conditionChips.length > 0 ? conditionChips.join(" · ") : "조건 미선택"}</strong>
+            </div>
+          )}
           {isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" && (
             <div className={`header-admin-condition ${canEditConditionQuantities ? "active" : ""}`.trim()} aria-live="polite">
               <span>현재 관리 중</span>
@@ -3741,7 +3854,7 @@ export default function App() {
         </div>
       )}
 
-      {conditionSummary && page !== "landing" && page !== "ready" && page !== "items" && !page.startsWith("admin") && (
+      {conditionSummary && page !== "landing" && page !== "ready" && page !== "condition" && page !== "items" && !page.startsWith("admin") && (
         <div className="sticky-summary">
           <span>견적 조건</span>
           <strong>{conditionSummary}</strong>
@@ -3925,11 +4038,7 @@ export default function App() {
           <section className="panel condition-builder-panel">
             <div className="editor-header condition-builder-header">
               <div>
-                <p className="eyebrow dark">새 견적</p>
                 <h2>어떤 집 견적을 만들까요?</h2>
-                <p className="muted caption">
-                  조건을 고르면 저장한 기준표로 견적 초안을 만듭니다.
-                </p>
               </div>
               <button className="ghost" onClick={resetFlow}>
                 <ArrowLeft size={18} /> 이전
@@ -4107,11 +4216,6 @@ export default function App() {
             {estimateError && <div className="error-box">{estimateError}</div>}
 
             <div className="condition-start-row">
-              <p className="muted caption">
-                {canGoNext()
-                  ? "선택한 기준표로 바로 견적 초안을 만듭니다."
-                  : "평수, 주택 유형, 세부 유형, 거주 상태를 선택하세요."}
-              </p>
               <button className="primary-button" disabled={!canGoNext() || estimateLoading} onClick={goNext}>
                 {estimateLoading ? "템플릿 불러오는 중..." : "견적 시작"}
               </button>
@@ -4122,35 +4226,30 @@ export default function App() {
 
       {page === "items" && (
         <main className="workspace">
-          <section className="estimate-selected-condition-panel">
-            <div>
-              <span>현재 견적 기준</span>
-              <strong>{conditionChips.length > 0 ? conditionChips.join(" · ") : "조건 미선택"}</strong>
-              <p>선택된 항목만 견적서에 들어갑니다.</p>
-            </div>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => {
-                setPage("condition");
-                setStep(1);
-              }}
-            >
-              조건 다시 선택
-            </button>
-          </section>
           <section className="category-column">
-            <h2>공사 항목</h2>
-            <p className="muted caption">
-              이번 견적에 넣을 항목을 고르고 수량을 확인하세요.
-            </p>
-            {conditionChips.length > 0 && (
-              <div className="condition-chip-group" aria-label="현재 견적 조건">
-                {conditionChips.map((chip) => (
-                  <span key={chip}>{chip}</span>
-                ))}
+            <div className="category-title-row">
+              <div>
+                <h2>공사 항목</h2>
+                <p className="muted caption">
+                  이번 견적에 넣을 항목을 고르고 수량을 확인하세요.
+                </p>
               </div>
-            )}
+              <div className="estimate-header-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setPage("condition");
+                    setStep(1);
+                  }}
+                >
+                  조건 다시 선택
+                </button>
+                <button className="primary-button" onClick={() => setPage("preview")}>
+                  견적서 확인하기
+                </button>
+              </div>
+            </div>
             <div className="estimate-pyeong-panel">
               <div>
                 <label htmlFor="estimate-pyeong-input">견적 기준 평수</label>
@@ -4222,9 +4321,6 @@ export default function App() {
                   {condition.size ? `${condition.size}평 기준표` : "조건별 기준표"}
                 </p>
               </div>
-              <button className="secondary-button" onClick={() => setPage("preview")}>
-                미리보기
-              </button>
             </div>
 
             <div className="material-list">
@@ -4525,6 +4621,11 @@ export default function App() {
                   ? "모든 견적에 공통으로 쓰는 가격입니다."
                   : "평수와 주택 조건별로 필요한 수량과 인원을 입력합니다."}
               </p>
+              {isCommonPriceAdminPage && (
+                <span className="admin-last-updated-pill">
+                  마지막 업데이트: {adminCommonPriceSavedLabel || "확인된 저장 시각 없음"}
+                </span>
+              )}
             </div>
             <div className="admin-actions">
               {isCommonPriceAdminPage && (
@@ -4545,23 +4646,8 @@ export default function App() {
                 <Save size={18} /> 저장하기
               </button>
               )}
-              {isCommonPriceAdminPage && (
-                <button className="primary-button" disabled={adminLoading || adminSaving} onClick={addAdminItem}>
-                  <Plus size={18} /> 대분류 추가
-                </button>
-              )}
             </div>
           </div>
-
-          {isCommonPriceAdminPage && (
-            <section className="template-list-panel">
-              <div>
-                <strong>공통 가격 기준</strong>
-                <span>소재명, 규격, 단위, 단가, 인건비만 입력합니다. 수량은 수량 입력 화면에서 관리합니다.</span>
-                <span>마지막 업데이트: {adminCommonPriceSavedLabel || "확인된 저장 시각 없음"}</span>
-              </div>
-            </section>
-          )}
 
           {showAdminConditionSelect && (
           <section className="admin-pyeong-panel">
@@ -4767,17 +4853,17 @@ export default function App() {
 
           {showAdminCatalogEditor && (
           <section className="admin-edit-panel">
+            {isConditionQuantityAdminPage && (
             <div className="admin-edit-title">
               <div>
-                <strong>{isCommonPriceAdminPage ? "단가와 인건비 입력" : "수량과 인원 입력"}</strong>
+                <strong>수량과 인원 입력</strong>
                 <span>
-                  {isCommonPriceAdminPage
-                    ? "모든 조건에 공통으로 쓰는 단가와 인건비만 입력하세요."
-                    : "현재 조건의 수량과 인원만 입력하세요. 단가는 단가 입력 화면에서 관리합니다."}
+                  현재 조건의 수량과 인원만 입력하세요. 단가는 단가 입력 화면에서 관리합니다.
                 </span>
               </div>
               {isConditionQuantityAdminPage && currentAdminConditionLabel && <em>{currentAdminConditionLabel}</em>}
             </div>
+            )}
 
             {isConditionQuantityAdminPage && (
             <div className={`admin-edit-current ${canEditConditionQuantities ? "active" : ""}`.trim()}>
@@ -4793,18 +4879,6 @@ export default function App() {
                   : "먼저 평수와 주택 조건을 선택한 뒤 기준표를 열어주세요."}
               </p>
             </div>
-            )}
-
-            {isCommonPriceAdminPage && (
-            <section className="admin-catalog-actions">
-              <div>
-                <strong>대분류/소재 구조</strong>
-                <span>대분류는 시공 항목, 소재는 해당 대분류 안의 세부 항목입니다. 단위, 규격, 단가, 인건비를 여기서 관리합니다.</span>
-              </div>
-              <button className="primary-button" type="button" disabled={adminLoading || adminSaving} onClick={addAdminItem}>
-                <Plus size={18} /> 대분류 추가
-              </button>
-            </section>
             )}
 
           {((isCommonPriceAdminPage && adminItems.length > 0) || (canEditConditionQuantities && adminItems.length > 0)) && (
@@ -4865,23 +4939,15 @@ export default function App() {
                 onDrop={() => isCommonPriceAdminPage && reorderAdminItems(item.id)}
               >
                 <div className="admin-item-header">
-                  <button
-                    type="button"
-                    className="icon-button"
-                    title={itemExpanded ? "접기" : "펼치기"}
-                    onClick={() => toggleAdminItemExpanded(item.id)}
-                  >
-                    {itemExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                  </button>
                   <span className="drag-handle">::</span>
                   {isCommonPriceAdminPage ? (
                     <button
-                      className={`icon-button ${item.is_favorite ? "active" : ""}`}
+                      className={`icon-button favorite-button ${item.is_favorite ? "active" : ""}`}
                       title="즐겨찾기"
                       disabled={adminSaving}
                       onClick={() => toggleAdminFavorite(item)}
                     >
-                      <Star size={18} fill={item.is_favorite ? "currentColor" : "none"} />
+                      <Star size={15} fill={item.is_favorite ? "currentColor" : "none"} />
                     </button>
                   ) : (
                     <span className="admin-item-placeholder" />
@@ -4907,19 +4973,20 @@ export default function App() {
                   )}
                   <span className="type-badge">{item.item_type === "flat" ? "단일 항목" : "소재형"}</span>
                   {isCommonPriceAdminPage ? (
-                    <button className="secondary-button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
-                      <Plus size={18} /> 소재 추가
-                    </button>
-                  ) : (
-                    <span className="admin-item-placeholder" />
-                  )}
-                  {isCommonPriceAdminPage ? (
                     <button className="danger-button" disabled={adminSaving} onClick={() => deleteAdminItem(item.id)}>
                       <Trash2 size={18} />
                     </button>
                   ) : (
                     <span className="admin-item-placeholder" />
                   )}
+                  <button
+                    type="button"
+                    className="icon-button expand-button"
+                    title={itemExpanded ? "접기" : "펼치기"}
+                    onClick={() => toggleAdminItemExpanded(item.id)}
+                  >
+                    {itemExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                  </button>
                 </div>
 
                 {itemExpanded && isFlooringThicknessItem(item) ? (
@@ -4928,58 +4995,62 @@ export default function App() {
                       <strong>장판/바닥재 규격 관리</strong>
                       <span>소재명과 규격/두께를 나눠 입력합니다. 저장은 기존 소재명에 함께 반영됩니다.</span>
                     </div>
-                    {itemSubitems.map((subitem) => {
-                      const parsedFlooring = parseFlooringThicknessName(subitem.name) ?? {
-                        baseName: subitem.name,
-                        thickness: DEFAULT_FLOORING_SPEC,
-                      };
+                    {getFlooringThicknessGroups(itemSubitems).map((group) => {
+                      const optionEntries = getFlooringOptionEntries(group);
+                      const optionIds = optionEntries.map((option) => option.id);
+                      const activeThickness = getAdminFlooringActiveThickness(item.id, group);
+                      const activeSubitem =
+                        group.options[activeThickness] ??
+                        optionEntries[0];
+                      if (!activeSubitem) return null;
                       return (
                         <div
-                          key={subitem.id}
+                          key={group.baseName}
                           className={`admin-value-row flooring-value-row ${isCommonPriceAdminPage ? "common-price-row" : "condition-quantity-row"}`.trim()}
-                          draggable={isCommonPriceAdminPage}
-                          onDragStart={() => isCommonPriceAdminPage && setDragSubitem({ itemId: item.id, subitemId: subitem.id })}
-                          onDragOver={(event) => isCommonPriceAdminPage && event.preventDefault()}
-                          onDrop={() => isCommonPriceAdminPage && reorderAdminSubitems(item.id, subitem.id)}
                         >
-                          {isCommonPriceAdminPage && <span className="drag-handle">::</span>}
+                          {isCommonPriceAdminPage ? (
+                            <label className="admin-material-name-field">
+                              소재명
+                              <input
+                                value={group.baseName}
+                                onChange={(event) =>
+                                  updateLocalFlooringGroupBaseName(optionIds, event.target.value)
+                                }
+                                onBlur={(event) =>
+                                  renameAdminFlooringGroup(item.id, optionIds, event.target.value)
+                                }
+                              />
+                            </label>
+                          ) : (
+                            <div className="admin-readonly-material">
+                              <strong>{group.baseName}</strong>
+                            </div>
+                          )}
+                          <label>
+                            규격/두께
+                            <select
+                              value={activeThickness}
+                              onChange={(event) =>
+                                selectAdminFlooringThickness(item.id, group.baseName, event.target.value)
+                              }
+                            >
+                              {(isCommonPriceAdminPage
+                                ? getFlooringThicknessSelectOptions(activeThickness)
+                                : optionEntries.map((option) => option.thickness)
+                              ).map((thickness) => (
+                                <option key={thickness} value={thickness}>
+                                  {formatFlooringThickness(thickness)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                           {isCommonPriceAdminPage ? (
                             <>
-                              <label className="admin-material-name-field">
-                                소재명
-                                <input
-                                  value={parsedFlooring.baseName}
-                                  onChange={(event) =>
-                                    updateLocalSubitemName(
-                                      subitem.id,
-                                      composeFlooringSubitemName(event.target.value, parsedFlooring.thickness)
-                                    )
-                                  }
-                                  onBlur={(event) =>
-                                    updateAdminFlooringSubitemName(subitem, { baseName: event.target.value })
-                                  }
-                                />
-                              </label>
-                              <label>
-                                규격/두께
-                                <select
-                                  value={parsedFlooring.thickness}
-                                  onChange={(event) =>
-                                    switchAdminFlooringSubitemThickness(subitem, event.target.value)
-                                  }
-                                >
-                                  {getFlooringThicknessSelectOptions(parsedFlooring.thickness).map((thickness) => (
-                                    <option key={thickness} value={thickness}>
-                                      {formatFlooringThickness(thickness)}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
                               <label>
                                 단위
                                 <select
-                                  value={subitem.unit ?? ""}
-                                  onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
+                                  value={activeSubitem.unit ?? ""}
+                                  onChange={(event) => updateAdminSubitemUnit(activeSubitem.id, event.target.value)}
                                 >
                                   {UNIT_OPTIONS.map((unit) => (
                                     <option key={unit} value={unit}>
@@ -4993,9 +5064,9 @@ export default function App() {
                                 <input
                                   type="number"
                                   min="0"
-                                  value={subitem.unit_price ?? ""}
+                                  value={activeSubitem.unit_price ?? ""}
                                   onChange={(event) =>
-                                    updateLocalSubitemPrice(subitem.id, { unit_price: event.target.value })
+                                    updateLocalSubitemPrice(activeSubitem.id, { unit_price: event.target.value })
                                   }
                                 />
                               </label>
@@ -5004,29 +5075,30 @@ export default function App() {
                                 <input
                                   type="number"
                                   min="0"
-                                  value={subitem.labor_rate ?? ""}
+                                  value={activeSubitem.labor_rate ?? ""}
                                   onChange={(event) =>
-                                    updateLocalSubitemPrice(subitem.id, { labor_rate: event.target.value })
+                                    updateLocalSubitemPrice(activeSubitem.id, { labor_rate: event.target.value })
                                   }
                                 />
                               </label>
+                              <button
+                                className="danger-button"
+                                disabled={adminSaving}
+                                onClick={() => deleteAdminSubitem(activeSubitem.id)}
+                              >
+                                <Trash2 size={18} />
+                              </button>
                             </>
                           ) : (
-                            <div className="admin-readonly-material">
-                              <strong>{parsedFlooring.baseName}</strong>
-                              <span>{formatFlooringThickness(parsedFlooring.thickness)}</span>
-                            </div>
-                          )}
-                          {isConditionQuantityAdminPage && (
                             <>
                               <label>
                                 수량 <span>현재 조건</span>
                                 <input
                                   type="number"
                                   min="0"
-                                  value={subitem.quantity ?? ""}
+                                  value={activeSubitem.quantity ?? ""}
                                   onChange={(event) =>
-                                    updateLocalSubitemPrice(subitem.id, { quantity: event.target.value })
+                                    updateLocalSubitemPrice(activeSubitem.id, { quantity: event.target.value })
                                   }
                                 />
                               </label>
@@ -5035,22 +5107,13 @@ export default function App() {
                                 <input
                                   type="number"
                                   min="0"
-                                  value={subitem.labor_count ?? ""}
+                                  value={activeSubitem.labor_count ?? ""}
                                   onChange={(event) =>
-                                    updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })
+                                    updateLocalSubitemPrice(activeSubitem.id, { labor_count: event.target.value })
                                   }
                                 />
                               </label>
                             </>
-                          )}
-                          {isCommonPriceAdminPage && (
-                            <button
-                              className="danger-button"
-                              disabled={adminSaving}
-                              onClick={() => deleteAdminSubitem(subitem.id)}
-                            >
-                              <Trash2 size={18} />
-                            </button>
                           )}
                         </div>
                       );
@@ -5058,7 +5121,7 @@ export default function App() {
                     {!itemSubitems.length && (
                       <p className="muted">
                         {isCommonPriceAdminPage
-                          ? "소재가 없습니다. 예: 장판 1.8T, 장판 2.2T, 데코타일 3T처럼 소재를 추가하세요."
+                          ? "소재가 없습니다. 예: 장판, KCC장판, LG장판처럼 소재를 먼저 추가하세요."
                           : "등록된 소재가 없습니다. 단가 입력 화면에서 소재를 먼저 추가하세요."}
                       </p>
                     )}
@@ -5066,7 +5129,7 @@ export default function App() {
                     <div className="admin-add-subitem-row">
                       <div>
                         <strong>{item.name} 안에 소재 추가</strong>
-                        <span>예: 장판 1.8T, 장판 2.2T, 장판 2.7T, 데코타일 3T. 추가 후 규격/두께를 따로 조정할 수 있습니다.</span>
+                        <span>예: 장판, KCC장판, LG장판, 비닐장판. 규격/두께는 소재 row의 dropdown에서 선택합니다.</span>
                       </div>
                       <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
                         <Plus size={18} /> 소재 추가
@@ -5261,6 +5324,13 @@ export default function App() {
             );
             })}
           </section>
+          )}
+          {isCommonPriceAdminPage && (
+            <div className="admin-bottom-add-category">
+              <button className="secondary-button" type="button" disabled={adminLoading || adminSaving} onClick={addAdminItem}>
+                <Plus size={18} /> 대분류 추가
+              </button>
+            </div>
           )}
           </section>
           )}
@@ -6027,11 +6097,13 @@ const styles = `
     font-size: var(--font-size-title-sm);
     letter-spacing: 0;
   }
-  .global-header.with-admin-condition {
+  .global-header.with-admin-condition,
+  .global-header.with-estimate-condition {
     display: grid;
     grid-template-columns: minmax(150px, 1fr) minmax(240px, auto) minmax(180px, 1fr);
   }
-  .header-admin-condition {
+  .header-admin-condition,
+  .header-estimate-condition {
     display: grid;
     justify-items: center;
     gap: 2px;
@@ -6045,17 +6117,20 @@ const styles = `
     color: var(--text-secondary);
     text-align: center;
   }
-  .header-admin-condition.active {
+  .header-admin-condition.active,
+  .header-estimate-condition {
     border-color: var(--brand-primary);
     background: rgba(244, 246, 255, 0.98);
     color: var(--text-primary);
   }
-  .header-admin-condition span {
+  .header-admin-condition span,
+  .header-estimate-condition span {
     font-size: 11px;
     font-weight: var(--font-weight-semibold);
     line-height: 1.1;
   }
-  .header-admin-condition strong {
+  .header-admin-condition strong,
+  .header-estimate-condition strong {
     display: block;
     max-width: 100%;
     overflow: hidden;
@@ -6697,6 +6772,7 @@ const styles = `
   }
   .condition-builder-header {
     align-items: flex-start;
+    margin-bottom: 0;
   }
   .estimate-current-condition {
     display: grid;
@@ -6758,7 +6834,7 @@ const styles = `
   .condition-start-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: var(--space-2);
     padding-top: var(--space-2);
     border-top: 1px solid var(--border-subtle);
@@ -7060,6 +7136,17 @@ const styles = `
     font-size: var(--font-size-caption);
     line-height: 1.45;
   }
+  .admin-bottom-add-category {
+    display: flex;
+    justify-content: center;
+    padding: 14px;
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+  .admin-bottom-add-category .secondary-button {
+    min-width: 180px;
+  }
   .admin-empty-edit-notice {
     border: 1px dashed var(--border-default);
     background: var(--bg-surface);
@@ -7205,7 +7292,7 @@ const styles = `
   }
   .admin-item-header {
     display: grid;
-    grid-template-columns: 42px 28px 42px minmax(180px, 1fr) auto auto 42px;
+    grid-template-columns: 28px 34px minmax(180px, 1fr) auto 42px 42px;
     gap: var(--space-1);
     align-items: center;
   }
@@ -7228,9 +7315,30 @@ const styles = `
     background: var(--bg-surface);
     color: var(--text-secondary);
   }
+  .favorite-button {
+    width: 34px;
+    min-height: 34px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--text-tertiary);
+  }
+  .favorite-button:hover,
+  .favorite-button:focus-visible {
+    border-color: var(--border-subtle);
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+  }
+  .expand-button {
+    background: var(--bg-subtle);
+  }
   .icon-button.active {
     border-color: var(--brand-primary);
     background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+  }
+  .icon-button.favorite-button.active {
+    border-color: rgba(43, 53, 104, 0.16);
+    background: rgba(244, 246, 255, 0.72);
     color: var(--brand-primary);
   }
   .danger-button {
@@ -7366,11 +7474,14 @@ const styles = `
     grid-template-columns: minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr));
   }
   .flooring-value-row.common-price-row {
-    grid-template-columns: 28px minmax(140px, 1.1fr) 120px 100px repeat(2, minmax(118px, 1fr)) 42px;
+    grid-template-columns: minmax(140px, 1.1fr) 120px 100px repeat(2, minmax(118px, 1fr)) 42px;
   }
   .admin-value-row.condition-quantity-row,
   .flooring-value-row.condition-quantity-row {
     grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(132px, 180px));
+  }
+  .flooring-value-row.condition-quantity-row {
+    grid-template-columns: minmax(170px, 1fr) 120px repeat(2, minmax(132px, 180px));
   }
   .admin-value-row label {
     display: grid;
@@ -7428,44 +7539,6 @@ const styles = `
     color: var(--text-secondary);
     font-size: var(--font-size-caption);
     line-height: 1.45;
-  }
-  .flooring-thickness-group {
-    padding: var(--space-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    background: var(--bg-subtle);
-  }
-  .flooring-thickness-group summary {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--space-2);
-    align-items: center;
-    cursor: pointer;
-  }
-  .flooring-thickness-group summary strong {
-    color: var(--text-primary);
-  }
-  .flooring-thickness-group summary span {
-    color: var(--text-secondary);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-semibold);
-  }
-  .flooring-thickness-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
-    gap: var(--space-1);
-    margin-top: var(--space-2);
-  }
-  .flooring-thickness-grid label {
-    display: grid;
-    gap: 5px;
-    color: var(--text-secondary);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-semibold);
-  }
-  .flooring-thickness-grid input {
-    min-height: 38px;
-    text-align: right;
   }
   .flat-subitem-name {
     min-height: 44px;
@@ -7750,6 +7823,30 @@ const styles = `
     background: var(--bg-surface);
     box-shadow: var(--shadow-sm);
   }
+  .category-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+  .category-title-row h2 {
+    margin-bottom: 4px;
+  }
+  .estimate-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .estimate-header-actions .primary-button,
+  .estimate-header-actions .secondary-button {
+    width: auto;
+    min-width: 128px;
+    min-height: 40px;
+    padding: 0 12px;
+  }
   .category-grid {
     display: grid;
     gap: var(--space-1);
@@ -7882,6 +7979,20 @@ const styles = `
     gap: var(--space-2);
     align-items: flex-start;
     margin-bottom: var(--space-3);
+  }
+  .admin-last-updated-pill {
+    width: fit-content;
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    margin-top: 8px;
+    padding: 4px 10px;
+    border: 1px solid rgba(43, 53, 104, 0.12);
+    border-radius: 999px;
+    background: rgba(244, 246, 255, 0.72);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
   }
   .material-list {
     display: grid;
@@ -8536,7 +8647,8 @@ const styles = `
     .global-header {
       padding: 0 var(--space-2);
     }
-    .global-header.with-admin-condition {
+    .global-header.with-admin-condition,
+    .global-header.with-estimate-condition {
       height: auto;
       min-height: 64px;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -8547,22 +8659,27 @@ const styles = `
       padding-top: 8px;
       padding-bottom: 8px;
     }
-    .global-header.with-admin-condition .global-brand {
+    .global-header.with-admin-condition .global-brand,
+    .global-header.with-estimate-condition .global-brand {
       grid-area: brand;
     }
-    .global-header.with-admin-condition .company-session {
+    .global-header.with-admin-condition .company-session,
+    .global-header.with-estimate-condition .company-session {
       grid-area: company;
     }
-    .global-header.with-admin-condition .header-admin-condition {
+    .global-header.with-admin-condition .header-admin-condition,
+    .global-header.with-estimate-condition .header-estimate-condition {
       grid-area: condition;
       width: 100%;
       max-width: none;
       padding: 5px 10px;
     }
-    .global-header.with-admin-condition .header-admin-condition strong {
+    .global-header.with-admin-condition .header-admin-condition strong,
+    .global-header.with-estimate-condition .header-estimate-condition strong {
       white-space: normal;
     }
-    .global-header.with-admin-condition ~ .admin-page {
+    .global-header.with-admin-condition ~ .admin-page,
+    .global-header.with-estimate-condition ~ .workspace {
       margin-top: 42px;
     }
     .company-session {
@@ -8617,6 +8734,11 @@ const styles = `
     .estimate-card-actions {
       justify-content: stretch;
       flex-direction: column;
+    }
+    .estimate-header-actions,
+    .estimate-header-actions .primary-button,
+    .estimate-header-actions .secondary-button {
+      width: 100%;
     }
     .estimate-template-main {
       align-items: flex-start;
@@ -8846,13 +8968,25 @@ const styles = `
   .eyebrow {
     letter-spacing: 0.04em;
   }
+  .condition-page {
+    max-width: 900px;
+    min-height: calc(100dvh - 70px);
+    display: grid;
+    align-items: start;
+    padding: 24px var(--space-3) 18px;
+  }
   .condition-builder-panel {
-    gap: 22px;
+    gap: 14px;
+    padding: 20px;
+  }
+  .condition-builder-header h2 {
+    margin-bottom: 0;
+    font-size: clamp(24px, 2.5vw, 32px);
   }
   .estimate-current-condition,
   .admin-edit-current {
     border-radius: 18px;
-    padding: 18px;
+    padding: 14px 16px;
   }
   .estimate-current-condition.active,
   .admin-edit-current.active {
@@ -8861,32 +8995,35 @@ const styles = `
   }
   .estimate-current-condition strong,
   .admin-edit-current strong {
-    font-size: clamp(22px, 3vw, 30px);
+    font-size: clamp(20px, 2.5vw, 26px);
     letter-spacing: -0.01em;
+  }
+  .condition-page .estimate-current-condition p {
+    display: none;
   }
   .condition-static-grid,
   .admin-pyeong-panel {
-    gap: 16px;
+    gap: 12px;
   }
   .condition-static-field,
   .admin-pyeong-panel label {
-    padding: 16px;
+    padding: 13px;
     border: 1px solid var(--border-subtle);
     border-radius: 16px;
     background: #ffffff;
   }
   .condition-static-wide {
-    padding: 16px;
+    padding: 13px;
     border: 1px solid var(--border-subtle);
     border-radius: 16px;
     background: #ffffff;
   }
   .condition-static-wide .field-label {
-    margin-bottom: 12px;
+    margin-bottom: 8px;
   }
   .segmented button,
   .chips button {
-    min-height: 50px;
+    min-height: 44px;
     border-radius: 12px;
   }
   .condition-variant-option small {
@@ -8896,10 +9033,15 @@ const styles = `
     white-space: nowrap;
   }
   .condition-start-row {
-    padding: 18px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 18px;
-    background: #ffffff;
+    padding: 12px 0 0;
+    justify-content: flex-end;
+    border: 0;
+    border-top: 1px solid var(--border-subtle);
+    border-radius: 0;
+    background: transparent;
+  }
+  .condition-page .condition-start-row {
+    margin-top: -2px;
   }
   .condition-start-row .primary-button {
     min-width: 180px;
