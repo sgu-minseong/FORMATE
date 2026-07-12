@@ -9,3 +9,13 @@ build
 # Temporary files
 ~$*
 *.tmp
+
+# Local AI agent / work notes
+AGENTS.md
+CLAUDE.md
+CODEX.md
+CHANGELOG_WORKLOG.md
+TODO.md
+skills-lock.json
+.agents/
+docs/
