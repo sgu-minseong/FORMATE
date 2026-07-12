@@ -1036,7 +1036,7 @@ function createEstimateRowFromSubitem(item, subitem, pyeong, patch = {}) {
     hasTemplateRecord: Boolean(subitem.template_value_id),
     hasTemplateValue: isReady,
     expanded: false,
-    selected: isReady,
+    selected: false,
     ...patch,
   };
 }
@@ -1266,6 +1266,7 @@ export default function App() {
   const [estimateSaving, setEstimateSaving] = useState(false);
   const [estimateError, setEstimateError] = useState("");
   const [estimateNotice, setEstimateNotice] = useState("");
+  const [estimateDraftSource, setEstimateDraftSource] = useState("template");
   const [adminItems, setAdminItems] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminSaving, setAdminSaving] = useState(false);
@@ -2198,7 +2199,7 @@ export default function App() {
     event.preventDefault();
 
     if (!templateDeleteTarget?.id) {
-      setTemplateDeleteError("삭제할 기준표를 다시 선택해주세요.");
+      setTemplateDeleteError("삭제할 템플릿을 다시 선택해주세요.");
       return;
     }
 
@@ -2251,7 +2252,7 @@ export default function App() {
 
       if (templateDeleteError) throw templateDeleteError;
       if (!deletedTemplates?.length) {
-        throw new Error("삭제할 기준표를 찾지 못했습니다.");
+        throw new Error("삭제할 템플릿을 찾지 못했습니다.");
       }
 
       if (currentAdminTemplateId === templateDeleteTarget.id) {
@@ -2259,14 +2260,14 @@ export default function App() {
         setAdminConditionLoaded(false);
       }
       setAdminTemplates((current) => current.filter((template) => template.id !== templateDeleteTarget.id));
-      setAdminNotice("기준표를 삭제했습니다.");
+      setAdminNotice("템플릿을 삭제했습니다.");
       setTemplateDeleteTarget(null);
       setTemplateDeletePassword("");
       setTemplateDeleteError("");
       await fetchAdminTemplateList();
     } catch (error) {
       console.error("[FORMATE delete admin template]", error);
-      setTemplateDeleteError(getFriendlyError(error, "기준표를 삭제하지 못했어요. 다시 시도해주세요."));
+      setTemplateDeleteError(getFriendlyError(error, "템플릿을 삭제하지 못했어요. 다시 시도해주세요."));
     } finally {
       setTemplateDeleteLoading(false);
     }
@@ -2333,7 +2334,7 @@ export default function App() {
           templateValueRows = values ?? [];
           setAdminNotice("");
         } else {
-          setAdminNotice("아직 이 조건의 수량/인원 기준이 없습니다. 공통 단가/인건비와 조건별 수량/인원을 입력한 뒤 저장하세요.");
+          setAdminNotice("아직 이 조건의 견적 템플릿이 없습니다. 기본 수량과 기본 인원을 입력한 뒤 저장하세요.");
         }
       } else {
         setCurrentAdminTemplateId("");
@@ -2616,6 +2617,7 @@ export default function App() {
 
   function updateCondition(patch) {
     setCondition((current) => ({ ...current, ...patch }));
+    setEstimateError("");
   }
 
   async function openAdminConditionEditor(condition) {
@@ -2944,11 +2946,13 @@ export default function App() {
       }
 
       let templateValueRows = [];
+      let templateFound = false;
       const templateCondition = getEstimateTemplateCondition(nextCondition);
       if (templateCondition) {
         const templateRow = await fetchTemplateRowByCondition(companyId, templateCondition);
 
         if (templateRow?.id) {
+          templateFound = true;
           const { data: values, error: valuesError } = await supabase
             .from("admin_condition_template_values")
             .select("id, template_id, item_id, subitem_id, option_value, quantity, labor_count")
@@ -2957,30 +2961,28 @@ export default function App() {
           if (valuesError) throw valuesError;
           templateValueRows = values ?? [];
           if (defaultCatalogPrepared) {
-            setEstimateNotice("기본 시공항목이 준비되었습니다. 공통 단가/인건비와 조건별 수량/인원을 바탕으로 견적을 작성할 수 있습니다.");
+            setEstimateNotice("기본 시공항목이 준비되었습니다. 단가표와 견적 템플릿을 바탕으로 견적서를 작성할 수 있습니다.");
           } else if (templateValueRows.length) {
-            setEstimateNotice("저장된 조건별 수량/인원을 적용해 견적서 초안을 만들었습니다. 단가/인건비는 공통 기준값을 사용합니다.");
+            setEstimateNotice("저장된 견적 템플릿의 기본 수량과 기본 인원을 불러왔습니다. 이번 현장에 맞게 수정할 수 있습니다.");
           }
         } else {
-          setEstimateNotice("아직 이 조건의 수량/인원 기준이 없습니다. 소재 구조와 공통 단가/인건비는 표시되며, 이번 견적에서 직접 입력할 수 있습니다.");
+          setEstimateNotice("빈 견적서로 시작했습니다. 단가표 항목은 불러왔고, 수량과 인원은 직접 입력하세요.");
         }
       }
 
       const catalog = normalizeAdminItems(itemRows, subitemRows, templateValueRows);
       const nextItems = buildEstimateItemsFromTemplate(catalog, pyeong);
-      const selectedCategoryIds = catalog
-        .filter((item) => nextItems[item.id]?.some((row) => row.selected))
-        .map((item) => item.id);
       const firstCategoryId = catalog[0]?.id ?? "";
 
       setEstimateCatalog(catalog);
       setItems(nextItems);
-      setActiveCategories(selectedCategoryIds);
+      setActiveCategories([]);
       setOpenCategory(firstCategoryId);
       setEstimatePyeong(String(pyeong));
+      setEstimateDraftSource(templateFound ? "template" : "blank");
       return true;
     } catch (error) {
-      setEstimateError(getFriendlyError(error, "조건별 기준을 불러오지 못했어요. 다시 시도해주세요."));
+      setEstimateError(getFriendlyError(error, "견적 템플릿을 불러오지 못했어요. 다시 시도해주세요."));
       return false;
     } finally {
       setEstimateLoading(false);
@@ -3027,7 +3029,7 @@ export default function App() {
       baseLaborRate: matchedOption.baseLaborRate,
       hasTemplateRecord: matchedOption.hasTemplateRecord,
       hasTemplateValue: matchedOption.hasTemplateValue,
-      selected: matchedOption.hasTemplateValue,
+      selected: row.selected,
       displayMaterial: composeFlooringSubitemName(row.material, matchedOption.thickness),
     };
   }
@@ -3085,6 +3087,56 @@ export default function App() {
     setEstimateAdjustments((current) =>
       current.filter((adjustment) => adjustment.id !== adjustmentId)
     );
+  }
+
+  function getEstimateTemplateValuePayloads(templateId = "") {
+    return Object.values(items)
+      .flatMap((rows) => rows ?? [])
+      .filter((row) => row.subitemId && (hasNumericInput(row.quantity) || hasNumericInput(row.laborCount)))
+      .map((row) => ({
+        ...(templateId ? { template_id: templateId } : {}),
+        item_id: row.itemId,
+        subitem_id: row.subitemId,
+        option_value: getTemplateOptionValue({ name: row.displayMaterial ?? row.material }),
+        quantity: toNullableNumber(row.quantity),
+        labor_count: toNullableNumber(row.laborCount),
+      }));
+  }
+
+  async function saveBlankEstimateAsTemplate(companyId) {
+    if (estimateDraftSource !== "blank") return false;
+
+    const templateCondition = getEstimateTemplateCondition(condition);
+    if (!templateCondition) return false;
+
+    const existingTemplate = await fetchTemplateRowByCondition(companyId, templateCondition);
+    if (existingTemplate?.id) return false;
+
+    const pendingTemplateValues = getEstimateTemplateValuePayloads();
+    if (!pendingTemplateValues.length) return false;
+
+    const { data: insertedTemplate, error: insertTemplateError } = await supabase
+      .from("admin_condition_templates")
+      .insert({
+        company_id: companyId,
+        ...templateCondition,
+      })
+      .select("id")
+      .single();
+    if (insertTemplateError) throw insertTemplateError;
+
+    const templateValuePayloads = pendingTemplateValues.map((row) => ({
+      ...row,
+      template_id: insertedTemplate.id,
+    }));
+    if (templateValuePayloads.length) {
+      const { error: valuesError } = await supabase
+        .from("admin_condition_template_values")
+        .upsert(templateValuePayloads, { onConflict: "template_id,subitem_id,option_value" });
+      if (valuesError) throw valuesError;
+    }
+
+    return true;
   }
 
   function loadSavedEstimateDraft(estimate, { copy = false, destination = "preview" } = {}) {
@@ -3171,6 +3223,7 @@ export default function App() {
     setSelectedEstimate(null);
     setEstimateError("");
     setEstimateNotice(copy ? "기존 견적서를 복사한 새 초안입니다. 고객 정보와 현장 정보를 입력한 뒤 저장하세요." : "");
+    setEstimateDraftSource("template");
     setPage(destination);
   }
 
@@ -3223,6 +3276,7 @@ export default function App() {
     setEstimateCatalog([]);
     setEstimateError("");
     setEstimateNotice("");
+    setEstimateDraftSource("template");
   }
 
   function clearCompanyScopedState() {
@@ -3880,7 +3934,7 @@ export default function App() {
     try {
       const saveTarget = normalizeAdminSaveTarget(target);
       if (!saveTarget) {
-        throw new Error("저장할 기준표 화면을 확인하지 못했습니다.");
+        throw new Error("저장할 관리 화면을 확인하지 못했습니다.");
       }
       const companyId = requireSelectedCompanyId();
       const snapshotItems = adminItemsRef.current;
@@ -4086,7 +4140,14 @@ export default function App() {
 
       if (estimateError) throw estimateError;
 
-      setEstimateNotice("저장되었습니다.");
+      const createdTemplate = await saveBlankEstimateAsTemplate(companyId);
+
+      setEstimateNotice(
+        createdTemplate
+          ? "견적서를 저장했고, 입력한 수량과 인원을 새 견적 템플릿으로 저장했습니다."
+          : "저장되었습니다."
+      );
+      if (createdTemplate) setEstimateDraftSource("template");
       setPage("preview");
     } catch (error) {
       setEstimateError(getFriendlyError(error, "견적서를 저장하지 못했어요. 다시 시도해주세요."));
@@ -4344,10 +4405,10 @@ export default function App() {
         <div className="modal-backdrop" onClick={closeTemplateDeleteDialog}>
           <section className="admin-verify-modal template-delete-modal" onClick={(event) => event.stopPropagation()}>
             <div>
-              <p className="eyebrow danger">기준표 삭제</p>
-              <h2>저장한 기준표를 삭제할까요?</h2>
+              <p className="eyebrow danger">템플릿 삭제</p>
+              <h2>저장한 템플릿을 삭제할까요?</h2>
               <p className="muted">
-                <strong>{makeTemplateLabel(templateDeleteTarget, conditionVariantLabelMap)}</strong> 기준표와 이 기준표의 수량/인원 값이 삭제됩니다.
+                <strong>{makeTemplateLabel(templateDeleteTarget, conditionVariantLabelMap)}</strong> 템플릿과 이 템플릿의 기본 수량/인원 값이 삭제됩니다.
               </p>
             </div>
             <form className="login-form" onSubmit={confirmDeleteAdminTemplate}>
@@ -4418,22 +4479,18 @@ export default function App() {
         <main className="landing work-home">
           <section className="landing-actions">
             <div className="section-heading work-home-heading">
-              <span>업무 홈</span>
-              <h1>오늘 할 일</h1>
-              <p>자주 쓰는 작업만 모았습니다. 필요한 순서대로 눌러 진행하세요.</p>
+              <h1>{selectedCompanyName}</h1>
             </div>
             <div className="primary-action-grid">
               <button className="menu-card feature-card" onClick={() => setPage("condition")}>
                 <ClipboardList />
-                <span>새 견적 만들기</span>
-                <p>평수와 주택 조건을 고르면 저장한 기준표로 초안을 만듭니다.</p>
-                <strong>견적 시작</strong>
+                <span>견적서 작성하기</span>
+                <p>저장된 템플릿에서 빠르게 시작하거나 빈 견적서로 직접 작성합니다.</p>
               </button>
               <button className="menu-card feature-card" onClick={() => openAdminGate("admin")}>
                 <Settings />
-                <span>기준표 입력</span>
-                <p>단가와 조건별 수량을 미리 넣어 견적 시간을 줄입니다.</p>
-                <strong>입력하러 가기</strong>
+                <span>템플릿 만들기</span>
+                <p>단가표와 자주 쓰는 견적 템플릿을 미리 만들어둡니다.</p>
               </button>
             </div>
             <div className="secondary-action-grid">
@@ -4458,10 +4515,10 @@ export default function App() {
             <ArrowLeft size={18} /> 돌아가기
           </button>
           <section className="panel">
-            <p className="eyebrow dark">기준표 입력</p>
-            <h2>단가/인건비 입력</h2>
+            <p className="eyebrow dark">템플릿 만들기</p>
+            <h2>템플릿 만들기</h2>
             <p className="muted">
-              고객에게 보여주는 견적서가 아니라, 우리 업체 내부 기준표입니다.
+              고객에게 보여주는 견적서가 아니라, 우리 업체 내부 템플릿입니다.
             </p>
             <div className="admin-menu">
               <button
@@ -4472,8 +4529,8 @@ export default function App() {
                 }}
               >
                 <ClipboardList />
-                <span>1. 단가 입력</span>
-                <p>모든 견적에 공통으로 쓰는 자재 단가와 인건비를 넣습니다.</p>
+                <span>1. 단가표 관리</span>
+                <p>자주 쓰는 기본 단가와 인건비를 저장해두세요. 견적서 작성 중에도 금액은 수정할 수 있습니다.</p>
               </button>
               <button
                 className="menu-card"
@@ -4485,13 +4542,13 @@ export default function App() {
                 }}
               >
                 <ClipboardList />
-                <span>2. 수량 입력</span>
-                <p>평수와 주택 조건별로 필요한 수량과 인원을 넣습니다.</p>
+                <span>2. 견적 템플릿 만들기</span>
+                <p>자주 쓰는 견적 템플릿을 만들어두세요. 기본 수량과 기본 인원을 저장할 수 있습니다.</p>
               </button>
               <button className="menu-card" onClick={() => setPage("admin-detail-costs")}>
                 <FileText />
-                <span>3. 세부 비용</span>
-                <p>필요할 때만 쓰는 내부 비용 기준입니다.</p>
+                <span>3. 세부 비용 관리</span>
+                <p>철거, 폐기물, 운반비처럼 견적서에 추가할 수 있는 비용을 관리합니다.</p>
               </button>
             </div>
           </section>
@@ -4503,7 +4560,7 @@ export default function App() {
           <div className="editor-header">
             <div>
               <button className="ghost" onClick={() => setPage("admin-items")}>
-                <ArrowLeft size={18} /> 조건별 수량/인원 관리
+                <ArrowLeft size={18} /> 견적 템플릿 만들기
               </button>
               <h2>확장형/구형 설명 관리</h2>
               <p className="muted caption">
@@ -4585,7 +4642,11 @@ export default function App() {
           <section className="panel condition-builder-panel">
             <div className="editor-header condition-builder-header">
               <div>
-                <h2>어떤 집 견적을 만들까요?</h2>
+                <h2>시작할 템플릿을 선택하세요</h2>
+                <p className="muted caption">
+                  저장된 템플릿에서 빠르게 시작하거나, 템플릿이 없는 조건은 빈 견적서로 직접 작성할 수 있습니다.
+                  템플릿으로 불러온 항목과 수량은 작성 중 현장에 맞게 수정할 수 있습니다.
+                </p>
               </div>
               <button className="ghost" onClick={resetFlow}>
                 <ArrowLeft size={18} /> 이전
@@ -4593,12 +4654,12 @@ export default function App() {
             </div>
 
             <div className={`estimate-current-condition ${canGoNext() ? "active" : ""}`.trim()}>
-              <span>현재 선택</span>
+              <span>선택한 템플릿</span>
               <strong>
-                {conditionChips.length > 0 ? conditionChips.join(" · ") : "조건을 선택하세요."}
+                {conditionChips.length > 0 ? conditionChips.join(" · ") : "시작할 템플릿을 선택하세요."}
               </strong>
               <p>
-                빈집/살림집은 견적서 정보에만 남고, 조건별 수량/인원 기준 조회에는 포함하지 않습니다.
+                빈집/살림집은 견적서 정보에만 남고, 템플릿 조회에는 포함하지 않습니다.
               </p>
             </div>
 
@@ -4763,8 +4824,8 @@ export default function App() {
             {estimateError && <div className="error-box">{estimateError}</div>}
 
             <div className="condition-start-row">
-              <button className="primary-button" disabled={!canGoNext() || estimateLoading} onClick={goNext}>
-                {estimateLoading ? "템플릿 불러오는 중..." : "견적 시작"}
+              <button className="primary-button" disabled={!canGoNext() || estimateLoading} onClick={() => goNext()}>
+                {estimateLoading ? "템플릿 불러오는 중..." : "견적서 작성 시작"}
               </button>
             </div>
           </section>
@@ -4779,6 +4840,11 @@ export default function App() {
                 <h2>공사 항목</h2>
                 <p className="muted caption">
                   이번 견적에 넣을 항목을 고르고 수량을 확인하세요.
+                </p>
+                <p className="estimate-start-guide">
+                  {estimateDraftSource === "blank"
+                    ? "빈 견적서로 시작했습니다. 입력한 수량과 인원은 이 조건의 템플릿으로 저장됩니다."
+                    : "템플릿에서 불러온 기본값입니다. 이번 견적에 넣을 항목만 체크하고, 현장에 맞게 수정하세요."}
                 </p>
               </div>
               <div className="estimate-header-actions">
@@ -4865,7 +4931,7 @@ export default function App() {
               <div>
                 <h2>{currentCategory?.name} 견적 내역</h2>
                 <p className="muted caption">
-                  {condition.size ? `${condition.size}평 기준표` : "조건별 기준표"}
+                  {condition.size ? `${condition.size}평 템플릿` : "견적 템플릿"}
                 </p>
               </div>
             </div>
@@ -5164,11 +5230,11 @@ export default function App() {
               >
                 <ArrowLeft size={18} /> {showAdminConditionEditor ? "되돌리기" : "관리자 홈"}
               </button>
-              <h2>{isCommonPriceAdminPage ? "단가 입력" : "수량/인원 입력"}</h2>
+              <h2>{isCommonPriceAdminPage ? "단가표 관리" : "견적 템플릿 만들기"}</h2>
               <p className="muted caption">
                 {isCommonPriceAdminPage
-                  ? "모든 견적에 공통으로 쓰는 가격입니다."
-                  : "평수와 주택 조건별로 필요한 수량과 인원을 입력합니다."}
+                  ? "자주 쓰는 기본 단가와 인건비를 저장해두세요. 견적서 작성 중에도 금액은 수정할 수 있습니다."
+                  : "자주 쓰는 견적 템플릿을 만들어두세요. 템플릿에는 기본 수량과 기본 인원을 저장할 수 있고, 견적서 작성 시 현장에 맞게 수정할 수 있습니다."}
               </p>
               {isCommonPriceAdminPage && (
                 <span className="admin-last-updated-pill">
@@ -5211,8 +5277,8 @@ export default function App() {
           <section className="admin-pyeong-panel">
             <div className="admin-condition-title">
               <div>
-                <strong>어떤 기준표를 입력할까요?</strong>
-                <span>평수와 주택 조건을 고른 뒤 이 조건의 수량과 인원만 입력합니다.</span>
+                <strong>어떤 견적 템플릿을 만들까요?</strong>
+                <span>평수와 조건으로 템플릿을 구분합니다.</span>
               </div>
             </div>
             <div className="admin-condition-grid">
@@ -5375,7 +5441,7 @@ export default function App() {
                 disabled={adminLoading || adminSaving || !currentAdminTemplateCondition}
                 onClick={() => openAdminConditionEditor(currentAdminTemplateCondition)}
               >
-                이 조건 수량 입력하기
+                이 템플릿 만들기
               </button>
             </div>
           </section>
@@ -5384,8 +5450,8 @@ export default function App() {
           {showAdminConditionSelect && (
           <section className="template-list-panel">
             <div>
-              <strong>저장한 기준표</strong>
-              <span>수정할 기준표를 다시 열 수 있습니다.</span>
+              <strong>저장한 템플릿</strong>
+              <span>수정할 견적 템플릿을 다시 열 수 있습니다.</span>
             </div>
             {adminTemplates.length ? (
               <div className="template-list">
@@ -5395,7 +5461,7 @@ export default function App() {
                       type="button"
                       className="template-delete-button"
                       disabled={adminLoading || adminSaving || templateDeleteLoading}
-                      aria-label={`${makeTemplateLabel(template, conditionVariantLabelMap)} 기준표 삭제`}
+                      aria-label={`${makeTemplateLabel(template, conditionVariantLabelMap)} 템플릿 삭제`}
                       onClick={() => openTemplateDeleteDialog(template)}
                     >
                       <Trash2 size={15} />
@@ -5409,7 +5475,7 @@ export default function App() {
               </div>
             ) : (
               <p className="muted">
-                아직 저장한 기준표가 없습니다. 평수와 조건을 고른 뒤 수량을 저장하면 여기에 표시됩니다.
+                아직 저장한 템플릿이 없습니다. 평수와 조건을 고른 뒤 기본 수량과 기본 인원을 저장하면 여기에 표시됩니다.
               </p>
             )}
           </section>
@@ -5424,16 +5490,16 @@ export default function App() {
           <section className="admin-edit-panel">
             {isConditionQuantityAdminPage && (
             <div className={`admin-edit-current ${canEditConditionQuantities ? "active" : ""}`.trim()}>
-              <span>입력 중인 기준표</span>
+              <span>입력 중인 견적 템플릿</span>
               <strong>
                 {canEditConditionQuantities && currentAdminConditionLabel
                   ? currentAdminConditionLabel
-                  : "현재 관리 중인 조건이 없습니다. 먼저 평수와 주택 조건을 선택하세요."}
+                  : "현재 관리 중인 템플릿이 없습니다. 먼저 평수와 주택 조건을 선택하세요."}
               </strong>
               <p>
                 {canEditConditionQuantities
-                  ? "수량과 인원만 입력하세요. 단가와 인건비는 모든 조건에 공통 적용됩니다."
-                  : "먼저 평수와 주택 조건을 선택한 뒤 기준표를 열어주세요."}
+                  ? "기본 수량과 기본 인원만 저장합니다. 단가와 인건비는 단가표 관리에서 공통으로 관리합니다."
+                  : "먼저 평수와 주택 조건을 선택한 뒤 템플릿을 열어주세요."}
               </p>
             </div>
             )}
@@ -5469,9 +5535,9 @@ export default function App() {
 
           {isConditionQuantityAdminPage && !canEditConditionQuantities && (
             <section className="panel admin-empty-edit-notice">
-              <strong>조건을 먼저 선택하세요.</strong>
-              <p className="muted">먼저 평수와 주택 조건을 선택한 뒤 기준표를 열어주세요.</p>
-              <p className="muted">단가와 인건비는 단가 입력 화면에서 수정합니다.</p>
+              <strong>템플릿을 먼저 선택하세요.</strong>
+              <p className="muted">먼저 평수와 주택 조건을 선택한 뒤 견적 템플릿을 열어주세요.</p>
+              <p className="muted">단가와 인건비는 단가표 관리 화면에서 수정합니다.</p>
             </section>
           )}
 
@@ -5737,7 +5803,7 @@ export default function App() {
                         <span>
                           {isCommonPriceAdminPage
                             ? "예: 장판, KCC장판, LG장판, 비닐장판. 규격/두께는 소재 row의 dropdown에서 선택합니다."
-                            : "추가한 소재는 단가 입력 화면에도 함께 보입니다. 수량과 인원은 빈칸으로 시작합니다."}
+                            : "추가한 소재는 단가표 관리 화면에도 함께 보입니다. 수량과 인원은 빈칸으로 시작합니다."}
                         </span>
                       </div>
                       <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
@@ -5946,7 +6012,7 @@ export default function App() {
                         <span>
                           {isCommonPriceAdminPage
                             ? "소재명, 단위, 단가, 인건비를 입력할 수 있습니다."
-                            : "추가한 소재는 단가 입력 화면에도 함께 보입니다. 수량과 인원은 빈칸으로 시작합니다."}
+                            : "추가한 소재는 단가표 관리 화면에도 함께 보입니다. 수량과 인원은 빈칸으로 시작합니다."}
                         </span>
                       </div>
                       <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
@@ -6198,7 +6264,7 @@ export default function App() {
                     className="secondary-button"
                     onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
                   >
-                    복사해서 새 견적
+                    복사해서 견적서 작성
                   </button>
                 </div>
               </article>
@@ -6239,7 +6305,7 @@ export default function App() {
                     className="secondary-button"
                     onClick={() => loadSavedEstimateDraft(selectedEstimate, { copy: true, destination: "items" })}
                   >
-                    복사해서 새 견적
+                    복사해서 견적서 작성
                   </button>
                 </div>
 
@@ -8987,6 +9053,19 @@ const styles = `
     border-radius: var(--radius-button);
     background: var(--bg-subtle);
     font-size: var(--font-size-body-sm);
+  }
+  .estimate-start-guide {
+    display: inline-flex;
+    width: fit-content;
+    max-width: 100%;
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.4;
   }
   .estimate-template-total {
     min-width: 170px;
