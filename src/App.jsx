@@ -1218,6 +1218,7 @@ export default function App() {
   const pendingAdminLeaveActionRef = useRef(null);
   const adminItemsRef = useRef([]);
   const pageRef = useRef("");
+  const adminConditionStepRef = useRef("select");
   const currentAdminTemplateConditionRef = useRef(null);
   const [companySession, setCompanySession] = useState(() => {
     return {
@@ -1451,6 +1452,7 @@ export default function App() {
 
   adminItemsRef.current = adminItems;
   pageRef.current = page;
+  adminConditionStepRef.current = adminConditionStep;
   currentAdminTemplateConditionRef.current = currentAdminTemplateCondition;
 
   useEffect(() => {
@@ -2480,25 +2482,33 @@ export default function App() {
 
   function getCurrentAutoSaveTarget() {
     if (pageRef.current === "admin-prices") return "prices";
-    if (pageRef.current === "admin-items" && adminConditionStep === "edit") return "quantities";
+    if (pageRef.current === "admin-items" && adminConditionStepRef.current === "edit") return "quantities";
     return "";
   }
 
+  function normalizeAdminSaveTarget(requestedTarget = "") {
+    const pageTarget = getCurrentAutoSaveTarget();
+    if (pageTarget) return pageTarget;
+    return requestedTarget === "prices" || requestedTarget === "quantities" ? requestedTarget : "";
+  }
+
   function markAdminCatalogDirty(target = getCurrentAutoSaveTarget()) {
-    if (!target) return;
-    autoSaveTargetRef.current = target;
-    setAutoSaveTarget(target);
+    const saveTarget = normalizeAdminSaveTarget(target);
+    if (!saveTarget) return;
+    autoSaveTargetRef.current = saveTarget;
+    setAutoSaveTarget(saveTarget);
     setAutoSaveStatus("dirty");
     setAutoSaveError("");
 
     clearAutoSaveTimer();
     autoSaveTimerRef.current = window.setTimeout(() => {
-      runAdminAutoSave(target);
+      runAdminAutoSave(saveTarget);
     }, ADMIN_AUTOSAVE_DELAY_MS);
   }
 
   async function runAdminAutoSave(target = autoSaveTargetRef.current) {
-    if (!target) return;
+    const saveTarget = normalizeAdminSaveTarget(target);
+    if (!saveTarget) return;
     clearAutoSaveTimer();
     if (autoSaveRunningRef.current) {
       autoSaveQueuedRef.current = true;
@@ -2507,12 +2517,13 @@ export default function App() {
 
     autoSaveRunningRef.current = true;
     setAutoSaveStatus("saving");
-    setAutoSaveTarget(target);
+    autoSaveTargetRef.current = saveTarget;
+    setAutoSaveTarget(saveTarget);
     setAutoSaveError("");
     try {
       const saved = await saveAdminPrices({
         auto: true,
-        target,
+        target: saveTarget,
         stayOnPage: true,
         refetch: false,
       });
@@ -2529,7 +2540,7 @@ export default function App() {
       autoSaveRunningRef.current = false;
       if (autoSaveQueuedRef.current) {
         autoSaveQueuedRef.current = false;
-        markAdminCatalogDirty(target);
+        markAdminCatalogDirty(saveTarget);
       }
     }
   }
@@ -2549,10 +2560,11 @@ export default function App() {
   }
 
   function markAdminCatalogSavedNow(target = getCurrentAutoSaveTarget()) {
+    const saveTarget = normalizeAdminSaveTarget(target);
     clearAutoSaveTimer();
     autoSaveQueuedRef.current = false;
-    autoSaveTargetRef.current = target;
-    setAutoSaveTarget(target);
+    autoSaveTargetRef.current = saveTarget;
+    setAutoSaveTarget(saveTarget);
     setAutoSaveStatus("saved");
     setAutoSaveSavedAt(new Date().toISOString());
     setAutoSaveError("");
@@ -2579,7 +2591,7 @@ export default function App() {
     setAdminUnsavedLeaveSaving(true);
     setAdminUnsavedLeaveError("");
     try {
-      const target = autoSaveTargetRef.current || getCurrentAutoSaveTarget();
+      const target = normalizeAdminSaveTarget(autoSaveTargetRef.current || getCurrentAutoSaveTarget());
       const saved = await saveAdminPrices({
         target,
         stayOnPage: true,
@@ -3858,7 +3870,7 @@ export default function App() {
   async function saveAdminPrices(options = {}) {
     const {
       auto = false,
-      target = pageRef.current === "admin-prices" ? "prices" : "quantities",
+      target = "",
       stayOnPage = false,
       refetch = true,
     } = options;
@@ -3866,10 +3878,14 @@ export default function App() {
     if (!auto) clearAutoSaveTimer();
     setAdminError("");
     try {
+      const saveTarget = normalizeAdminSaveTarget(target);
+      if (!saveTarget) {
+        throw new Error("저장할 기준표 화면을 확인하지 못했습니다.");
+      }
       const companyId = requireSelectedCompanyId();
       const snapshotItems = adminItemsRef.current;
       const adminSubitems = snapshotItems.flatMap((item) => item.subitems ?? []);
-      const isCommonPriceSave = target === "prices";
+      const isCommonPriceSave = saveTarget === "prices";
 
       if (snapshotItems.length) {
         await Promise.all(
@@ -5179,7 +5195,11 @@ export default function App() {
               <button
                 className="primary-button"
                 disabled={adminLoading || adminSaving || (isConditionQuantityAdminPage && !canEditConditionQuantities)}
-                onClick={saveAdminPrices}
+                onClick={() =>
+                  saveAdminPrices({
+                    target: isCommonPriceAdminPage ? "prices" : "quantities",
+                  })
+                }
               >
                 <Save size={18} /> 저장하기
               </button>
