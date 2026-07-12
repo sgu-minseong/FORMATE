@@ -46,7 +46,7 @@
 
 \### 견적서 확인
 
-<img src="screenshots/estimate-preview.png" alt="견적서 확인 화면" width="800" />
+<img src="screenshots/estimate-preview.png" alt="견적서 확인 화면" width="700" />
 
 
 
