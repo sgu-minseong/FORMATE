@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import * as XLSX from "xlsx";
 import {
   ArrowLeft,
   Building2,
@@ -28,7 +29,7 @@ import logoUrl from "./assets/logo.svg";
 
 const pageFromHash = () => {
   const page = window.location.hash.replace("#", "");
-  return ["landing", "condition", "admin", "admin-prices", "admin-items", "admin-condition-labels"].includes(page) ? page : "landing";
+  return ["landing", "condition", "admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-ai-setup"].includes(page) ? page : "landing";
 };
 
 const COMPANY_STORAGE_KEYS = {
@@ -38,7 +39,7 @@ const COMPANY_STORAGE_KEYS = {
 };
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
-const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs"];
+const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const UNIT_OPTIONS = ["평", "㎡", "미터", "개소", "식"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
@@ -1209,6 +1210,29 @@ function isEstimateRowModified(row) {
   );
 }
 
+function formatExcelCellValue(value) {
+  if (value == null) return "";
+  if (value instanceof Date) return formatDisplayDate(value.toISOString().slice(0, 10));
+  return `${value}`;
+}
+
+function normalizeExcelRows(rows) {
+  return (rows ?? [])
+    .map((row) => (Array.isArray(row) ? row.map(formatExcelCellValue) : []))
+    .filter((row) => row.some((cell) => `${cell ?? ""}`.trim() !== ""));
+}
+
+function getExcelColumnLabel(index) {
+  let columnNumber = index + 1;
+  let label = "";
+  while (columnNumber > 0) {
+    const remainder = (columnNumber - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    columnNumber = Math.floor((columnNumber - 1) / 26);
+  }
+  return label;
+}
+
 export default function App() {
   const previewPdfRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
@@ -1316,6 +1340,11 @@ export default function App() {
   const [pyeongDropdownOpen, setPyeongDropdownOpen] = useState(false);
   const [adminPyeongDropdownOpen, setAdminPyeongDropdownOpen] = useState(false);
   const [favoritePyeongs, setFavoritePyeongs] = useState(readFavoritePyeongs);
+  const [aiSetupFileName, setAiSetupFileName] = useState("");
+  const [aiSetupStatus, setAiSetupStatus] = useState("idle");
+  const [aiSetupError, setAiSetupError] = useState("");
+  const [aiSetupSheets, setAiSetupSheets] = useState([]);
+  const [selectedAiSetupSheetName, setSelectedAiSetupSheetName] = useState("");
 
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
@@ -1425,6 +1454,20 @@ export default function App() {
   const selectedEstimateSiteMemo = selectedEstimate
     ? getEstimateItemsDataSiteMemo(selectedEstimate.items_data)
     : "";
+  const selectedAiSetupSheet = useMemo(() => {
+    return aiSetupSheets.find((sheet) => sheet.name === selectedAiSetupSheetName) ?? aiSetupSheets[0] ?? null;
+  }, [aiSetupSheets, selectedAiSetupSheetName]);
+  const aiSetupPreviewRows = useMemo(() => {
+    return selectedAiSetupSheet ? selectedAiSetupSheet.rows.slice(0, 100) : [];
+  }, [selectedAiSetupSheet]);
+  const aiSetupStatusLabel =
+    aiSetupStatus === "reading"
+      ? "읽는 중"
+      : aiSetupStatus === "success"
+        ? "읽기 완료"
+        : aiSetupStatus === "error"
+          ? "읽기 실패"
+          : "대기 중";
   const adminSearchTerm = adminSearch.trim().toLowerCase();
   const filteredAdminItems = useMemo(() => {
     return adminItems.filter((item) => {
@@ -1707,6 +1750,77 @@ export default function App() {
     setAdminVerifyPassword("");
     setAdminVerifyError("");
     setPendingAdminPage("admin");
+  }
+
+  function resetAiSetupUpload() {
+    setAiSetupFileName("");
+    setAiSetupStatus("idle");
+    setAiSetupError("");
+    setAiSetupSheets([]);
+    setSelectedAiSetupSheetName("");
+  }
+
+  async function handleAiSetupFileChange(event) {
+    const input = event.target;
+    const file = event.target.files?.[0];
+    resetAiSetupUpload();
+
+    if (!file) return;
+
+    const fileName = file.name ?? "";
+    const isExcelFile = /\.(xlsx|xls)$/i.test(fileName);
+    setAiSetupFileName(fileName);
+
+    if (!isExcelFile) {
+      setAiSetupStatus("error");
+      setAiSetupError("엑셀 파일(.xlsx, .xls)만 업로드할 수 있습니다.");
+      return;
+    }
+
+    setAiSetupStatus("reading");
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: true });
+      const sheetNames = workbook.SheetNames ?? [];
+
+      if (sheetNames.length === 0) {
+        setAiSetupStatus("error");
+        setAiSetupError("읽을 수 있는 시트가 없습니다.");
+        return;
+      }
+
+      const parsedSheets = sheetNames.map((sheetName) => {
+        const worksheet = workbook.Sheets[sheetName];
+        const rows = normalizeExcelRows(
+          XLSX.utils.sheet_to_json(worksheet, {
+            header: 1,
+            blankrows: false,
+            defval: "",
+            raw: false,
+          })
+        );
+        const columnCount = rows.reduce((max, row) => Math.max(max, row.length), 0);
+        return {
+          name: sheetName,
+          rows,
+          rowCount: rows.length,
+          columnCount,
+        };
+      });
+
+      setAiSetupSheets(parsedSheets);
+      setSelectedAiSetupSheetName(parsedSheets[0]?.name ?? "");
+      setAiSetupStatus("success");
+      setAiSetupError("");
+    } catch (error) {
+      console.error("[FORMATE AI setup excel parse]", error);
+      setAiSetupStatus("error");
+      setAiSetupError("엑셀 파일을 읽지 못했습니다. 파일 형식을 확인해주세요.");
+      setAiSetupSheets([]);
+      setSelectedAiSetupSheetName("");
+    } finally {
+      input.value = "";
+    }
   }
 
   async function handleAdminVerify(event) {
@@ -4550,7 +4664,131 @@ export default function App() {
                 <span>3. 세부 비용 관리</span>
                 <p>철거, 폐기물, 운반비처럼 견적서에 추가할 수 있는 비용을 관리합니다.</p>
               </button>
+              <button className="menu-card" onClick={() => setPage("admin-ai-setup")}>
+                <Image />
+                <span>4. AI 초기 세팅</span>
+                <p>기존에 사용하던 엑셀 견적서를 업로드하면 항목과 금액을 분석해 단가표와 템플릿 초안을 만들 수 있습니다.</p>
+              </button>
             </div>
+          </section>
+        </main>
+      )}
+
+      {page === "admin-ai-setup" && adminVerified && (
+        <main className="panel-page admin-page ai-setup-page">
+          <button className="ghost" onClick={() => setPage("admin")}>
+            <ArrowLeft size={18} /> 관리자 홈으로 돌아가기
+          </button>
+          <section className="panel wide ai-setup-panel">
+            <div className="ai-setup-header">
+              <div>
+                <p className="eyebrow dark">AI 초기 세팅</p>
+                <h2>AI 초기 세팅</h2>
+                <p className="muted">
+                  기존에 사용하던 엑셀 견적서를 업로드하면, FORMATE가 항목·단가·수량 정보를 읽어 단가표와 견적 템플릿 초안을 만드는 기능입니다.
+                  현재 단계에서는 엑셀 파일을 읽고 시트/행 데이터를 검토 화면에 표시하는 기능까지만 제공합니다.
+                </p>
+              </div>
+              <span className={`ai-status-pill ${aiSetupStatus}`.trim()}>{aiSetupStatusLabel}</span>
+            </div>
+
+            <div className="ai-upload-grid">
+              <label className="ai-upload-box">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleAiSetupFileChange}
+                  disabled={aiSetupStatus === "reading"}
+                />
+                <FileText />
+                <strong>엑셀 견적서 업로드</strong>
+                <span>.xlsx, .xls 파일을 선택하세요.</span>
+              </label>
+              <div className="ai-upload-summary">
+                <span>선택한 파일</span>
+                <strong>{aiSetupFileName || "아직 선택한 파일이 없습니다."}</strong>
+                <p>
+                  업로드한 파일은 현재 화면에서만 검토합니다. AI API 호출, DB 저장, 템플릿 생성은 아직 실행하지 않습니다.
+                </p>
+              </div>
+            </div>
+
+            {aiSetupError && <div className="error-box">{aiSetupError}</div>}
+
+            {aiSetupSheets.length > 0 && (
+              <section className="ai-review-panel" aria-live="polite">
+                <div className="ai-sheet-tabs" role="tablist" aria-label="엑셀 시트 선택">
+                  {aiSetupSheets.map((sheet) => (
+                    <button
+                      key={sheet.name}
+                      type="button"
+                      className={sheet.name === selectedAiSetupSheet?.name ? "selected" : ""}
+                      onClick={() => setSelectedAiSetupSheetName(sheet.name)}
+                    >
+                      {sheet.name}
+                      <span>{sheet.rowCount}행</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="ai-sheet-meta">
+                  <div>
+                    <span>파일명</span>
+                    <strong>{aiSetupFileName}</strong>
+                  </div>
+                  <div>
+                    <span>시트 개수</span>
+                    <strong>{aiSetupSheets.length}개</strong>
+                  </div>
+                  <div>
+                    <span>현재 시트</span>
+                    <strong>{selectedAiSetupSheet?.name ?? "-"}</strong>
+                  </div>
+                  <div>
+                    <span>표시 중인 행 수</span>
+                    <strong>{aiSetupPreviewRows.length} / {selectedAiSetupSheet?.rowCount ?? 0}</strong>
+                  </div>
+                  <div>
+                    <span>표시 중인 열 수</span>
+                    <strong>{selectedAiSetupSheet?.columnCount ?? 0}</strong>
+                  </div>
+                </div>
+
+                {selectedAiSetupSheet && selectedAiSetupSheet.rowCount > 0 ? (
+                  <div className="ai-table-wrap">
+                    <table className="ai-data-table">
+                      <thead>
+                        <tr>
+                          <th className="row-number-cell">행</th>
+                          {Array.from({ length: selectedAiSetupSheet.columnCount }, (_, index) => (
+                            <th key={index}>{getExcelColumnLabel(index)}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aiSetupPreviewRows.map((row, rowIndex) => (
+                          <tr key={`${selectedAiSetupSheet.name}-${rowIndex}`}>
+                            <td className="row-number-cell">{rowIndex + 1}</td>
+                            {Array.from({ length: selectedAiSetupSheet.columnCount }, (_, columnIndex) => (
+                              <td key={columnIndex}>{row[columnIndex] ?? ""}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="ai-empty-sheet">
+                    <strong>선택한 시트에 표시할 행이 없습니다.</strong>
+                    <p>다른 시트를 선택하거나 원본 엑셀 파일의 내용을 확인해주세요.</p>
+                  </div>
+                )}
+
+                {(selectedAiSetupSheet?.rowCount ?? 0) > 100 && (
+                  <p className="caption ai-row-limit-note">화면 속도를 위해 첫 100행만 표시합니다. 원본 파일은 저장하지 않습니다.</p>
+                )}
+              </section>
+            )}
           </section>
         </main>
       )}
@@ -7659,6 +7897,249 @@ const styles = `
   .admin-menu .menu-card p {
     margin-top: 0;
   }
+  .ai-setup-page {
+    max-width: 1180px;
+  }
+  .ai-setup-panel {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .ai-setup-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .ai-setup-header h2 {
+    margin-bottom: 8px;
+  }
+  .ai-setup-header .muted {
+    max-width: 780px;
+    margin: 0;
+  }
+  .ai-status-pill {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 11px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-status-pill.reading {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+  }
+  .ai-status-pill.success {
+    border-color: rgba(49, 124, 82, 0.24);
+    background: rgba(49, 124, 82, 0.08);
+    color: #317c52;
+  }
+  .ai-status-pill.error {
+    border-color: rgba(190, 62, 62, 0.26);
+    background: rgba(190, 62, 62, 0.07);
+    color: #a33a3a;
+  }
+  .ai-upload-grid {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.9fr) minmax(280px, 1.1fr);
+    gap: var(--space-2);
+  }
+  .ai-upload-box {
+    position: relative;
+    min-height: 168px;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 8px;
+    padding: var(--space-3);
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+    color: var(--text-primary);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  }
+  .ai-upload-box:hover,
+  .ai-upload-box:focus-within {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-subtle);
+    box-shadow: var(--focus-ring);
+  }
+  .ai-upload-box input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .ai-upload-box svg {
+    color: var(--brand-primary);
+  }
+  .ai-upload-box strong {
+    font-size: var(--font-size-title-sm);
+  }
+  .ai-upload-box span,
+  .ai-upload-summary span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+  }
+  .ai-upload-summary {
+    display: grid;
+    align-content: center;
+    gap: 8px;
+    min-height: 168px;
+    padding: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+  .ai-upload-summary strong {
+    overflow-wrap: anywhere;
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+  }
+  .ai-upload-summary p {
+    max-width: 560px;
+    margin: 0;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+  .ai-review-panel {
+    display: grid;
+    gap: var(--space-2);
+    padding-top: var(--space-1);
+    border-top: 1px solid var(--border-subtle);
+  }
+  .ai-sheet-tabs {
+    display: flex;
+    gap: var(--space-1);
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .ai-sheet-tabs button {
+    flex: 0 0 auto;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    border: 1px solid var(--border-default);
+    border-radius: 999px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-sheet-tabs button span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .ai-sheet-tabs button.selected {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+  }
+  .ai-sheet-tabs button.selected span {
+    color: var(--brand-primary);
+  }
+  .ai-sheet-meta {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+  .ai-sheet-meta div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+  }
+  .ai-sheet-meta span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-sheet-meta strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ai-table-wrap {
+    max-height: 560px;
+    overflow: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+  .ai-data-table {
+    min-width: max-content;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .ai-data-table th,
+  .ai-data-table td {
+    min-width: 120px;
+    max-width: 280px;
+    padding: 10px 12px;
+    border: 0;
+    border-right: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+    vertical-align: top;
+    font-size: var(--font-size-body-sm);
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .ai-data-table th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .ai-data-table .row-number-cell {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    min-width: 58px;
+    max-width: 58px;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    text-align: right;
+    font-family: var(--font-number);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-semibold);
+  }
+  .ai-data-table tbody .row-number-cell {
+    z-index: 1;
+  }
+  .ai-empty-sheet {
+    display: grid;
+    gap: 6px;
+    padding: var(--space-3);
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+  }
+  .ai-empty-sheet p,
+  .ai-row-limit-note {
+    margin: 0;
+  }
   .admin-page {
     max-width: 1180px;
   }
@@ -9458,7 +9939,8 @@ const styles = `
     .condition-label-row,
     .template-list-row, .detail-cost-layout, .detail-add-row, .detail-cost-row, .estimate-card,
     .estimate-template-expanded-content, .estimate-template-detail, .estimate-pyeong-preview,
-    .estimate-meta-grid, .adjustment-row, .estimate-editor-total {
+    .estimate-meta-grid, .adjustment-row, .estimate-editor-total,
+    .ai-upload-grid, .ai-sheet-meta {
       grid-template-columns: 1fr;
     }
     .hero {
