@@ -60,19 +60,19 @@ const AI_EXCEL_FIELD_DEFINITIONS = [
     key: "category",
     label: "대분류",
     type: "basic_field",
-    aliases: ["공종", "구분", "대분류", "분류", "공사구분", "작업구분", "공정", "공사종류", "항목구분", "카테고리"],
+    aliases: ["공종", "구분", "대분류", "분류", "공사구분", "작업구분", "공정", "공사종류", "항목구분", "카테고리", "공사명", "공사항목", "공사분류", "공사", "품목", "구분명"],
   },
   {
     key: "item_name",
     label: "항목명",
     type: "basic_field",
-    aliases: ["품명", "항목", "공사항목", "작업내용", "내역", "세부내역", "명칭", "자재명", "제품명", "시공항목", "세부공사", "내용"],
+    aliases: ["품명", "항목", "공사항목", "작업내용", "내역", "세부내역", "명칭", "자재명", "시공항목", "세부공사", "내용", "품목", "품목명", "품목/내역", "품목내역", "품목 및 내역", "내역/품목", "세부품목", "작업내역", "공사내역", "공사명 및 세부내역", "총괄내역", "상세내역", "시공내역"],
   },
   {
     key: "spec",
     label: "규격",
     type: "basic_field",
-    aliases: ["규격", "사양", "적요", "상세", "상세내용", "설명", "모델명", "제품규격"],
+    aliases: ["규격", "사양", "적요", "상세", "상세내용", "설명", "모델명", "제품규격", "제품명", "제품", "브랜드", "모델", "옵션", "재질", "두께", "색상"],
   },
   {
     key: "unit",
@@ -114,7 +114,7 @@ const AI_EXCEL_FIELD_DEFINITIONS = [
     key: "original_amount",
     label: "원본 금액",
     type: "validation_field",
-    aliases: ["금액", "합계", "총액", "소계", "계", "견적가", "공급가", "공급가액", "총공사비", "공사금액"],
+    aliases: ["금액", "합계", "총액", "소계", "계", "견적가", "공급가", "공급가액", "총공사비", "공사금액", "합계금액", "합계 금액", "합계(₩)", "합계(원)", "금액(원)", "금액(₩)", "총금액", "총 금액", "견적금액", "견적 금액"],
   },
   {
     key: "tax",
@@ -126,13 +126,19 @@ const AI_EXCEL_FIELD_DEFINITIONS = [
     key: "memo",
     label: "메모",
     type: "custom_field",
-    aliases: ["비고", "메모", "특이사항", "참고", "요청사항", "위치", "시공위치", "장소", "공간", "방", "구역"],
+    aliases: ["비고", "메모", "특이사항", "참고", "요청사항", "위치", "시공위치", "장소", "공간", "방", "구역", "총괄내역", "상세내역", "특이 사항", "참고사항"],
   },
   {
     key: "document_info",
     label: "문서 정보",
     type: "document_info",
     aliases: ["고객명", "발주처", "현장명", "현장주소", "주소", "연락처", "견적일자", "작성일", "공사기간", "업체명", "담당자"],
+  },
+  {
+    key: "ignored",
+    label: "미사용",
+    type: "ignored",
+    aliases: ["No.", "NO.", "no.", "No", "NO", "번호", "순번", "연번", "#", "No"],
   },
 ];
 const AI_MAPPING_GROUPS = [
@@ -146,7 +152,7 @@ const AI_MAPPING_GROUPS = [
 ];
 const AI_MAPPING_SELECT_OPTIONS = [
   { value: "ignored", label: "미사용/무시", mappedKey: null, mappedLabel: "미사용", fieldType: "ignored" },
-  ...AI_EXCEL_FIELD_DEFINITIONS.map((definition) => ({
+  ...AI_EXCEL_FIELD_DEFINITIONS.filter((definition) => definition.type !== "ignored").map((definition) => ({
     value: definition.key,
     label: definition.label,
     mappedKey: definition.key,
@@ -1337,27 +1343,77 @@ function getExcelColumnLabel(index) {
 
 function normalizeExcelHeaderText(value) {
   return formatExcelCellValue(value)
-    .replace(/\s+/g, "")
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[₩￦]/g, "")
+    .replace(/원/g, "")
+    .replace(/[()（）\[\]{}]/g, "")
+    .replace(/[:：\-_]/g, "")
+    .replace(/[\/\\,.;；]/g, "")
+    .replace(/[^\p{L}\p{N}#]+/gu, "")
+    .replace(/\s+/g, "");
+}
+
+function tokenizeExcelHeaderText(value) {
+  return formatExcelCellValue(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[₩￦]/g, "")
+    .replace(/원/g, "")
+    .replace(/[()（）\[\]{}]/g, " ")
+    .replace(/[:：\-_]/g, " ")
+    .split(/[\/\\,.;；\s]+/g)
+    .map((token) => normalizeExcelHeaderText(token))
+    .filter(Boolean);
+}
+
+function getExcelHeaderMatchTexts(value) {
+  const normalized = normalizeExcelHeaderText(value);
+  return new Set([normalized, ...tokenizeExcelHeaderText(value)].filter(Boolean));
 }
 
 function findAiFieldByHeader(headerValue) {
   const originalHeader = formatExcelCellValue(headerValue).trim();
   const normalizedHeader = normalizeExcelHeaderText(originalHeader);
+  const headerTokens = tokenizeExcelHeaderText(originalHeader);
   if (!normalizedHeader) return null;
 
   for (const definition of AI_EXCEL_FIELD_DEFINITIONS) {
+    if (definition.type !== "ignored") continue;
     const exactAlias = definition.aliases.find((alias) => `${alias}`.trim() === originalHeader);
     if (exactAlias) {
-      return { definition, confidence: 1, matchedAlias: exactAlias };
+      return { definition, confidence: 1, matchedAlias: exactAlias, matchMethod: "ignored_alias" };
+    }
+    const normalizedAlias = definition.aliases.find((alias) => normalizeExcelHeaderText(alias) === normalizedHeader);
+    if (normalizedAlias) {
+      return { definition, confidence: 0.95, matchedAlias: normalizedAlias, matchMethod: "ignored_alias" };
     }
   }
 
   for (const definition of AI_EXCEL_FIELD_DEFINITIONS) {
+    if (definition.type === "ignored") continue;
+    const exactAlias = definition.aliases.find((alias) => `${alias}`.trim() === originalHeader);
+    if (exactAlias) {
+      return { definition, confidence: 1, matchedAlias: exactAlias, matchMethod: "exact_alias" };
+    }
+  }
+
+  for (const definition of AI_EXCEL_FIELD_DEFINITIONS) {
+    if (definition.type === "ignored") continue;
     const normalizedAlias = definition.aliases.find((alias) => normalizeExcelHeaderText(alias) === normalizedHeader);
     if (normalizedAlias) {
-      return { definition, confidence: 0.9, matchedAlias: normalizedAlias };
+      return { definition, confidence: 0.95, matchedAlias: normalizedAlias, matchMethod: "normalized_alias" };
+    }
+  }
+
+  for (const definition of AI_EXCEL_FIELD_DEFINITIONS) {
+    if (definition.type === "ignored") continue;
+    const tokenAlias = definition.aliases.find((alias) => {
+      const aliasMatches = getExcelHeaderMatchTexts(alias);
+      return headerTokens.some((token) => aliasMatches.has(token));
+    });
+    if (tokenAlias) {
+      return { definition, confidence: 0.9, matchedAlias: tokenAlias, matchMethod: "token_alias" };
     }
   }
 
@@ -1372,6 +1428,7 @@ function detectExcelHeaderRow(rows) {
       (result, cell) => {
         const match = findAiFieldByHeader(cell);
         if (!match) return result;
+        if (match.definition.type === "ignored") return result;
         result.keys.add(match.definition.key);
         result.score += match.confidence;
         return result;
@@ -1395,14 +1452,130 @@ function createUnknownExcelMapping(columnIndex, originalHeader = "") {
     mappedLabel: "미인식",
     fieldType: "unknown",
     confidence: 0,
+    matchMethod: "unknown",
   };
 }
 
+function createExcelMappingFromDefinition(mapping, definitionKey, confidence = 0.88, reason = "") {
+  const definition = AI_EXCEL_FIELD_DEFINITIONS.find((field) => field.key === definitionKey);
+  if (!definition) return mapping;
+  return {
+    ...mapping,
+    mappedKey: definition.key,
+    mappedLabel: definition.label,
+    fieldType: definition.type ?? "basic_field",
+    confidence,
+    matchMethod: "context_rule",
+    reason,
+  };
+}
+
+function createIgnoredExcelMapping(mapping, confidence = 0.95, reason = "") {
+  return {
+    ...mapping,
+    mappedKey: null,
+    mappedLabel: "미사용",
+    fieldType: "ignored",
+    confidence,
+    matchMethod: "ignored_alias",
+    reason,
+  };
+}
+
+function headerMatchesAny(headerValue, aliases) {
+  const headerMatches = getExcelHeaderMatchTexts(headerValue);
+  return aliases.some((alias) => {
+    const aliasMatches = getExcelHeaderMatchTexts(alias);
+    return [...aliasMatches].some((entry) => headerMatches.has(entry));
+  });
+}
+
+function findHeaderColumnIndex(headerRow, aliases) {
+  return (headerRow ?? []).findIndex((cell) => headerMatchesAny(cell, aliases));
+}
+
+function applyExcelHeaderContextRules(headerRow, mappings) {
+  const hasHeader = (aliases) => findHeaderColumnIndex(headerRow, aliases) >= 0;
+  const indexes = {
+    no: findHeaderColumnIndex(headerRow, ["No.", "NO.", "no.", "No", "NO", "번호", "순번", "연번", "#"]),
+    item: findHeaderColumnIndex(headerRow, ["품목"]),
+    content: findHeaderColumnIndex(headerRow, ["내용"]),
+    detail: findHeaderColumnIndex(headerRow, ["내역"]),
+    constructionName: findHeaderColumnIndex(headerRow, ["공사명"]),
+    summaryDetail: findHeaderColumnIndex(headerRow, ["총괄내역"]),
+    constructionWithDetail: findHeaderColumnIndex(headerRow, ["공사명 및 세부내역", "공사명및세부내역"]),
+    division: findHeaderColumnIndex(headerRow, ["구분"]),
+    itemName: findHeaderColumnIndex(headerRow, ["품목명"]),
+    productName: findHeaderColumnIndex(headerRow, ["제품명"]),
+  };
+
+  return (mappings ?? []).map((mapping) => {
+    if (mapping.columnIndex === indexes.no) {
+      return createIgnoredExcelMapping(mapping, 0.95, "순번/번호 열은 변환 대상에서 제외");
+    }
+
+    if (mapping.columnIndex === indexes.constructionWithDetail) {
+      return createExcelMappingFromDefinition(mapping, "item_name", 0.88, "공사명과 세부내역이 한 열에 섞인 후보");
+    }
+
+    if (indexes.item >= 0 && indexes.content >= 0 && indexes.item !== indexes.content) {
+      if (mapping.columnIndex === indexes.item) {
+        return createExcelMappingFromDefinition(mapping, "category", 0.88, "품목 + 내용 조합에서 품목을 대분류로 보정");
+      }
+      if (mapping.columnIndex === indexes.content) {
+        return createExcelMappingFromDefinition(mapping, "item_name", 0.88, "품목 + 내용 조합에서 내용을 항목명으로 보정");
+      }
+    }
+
+    if (indexes.item >= 0 && indexes.detail >= 0 && indexes.item !== indexes.detail) {
+      if (mapping.columnIndex === indexes.item) {
+        return createExcelMappingFromDefinition(mapping, "category", 0.88, "품목 + 내역 조합에서 품목을 대분류로 보정");
+      }
+      if (mapping.columnIndex === indexes.detail) {
+        return createExcelMappingFromDefinition(mapping, "item_name", 0.88, "품목 + 내역 조합에서 내역을 항목명으로 보정");
+      }
+    }
+
+    if (indexes.constructionName >= 0 && indexes.summaryDetail >= 0 && indexes.constructionName !== indexes.summaryDetail) {
+      if (mapping.columnIndex === indexes.constructionName) {
+        return createExcelMappingFromDefinition(mapping, "category", 0.88, "공사명 + 총괄내역 조합에서 공사명을 대분류로 보정");
+      }
+      if (mapping.columnIndex === indexes.summaryDetail) {
+        return createExcelMappingFromDefinition(mapping, "item_name", 0.88, "공사명 + 총괄내역 조합에서 총괄내역을 항목명으로 보정");
+      }
+    }
+
+    if (indexes.division >= 0 && indexes.itemName >= 0 && indexes.productName >= 0) {
+      if (mapping.columnIndex === indexes.division) {
+        return createExcelMappingFromDefinition(mapping, "category", 0.88, "구분 + 품목명 + 제품명 조합에서 구분을 대분류로 보정");
+      }
+      if (mapping.columnIndex === indexes.itemName) {
+        return createExcelMappingFromDefinition(mapping, "item_name", 0.88, "구분 + 품목명 + 제품명 조합에서 품목명을 항목명으로 보정");
+      }
+      if (mapping.columnIndex === indexes.productName) {
+        return createExcelMappingFromDefinition(mapping, "spec", 0.88, "구분 + 품목명 + 제품명 조합에서 제품명을 규격으로 보정");
+      }
+    }
+
+    return mapping;
+  });
+}
+
 function createExcelColumnMappings(headerRow, columnCount) {
-  return Array.from({ length: columnCount }, (_, columnIndex) => {
+  const mappings = Array.from({ length: columnCount }, (_, columnIndex) => {
     const originalHeader = formatExcelCellValue(headerRow?.[columnIndex] ?? "").trim();
     const match = findAiFieldByHeader(originalHeader);
     if (!match) return createUnknownExcelMapping(columnIndex, originalHeader);
+    if (match.definition.type === "ignored") {
+      return createIgnoredExcelMapping(
+        {
+          ...createUnknownExcelMapping(columnIndex, originalHeader),
+          originalHeader: originalHeader || getExcelColumnLabel(columnIndex),
+        },
+        match.confidence,
+        match.matchedAlias ? `alias: ${match.matchedAlias}` : ""
+      );
+    }
 
     return {
       columnIndex,
@@ -1411,8 +1584,11 @@ function createExcelColumnMappings(headerRow, columnCount) {
       mappedLabel: match.definition.label,
       fieldType: match.definition.type ?? "basic_field",
       confidence: match.confidence,
+      matchMethod: match.matchMethod ?? "unknown",
+      reason: match.matchedAlias ? `alias: ${match.matchedAlias}` : "",
     };
   });
+  return applyExcelHeaderContextRules(headerRow, mappings);
 }
 
 function groupExcelMappings(mappings) {
@@ -1523,6 +1699,8 @@ function applyExcelMappingOption(mapping, optionValue) {
     mappedLabel: option.mappedLabel,
     fieldType: option.fieldType,
     confidence: option.fieldType === "ignored" ? 0 : mapping.confidence || 1,
+    matchMethod: "manual_override",
+    reason: "사용자 수동 수정",
     customFieldName,
   };
 }
@@ -5242,6 +5420,7 @@ export default function App() {
                             <th>현재 매핑</th>
                             <th>필드 유형</th>
                             <th>신뢰도</th>
+                            <th>매칭 방식</th>
                             <th>매핑 수정</th>
                             <th>추가필드명</th>
                           </tr>
@@ -5254,6 +5433,11 @@ export default function App() {
                               <td>{mapping.fieldType === "ignored" ? "미사용" : mapping.fieldType === "unknown" ? "미인식" : mapping.mappedLabel}</td>
                               <td>{mapping.fieldType}</td>
                               <td>{mapping.confidence ? `${Math.round(mapping.confidence * 100)}%` : "-"}</td>
+                              <td>
+                                <span className="ai-match-method" title={mapping.reason || ""}>
+                                  {mapping.matchMethod || "unknown"}
+                                </span>
+                              </td>
                               <td>
                                 <select
                                   value={getExcelMappingSelectValue(mapping)}
@@ -8820,6 +9004,18 @@ const styles = `
     font-family: var(--font-number);
     font-weight: var(--font-weight-bold);
     text-align: center;
+  }
+  .ai-match-method {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    white-space: nowrap;
   }
   .ai-duplicate-warning {
     display: grid;
