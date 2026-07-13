@@ -162,6 +162,16 @@ const AI_MAPPING_SELECT_OPTIONS = [
   { value: "custom_field", label: "추가필드", mappedKey: "custom_field", mappedLabel: "추가필드", fieldType: "custom_field" },
 ];
 const AI_DUPLICATE_WARNING_KEYS = ["category", "item_name", "spec", "unit", "quantity", "unit_price", "labor_rate", "labor_count", "original_amount"];
+const AI_ROW_TYPE_OPTIONS = [
+  { value: "work_item", label: "공사항목" },
+  { value: "cost_item", label: "비용항목" },
+  { value: "margin_item", label: "마진/관리비" },
+  { value: "tax_item", label: "세금" },
+  { value: "subtotal_row", label: "소계" },
+  { value: "total_row", label: "총합계" },
+  { value: "ignored", label: "무시" },
+  { value: "needs_review", label: "검토 필요" },
+];
 const CATEGORY_DISPLAY_TARGETS = {
   몰딩: "목공",
   페인트: "도장/페인트",
@@ -1894,10 +1904,51 @@ function getAiMatchStatus(row, categoryMatch, subitemMatch) {
   return "needs_review";
 }
 
+function getAiRowText(row) {
+  return [
+    row?.category,
+    row?.item_name,
+    row?.spec,
+    row?.memo,
+    row?.original_amount,
+    row?.tax,
+  ].map(formatExcelCellValue).join(" ");
+}
+
+function inferAiRowType(row, categoryMatch, subitemMatch) {
+  const values = Object.entries(row ?? {})
+    .filter(([key]) => key !== "sourceRowNumber")
+    .map(([, value]) => formatExcelCellValue(value).trim())
+    .filter(Boolean);
+  if (values.length === 0) return "ignored";
+
+  const text = normalizeCatalogMatchText(getAiRowText(row));
+  const onlySequenceLike = values.length <= 1 && /^(no|번호|순번|연번|#)?\d*$/i.test(values[0]);
+  if (onlySequenceLike) return "ignored";
+  if (!text) return "ignored";
+  if (/(부분합계|소계)/.test(text)) return "subtotal_row";
+  if (/(총합계|청구계|총계|합계)/.test(text)) return "total_row";
+  if (/(부가세|vat|세금|세액)/i.test(text)) return "tax_item";
+  if (categoryMatch?.categoryConfidence >= 0.78 || subitemMatch?.subitemConfidence >= 0.72) return "work_item";
+  return "needs_review";
+}
+
+function getAiRowTypeLabel(rowType) {
+  return AI_ROW_TYPE_OPTIONS.find((option) => option.value === rowType)?.label ?? "검토 필요";
+}
+
 function getDefaultAiMatchAction(status) {
   if (status === "matched") return "link";
   if (status === "new_candidate") return "new";
   if (status === "ignored") return "ignore";
+  return "review";
+}
+
+function getDefaultAiActionForRowType(rowType, matchStatus) {
+  if (rowType === "work_item") return getDefaultAiMatchAction(matchStatus);
+  if (["cost_item", "margin_item", "tax_item"].includes(rowType)) return "cost";
+  if (["subtotal_row", "total_row"].includes(rowType)) return "validate";
+  if (rowType === "ignored") return "ignore";
   return "review";
 }
 
@@ -1909,13 +1960,14 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
     const subitemMatch = findBestCatalogSubitemMatch(sourceItemName, catalogItems, categoryMatch);
     const autoStatus = getAiMatchStatus(row, categoryMatch, subitemMatch);
     const override = overrides[row.sourceRowNumber] ?? {};
+    const rowType = override.rowType ?? inferAiRowType(row, categoryMatch, subitemMatch);
     const selectedCategoryId = override.categoryId ?? categoryMatch?.matchedCategoryId ?? subitemMatch?.matchedSubitemCategoryId ?? "";
     const selectedCategory = (catalogItems ?? []).find((item) => item.id === selectedCategoryId);
     const selectedSubitemId = override.subitemId ?? (
       selectedCategoryId && subitemMatch?.matchedSubitemCategoryId === selectedCategoryId ? subitemMatch?.matchedSubitemId : ""
     );
     const selectedSubitem = (selectedCategory?.subitems ?? []).find((subitem) => subitem.id === selectedSubitemId);
-    const action = override.action ?? getDefaultAiMatchAction(autoStatus);
+    const action = override.action ?? getDefaultAiActionForRowType(rowType, autoStatus);
 
     return {
       ...row,
@@ -1923,7 +1975,8 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
       sourceItemName,
       categoryMatch,
       subitemMatch,
-      matchStatus: action === "ignore" ? "ignored" : action === "new" ? "new_candidate" : action === "review" ? "needs_review" : autoStatus,
+      rowType,
+      matchStatus: rowType === "ignored" || action === "ignore" ? "ignored" : action === "new" ? "new_candidate" : action === "review" ? "needs_review" : autoStatus,
       action,
       selectedCategoryId,
       selectedCategoryName: selectedCategory?.name ?? categoryMatch?.matchedCategoryName ?? "",
@@ -1937,14 +1990,16 @@ function summarizeAiCatalogMatchRows(rows) {
   return (rows ?? []).reduce(
     (summary, row) => {
       summary.total += 1;
+      if (row.rowType === "work_item") summary.workItem += 1;
+      if (["cost_item", "margin_item", "tax_item"].includes(row.rowType)) summary.costSummaryCandidate += 1;
+      if (["subtotal_row", "total_row"].includes(row.rowType)) summary.validationRows += 1;
       if (row.matchStatus === "matched") summary.matched += 1;
-      else if (row.matchStatus === "category_matched") summary.categoryMatched += 1;
-      else if (row.matchStatus === "new_candidate") summary.newCandidate += 1;
-      else if (row.matchStatus === "ignored") summary.ignored += 1;
+      else if (row.matchStatus === "new_candidate" && row.rowType === "work_item") summary.newCandidate += 1;
+      else if (row.matchStatus === "ignored" || row.rowType === "ignored") summary.ignored += 1;
       else summary.needsReview += 1;
       return summary;
     },
-    { total: 0, matched: 0, categoryMatched: 0, newCandidate: 0, needsReview: 0, ignored: 0 }
+    { total: 0, workItem: 0, matched: 0, newCandidate: 0, costSummaryCandidate: 0, validationRows: 0, needsReview: 0, ignored: 0 }
   );
 }
 
@@ -2687,6 +2742,9 @@ export default function App() {
     setAiSetupMatchOverrides((current) => {
       const previous = current[sourceRowNumber] ?? {};
       const next = { ...previous, ...patch };
+      if (Object.prototype.hasOwnProperty.call(patch, "rowType") && !Object.prototype.hasOwnProperty.call(patch, "action")) {
+        next.action = getDefaultAiActionForRowType(patch.rowType, "needs_review");
+      }
       if (Object.prototype.hasOwnProperty.call(patch, "categoryId")) {
         next.subitemId = "";
       }
@@ -5860,9 +5918,11 @@ export default function App() {
 
                     <div className="ai-match-summary">
                       <div><span>전체 검토 행</span><strong>{aiSetupCatalogMatchSummary.total}개</strong></div>
+                      <div><span>공사항목</span><strong>{aiSetupCatalogMatchSummary.workItem}개</strong></div>
                       <div><span>기존 항목 매칭</span><strong>{aiSetupCatalogMatchSummary.matched}개</strong></div>
-                      <div><span>대분류만 매칭</span><strong>{aiSetupCatalogMatchSummary.categoryMatched}개</strong></div>
                       <div><span>새 항목 후보</span><strong>{aiSetupCatalogMatchSummary.newCandidate}개</strong></div>
+                      <div><span>비용/요약 후보</span><strong>{aiSetupCatalogMatchSummary.costSummaryCandidate}개</strong></div>
+                      <div><span>검산/합계 행</span><strong>{aiSetupCatalogMatchSummary.validationRows}개</strong></div>
                       <div><span>검토 필요</span><strong>{aiSetupCatalogMatchSummary.needsReview}개</strong></div>
                       <div><span>무시</span><strong>{aiSetupCatalogMatchSummary.ignored}개</strong></div>
                     </div>
@@ -5875,6 +5935,7 @@ export default function App() {
                               <th>원본 행</th>
                               <th>원본 대분류</th>
                               <th>원본 항목명</th>
+                              <th>행 유형</th>
                               <th>매칭 상태</th>
                               <th>처리 방식</th>
                               <th>FORMATE 대분류</th>
@@ -5897,6 +5958,16 @@ export default function App() {
                                   <td>{row.sourceCategory || "-"}</td>
                                   <td>{row.sourceItemName || "-"}</td>
                                   <td>
+                                    <select
+                                      value={row.rowType}
+                                      onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { rowType: event.target.value })}
+                                    >
+                                      {AI_ROW_TYPE_OPTIONS.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td>
                                     <span className={`ai-match-status ${row.matchStatus}`.trim()}>
                                       {getAiMatchStatusLabel(row.matchStatus)}
                                     </span>
@@ -5908,6 +5979,9 @@ export default function App() {
                                     >
                                       <option value="link">기존 항목에 연결</option>
                                       <option value="new">새 항목으로 추가</option>
+                                      <option value="cost">비용 후보</option>
+                                      <option value="tax">세금 후보</option>
+                                      <option value="validate">검산용</option>
                                       <option value="ignore">무시</option>
                                       <option value="review">검토 필요</option>
                                     </select>
@@ -5964,12 +6038,12 @@ export default function App() {
                       </div>
                     )}
 
-                    {aiSetupCatalogMatchRows.some((row) => row.matchStatus === "new_candidate" || row.action === "new") && (
+                    {aiSetupCatalogMatchRows.some((row) => row.rowType === "work_item" && (row.matchStatus === "new_candidate" || row.action === "new")) && (
                       <div className="ai-new-candidate-panel">
                         <h4>새 항목 후보</h4>
                         <div className="ai-new-candidate-list">
                           {aiSetupCatalogMatchRows
-                            .filter((row) => row.matchStatus === "new_candidate" || row.action === "new")
+                            .filter((row) => row.rowType === "work_item" && (row.matchStatus === "new_candidate" || row.action === "new"))
                             .map((row) => (
                               <div key={`new-candidate-${row.sourceRowNumber}`}>
                                 <span>원본 {row.sourceRowNumber}행</span>
@@ -5977,6 +6051,57 @@ export default function App() {
                                 <p>
                                   단위 {row.unit || "-"} · 수량 {row.quantity || "-"} · 단가 {row.unit_price || "-"} · 인건비 {row.labor_rate || "-"} · 인원 {row.labor_count || "-"}
                                 </p>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {aiSetupCatalogMatchRows.some((row) => ["cost_item", "margin_item", "tax_item"].includes(row.rowType)) && (
+                      <div className="ai-new-candidate-panel">
+                        <h4>비용/요약 후보</h4>
+                        <div className="ai-table-wrap ai-catalog-match-wrap compact">
+                          <table className="ai-data-table ai-catalog-match-table">
+                            <thead>
+                              <tr>
+                                <th>원본 행</th>
+                                <th>원본 대분류</th>
+                                <th>원본 항목명</th>
+                                <th>원본 금액</th>
+                                <th>행 유형</th>
+                                <th>처리 방식</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {aiSetupCatalogMatchRows
+                                .filter((row) => ["cost_item", "margin_item", "tax_item"].includes(row.rowType))
+                                .map((row) => (
+                                  <tr key={`cost-row-${row.sourceRowNumber}`}>
+                                    <td className="ai-column-code">{row.sourceRowNumber}</td>
+                                    <td>{row.sourceCategory || "-"}</td>
+                                    <td>{row.sourceItemName || "-"}</td>
+                                    <td>{row.original_amount || "-"}</td>
+                                    <td>{getAiRowTypeLabel(row.rowType)}</td>
+                                    <td>{row.action}</td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {aiSetupCatalogMatchRows.some((row) => ["subtotal_row", "total_row"].includes(row.rowType)) && (
+                      <div className="ai-new-candidate-panel">
+                        <h4>검산/합계 행</h4>
+                        <div className="ai-new-candidate-list">
+                          {aiSetupCatalogMatchRows
+                            .filter((row) => ["subtotal_row", "total_row"].includes(row.rowType))
+                            .map((row) => (
+                              <div key={`validation-row-${row.sourceRowNumber}`}>
+                                <span>원본 {row.sourceRowNumber}행 · {getAiRowTypeLabel(row.rowType)}</span>
+                                <strong>{row.sourceCategory || row.sourceItemName || "합계 행"} · {row.original_amount || "금액 없음"}</strong>
+                                <p>현재 단계에서는 검산 후보로만 표시하며 FORMATE 계산값과 비교하지 않습니다.</p>
                               </div>
                             ))}
                         </div>
@@ -9439,7 +9564,7 @@ const styles = `
   }
   .ai-match-summary {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
     gap: var(--space-1);
   }
   .ai-match-summary div {
@@ -9461,6 +9586,9 @@ const styles = `
   }
   .ai-catalog-match-wrap {
     max-height: 560px;
+  }
+  .ai-catalog-match-wrap.compact {
+    max-height: 320px;
   }
   .ai-catalog-match-table th,
   .ai-catalog-match-table td {
@@ -9488,6 +9616,21 @@ const styles = `
   .ai-match-status.matched {
     background: rgba(49, 124, 82, 0.08);
     color: #317c52;
+  }
+  .ai-match-status.work_item {
+    background: rgba(49, 124, 82, 0.08);
+    color: #317c52;
+  }
+  .ai-match-status.cost_item,
+  .ai-match-status.margin_item,
+  .ai-match-status.tax_item {
+    background: rgba(190, 122, 38, 0.08);
+    color: #8a5a1d;
+  }
+  .ai-match-status.subtotal_row,
+  .ai-match-status.total_row {
+    background: rgba(43, 53, 104, 0.08);
+    color: var(--brand-primary);
   }
   .ai-match-status.category_matched,
   .ai-match-status.subitem_candidate {
