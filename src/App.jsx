@@ -1982,6 +1982,9 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
       selectedCategoryName: selectedCategory?.name ?? categoryMatch?.matchedCategoryName ?? "",
       selectedSubitemId,
       selectedSubitemName: selectedSubitem?.name ?? subitemMatch?.matchedSubitemName ?? "",
+      selectedSubitemUnit: selectedSubitem?.unit ?? "",
+      selectedSubitemUnitPrice: selectedSubitem?.unit_price ?? "",
+      selectedSubitemLaborRate: selectedSubitem?.labor_rate ?? "",
     };
   });
 }
@@ -2013,6 +2016,198 @@ function getAiMatchStatusLabel(status) {
     ignored: "무시",
   };
   return labels[status] ?? "검토 필요";
+}
+
+function getAiActionLabel(action) {
+  const labels = {
+    link: "기존 항목에 연결",
+    new: "새 항목으로 추가",
+    cost: "비용 후보",
+    tax: "세금 후보",
+    validate: "검산용",
+    ignore: "무시",
+    review: "검토 필요",
+  };
+  return labels[action] ?? "검토 필요";
+}
+
+function hasImportValue(value) {
+  return formatExcelCellValue(value).trim() !== "";
+}
+
+function normalizeImportComparableValue(value) {
+  const text = formatExcelCellValue(value).trim();
+  if (!text) return "";
+  const numericText = text.replace(/,/g, "").replace(/[^\d.-]/g, "");
+  if (numericText && /[0-9]/.test(numericText)) {
+    const number = Number(numericText);
+    if (Number.isFinite(number)) return String(number);
+  }
+  return normalizeCatalogMatchText(text);
+}
+
+function importValuesDiffer(currentValue, excelValue) {
+  if (!hasImportValue(excelValue)) return false;
+  return normalizeImportComparableValue(currentValue) !== normalizeImportComparableValue(excelValue);
+}
+
+function getAiApplyPlanReviewReasons(row) {
+  const reasons = [];
+  if (row.rowType === "needs_review") reasons.push("행 유형 확인 필요");
+  if (row.action === "review") reasons.push("처리 방식 확인 필요");
+  if (!row.sourceCategory && !row.sourceItemName) reasons.push("대분류/항목명 없음");
+  if (row.rowType === "work_item" && row.action === "link" && !row.selectedSubitemId) {
+    reasons.push("연결할 세부항목 없음");
+  }
+  if (row.rowType === "work_item" && row.action === "new" && !row.sourceItemName) {
+    reasons.push("새 세부항목명 없음");
+  }
+  return reasons;
+}
+
+function createAiImportApplyPlan(rows) {
+  const plan = {
+    priceUpdates: [],
+    newCategoryCandidates: [],
+    newSubitemCandidates: [],
+    templateValueCandidates: [],
+    costCandidates: [],
+    validationRows: [],
+    ignoredRows: [],
+    reviewRows: [],
+  };
+  const categoryCandidateMap = new Map();
+
+  (rows ?? []).forEach((row) => {
+    const isWorkItem = row.rowType === "work_item";
+    const isIgnored = row.rowType === "ignored" || row.action === "ignore";
+    const sourceCategory = row.sourceCategory || "";
+    const sourceItemName = row.sourceItemName || "";
+    const hasQuantityValue = hasImportValue(row.quantity);
+    const hasLaborCountValue = hasImportValue(row.labor_count);
+    const hasUnitPriceValue = hasImportValue(row.unit_price);
+    const hasLaborRateValue = hasImportValue(row.labor_rate);
+    const reviewReasons = getAiApplyPlanReviewReasons(row);
+
+    if (isIgnored) {
+      plan.ignoredRows.push({
+        sourceRowNumber: row.sourceRowNumber,
+        sourceCategory,
+        sourceItemName,
+        rowType: row.rowType,
+        action: row.action,
+      });
+      return;
+    }
+
+    if (reviewReasons.length > 0) {
+      plan.reviewRows.push({
+        sourceRowNumber: row.sourceRowNumber,
+        sourceCategory,
+        sourceItemName,
+        reasons: reviewReasons,
+        rowType: row.rowType,
+        action: row.action,
+      });
+    }
+
+    if (isWorkItem && row.action === "link" && row.selectedSubitemId && (hasUnitPriceValue || hasLaborRateValue)) {
+      const unitPriceWillChange = importValuesDiffer(row.selectedSubitemUnitPrice, row.unit_price);
+      const laborRateWillChange = importValuesDiffer(row.selectedSubitemLaborRate, row.labor_rate);
+      plan.priceUpdates.push({
+        sourceRowNumber: row.sourceRowNumber,
+        sourceCategory,
+        sourceItemName,
+        selectedCategoryName: row.selectedCategoryName,
+        selectedSubitemName: row.selectedSubitemName,
+        currentUnitPrice: row.selectedSubitemUnitPrice,
+        excelUnitPrice: row.unit_price,
+        currentLaborRate: row.selectedSubitemLaborRate,
+        excelLaborRate: row.labor_rate,
+        willChange: unitPriceWillChange || laborRateWillChange,
+      });
+    }
+
+    if (isWorkItem && !row.selectedCategoryId && sourceCategory && row.action !== "link") {
+      const key = normalizeCatalogMatchText(sourceCategory);
+      const existing = categoryCandidateMap.get(key);
+      if (existing) {
+        existing.sourceRows.push(row.sourceRowNumber);
+      } else {
+        categoryCandidateMap.set(key, {
+          sourceCategory,
+          sourceRows: [row.sourceRowNumber],
+        });
+      }
+    }
+
+    if (
+      isWorkItem &&
+      !row.selectedSubitemId &&
+      (sourceItemName || sourceCategory) &&
+      (row.action === "new" || row.action === "review" || row.matchStatus === "new_candidate" || row.matchStatus === "needs_review")
+    ) {
+      plan.newSubitemCandidates.push({
+        sourceRowNumber: row.sourceRowNumber,
+        categoryName: row.selectedCategoryName || sourceCategory || "새 대분류 후보",
+        sourceItemName: sourceItemName || sourceCategory || "새 세부항목 후보",
+        spec: row.spec,
+        unit: row.unit,
+        unitPrice: row.unit_price,
+        laborRate: row.labor_rate,
+        quantity: row.quantity,
+        laborCount: row.labor_count,
+      });
+    }
+
+    if (isWorkItem && (hasQuantityValue || hasLaborCountValue) && row.action !== "ignore") {
+      plan.templateValueCandidates.push({
+        sourceRowNumber: row.sourceRowNumber,
+        categoryName: row.selectedCategoryName || sourceCategory || "대분류 미정",
+        subitemName: row.selectedSubitemName || sourceItemName || "세부항목 미정",
+        quantity: row.quantity,
+        laborCount: row.labor_count,
+        unit: row.unit || row.selectedSubitemUnit || "",
+      });
+    }
+
+    if (["cost_item", "margin_item", "tax_item"].includes(row.rowType)) {
+      plan.costCandidates.push({
+        sourceRowNumber: row.sourceRowNumber,
+        sourceCategory,
+        sourceItemName,
+        originalAmount: row.original_amount || row.tax || "",
+        rowType: row.rowType,
+        action: row.action,
+      });
+    }
+
+    if (["subtotal_row", "total_row"].includes(row.rowType)) {
+      plan.validationRows.push({
+        sourceRowNumber: row.sourceRowNumber,
+        sourceCategory,
+        sourceItemName,
+        originalAmount: row.original_amount || row.tax || "",
+        rowType: row.rowType,
+      });
+    }
+  });
+
+  plan.newCategoryCandidates = Array.from(categoryCandidateMap.values());
+  return plan;
+}
+
+function summarizeAiImportApplyPlan(plan) {
+  return {
+    priceUpdates: plan.priceUpdates.length,
+    newCategoryCandidates: plan.newCategoryCandidates.length,
+    newSubitemCandidates: plan.newSubitemCandidates.length,
+    templateValueCandidates: plan.templateValueCandidates.length,
+    costCandidates: plan.costCandidates.length,
+    validationRows: plan.validationRows.length,
+    reviewRows: plan.reviewRows.length,
+    ignoredRows: plan.ignoredRows.length,
+  };
 }
 
 export default function App() {
@@ -2272,6 +2467,12 @@ export default function App() {
   const aiSetupCatalogMatchSummary = useMemo(() => {
     return summarizeAiCatalogMatchRows(aiSetupCatalogMatchRows);
   }, [aiSetupCatalogMatchRows]);
+  const aiSetupImportApplyPlan = useMemo(() => {
+    return createAiImportApplyPlan(aiSetupCatalogMatchRows);
+  }, [aiSetupCatalogMatchRows]);
+  const aiSetupImportApplyPlanSummary = useMemo(() => {
+    return summarizeAiImportApplyPlan(aiSetupImportApplyPlan);
+  }, [aiSetupImportApplyPlan]);
   const aiSetupStatusLabel =
     aiSetupStatus === "reading"
       ? "읽는 중"
@@ -6110,6 +6311,257 @@ export default function App() {
                   </section>
                 )}
 
+                {aiSetupMappingAnalysis.hasHeader && (
+                  <section className="ai-apply-plan-panel">
+                    <div className="ai-mapping-title">
+                      <div>
+                        <h3>FORMATE 반영 계획 미리보기</h3>
+                        <p>현재 검토 결과를 기준으로 나중에 단가표와 견적 템플릿에 반영할 수 있는 후보를 정리합니다.</p>
+                      </div>
+                    </div>
+                    <div className="ai-plan-notice">
+                      현재 화면은 반영 계획 미리보기입니다. 아직 단가표나 템플릿에는 저장되지 않았습니다.
+                    </div>
+
+                    <div className="ai-match-summary">
+                      <div><span>기존 항목 단가 업데이트 후보</span><strong>{aiSetupImportApplyPlanSummary.priceUpdates}개</strong></div>
+                      <div><span>새 대분류 후보</span><strong>{aiSetupImportApplyPlanSummary.newCategoryCandidates}개</strong></div>
+                      <div><span>새 세부항목 후보</span><strong>{aiSetupImportApplyPlanSummary.newSubitemCandidates}개</strong></div>
+                      <div><span>템플릿 수량/인원 후보</span><strong>{aiSetupImportApplyPlanSummary.templateValueCandidates}개</strong></div>
+                      <div><span>비용/세금 후보</span><strong>{aiSetupImportApplyPlanSummary.costCandidates}개</strong></div>
+                      <div><span>검산/합계 행</span><strong>{aiSetupImportApplyPlanSummary.validationRows}개</strong></div>
+                      <div><span>검토 필요</span><strong>{aiSetupImportApplyPlanSummary.reviewRows}개</strong></div>
+                      <div><span>무시</span><strong>{aiSetupImportApplyPlanSummary.ignoredRows}개</strong></div>
+                    </div>
+
+                    <div className="ai-plan-section">
+                      <h4>기존 항목 업데이트 후보</h4>
+                      {aiSetupImportApplyPlan.priceUpdates.length > 0 ? (
+                        <div className="ai-table-wrap ai-catalog-match-wrap compact">
+                          <table className="ai-data-table ai-catalog-match-table">
+                            <thead>
+                              <tr>
+                                <th>원본 행</th>
+                                <th>원본 대분류</th>
+                                <th>원본 항목명</th>
+                                <th>FORMATE 대분류</th>
+                                <th>FORMATE 세부항목</th>
+                                <th>현재 단가</th>
+                                <th>엑셀 단가</th>
+                                <th>현재 인건비</th>
+                                <th>엑셀 인건비</th>
+                                <th>변경 여부</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {aiSetupImportApplyPlan.priceUpdates.map((row) => (
+                                <tr key={`apply-price-${row.sourceRowNumber}`}>
+                                  <td className="ai-column-code">{row.sourceRowNumber}</td>
+                                  <td>{row.sourceCategory || "-"}</td>
+                                  <td>{row.sourceItemName || "-"}</td>
+                                  <td>{row.selectedCategoryName || "-"}</td>
+                                  <td>{row.selectedSubitemName || "-"}</td>
+                                  <td>{row.currentUnitPrice || "-"}</td>
+                                  <td>{row.excelUnitPrice || "-"}</td>
+                                  <td>{row.currentLaborRate || "-"}</td>
+                                  <td>{row.excelLaborRate || "-"}</td>
+                                  <td>
+                                    <span className={`ai-match-status ${row.willChange ? "new_candidate" : "matched"}`}>
+                                      {row.willChange ? "변경 예정" : "동일"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="ai-plan-empty">해당 없음</p>
+                      )}
+                    </div>
+
+                    <div className="ai-plan-section">
+                      <h4>새 항목 후보</h4>
+                      {(aiSetupImportApplyPlan.newCategoryCandidates.length > 0 || aiSetupImportApplyPlan.newSubitemCandidates.length > 0) ? (
+                        <div className="ai-plan-split">
+                          <div className="ai-new-candidate-list">
+                            {aiSetupImportApplyPlan.newCategoryCandidates.length > 0 ? (
+                              aiSetupImportApplyPlan.newCategoryCandidates.map((row) => (
+                                <div key={`apply-category-${normalizeCatalogMatchText(row.sourceCategory)}`}>
+                                  <span>새 대분류 후보 · 원본 {row.sourceRows.join(", ")}행</span>
+                                  <strong>{row.sourceCategory}</strong>
+                                  <p>기존 대분류와 연결되지 않은 공사항목 행에서 나온 후보입니다.</p>
+                                </div>
+                              ))
+                            ) : (
+                              <div><span>새 대분류 후보</span><strong>해당 없음</strong></div>
+                            )}
+                          </div>
+                          <div className="ai-table-wrap ai-catalog-match-wrap compact">
+                            <table className="ai-data-table ai-catalog-match-table">
+                              <thead>
+                                <tr>
+                                  <th>원본 행</th>
+                                  <th>대분류</th>
+                                  <th>새 세부항목명</th>
+                                  <th>규격</th>
+                                  <th>단위</th>
+                                  <th>단가</th>
+                                  <th>인건비</th>
+                                  <th>수량</th>
+                                  <th>인원</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {aiSetupImportApplyPlan.newSubitemCandidates.length > 0 ? (
+                                  aiSetupImportApplyPlan.newSubitemCandidates.map((row) => (
+                                    <tr key={`apply-subitem-${row.sourceRowNumber}`}>
+                                      <td className="ai-column-code">{row.sourceRowNumber}</td>
+                                      <td>{row.categoryName || "-"}</td>
+                                      <td>{row.sourceItemName || "-"}</td>
+                                      <td>{row.spec || "-"}</td>
+                                      <td>{row.unit || "-"}</td>
+                                      <td>{row.unitPrice || "-"}</td>
+                                      <td>{row.laborRate || "-"}</td>
+                                      <td>{row.quantity || "-"}</td>
+                                      <td>{row.laborCount || "-"}</td>
+                                    </tr>
+                                  ))
+                                ) : (
+                                  <tr><td colSpan="9">해당 없음</td></tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="ai-plan-empty">해당 없음</p>
+                      )}
+                    </div>
+
+                    <div className="ai-plan-section">
+                      <h4>템플릿 값 후보</h4>
+                      {aiSetupImportApplyPlan.templateValueCandidates.length > 0 ? (
+                        <div className="ai-table-wrap ai-catalog-match-wrap compact">
+                          <table className="ai-data-table ai-catalog-match-table">
+                            <thead>
+                              <tr>
+                                <th>원본 행</th>
+                                <th>대분류</th>
+                                <th>세부항목</th>
+                                <th>수량</th>
+                                <th>인원</th>
+                                <th>단위</th>
+                                <th>계획</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {aiSetupImportApplyPlan.templateValueCandidates.map((row) => (
+                                <tr key={`apply-template-${row.sourceRowNumber}`}>
+                                  <td className="ai-column-code">{row.sourceRowNumber}</td>
+                                  <td>{row.categoryName || "-"}</td>
+                                  <td>{row.subitemName || "-"}</td>
+                                  <td>{row.quantity || "-"}</td>
+                                  <td>{row.laborCount || "-"}</td>
+                                  <td>{row.unit || "-"}</td>
+                                  <td>조건 선택 후 견적 템플릿 값으로 저장할 후보</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="ai-plan-empty">해당 없음</p>
+                      )}
+                    </div>
+
+                    <div className="ai-plan-section">
+                      <h4>비용/세금 후보</h4>
+                      {aiSetupImportApplyPlan.costCandidates.length > 0 ? (
+                        <div className="ai-table-wrap ai-catalog-match-wrap compact">
+                          <table className="ai-data-table ai-catalog-match-table">
+                            <thead>
+                              <tr>
+                                <th>원본 행</th>
+                                <th>원본 대분류</th>
+                                <th>원본 항목명</th>
+                                <th>원본 금액</th>
+                                <th>행 유형</th>
+                                <th>처리 방식</th>
+                                <th>계획</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {aiSetupImportApplyPlan.costCandidates.map((row) => (
+                                <tr key={`apply-cost-${row.sourceRowNumber}`}>
+                                  <td className="ai-column-code">{row.sourceRowNumber}</td>
+                                  <td>{row.sourceCategory || "-"}</td>
+                                  <td>{row.sourceItemName || "-"}</td>
+                                  <td>{row.originalAmount || "-"}</td>
+                                  <td>{getAiRowTypeLabel(row.rowType)}</td>
+                                  <td>{getAiActionLabel(row.action)}</td>
+                                  <td>관리비/경비/세금/기타비용으로 처리할 후보</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="ai-plan-empty">해당 없음</p>
+                      )}
+                    </div>
+
+                    <div className="ai-plan-section">
+                      <h4>검산/합계 행</h4>
+                      {aiSetupImportApplyPlan.validationRows.length > 0 ? (
+                        <div className="ai-new-candidate-list">
+                          {aiSetupImportApplyPlan.validationRows.map((row) => (
+                            <div key={`apply-validation-${row.sourceRowNumber}`}>
+                              <span>원본 {row.sourceRowNumber}행 · {getAiRowTypeLabel(row.rowType)}</span>
+                              <strong>{row.sourceCategory || row.sourceItemName || "합계 행"} · {row.originalAmount || "금액 없음"}</strong>
+                              <p>나중에 FORMATE 계산 결과와 원본 금액을 비교할 검산용 후보입니다.</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="ai-plan-empty">해당 없음</p>
+                      )}
+                    </div>
+
+                    <div className="ai-plan-section">
+                      <h4>검토 필요 행</h4>
+                      {aiSetupImportApplyPlan.reviewRows.length > 0 ? (
+                        <div className="ai-table-wrap ai-catalog-match-wrap compact">
+                          <table className="ai-data-table ai-catalog-match-table">
+                            <thead>
+                              <tr>
+                                <th>원본 행</th>
+                                <th>원본 대분류</th>
+                                <th>원본 항목명</th>
+                                <th>부족한 정보</th>
+                                <th>안내</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {aiSetupImportApplyPlan.reviewRows.map((row, index) => (
+                                <tr key={`apply-review-${row.sourceRowNumber}-${index}`}>
+                                  <td className="ai-column-code">{row.sourceRowNumber}</td>
+                                  <td>{row.sourceCategory || "-"}</td>
+                                  <td>{row.sourceItemName || "-"}</td>
+                                  <td>{row.reasons.join(", ")}</td>
+                                  <td>매칭 검토에서 행 유형, 처리 방식, 대분류 또는 세부항목을 확인하세요.</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="ai-plan-empty">해당 없음</p>
+                      )}
+                    </div>
+                  </section>
+                )}
+
                 {selectedAiSetupSheet && selectedAiSetupSheet.rowCount > 0 ? (
                   <section className="ai-raw-data-panel">
                     <div className="ai-mapping-title">
@@ -9447,7 +9899,8 @@ const styles = `
   .ai-raw-data-panel,
   .ai-manual-review-panel,
   .ai-column-review-panel,
-  .ai-catalog-match-panel {
+  .ai-catalog-match-panel,
+  .ai-apply-plan-panel {
     display: grid;
     gap: var(--space-2);
   }
@@ -9455,7 +9908,8 @@ const styles = `
   .ai-standard-preview,
   .ai-manual-review-panel,
   .ai-column-review-panel,
-  .ai-catalog-match-panel {
+  .ai-catalog-match-panel,
+  .ai-apply-plan-panel {
     padding: var(--space-2);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
@@ -9685,6 +10139,45 @@ const styles = `
   }
   .ai-new-candidate-list strong {
     color: var(--text-primary);
+  }
+  .ai-plan-notice {
+    padding: 12px 14px;
+    border: 1px solid rgba(43, 53, 104, 0.16);
+    border-radius: var(--radius-button);
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.5;
+  }
+  .ai-plan-section {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+  }
+  .ai-plan-section h4 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+  }
+  .ai-plan-empty {
+    margin: 0;
+    padding: 12px;
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-button);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+  }
+  .ai-plan-split {
+    display: grid;
+    grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.25fr);
+    gap: var(--space-1);
+    align-items: start;
   }
   .ai-mapping-groups {
     display: grid;
@@ -11620,7 +12113,7 @@ const styles = `
     .template-list-row, .detail-cost-layout, .detail-add-row, .detail-cost-row, .estimate-card,
     .estimate-template-expanded-content, .estimate-template-detail, .estimate-pyeong-preview,
     .estimate-meta-grid, .adjustment-row, .estimate-editor-total,
-    .ai-upload-grid, .ai-sheet-meta, .ai-mapping-groups, .ai-match-summary {
+    .ai-upload-grid, .ai-sheet-meta, .ai-mapping-groups, .ai-match-summary, .ai-plan-split {
       grid-template-columns: 1fr;
     }
     .ai-mapping-title {
