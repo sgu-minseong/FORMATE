@@ -54,6 +54,96 @@ const OLD_NO_EXTENSION_VARIANT = "구형0";
 const CONDITION_VARIANT_KEYS = [...EXTENDED_VARIANTS, OLD_NO_EXTENSION_VARIANT, ...OLD_EXTENDED_VARIANTS];
 const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
 const ADMIN_AUTOSAVE_DELAY_MS = 1200;
+const AI_BASIC_FIELD_KEYS = ["category", "item_name", "spec", "unit", "quantity", "unit_price", "labor_rate", "labor_count"];
+const AI_EXCEL_FIELD_DEFINITIONS = [
+  {
+    key: "category",
+    label: "대분류",
+    type: "basic_field",
+    aliases: ["공종", "구분", "대분류", "분류", "공사구분", "작업구분", "공정", "공사종류", "항목구분", "카테고리"],
+  },
+  {
+    key: "item_name",
+    label: "항목명",
+    type: "basic_field",
+    aliases: ["품명", "항목", "공사항목", "작업내용", "내역", "세부내역", "명칭", "자재명", "제품명", "시공항목", "세부공사", "내용"],
+  },
+  {
+    key: "spec",
+    label: "규격",
+    type: "basic_field",
+    aliases: ["규격", "사양", "적요", "상세", "상세내용", "설명", "모델명", "제품규격"],
+  },
+  {
+    key: "unit",
+    label: "단위",
+    type: "basic_field",
+    aliases: ["단위", "UNIT", "unit", "단위명", "UOM"],
+  },
+  {
+    key: "quantity",
+    label: "수량",
+    type: "basic_field",
+    aliases: ["수량", "물량", "면적", "길이", "개수", "EA", "ea", "QTY", "qty", "수"],
+  },
+  {
+    key: "unit_price",
+    label: "단가",
+    type: "basic_field",
+    aliases: ["단가", "자재단가", "재료단가", "공급단가", "시공단가", "품목단가", "자재비단가", "재료비단가"],
+  },
+  {
+    key: "labor_rate",
+    label: "인건비",
+    type: "basic_field",
+    aliases: ["인건비", "노무비", "공임", "시공비", "작업비", "인건비단가", "노무단가", "공임단가", "인건", "노무"],
+  },
+  {
+    key: "labor_count",
+    label: "인원",
+    type: "basic_field",
+    aliases: ["인원", "작업인원", "투입인원", "인부", "사람", "명", "공수", "품"],
+  },
+  {
+    key: "expense_cost",
+    label: "경비/기타비",
+    type: "cost_field",
+    aliases: ["경비", "잡비", "운반비", "양중비", "폐기물비", "폐기물처리비", "출장비", "기타비", "기타금액", "관리비", "일반관리비", "공과잡비"],
+  },
+  {
+    key: "original_amount",
+    label: "원본 금액",
+    type: "validation_field",
+    aliases: ["금액", "합계", "총액", "소계", "계", "견적가", "공급가", "공급가액", "총공사비", "공사금액"],
+  },
+  {
+    key: "tax",
+    label: "세금",
+    type: "summary_field",
+    aliases: ["부가세", "VAT", "vat", "세액", "세금", "총합계"],
+  },
+  {
+    key: "memo",
+    label: "메모",
+    type: "custom_field",
+    aliases: ["비고", "메모", "특이사항", "참고", "요청사항", "위치", "시공위치", "장소", "공간", "방", "구역"],
+  },
+  {
+    key: "document_info",
+    label: "문서 정보",
+    type: "document_info",
+    aliases: ["고객명", "발주처", "현장명", "현장주소", "주소", "연락처", "견적일자", "작성일", "공사기간", "업체명", "담당자"],
+  },
+];
+const AI_MAPPING_GROUPS = [
+  { key: "basic_field", title: "기본 필드", description: "FORMATE 단가표와 템플릿으로 이어질 수 있는 핵심 열입니다." },
+  { key: "custom_field", title: "추가필드 후보", description: "메모나 위치처럼 참고 정보로 사용할 수 있는 열입니다." },
+  { key: "cost_field", title: "비용성 필드 후보", description: "경비나 기타비처럼 별도 비용 후보로 볼 수 있는 열입니다." },
+  { key: "validation_field", title: "검산 필드", description: "원본 금액 검산에 활용할 수 있는 열입니다." },
+  { key: "summary_field", title: "요약/세금 필드", description: "부가세나 총합계처럼 문서 요약 성격의 열입니다." },
+  { key: "document_info", title: "문서 정보 필드", description: "고객, 현장, 작성일처럼 견적서 문서 정보에 가까운 열입니다." },
+  { key: "unknown", title: "미인식 열", description: "아직 FORMATE 표준 필드로 판단하지 못한 열입니다." },
+];
 const CATEGORY_DISPLAY_TARGETS = {
   몰딩: "목공",
   페인트: "도장/페인트",
@@ -1233,6 +1323,164 @@ function getExcelColumnLabel(index) {
   return label;
 }
 
+function normalizeExcelHeaderText(value) {
+  return formatExcelCellValue(value)
+    .replace(/\s+/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function findAiFieldByHeader(headerValue) {
+  const originalHeader = formatExcelCellValue(headerValue).trim();
+  const normalizedHeader = normalizeExcelHeaderText(originalHeader);
+  if (!normalizedHeader) return null;
+
+  for (const definition of AI_EXCEL_FIELD_DEFINITIONS) {
+    const exactAlias = definition.aliases.find((alias) => `${alias}`.trim() === originalHeader);
+    if (exactAlias) {
+      return { definition, confidence: 1, matchedAlias: exactAlias };
+    }
+  }
+
+  for (const definition of AI_EXCEL_FIELD_DEFINITIONS) {
+    const normalizedAlias = definition.aliases.find((alias) => normalizeExcelHeaderText(alias) === normalizedHeader);
+    if (normalizedAlias) {
+      return { definition, confidence: 0.9, matchedAlias: normalizedAlias };
+    }
+  }
+
+  return null;
+}
+
+function detectExcelHeaderRow(rows) {
+  let bestCandidate = { rowIndex: -1, matchCount: 0, score: 0 };
+
+  (rows ?? []).forEach((row, rowIndex) => {
+    const matches = (row ?? []).reduce(
+      (result, cell) => {
+        const match = findAiFieldByHeader(cell);
+        if (!match) return result;
+        result.keys.add(match.definition.key);
+        result.score += match.confidence;
+        return result;
+      },
+      { keys: new Set(), score: 0 }
+    );
+    const matchCount = matches.keys.size;
+    if (matchCount > bestCandidate.matchCount || (matchCount === bestCandidate.matchCount && matches.score > bestCandidate.score)) {
+      bestCandidate = { rowIndex, matchCount, score: matches.score };
+    }
+  });
+
+  return bestCandidate.matchCount >= 2 ? bestCandidate : null;
+}
+
+function createUnknownExcelMapping(columnIndex, originalHeader = "") {
+  return {
+    columnIndex,
+    originalHeader: originalHeader || `(빈 헤더 ${getExcelColumnLabel(columnIndex)})`,
+    mappedKey: "",
+    mappedLabel: "미인식",
+    fieldType: "unknown",
+    confidence: 0,
+  };
+}
+
+function createExcelColumnMappings(headerRow, columnCount) {
+  return Array.from({ length: columnCount }, (_, columnIndex) => {
+    const originalHeader = formatExcelCellValue(headerRow?.[columnIndex] ?? "").trim();
+    const match = findAiFieldByHeader(originalHeader);
+    if (!match) return createUnknownExcelMapping(columnIndex, originalHeader);
+
+    return {
+      columnIndex,
+      originalHeader: originalHeader || getExcelColumnLabel(columnIndex),
+      mappedKey: match.definition.key,
+      mappedLabel: match.definition.label,
+      fieldType: match.definition.type ?? "basic_field",
+      confidence: match.confidence,
+    };
+  });
+}
+
+function groupExcelMappings(mappings) {
+  return AI_MAPPING_GROUPS.reduce((groups, group) => {
+    groups[group.key] = (mappings ?? []).filter((mapping) => mapping.fieldType === group.key);
+    return groups;
+  }, {});
+}
+
+function isSummaryLikePreviewRow(row) {
+  const itemName = `${row.item_name ?? ""}`.trim();
+  return ["합계", "소계", "총계"].includes(itemName);
+}
+
+function createMappedExcelPreviewRows(rows, mappings, headerRowIndex) {
+  const recognizedMappings = (mappings ?? []).filter((mapping) => mapping.fieldType !== "unknown" && mapping.mappedKey);
+  if (headerRowIndex < 0 || recognizedMappings.length === 0) return [];
+
+  return (rows ?? [])
+    .slice(headerRowIndex + 1)
+    .map((row, sourceOffset) => {
+      const mappedRow = recognizedMappings.reduce(
+        (result, mapping) => {
+          result[mapping.mappedKey] = formatExcelCellValue(row?.[mapping.columnIndex] ?? "");
+          return result;
+        },
+        { sourceRowNumber: headerRowIndex + sourceOffset + 2 }
+      );
+      return mappedRow;
+    })
+    .filter((row) => recognizedMappings.some((mapping) => `${row[mapping.mappedKey] ?? ""}`.trim() !== ""))
+    .filter((row) => !isSummaryLikePreviewRow(row))
+    .slice(0, 50);
+}
+
+function analyzeExcelSheetForFormate(sheet) {
+  if (!sheet?.rows?.length) {
+    return {
+      headerRowIndex: -1,
+      headerMatchCount: 0,
+      mappings: [],
+      groupedMappings: groupExcelMappings([]),
+      previewRows: [],
+      recognizedCount: 0,
+      unknownCount: 0,
+      hasHeader: false,
+    };
+  }
+
+  const headerCandidate = detectExcelHeaderRow(sheet.rows);
+  if (!headerCandidate) {
+    return {
+      headerRowIndex: -1,
+      headerMatchCount: 0,
+      mappings: [],
+      groupedMappings: groupExcelMappings([]),
+      previewRows: [],
+      recognizedCount: 0,
+      unknownCount: sheet.columnCount ?? 0,
+      hasHeader: false,
+    };
+  }
+
+  const columnCount = Math.max(sheet.columnCount ?? 0, sheet.rows[headerCandidate.rowIndex]?.length ?? 0);
+  const mappings = createExcelColumnMappings(sheet.rows[headerCandidate.rowIndex], columnCount);
+  const groupedMappings = groupExcelMappings(mappings);
+  const recognizedCount = mappings.filter((mapping) => mapping.fieldType !== "unknown").length;
+
+  return {
+    headerRowIndex: headerCandidate.rowIndex,
+    headerMatchCount: headerCandidate.matchCount,
+    mappings,
+    groupedMappings,
+    previewRows: createMappedExcelPreviewRows(sheet.rows, mappings, headerCandidate.rowIndex),
+    recognizedCount,
+    unknownCount: mappings.length - recognizedCount,
+    hasHeader: true,
+  };
+}
+
 export default function App() {
   const previewPdfRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
@@ -1460,6 +1708,23 @@ export default function App() {
   const aiSetupPreviewRows = useMemo(() => {
     return selectedAiSetupSheet ? selectedAiSetupSheet.rows.slice(0, 100) : [];
   }, [selectedAiSetupSheet]);
+  const aiSetupMappingAnalysis = useMemo(() => {
+    return analyzeExcelSheetForFormate(selectedAiSetupSheet);
+  }, [selectedAiSetupSheet]);
+  const aiSetupMappedPreviewColumns = useMemo(() => {
+    const seenKeys = new Set();
+    const recognizedMappings = (aiSetupMappingAnalysis.mappings ?? []).filter(
+      (mapping) => mapping.fieldType !== "unknown" && mapping.mappedKey
+    );
+    return AI_EXCEL_FIELD_DEFINITIONS
+      .map((definition) => {
+        const mapping = recognizedMappings.find((entry) => entry.mappedKey === definition.key && !seenKeys.has(entry.mappedKey));
+        if (!mapping) return null;
+        seenKeys.add(mapping.mappedKey);
+        return mapping;
+      })
+      .filter(Boolean);
+  }, [aiSetupMappingAnalysis.mappings]);
   const aiSetupStatusLabel =
     aiSetupStatus === "reading"
       ? "읽는 중"
@@ -4754,29 +5019,139 @@ export default function App() {
                   </div>
                 </div>
 
+                <section className="ai-mapping-panel">
+                  <div className="ai-mapping-title">
+                    <div>
+                      <h3>열 자동 인식 결과</h3>
+                      <p>
+                        엑셀의 헤더 행과 열 이름을 FORMATE 표준 필드 사전으로 비교해 만든 매핑 초안입니다.
+                      </p>
+                    </div>
+                    {aiSetupMappingAnalysis.hasHeader ? (
+                      <div className="ai-mapping-stats">
+                        <span>헤더 행 {aiSetupMappingAnalysis.headerRowIndex + 1}</span>
+                        <span>인식 {aiSetupMappingAnalysis.recognizedCount}개</span>
+                        <span>미인식 {aiSetupMappingAnalysis.unknownCount}개</span>
+                      </div>
+                    ) : (
+                      <div className="ai-mapping-stats warning">
+                        <span>헤더 행을 자동으로 찾지 못했습니다</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {aiSetupMappingAnalysis.hasHeader ? (
+                    <div className="ai-mapping-groups">
+                      {AI_MAPPING_GROUPS.map((group) => {
+                        const entries = aiSetupMappingAnalysis.groupedMappings[group.key] ?? [];
+                        return (
+                          <div key={group.key} className={`ai-mapping-group ${group.key}`.trim()}>
+                            <div className="ai-mapping-group-head">
+                              <strong>{group.title}</strong>
+                              <span>{entries.length}개</span>
+                            </div>
+                            <p>{group.description}</p>
+                            {entries.length > 0 ? (
+                              <div className="ai-mapping-chip-list">
+                                {entries.map((mapping) => (
+                                  <span key={`${mapping.columnIndex}-${mapping.originalHeader}`} className="ai-mapping-chip">
+                                    <b>{getExcelColumnLabel(mapping.columnIndex)}</b>
+                                    {mapping.originalHeader}
+                                    {mapping.fieldType !== "unknown" && (
+                                      <em>{mapping.mappedLabel} · {Math.round(mapping.confidence * 100)}%</em>
+                                    )}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="ai-mapping-empty">해당 열 없음</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="ai-empty-sheet">
+                      <strong>헤더 행을 자동으로 찾지 못했습니다.</strong>
+                      <p>공종, 품명, 수량, 단가처럼 표준 필드와 맞는 열 이름이 2개 이상 있는 행을 헤더로 인식합니다.</p>
+                    </div>
+                  )}
+                </section>
+
+                {aiSetupMappingAnalysis.hasHeader && (
+                  <section className="ai-standard-preview">
+                    <div className="ai-mapping-title">
+                      <div>
+                        <h3>표준 필드 미리보기</h3>
+                        <p>헤더 아래 데이터를 FORMATE 표준 필드 형태로 옮긴 미리보기입니다. 아직 저장하지 않습니다.</p>
+                      </div>
+                      <div className="ai-mapping-stats">
+                        <span>최대 50행</span>
+                      </div>
+                    </div>
+                    {aiSetupMappedPreviewColumns.length > 0 && aiSetupMappingAnalysis.previewRows.length > 0 ? (
+                      <div className="ai-table-wrap">
+                        <table className="ai-data-table ai-standard-table">
+                          <thead>
+                            <tr>
+                              <th className="row-number-cell">원본 행</th>
+                              {aiSetupMappedPreviewColumns.map((mapping) => (
+                                <th key={mapping.mappedKey}>{mapping.mappedLabel}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {aiSetupMappingAnalysis.previewRows.map((row) => (
+                              <tr key={`mapped-${row.sourceRowNumber}`}>
+                                <td className="row-number-cell">{row.sourceRowNumber}</td>
+                                {aiSetupMappedPreviewColumns.map((mapping) => (
+                                  <td key={mapping.mappedKey}>{row[mapping.mappedKey] ?? ""}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="ai-empty-sheet">
+                        <strong>미리보기로 보여줄 데이터가 없습니다.</strong>
+                        <p>매핑 가능한 열이 없거나 헤더 아래에 내용이 있는 행이 없습니다.</p>
+                      </div>
+                    )}
+                  </section>
+                )}
+
                 {selectedAiSetupSheet && selectedAiSetupSheet.rowCount > 0 ? (
-                  <div className="ai-table-wrap">
-                    <table className="ai-data-table">
-                      <thead>
-                        <tr>
-                          <th className="row-number-cell">행</th>
-                          {Array.from({ length: selectedAiSetupSheet.columnCount }, (_, index) => (
-                            <th key={index}>{getExcelColumnLabel(index)}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {aiSetupPreviewRows.map((row, rowIndex) => (
-                          <tr key={`${selectedAiSetupSheet.name}-${rowIndex}`}>
-                            <td className="row-number-cell">{rowIndex + 1}</td>
-                            {Array.from({ length: selectedAiSetupSheet.columnCount }, (_, columnIndex) => (
-                              <td key={columnIndex}>{row[columnIndex] ?? ""}</td>
+                  <section className="ai-raw-data-panel">
+                    <div className="ai-mapping-title">
+                      <div>
+                        <h3>원본 시트 데이터</h3>
+                        <p>업로드한 엑셀의 원본 행과 열입니다. 자동 인식 결과와 비교해서 확인하세요.</p>
+                      </div>
+                    </div>
+                    <div className="ai-table-wrap">
+                      <table className="ai-data-table">
+                        <thead>
+                          <tr>
+                            <th className="row-number-cell">행</th>
+                            {Array.from({ length: selectedAiSetupSheet.columnCount }, (_, index) => (
+                              <th key={index}>{getExcelColumnLabel(index)}</th>
                             ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {aiSetupPreviewRows.map((row, rowIndex) => (
+                            <tr key={`${selectedAiSetupSheet.name}-${rowIndex}`}>
+                              <td className="row-number-cell">{rowIndex + 1}</td>
+                              {Array.from({ length: selectedAiSetupSheet.columnCount }, (_, columnIndex) => (
+                                <td key={columnIndex}>{row[columnIndex] ?? ""}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
                 ) : (
                   <div className="ai-empty-sheet">
                     <strong>선택한 시트에 표시할 행이 없습니다.</strong>
@@ -8078,6 +8453,127 @@ const styles = `
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .ai-mapping-panel,
+  .ai-standard-preview,
+  .ai-raw-data-panel {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .ai-mapping-panel,
+  .ai-standard-preview {
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+  .ai-mapping-title {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .ai-mapping-title h3 {
+    margin: 0 0 4px;
+    font-size: var(--font-size-title-sm);
+  }
+  .ai-mapping-title p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+  }
+  .ai-mapping-stats {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .ai-mapping-stats span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    white-space: nowrap;
+  }
+  .ai-mapping-stats.warning span {
+    border-color: rgba(190, 62, 62, 0.22);
+    background: rgba(190, 62, 62, 0.06);
+    color: #a33a3a;
+  }
+  .ai-mapping-groups {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+  .ai-mapping-group {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+  }
+  .ai-mapping-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+  .ai-mapping-group-head strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .ai-mapping-group-head span,
+  .ai-mapping-empty {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-mapping-group p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.45;
+  }
+  .ai-mapping-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .ai-mapping-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+  }
+  .ai-mapping-chip b {
+    color: var(--brand-primary);
+    font-family: var(--font-number);
+  }
+  .ai-mapping-chip em {
+    color: var(--text-secondary);
+    font-style: normal;
+  }
+  .ai-mapping-group.unknown .ai-mapping-chip {
+    border-color: rgba(91, 95, 114, 0.18);
+    background: rgba(91, 95, 114, 0.05);
+    color: var(--text-secondary);
+  }
   .ai-table-wrap {
     max-height: 560px;
     overflow: auto;
@@ -8127,6 +8623,10 @@ const styles = `
   }
   .ai-data-table tbody .row-number-cell {
     z-index: 1;
+  }
+  .ai-standard-table th,
+  .ai-standard-table td {
+    min-width: 140px;
   }
   .ai-empty-sheet {
     display: grid;
@@ -9940,8 +10440,14 @@ const styles = `
     .template-list-row, .detail-cost-layout, .detail-add-row, .detail-cost-row, .estimate-card,
     .estimate-template-expanded-content, .estimate-template-detail, .estimate-pyeong-preview,
     .estimate-meta-grid, .adjustment-row, .estimate-editor-total,
-    .ai-upload-grid, .ai-sheet-meta {
+    .ai-upload-grid, .ai-sheet-meta, .ai-mapping-groups {
       grid-template-columns: 1fr;
+    }
+    .ai-mapping-title {
+      display: grid;
+    }
+    .ai-mapping-stats {
+      justify-content: flex-start;
     }
     .hero {
       padding: var(--space-3) 0;
