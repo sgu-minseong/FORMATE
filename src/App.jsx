@@ -1401,24 +1401,75 @@ function normalizeAiActionForRowType(rowType, action, matchStatus = "needs_revie
   return getDefaultAiActionForRowType(rowType, matchStatus);
 }
 
-function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
-  return (previewRows ?? []).map((row) => {
-    const sourceCategory = formatExcelCellValue(row.category).trim();
-    const sourceItemName = formatExcelCellValue(row.item_name).trim();
+function getAiSplitRowSourceNumber(sourceRowNumber, index) {
+  return `${sourceRowNumber}-${index + 1}`;
+}
+
+function createAiSplitOverridePatch(splitRow, catalogItems = []) {
+  const suggestedSubitemId = splitRow?.suggestedSubitemId || "";
+  const suggestedCategoryId = splitRow?.suggestedCategoryId || "";
+  let categoryId = suggestedCategoryId;
+  let subitemId = suggestedSubitemId;
+
+  if (suggestedSubitemId) {
+    const matchedCategory = (catalogItems ?? []).find((item) =>
+      (item.subitems ?? []).some((subitem) => subitem.id === suggestedSubitemId)
+    );
+    if (matchedCategory) {
+      categoryId = categoryId || matchedCategory.id;
+      const matchedSubitem = (matchedCategory.subitems ?? []).find((subitem) => subitem.id === suggestedSubitemId);
+      subitemId = matchedSubitem?.id ?? "";
+    } else {
+      subitemId = "";
+    }
+  }
+
+  if (splitRow?.suggestedAction === "link_existing" && categoryId && subitemId) {
+    return {
+      rowType: "work_item",
+      action: "link",
+      categoryId,
+      subitemId,
+    };
+  }
+
+  if (splitRow?.suggestedAction === "new") {
+    return {
+      rowType: "work_item",
+      action: "new",
+      categoryId,
+      subitemId: "",
+    };
+  }
+
+  return {
+    rowType: "work_item",
+    action: "review",
+    categoryId,
+    subitemId: "",
+  };
+}
+
+function createAiCatalogMatchRow(row, catalogItems, override = {}, options = {}) {
+    const sourceCategory = formatExcelCellValue(override.sourceCategory ?? row.category ?? row.sourceCategory).trim();
+    const sourceItemName = formatExcelCellValue(override.sourceItemName ?? override.itemName ?? row.item_name ?? row.sourceItemName).trim();
     const categoryMatch = findBestCatalogCategoryMatch(sourceCategory, catalogItems);
     const subitemMatch = findBestCatalogSubitemMatch(sourceItemName, catalogItems, categoryMatch);
     const autoStatus = getAiMatchStatus(row, categoryMatch, subitemMatch);
-    const override = overrides[row.sourceRowNumber] ?? {};
-    const rowType = override.rowType ?? inferAiRowType(row, categoryMatch, subitemMatch);
+    const rowType = options.isSplitParent ? "ignored" : override.rowType ?? inferAiRowType(row, categoryMatch, subitemMatch);
     const selectedCategoryId = override.categoryId ?? categoryMatch?.matchedCategoryId ?? subitemMatch?.matchedSubitemCategoryId ?? "";
     const selectedCategory = (catalogItems ?? []).find((item) => item.id === selectedCategoryId);
     const selectedSubitemId = override.subitemId ?? (
       selectedCategoryId && subitemMatch?.matchedSubitemCategoryId === selectedCategoryId ? subitemMatch?.matchedSubitemId : ""
     );
     const selectedSubitem = (selectedCategory?.subitems ?? []).find((subitem) => subitem.id === selectedSubitemId);
-    const action = normalizeAiActionForRowType(rowType, override.action ?? getDefaultAiActionForRowType(rowType, autoStatus), autoStatus);
+    const action = options.isSplitParent
+      ? "ignore"
+      : normalizeAiActionForRowType(rowType, override.action ?? getDefaultAiActionForRowType(rowType, autoStatus), autoStatus);
 
-    const matchStatus = rowType === "ignored" || action === "ignore"
+    const matchStatus = options.isSplitParent
+      ? "ignored"
+      : rowType === "ignored" || action === "ignore"
       ? "ignored"
       : rowType !== "work_item"
         ? rowType
@@ -1432,6 +1483,11 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
 
     return {
       ...row,
+      quantity: override.quantity ?? row.quantity,
+      unit: override.unit ?? row.unit,
+      unit_price: override.unitPrice ?? row.unit_price,
+      labor_rate: override.laborRate ?? row.labor_rate,
+      labor_count: override.laborCount ?? row.labor_count,
       sourceCategory,
       sourceItemName,
       categoryMatch,
@@ -1446,11 +1502,88 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
       selectedSubitemUnit: selectedSubitem?.unit ?? "",
       selectedSubitemUnitPrice: selectedSubitem?.unit_price ?? "",
       selectedSubitemLaborRate: selectedSubitem?.labor_rate ?? "",
+      isSplitParent: Boolean(options.isSplitParent),
+      isSplitRow: Boolean(options.isSplitRow),
+      sourceParentRowNumber: options.sourceParentRowNumber ?? row.sourceParentRowNumber ?? null,
+      splitIndex: options.splitIndex ?? null,
+      splitCount: options.splitCount ?? 0,
       aiReason: override.aiReason ?? "",
       aiConfidence: override.aiConfidence ?? null,
       aiRecommendedAction: override.aiRecommendedAction ?? "",
       aiReviewNotes: override.aiReviewNotes ?? [],
     };
+}
+
+function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
+  return (previewRows ?? []).flatMap((row) => {
+    const override = overrides[row.sourceRowNumber] ?? {};
+    const splitRows = Array.isArray(override.splitRows) ? override.splitRows : [];
+    const parentRow = createAiCatalogMatchRow(
+      row,
+      catalogItems,
+      {
+        ...override,
+        aiReason: splitRows.length > 0
+          ? `AI가 ${splitRows.length}개 분해 행을 만들었습니다. 원본 총액은 검산용으로만 사용됩니다.`
+          : override.aiReason,
+        aiReviewNotes: splitRows.length > 0
+          ? [...(override.aiReviewNotes ?? []), "원본 묶음 행은 저장 후보에서 제외됩니다."]
+          : override.aiReviewNotes,
+      },
+      {
+        isSplitParent: splitRows.length > 0,
+        splitCount: splitRows.length,
+      }
+    );
+
+    if (splitRows.length === 0) return [parentRow];
+
+    const generatedRows = splitRows.map((splitRow, index) => {
+      const splitSourceRowNumber = getAiSplitRowSourceNumber(row.sourceRowNumber, index);
+      const childOverride = overrides[splitSourceRowNumber] ?? {};
+      const sourceCategory = formatExcelCellValue(splitRow.categoryName || row.category || row.sourceCategory).trim();
+      const sourceItemName = formatExcelCellValue(splitRow.itemName).trim();
+      const splitPatch = createAiSplitOverridePatch(splitRow, catalogItems);
+      return createAiCatalogMatchRow(
+        {
+          ...row,
+          sourceRowNumber: splitSourceRowNumber,
+          sourceParentRowNumber: row.sourceRowNumber,
+          category: sourceCategory,
+          item_name: sourceItemName,
+          sourceCategory,
+          sourceItemName,
+          unit: "",
+          quantity: "1",
+          unit_price: "",
+          labor_rate: "",
+          labor_count: "",
+          original_amount: "",
+          memo: "",
+        },
+        catalogItems,
+        {
+          ...splitPatch,
+          ...childOverride,
+          aiReason: childOverride.aiReason ?? splitRow.reason ?? "원본 묶음 행에서 분리된 공사항목입니다.",
+          aiConfidence: childOverride.aiConfidence ?? splitRow.confidence ?? null,
+          aiRecommendedAction: childOverride.aiRecommendedAction ?? (
+            splitRow.suggestedAction === "link_existing"
+              ? "link_existing"
+              : splitRow.suggestedAction === "new"
+                ? "add_new_item"
+                : "needs_review"
+          ),
+        },
+        {
+          isSplitRow: true,
+          sourceParentRowNumber: row.sourceRowNumber,
+          splitIndex: index + 1,
+        }
+      );
+    });
+
+    return [parentRow, ...generatedRows];
   });
 }
 
@@ -1472,39 +1605,51 @@ function summarizeAiCatalogMatchRows(rows) {
 }
 
 function getAiRecommendationOverridePatch(recommendation) {
+  const splitRows = (Array.isArray(recommendation?.splitRows) ? recommendation.splitRows : [])
+    .map((splitRow) => ({
+      itemName: formatExcelCellValue(splitRow?.itemName ?? splitRow?.label).trim(),
+      categoryName: formatExcelCellValue(splitRow?.categoryName).trim(),
+      suggestedCategoryId: splitRow?.suggestedCategoryId ?? "",
+      suggestedSubitemId: splitRow?.suggestedSubitemId ?? "",
+      suggestedAction: splitRow?.suggestedAction ?? "needs_review",
+      confidence: Number.isFinite(Number(splitRow?.confidence)) ? Number(splitRow.confidence) : null,
+      reason: formatExcelCellValue(splitRow?.reason).trim(),
+    }))
+    .filter((splitRow) => splitRow.itemName);
+  const withSplitRows = (patch) => splitRows.length > 0 ? { ...patch, splitRows } : patch;
   const recommendedAction = recommendation?.recommendedAction;
   if (recommendedAction === "link_existing") {
-    return {
+    return withSplitRows({
       rowType: "work_item",
       action: "link",
       categoryId: recommendation.recommendedCategoryId ?? "",
       subitemId: recommendation.recommendedSubitemId ?? "",
-    };
+    });
   }
   if (recommendedAction === "add_new_item") {
-    return {
+    return withSplitRows({
       rowType: "work_item",
       action: "new",
       categoryId: recommendation.recommendedCategoryId ?? "",
       subitemId: "",
-    };
+    });
   }
   if (recommendedAction === "cost_candidate") {
     const rowType = ["cost_item", "margin_item", "tax_item"].includes(recommendation?.recommendedRowType)
       ? recommendation.recommendedRowType
       : "cost_item";
-    return { rowType, action: "cost" };
+    return withSplitRows({ rowType, action: "cost" });
   }
   if (recommendedAction === "validation_only") {
     const rowType = ["subtotal_row", "total_row"].includes(recommendation?.recommendedRowType)
       ? recommendation.recommendedRowType
       : "total_row";
-    return { rowType, action: "validate" };
+    return withSplitRows({ rowType, action: "validate" });
   }
   if (recommendedAction === "ignore") {
-    return { rowType: "ignored", action: "ignore" };
+    return withSplitRows({ rowType: "ignored", action: "ignore" });
   }
-  return { rowType: "needs_review", action: "review" };
+  return withSplitRows({ rowType: "needs_review", action: "review" });
 }
 
 function hasImportValue(value) {
@@ -1538,6 +1683,51 @@ function parseAiImportCurrencyNumber(value) {
   if (!numericText || numericText === "-" || numericText === "." || numericText === "-.") return null;
   const number = Number(numericText);
   return Number.isFinite(number) ? number : null;
+}
+
+function formatAiImportMoney(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${Math.round(number).toLocaleString("ko-KR")}원`;
+}
+
+function getAiSplitRowInputAmount(row) {
+  if (!row?.isSplitRow) return 0;
+  const quantity = parseAiImportCurrencyNumber(row.quantity);
+  const laborCount = parseAiImportCurrencyNumber(row.labor_count);
+  const unitPrice = parseAiImportCurrencyNumber(row.unit_price);
+  const laborRate = parseAiImportCurrencyNumber(row.labor_rate);
+  const productAmount = unitPrice === null ? 0 : unitPrice * (quantity ?? 1);
+  const laborAmount = laborRate === null ? 0 : laborRate * (laborCount ?? 1);
+  return productAmount + laborAmount;
+}
+
+function createAiSplitValidationSummaries(rows) {
+  const allRows = rows ?? [];
+  const splitChildrenByParent = new Map();
+  allRows.forEach((row) => {
+    if (!row?.isSplitRow || !row.sourceParentRowNumber) return;
+    const list = splitChildrenByParent.get(row.sourceParentRowNumber) ?? [];
+    list.push(row);
+    splitChildrenByParent.set(row.sourceParentRowNumber, list);
+  });
+
+  return allRows
+    .filter((row) => row?.isSplitParent)
+    .map((row) => {
+      const children = splitChildrenByParent.get(row.sourceRowNumber) ?? [];
+      const originalAmount = parseAiImportCurrencyNumber(row.original_amount || row.tax);
+      const inputTotal = children.reduce((sum, child) => sum + getAiSplitRowInputAmount(child), 0);
+      return {
+        sourceRowNumber: row.sourceRowNumber,
+        sourceCategory: row.sourceCategory,
+        sourceItemName: row.sourceItemName,
+        originalAmount,
+        inputTotal,
+        difference: originalAmount === null ? null : originalAmount - inputTotal,
+        splitCount: children.length,
+      };
+    });
 }
 
 function getAiApplyPlanReviewReasons(row) {
@@ -1589,6 +1779,17 @@ function createAiImportApplyPlan(rows) {
     const hasUnitPriceValue = hasImportValue(row.unit_price);
     const hasLaborRateValue = hasImportValue(row.labor_rate);
     const reviewReasons = getAiApplyPlanReviewReasons(row);
+
+    if (row.isSplitParent) {
+      plan.ignoredRows.push({
+        sourceRowNumber: row.sourceRowNumber,
+        sourceCategory,
+        sourceItemName,
+        rowType: "ignored",
+        action: "ignore",
+      });
+      return;
+    }
 
     if (isIgnored) {
       plan.ignoredRows.push({
@@ -2335,6 +2536,9 @@ export default function App() {
   const aiSetupCatalogMatchRows = useMemo(() => {
     return createAiCatalogMatchRows(aiSetupMappingAnalysis.previewRows, aiSetupCatalogItems, aiSetupMatchOverrides);
   }, [aiSetupCatalogItems, aiSetupMappingAnalysis.previewRows, aiSetupMatchOverrides]);
+  const aiSetupSplitValidationSummaries = useMemo(() => {
+    return createAiSplitValidationSummaries(aiSetupCatalogMatchRows);
+  }, [aiSetupCatalogMatchRows]);
   const aiSetupCatalogMatchSummary = useMemo(() => {
     return summarizeAiCatalogMatchRows(aiSetupCatalogMatchRows);
   }, [aiSetupCatalogMatchRows]);
@@ -3067,9 +3271,10 @@ export default function App() {
           else if (recommendation.recommendedAction === "ignore" || recommendation.recommendedRowType === "ignored") summary.ignored += 1;
           else summary.needsReview += 1;
           if (Array.isArray(recommendation.reviewNotes) && recommendation.reviewNotes.length > 0) summary.reviewSignals += 1;
+          if (Array.isArray(recommendation.splitRows)) summary.splitRows += recommendation.splitRows.length;
           return summary;
         },
-        { linkExisting: 0, addNewItem: 0, costItem: 0, marginItem: 0, taxItem: 0, validationRows: 0, ignored: 0, needsReview: 0, reviewSignals: 0 }
+        { linkExisting: 0, addNewItem: 0, costItem: 0, marginItem: 0, taxItem: 0, validationRows: 0, ignored: 0, needsReview: 0, reviewSignals: 0, splitRows: 0 }
       );
 
       setAiSetupAiResult({
@@ -7031,6 +7236,7 @@ export default function App() {
                           <div><span>소계/총계 후보</span><strong>{aiSetupAiResult.validationRows}개</strong></div>
                           <div><span>무시 추천</span><strong>{aiSetupAiResult.ignored}개</strong></div>
                           <div><span>검토 필요</span><strong>{aiSetupAiResult.needsReview}개</strong></div>
+                          <div><span>자동 분해 행</span><strong>{aiSetupAiResult.splitRows ?? 0}개</strong></div>
                           <div><span>확인 필요 신호</span><strong>{aiSetupAiResult.reviewSignals}개</strong></div>
                         </div>
                         {aiSetupAiResult.warnings?.length > 0 && (
@@ -7083,23 +7289,46 @@ export default function App() {
                                 : null;
                               const availableSubitems = canEditCatalogMapping ? selectedCategory?.subitems ?? [] : [];
                               return (
-                                <tr key={`catalog-match-${row.sourceRowNumber}`}>
-                                  <td className="ai-column-code">{row.sourceRowNumber}</td>
+                                <tr
+                                  key={`catalog-match-${row.sourceRowNumber}`}
+                                  className={`${row.isSplitParent ? "ai-split-parent-row" : ""} ${row.isSplitRow ? "ai-split-child-row" : ""}`.trim()}
+                                >
+                                  <td className="ai-column-code">
+                                    {row.sourceRowNumber}
+                                    {row.isSplitRow && (
+                                      <small className="ai-match-hint">원본 {row.sourceParentRowNumber}행에서 분해</small>
+                                    )}
+                                  </td>
                                   <td>{row.sourceCategory || "-"}</td>
-                                  <td>{row.sourceItemName || "-"}</td>
                                   <td>
-                                    <select
-                                      value={row.rowType}
-                                      onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { rowType: event.target.value })}
-                                    >
-                                      {AI_ROW_TYPE_OPTIONS.map((option) => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                      ))}
-                                    </select>
+                                    {row.isSplitRow ? (
+                                      <input
+                                        className="ai-inline-input wide"
+                                        value={row.sourceItemName ?? ""}
+                                        placeholder="항목명"
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { sourceItemName: event.target.value })}
+                                      />
+                                    ) : (
+                                      row.sourceItemName || "-"
+                                    )}
                                   </td>
                                   <td>
-                                    <span className={`ai-match-status ${getAiDisplayMatchStatus(row)}`.trim()}>
-                                      {getAiDisplayMatchStatusLabel(row)}
+                                    {row.isSplitParent ? (
+                                      <span className="ai-match-status subtotal_row">분해됨/검산용 원본</span>
+                                    ) : (
+                                      <select
+                                        value={row.rowType}
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { rowType: event.target.value })}
+                                      >
+                                        {AI_ROW_TYPE_OPTIONS.map((option) => (
+                                          <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
+                                      </select>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <span className={`ai-match-status ${row.isSplitParent ? "subtotal_row" : getAiDisplayMatchStatus(row)}`.trim()}>
+                                      {row.isSplitParent ? "분해됨/검산용" : getAiDisplayMatchStatusLabel(row)}
                                     </span>
                                     {row.aiReason && (
                                       <small className="ai-recommendation-reason">
@@ -7111,14 +7340,18 @@ export default function App() {
                                     )}
                                   </td>
                                   <td>
-                                    <select
-                                      value={getAiActionSelectValue(row)}
-                                      onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { action: event.target.value })}
-                                    >
-                                      {getAiActionOptionsForRowType(row.rowType).map((option) => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                      ))}
-                                    </select>
+                                    {row.isSplitParent ? (
+                                      <span className="ai-match-status ignored">저장 제외</span>
+                                    ) : (
+                                      <select
+                                        value={getAiActionSelectValue(row)}
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { action: event.target.value })}
+                                      >
+                                        {getAiActionOptionsForRowType(row.rowType).map((option) => (
+                                          <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
+                                      </select>
+                                    )}
                                   </td>
                                   <td>
                                     {canEditCatalogMapping ? (
@@ -7169,8 +7402,30 @@ export default function App() {
                                     )}
                                   </td>
                                   <td>{row.quantity ?? ""}</td>
-                                  <td>{row.unit_price ?? ""}</td>
-                                  <td>{row.labor_rate ?? ""}</td>
+                                  <td>
+                                    {row.isSplitRow ? (
+                                      <input
+                                        className="ai-inline-input"
+                                        value={row.unit_price ?? ""}
+                                        placeholder="직접 입력"
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { unitPrice: event.target.value })}
+                                      />
+                                    ) : (
+                                      row.unit_price ?? ""
+                                    )}
+                                  </td>
+                                  <td>
+                                    {row.isSplitRow ? (
+                                      <input
+                                        className="ai-inline-input"
+                                        value={row.labor_rate ?? ""}
+                                        placeholder="직접 입력"
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { laborRate: event.target.value })}
+                                      />
+                                    ) : (
+                                      row.labor_rate ?? ""
+                                    )}
+                                  </td>
                                   <td>{row.labor_count ?? ""}</td>
                                   <td>{row.original_amount ?? ""}</td>
                                   <td>{row.memo ?? ""}</td>
@@ -7184,6 +7439,47 @@ export default function App() {
                       <div className="ai-empty-sheet">
                         <strong>매칭 검토할 표준 미리보기 행이 없습니다.</strong>
                         <p>헤더 행과 열 매핑을 확인해주세요.</p>
+                      </div>
+                    )}
+
+                    {aiSetupSplitValidationSummaries.length > 0 && (
+                      <div className="ai-split-validation-panel">
+                        <div className="ai-mapping-title compact">
+                          <div>
+                            <h4>묶음 공사 분해 검산</h4>
+                            <p>원본 1식 총액은 저장하지 않고, 사용자가 분해 행에 입력한 단가/인건비 합계와 비교만 합니다.</p>
+                          </div>
+                        </div>
+                        <div className="ai-table-wrap compact">
+                          <table className="ai-data-table ai-catalog-match-table">
+                            <thead>
+                              <tr>
+                                <th>원본 행</th>
+                                <th>원본 대분류</th>
+                                <th>원본 항목명</th>
+                                <th>분해 행</th>
+                                <th>원본 묶음 총액</th>
+                                <th>분해 행 입력 합계</th>
+                                <th>차이</th>
+                                <th>안내</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {aiSetupSplitValidationSummaries.map((summary) => (
+                                <tr key={`split-validation-${summary.sourceRowNumber}`}>
+                                  <td className="ai-column-code">{summary.sourceRowNumber}</td>
+                                  <td>{summary.sourceCategory || "-"}</td>
+                                  <td>{summary.sourceItemName || "-"}</td>
+                                  <td>{summary.splitCount}개</td>
+                                  <td>{formatAiImportMoney(summary.originalAmount)}</td>
+                                  <td>{formatAiImportMoney(summary.inputTotal)}</td>
+                                  <td>{summary.difference === null ? "-" : formatAiImportMoney(summary.difference)}</td>
+                                  <td>원본 총액과 분해 행 입력 합계가 다르면 필요한 경우 단가/인건비를 직접 입력해주세요.</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
 
@@ -11470,6 +11766,31 @@ const styles = `
     min-height: 38px;
     padding: 8px 10px;
     font-size: var(--font-size-body-sm);
+  }
+  .ai-catalog-match-table .ai-inline-input {
+    width: 120px;
+    min-width: 120px;
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: var(--font-size-body-sm);
+  }
+  .ai-catalog-match-table .ai-inline-input.wide {
+    width: 180px;
+    min-width: 180px;
+  }
+  .ai-split-parent-row td {
+    background: rgba(43, 53, 104, 0.04);
+  }
+  .ai-split-child-row td:first-child {
+    border-left: 3px solid rgba(43, 53, 104, 0.22);
+  }
+  .ai-split-validation-panel {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    border: 1px dashed rgba(43, 53, 104, 0.22);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
   }
   .ai-match-status {
     display: inline-flex;
