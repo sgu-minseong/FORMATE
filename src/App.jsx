@@ -67,7 +67,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
-const UNIT_OPTIONS = ["평", "㎡", "미터", "개소", "식"];
+const UNIT_OPTIONS = ["평", "㎡", "미터", "개소", "식", "자당"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
 const FLOORING_THICKNESS_OPTIONS = Array.from({ length: 28 }, (_, index) => (1.8 + index / 10).toFixed(1));
 const DEFAULT_FLOORING_SPEC = "기본";
@@ -196,10 +196,10 @@ const DEFAULT_CONSTRUCTION_CATALOG = [
   {
     name: "주방/가구",
     subitems: [
-      ["싱크대", "m"], ["상부장", "m"], ["하부장", "m"], ["키큰장", "개"], ["아일랜드 식탁", "식"],
-      ["주방 상판", "m"], ["주방 벽타일", "m"], ["후드 설치", "개"], ["쿡탑 설치", "개"],
-      ["식기세척기 자리", "개소"], ["냉장고장", "개"], ["붙박이장", "m"], ["신발장", "m"],
-      ["수납장", "식"],
+      ["싱크대", "자당"], ["상부장", "자당"], ["하부장", "자당"], ["키큰장", "자당"], ["아일랜드 식탁", "자당"],
+      ["주방 상판", "자당"], ["주방 벽타일", "자당"], ["후드 설치", "자당"], ["쿡탑 설치", "자당"],
+      ["식기세척기 자리", "개소"], ["냉장고장", "자당"], ["붙박이장", "자당"], ["신발장", "자당"],
+      ["수납장", "자당"],
     ],
   },
   {
