@@ -1995,6 +1995,9 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
       selectedSubitemUnit: selectedSubitem?.unit ?? "",
       selectedSubitemUnitPrice: selectedSubitem?.unit_price ?? "",
       selectedSubitemLaborRate: selectedSubitem?.labor_rate ?? "",
+      aiReason: override.aiReason ?? "",
+      aiConfidence: override.aiConfidence ?? null,
+      aiRecommendedAction: override.aiRecommendedAction ?? "",
     };
   });
 }
@@ -2039,6 +2042,54 @@ function getAiActionLabel(action) {
     review: "검토 필요",
   };
   return labels[action] ?? "검토 필요";
+}
+
+function getAiRecommendationActionLabel(action) {
+  const labels = {
+    link_existing: "기존 항목에 연결",
+    add_new_item: "새 항목으로 추가",
+    cost_candidate: "비용 후보",
+    validation_only: "검산용",
+    ignore: "무시",
+    needs_review: "검토 필요",
+  };
+  return labels[action] ?? "검토 필요";
+}
+
+function getAiRecommendationOverridePatch(recommendation) {
+  const recommendedAction = recommendation?.recommendedAction;
+  if (recommendedAction === "link_existing") {
+    return {
+      rowType: "work_item",
+      action: "link",
+      categoryId: recommendation.recommendedCategoryId ?? "",
+      subitemId: recommendation.recommendedSubitemId ?? "",
+    };
+  }
+  if (recommendedAction === "add_new_item") {
+    return {
+      rowType: "work_item",
+      action: "new",
+      categoryId: recommendation.recommendedCategoryId ?? "",
+      subitemId: "",
+    };
+  }
+  if (recommendedAction === "cost_candidate") {
+    const rowType = ["cost_item", "margin_item", "tax_item"].includes(recommendation?.recommendedRowType)
+      ? recommendation.recommendedRowType
+      : "cost_item";
+    return { rowType, action: "cost" };
+  }
+  if (recommendedAction === "validation_only") {
+    const rowType = ["subtotal_row", "total_row"].includes(recommendation?.recommendedRowType)
+      ? recommendation.recommendedRowType
+      : "total_row";
+    return { rowType, action: "validate" };
+  }
+  if (recommendedAction === "ignore") {
+    return { rowType: "ignored", action: "ignore" };
+  }
+  return { rowType: "needs_review", action: "review" };
 }
 
 function hasImportValue(value) {
@@ -2616,6 +2667,9 @@ export default function App() {
   const [aiSetupNewItemSaving, setAiSetupNewItemSaving] = useState(false);
   const [aiSetupNewItemResult, setAiSetupNewItemResult] = useState(null);
   const [aiSetupNewItemError, setAiSetupNewItemError] = useState("");
+  const [aiSetupAiLoading, setAiSetupAiLoading] = useState(false);
+  const [aiSetupAiError, setAiSetupAiError] = useState("");
+  const [aiSetupAiResult, setAiSetupAiResult] = useState(null);
 
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
@@ -2933,6 +2987,8 @@ export default function App() {
 
   useEffect(() => {
     setAiSetupMatchOverrides({});
+    setAiSetupAiError("");
+    setAiSetupAiResult(null);
   }, [aiSetupMappingAnalysis.headerRowIndex, aiSetupMappingAnalysis.previewRows, selectedAiSetupSheetName]);
 
   useEffect(() => {
@@ -3165,6 +3221,9 @@ export default function App() {
     setAiSetupNewItemSaving(false);
     setAiSetupNewItemResult(null);
     setAiSetupNewItemError("");
+    setAiSetupAiLoading(false);
+    setAiSetupAiError("");
+    setAiSetupAiResult(null);
   }
 
   function updateAiSetupApplyConditionPatch(patch, touchedFields = Object.keys(patch)) {
@@ -3319,7 +3378,7 @@ export default function App() {
   function updateAiSetupRowOverride(sourceRowNumber, patch) {
     setAiSetupMatchOverrides((current) => {
       const previous = current[sourceRowNumber] ?? {};
-      const next = { ...previous, ...patch };
+      const next = { ...previous, ...patch, source: "manual" };
       if (Object.prototype.hasOwnProperty.call(patch, "rowType") && !Object.prototype.hasOwnProperty.call(patch, "action")) {
         next.action = getDefaultAiActionForRowType(patch.rowType, "needs_review");
       }
@@ -3331,6 +3390,131 @@ export default function App() {
         [sourceRowNumber]: next,
       };
     });
+  }
+
+  async function handleAiSetupRecommendMatches() {
+    if (aiSetupAiLoading || aiSetupCatalogMatchRows.length === 0) return;
+
+    setAiSetupAiLoading(true);
+    setAiSetupAiError("");
+    setAiSetupAiResult(null);
+
+    try {
+      const existingCategories = aiSetupCatalogItems.map((item) => ({
+        id: item.id,
+        name: item.name,
+      }));
+      const existingSubitems = aiSetupCatalogItems.flatMap((item) =>
+        (item.subitems ?? []).map((subitem) => ({
+          id: subitem.id,
+          item_id: subitem.item_id,
+          categoryId: item.id,
+          categoryName: item.name,
+          name: subitem.name,
+          unit: subitem.unit,
+        }))
+      );
+      const rows = aiSetupCatalogMatchRows.slice(0, 50).map((row) => ({
+        rowIndex: row.sourceRowNumber,
+        category: row.category ?? row.sourceCategory ?? "",
+        item_name: row.item_name ?? row.sourceItemName ?? "",
+        spec: row.spec ?? "",
+        unit: row.unit ?? "",
+        quantity: row.quantity ?? "",
+        unit_price: row.unit_price ?? "",
+        labor_rate: row.labor_rate ?? "",
+        labor_count: row.labor_count ?? "",
+        original_amount: row.original_amount ?? "",
+        memo: row.memo ?? "",
+        rowType: row.rowType,
+        action: row.action,
+        matchedCategoryId: row.selectedCategoryId,
+        matchedCategoryName: row.selectedCategoryName,
+        matchedSubitemId: row.selectedSubitemId,
+        matchedSubitemName: row.selectedSubitemName,
+      }));
+
+      const response = await fetch("/api/analyze-excel-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows,
+          currentMappings: aiSetupMappingAnalysis.mappings,
+          existingCategories,
+          existingSubitems,
+          condition: {
+            ...aiSetupApplyCondition,
+            label: aiSetupApplyConditionLabel,
+          },
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error || "AI 매칭 추천에 실패했습니다.");
+      }
+
+      const recommendations = Array.isArray(result?.recommendations) ? result.recommendations : [];
+      const sourceRowNumbers = new Set(aiSetupCatalogMatchRows.map((row) => row.sourceRowNumber));
+      const recommendationPatches = recommendations.reduce((patches, recommendation) => {
+        const sourceRowNumber = Number(recommendation.rowIndex);
+        if (!sourceRowNumbers.has(sourceRowNumber)) return patches;
+        const previous = aiSetupMatchOverrides[sourceRowNumber] ?? {};
+        if (previous.source === "manual") {
+          patches.skippedManualCount += 1;
+          return patches;
+        }
+        patches.items.push({
+          sourceRowNumber,
+          patch: {
+            ...getAiRecommendationOverridePatch(recommendation),
+            source: "ai",
+            aiReason: recommendation.reason ?? "",
+            aiConfidence: recommendation.confidence ?? null,
+            aiRecommendedAction: recommendation.recommendedAction ?? "",
+          },
+        });
+        return patches;
+      }, { items: [], skippedManualCount: 0 });
+
+      if (recommendationPatches.items.length > 0) {
+        setAiSetupMatchOverrides((current) => {
+          const next = { ...current };
+          recommendationPatches.items.forEach(({ sourceRowNumber, patch }) => {
+            next[sourceRowNumber] = {
+              ...(next[sourceRowNumber] ?? {}),
+              ...patch,
+            };
+          });
+          return next;
+        });
+      }
+
+      const recommendationSummary = recommendations.reduce(
+        (summary, recommendation) => {
+          if (recommendation.recommendedAction === "link_existing") summary.linkExisting += 1;
+          else if (recommendation.recommendedAction === "add_new_item") summary.addNewItem += 1;
+          else if (["cost_candidate", "validation_only", "ignore"].includes(recommendation.recommendedAction)) summary.other += 1;
+          else summary.needsReview += 1;
+          return summary;
+        },
+        { linkExisting: 0, addNewItem: 0, other: 0, needsReview: 0 }
+      );
+
+      setAiSetupAiResult({
+        model: result?.model ?? "",
+        warnings: result?.warnings ?? [],
+        totalRecommendations: recommendations.length,
+        appliedCount: recommendationPatches.items.length,
+        skippedManualCount: recommendationPatches.skippedManualCount,
+        ...recommendationSummary,
+      });
+    } catch (error) {
+      console.error("[FORMATE AI recommend matches]", error);
+      setAiSetupAiError(error?.message || "AI 매칭 추천 중 문제가 발생했습니다.");
+    } finally {
+      setAiSetupAiLoading(false);
+    }
   }
 
   function openAiSetupPriceConfirm() {
@@ -4711,6 +4895,9 @@ export default function App() {
     setAiSetupNewItemSaving(false);
     setAiSetupNewItemResult(null);
     setAiSetupNewItemError("");
+    setAiSetupAiLoading(false);
+    setAiSetupAiError("");
+    setAiSetupAiResult(null);
   }
 
   async function saveAndLeaveAdminCatalog() {
@@ -5472,6 +5659,9 @@ export default function App() {
     setAiSetupNewItemSaving(false);
     setAiSetupNewItemResult(null);
     setAiSetupNewItemError("");
+    setAiSetupAiLoading(false);
+    setAiSetupAiError("");
+    setAiSetupAiResult(null);
   }
 
   async function addAdminItem() {
@@ -7214,6 +7404,42 @@ export default function App() {
                       </div>
                     )}
 
+                    <div className="ai-recommendation-actions">
+                      <div>
+                        <strong>AI 추천은 자동 저장되지 않습니다.</strong>
+                        <p>표준 필드 행과 기존 FORMATE 항목을 보고 rowType, 처리 방식, 대분류/세부항목 매칭을 추천합니다. 추천 결과를 확인한 뒤 기존 저장 버튼으로만 반영됩니다.</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={handleAiSetupRecommendMatches}
+                        disabled={aiSetupAiLoading || aiSetupCatalogMatchRows.length === 0 || !aiSetupMappingAnalysis.hasHeader}
+                      >
+                        {aiSetupAiLoading ? "AI 분석 중..." : "AI로 매칭 추천"}
+                      </button>
+                    </div>
+
+                    {aiSetupAiError && <div className="error-box">{aiSetupAiError}</div>}
+                    {aiSetupAiResult && (
+                      <div className="ai-recommendation-summary">
+                        <div className="ai-recommendation-summary-grid">
+                          <div><span>추천 완료</span><strong>{aiSetupAiResult.appliedCount}개</strong></div>
+                          <div><span>수동 수정 보호</span><strong>{aiSetupAiResult.skippedManualCount}개</strong></div>
+                          <div><span>기존 연결 추천</span><strong>{aiSetupAiResult.linkExisting}개</strong></div>
+                          <div><span>새 항목 추천</span><strong>{aiSetupAiResult.addNewItem}개</strong></div>
+                          <div><span>비용/검산/무시</span><strong>{aiSetupAiResult.other}개</strong></div>
+                          <div><span>검토 필요</span><strong>{aiSetupAiResult.needsReview}개</strong></div>
+                        </div>
+                        {aiSetupAiResult.warnings?.length > 0 && (
+                          <div className="ai-recommendation-warnings">
+                            {aiSetupAiResult.warnings.map((warning, index) => (
+                              <p key={`ai-warning-${index}`}>{warning}</p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="ai-match-summary">
                       <div><span>전체 검토 행</span><strong>{aiSetupCatalogMatchSummary.total}개</strong></div>
                       <div><span>공사항목</span><strong>{aiSetupCatalogMatchSummary.workItem}개</strong></div>
@@ -7269,6 +7495,11 @@ export default function App() {
                                     <span className={`ai-match-status ${row.matchStatus}`.trim()}>
                                       {getAiMatchStatusLabel(row.matchStatus)}
                                     </span>
+                                    {row.aiReason && (
+                                      <small className="ai-recommendation-reason">
+                                        AI {row.aiConfidence !== null ? `${Math.round(Number(row.aiConfidence) * 100)}%` : ""} · {getAiRecommendationActionLabel(row.aiRecommendedAction)} · {row.aiReason}
+                                      </small>
+                                    )}
                                   </td>
                                   <td>
                                     <select
@@ -11749,6 +11980,81 @@ const styles = `
     font-size: var(--font-size-body-sm);
     line-height: 1.5;
   }
+  .ai-recommendation-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2);
+    align-items: center;
+    padding: var(--space-2);
+    border: 1px solid rgba(43, 53, 104, 0.14);
+    border-radius: var(--radius-card);
+    background: rgba(43, 53, 104, 0.04);
+  }
+  .ai-recommendation-actions div {
+    display: grid;
+    gap: 6px;
+  }
+  .ai-recommendation-actions strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body);
+  }
+  .ai-recommendation-actions p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+  }
+  .ai-recommendation-summary {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+  .ai-recommendation-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+  .ai-recommendation-summary-grid div {
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+  }
+  .ai-recommendation-summary-grid span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-recommendation-summary-grid strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body);
+  }
+  .ai-recommendation-warnings {
+    display: grid;
+    gap: 6px;
+  }
+  .ai-recommendation-warnings p {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: var(--radius-button);
+    background: rgba(190, 122, 38, 0.08);
+    color: #8a5a1d;
+    font-size: var(--font-size-body-sm);
+    line-height: 1.45;
+  }
+  .ai-recommendation-reason {
+    display: block;
+    max-width: 260px;
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.45;
+  }
   .ai-mapping-groups {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -13699,7 +14005,8 @@ const styles = `
     .estimate-template-expanded-content, .estimate-template-detail, .estimate-pyeong-preview,
     .estimate-meta-grid, .adjustment-row, .estimate-editor-total,
     .ai-upload-grid, .ai-sheet-meta, .ai-mapping-groups, .ai-match-summary, .ai-plan-split,
-    .ai-condition-grid, .ai-condition-hint-grid, .ai-final-summary-grid, .ai-price-update-actions {
+    .ai-condition-grid, .ai-condition-hint-grid, .ai-final-summary-grid, .ai-price-update-actions,
+    .ai-recommendation-actions, .ai-recommendation-summary-grid {
       grid-template-columns: 1fr;
     }
     .ai-mapping-title {
