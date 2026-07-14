@@ -2250,6 +2250,52 @@ function getAiTemplateValueTargets(plan) {
   );
 }
 
+function getAiNewItemTargets(rows) {
+  return (rows ?? [])
+    .filter((row) =>
+      row?.rowType === "work_item" &&
+      row?.action === "new" &&
+      (formatExcelCellValue(row.sourceItemName).trim() || formatExcelCellValue(row.sourceCategory).trim())
+    )
+    .map((row) => {
+      const sourceCategory = formatExcelCellValue(row.sourceCategory).trim();
+      const sourceItemName = formatExcelCellValue(row.sourceItemName).trim();
+      return {
+        sourceRowNumber: row.sourceRowNumber,
+        existingCategoryId: row.selectedCategoryId || row.categoryMatch?.matchedCategoryId || "",
+        existingCategoryName: row.selectedCategoryName || row.categoryMatch?.matchedCategoryName || "",
+        sourceCategory,
+        categoryName: row.selectedCategoryName || row.categoryMatch?.matchedCategoryName || sourceCategory,
+        subitemName: sourceItemName || sourceCategory,
+        spec: row.spec,
+        unit: formatExcelCellValue(row.unit).trim() || "평",
+        unitPrice: row.unit_price,
+        laborRate: row.labor_rate,
+      };
+    })
+    .filter((row) => row.categoryName && row.subitemName);
+}
+
+function summarizeAiNewItemTargets(targets = [], catalogItems = []) {
+  const existingCategoryIds = new Set((catalogItems ?? []).map((item) => item.id).filter(Boolean));
+  const existingCategoryNames = new Set((catalogItems ?? []).map((item) => normalizeCatalogMatchText(item.name)).filter(Boolean));
+  const newCategoryNames = new Set();
+  (targets ?? []).forEach((target) => {
+    const normalizedCategoryName = normalizeCatalogMatchText(target.categoryName);
+    if (
+      normalizedCategoryName &&
+      (!target.existingCategoryId || !existingCategoryIds.has(target.existingCategoryId)) &&
+      !existingCategoryNames.has(normalizedCategoryName)
+    ) {
+      newCategoryNames.add(normalizedCategoryName);
+    }
+  });
+  return {
+    newCategoryCount: newCategoryNames.size,
+    subitemCount: targets.length,
+  };
+}
+
 function getAiSetupTemplateCondition(condition) {
   if (!isAiSetupApplyConditionComplete(condition)) return null;
   return buildTemplateCondition({
@@ -2556,6 +2602,10 @@ export default function App() {
   const [aiSetupTemplateSaving, setAiSetupTemplateSaving] = useState(false);
   const [aiSetupTemplateResult, setAiSetupTemplateResult] = useState(null);
   const [aiSetupTemplateError, setAiSetupTemplateError] = useState("");
+  const [aiSetupNewItemConfirmOpen, setAiSetupNewItemConfirmOpen] = useState(false);
+  const [aiSetupNewItemSaving, setAiSetupNewItemSaving] = useState(false);
+  const [aiSetupNewItemResult, setAiSetupNewItemResult] = useState(null);
+  const [aiSetupNewItemError, setAiSetupNewItemError] = useState("");
 
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
@@ -2707,6 +2757,12 @@ export default function App() {
   const aiSetupTemplateValueTargets = useMemo(() => {
     return getAiTemplateValueTargets(aiSetupImportApplyPlan);
   }, [aiSetupImportApplyPlan]);
+  const aiSetupNewItemTargets = useMemo(() => {
+    return getAiNewItemTargets(aiSetupCatalogMatchRows);
+  }, [aiSetupCatalogMatchRows]);
+  const aiSetupNewItemSummary = useMemo(() => {
+    return summarizeAiNewItemTargets(aiSetupNewItemTargets, aiSetupCatalogItems);
+  }, [aiSetupCatalogItems, aiSetupNewItemTargets]);
   const aiSetupDetectedConditionHint = useMemo(() => {
     return detectAiSetupConditionHint(aiSetupFileName, selectedAiSetupSheet);
   }, [aiSetupFileName, selectedAiSetupSheet]);
@@ -3095,6 +3151,10 @@ export default function App() {
     setAiSetupTemplateSaving(false);
     setAiSetupTemplateResult(null);
     setAiSetupTemplateError("");
+    setAiSetupNewItemConfirmOpen(false);
+    setAiSetupNewItemSaving(false);
+    setAiSetupNewItemResult(null);
+    setAiSetupNewItemError("");
   }
 
   function updateAiSetupApplyConditionPatch(patch, touchedFields = Object.keys(patch)) {
@@ -3544,6 +3604,198 @@ export default function App() {
       setAiSetupTemplateError(getFriendlyError(error, "선택 조건의 템플릿 수량/인원을 저장하지 못했습니다."));
     } finally {
       setAiSetupTemplateSaving(false);
+    }
+  }
+
+  function openAiSetupNewItemConfirm() {
+    if (aiSetupNewItemSaving || aiSetupNewItemTargets.length === 0) return;
+    setAiSetupNewItemError("");
+    setAiSetupNewItemResult(null);
+    setAiSetupNewItemConfirmOpen(true);
+  }
+
+  function closeAiSetupNewItemConfirm() {
+    if (aiSetupNewItemSaving) return;
+    setAiSetupNewItemConfirmOpen(false);
+    setAiSetupNewItemError("");
+  }
+
+  async function confirmAiSetupNewItems() {
+    if (aiSetupNewItemSaving || aiSetupNewItemTargets.length === 0) return;
+
+    setAiSetupNewItemSaving(true);
+    setAiSetupNewItemError("");
+    setAiSetupNewItemResult(null);
+
+    try {
+      const companyId = requireSelectedCompanyId();
+      const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
+      const categoriesById = new Map((itemRows ?? []).map((item) => [item.id, { ...item }]));
+      const categoriesByName = new Map();
+      (itemRows ?? []).forEach((item) => {
+        const key = normalizeCatalogMatchText(item.name);
+        if (key && !categoriesByName.has(key)) categoriesByName.set(key, { ...item });
+      });
+
+      const subitemsByItemId = new Map();
+      (subitemRows ?? []).forEach((subitem) => {
+        const list = subitemsByItemId.get(subitem.item_id) ?? [];
+        list.push({ ...subitem });
+        subitemsByItemId.set(subitem.item_id, list);
+      });
+
+      let nextItemSortOrder = itemRows.length
+        ? Math.max(...itemRows.map((item) => item.sort_order ?? 0)) + 1
+        : 0;
+      const nextSubitemSortOrders = new Map(
+        (itemRows ?? []).map((item) => {
+          const subitems = subitemsByItemId.get(item.id) ?? [];
+          const nextOrder = subitems.length
+            ? Math.max(...subitems.map((subitem) => subitem.sort_order ?? 0)) + 1
+            : 0;
+          return [item.id, nextOrder];
+        })
+      );
+
+      const results = [];
+      const createdCategoryIds = new Set();
+      const linkedOverrides = {};
+
+      for (const target of aiSetupNewItemTargets) {
+        const categoryName = formatExcelCellValue(target.categoryName).trim();
+        const subitemName = formatExcelCellValue(target.subitemName).trim();
+        if (!categoryName) {
+          results.push({ status: "rejected", target, reason: "대분류가 없어 저장 후보에서 제외됐습니다." });
+          continue;
+        }
+        if (!subitemName) {
+          results.push({ status: "rejected", target, reason: "세부항목명이 없어 저장 후보에서 제외됐습니다." });
+          continue;
+        }
+
+        const unitPrice = hasImportValue(target.unitPrice) ? parseAiImportCurrencyNumber(target.unitPrice) : 0;
+        const laborRate = hasImportValue(target.laborRate) ? parseAiImportCurrencyNumber(target.laborRate) : 0;
+        if (unitPrice === null || laborRate === null) {
+          results.push({ status: "rejected", target, reason: "단가 또는 인건비 값을 숫자로 읽을 수 없습니다." });
+          continue;
+        }
+
+        let category = target.existingCategoryId ? categoriesById.get(target.existingCategoryId) : null;
+        if (!category) {
+          const normalizedCategoryName = normalizeCatalogMatchText(categoryName);
+          category = normalizedCategoryName ? categoriesByName.get(normalizedCategoryName) : null;
+        }
+
+        let categoryCreated = false;
+        if (!category) {
+          const { data: insertedCategory, error: categoryError } = await supabase
+            .from("construction_items")
+            .insert({
+              company_id: companyId,
+              name: categoryName,
+              item_type: "itemized",
+              is_favorite: false,
+              sort_order: nextItemSortOrder,
+            })
+            .select("*")
+            .single();
+          if (categoryError) {
+            results.push({ status: "rejected", target, reason: categoryError.message || "대분류 추가 실패" });
+            continue;
+          }
+          nextItemSortOrder += 1;
+          category = insertedCategory;
+          categoryCreated = true;
+          categoriesById.set(category.id, { ...category });
+          const normalizedCategoryName = normalizeCatalogMatchText(category.name);
+          if (normalizedCategoryName) categoriesByName.set(normalizedCategoryName, { ...category });
+          createdCategoryIds.add(category.id);
+          nextSubitemSortOrders.set(category.id, 0);
+        }
+
+        const normalizedSubitemName = normalizeCatalogMatchText(subitemName);
+        const existingSubitem = (subitemsByItemId.get(category.id) ?? []).find(
+          (subitem) => normalizeCatalogMatchText(subitem.name) === normalizedSubitemName
+        );
+
+        if (existingSubitem?.id) {
+          linkedOverrides[target.sourceRowNumber] = {
+            rowType: "work_item",
+            action: "link",
+            categoryId: category.id,
+            subitemId: existingSubitem.id,
+          };
+          results.push({ status: "fulfilled", target, category, subitem: existingSubitem, skipped: true, categoryCreated });
+          continue;
+        }
+
+        const sortOrder = nextSubitemSortOrders.get(category.id) ?? 0;
+        const { data: insertedSubitem, error: subitemError } = await supabase
+          .from("construction_subitems")
+          .insert({
+            item_id: category.id,
+            name: subitemName,
+            unit: target.unit || "평",
+            unit_price: unitPrice,
+            labor_rate: laborRate,
+            sort_order: sortOrder,
+          })
+          .select("*")
+          .single();
+
+        if (subitemError) {
+          results.push({ status: "rejected", target, reason: subitemError.message || "세부항목 추가 실패" });
+          continue;
+        }
+
+        nextSubitemSortOrders.set(category.id, sortOrder + 1);
+        subitemsByItemId.set(category.id, [...(subitemsByItemId.get(category.id) ?? []), insertedSubitem]);
+        linkedOverrides[target.sourceRowNumber] = {
+          rowType: "work_item",
+          action: "link",
+          categoryId: category.id,
+          subitemId: insertedSubitem.id,
+        };
+        results.push({ status: "fulfilled", target, category, subitem: insertedSubitem, skipped: false, categoryCreated });
+      }
+
+      const successRows = results.filter((result) => result.status === "fulfilled" && !result.skipped);
+      const skippedRows = results.filter((result) => result.status === "fulfilled" && result.skipped);
+      const failedRows = results.filter((result) => result.status === "rejected");
+
+      if (Object.keys(linkedOverrides).length > 0) {
+        setAiSetupMatchOverrides((current) => {
+          const next = { ...current };
+          Object.entries(linkedOverrides).forEach(([sourceRowNumber, override]) => {
+            next[sourceRowNumber] = {
+              ...(next[sourceRowNumber] ?? {}),
+              ...override,
+            };
+          });
+          return next;
+        });
+      }
+
+      if (successRows.length > 0 || skippedRows.length > 0) {
+        await fetchAiSetupCatalogItems();
+      }
+
+      setAiSetupNewItemResult({
+        createdCategoryCount: createdCategoryIds.size,
+        createdSubitemCount: successRows.length,
+        skippedCount: skippedRows.length,
+        failedCount: failedRows.length,
+        failedRows,
+      });
+
+      if (failedRows.length === 0) {
+        setAiSetupNewItemConfirmOpen(false);
+      }
+    } catch (error) {
+      console.error("[FORMATE AI setup new items]", error);
+      setAiSetupNewItemError(getFriendlyError(error, "새 항목 후보를 단가표에 추가하지 못했습니다."));
+    } finally {
+      setAiSetupNewItemSaving(false);
     }
   }
 
@@ -4445,6 +4697,10 @@ export default function App() {
     setAiSetupTemplateSaving(false);
     setAiSetupTemplateResult(null);
     setAiSetupTemplateError("");
+    setAiSetupNewItemConfirmOpen(false);
+    setAiSetupNewItemSaving(false);
+    setAiSetupNewItemResult(null);
+    setAiSetupNewItemError("");
   }
 
   async function saveAndLeaveAdminCatalog() {
@@ -5202,6 +5458,10 @@ export default function App() {
     setAiSetupTemplateSaving(false);
     setAiSetupTemplateResult(null);
     setAiSetupTemplateError("");
+    setAiSetupNewItemConfirmOpen(false);
+    setAiSetupNewItemSaving(false);
+    setAiSetupNewItemResult(null);
+    setAiSetupNewItemError("");
   }
 
   async function addAdminItem() {
@@ -6474,6 +6734,74 @@ export default function App() {
         </div>
       )}
 
+      {aiSetupNewItemConfirmOpen && (
+        <div className="modal-backdrop" onClick={closeAiSetupNewItemConfirm}>
+          <section className="admin-verify-modal ai-price-update-modal ai-new-item-modal" onClick={(event) => event.stopPropagation()}>
+            <div>
+              <p className="eyebrow dark">AI 초기 세팅</p>
+              <h2>새 항목 후보를 단가표에 추가할까요?</h2>
+              <p className="muted">
+                추가 예정 대분류는 <strong>{aiSetupNewItemSummary.newCategoryCount}개</strong>,
+                세부항목은 <strong>{aiSetupNewItemTargets.length}개</strong>입니다.
+              </p>
+            </div>
+            <div className="ai-table-wrap ai-price-update-modal-table">
+              <table className="ai-data-table ai-catalog-match-table">
+                <thead>
+                  <tr>
+                    <th>원본 행</th>
+                    <th>대분류</th>
+                    <th>세부항목명</th>
+                    <th>단위</th>
+                    <th>단가</th>
+                    <th>인건비</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aiSetupNewItemTargets.map((row) => (
+                    <tr key={`confirm-new-item-${row.sourceRowNumber}`}>
+                      <td className="ai-column-code">{row.sourceRowNumber}</td>
+                      <td>{row.categoryName || "-"}</td>
+                      <td>{row.subitemName || "-"}</td>
+                      <td>{row.unit || "-"}</td>
+                      <td>{displayImportValue(row.unitPrice)}</td>
+                      <td>{displayImportValue(row.laborRate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="ai-plan-notice">
+              이 작업은 새 대분류/새 세부항목만 단가표에 추가합니다. 템플릿 수량/인원, 비용/세금 후보, 검산/합계 행은 저장되지 않습니다.
+            </div>
+            {aiSetupNewItemError && <div className="error-box">{aiSetupNewItemError}</div>}
+            {aiSetupNewItemResult?.failedCount > 0 && (
+              <div className="error-box">
+                <strong>{aiSetupNewItemResult.failedCount}개 항목을 추가하지 못했습니다.</strong>
+                {aiSetupNewItemResult.failedRows.map((row) => (
+                  <p key={`failed-new-item-${row.target?.sourceRowNumber}`}>
+                    {row.target?.categoryName || "-"} / {row.target?.subitemName || "-"}: {row.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+            <div className="actions">
+              <button type="button" className="secondary-button" onClick={closeAiSetupNewItemConfirm} disabled={aiSetupNewItemSaving}>
+                취소
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={confirmAiSetupNewItems}
+                disabled={aiSetupNewItemSaving || aiSetupNewItemTargets.length === 0}
+              >
+                {aiSetupNewItemSaving ? "추가 중..." : "추가하기"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {conditionSummary && page !== "landing" && page !== "ready" && page !== "condition" && page !== "items" && !page.startsWith("admin") && (
         <div className="sticky-summary">
           <span>견적 조건</span>
@@ -7488,8 +7816,44 @@ export default function App() {
                     </div>
 
                     <div className="ai-plan-notice">
-                      현재 단계에서는 기존 항목에 연결된 단가/인건비와 선택 조건의 템플릿 수량/인원만 반영할 수 있습니다.
-                      새 항목 추가, 비용/세금 후보, 검산/합계 행은 저장하지 않습니다.
+                      현재 단계에서는 기존 항목 단가/인건비, 새 항목 후보, 선택 조건의 템플릿 수량/인원만 반영할 수 있습니다.
+                      비용/세금 후보와 검산/합계 행은 저장하지 않습니다.
+                    </div>
+
+                    {aiSetupNewItemResult && (
+                      <div className={aiSetupNewItemResult.failedCount > 0 ? "error-box" : "success-box"}>
+                        <strong>
+                          {aiSetupNewItemResult.createdCategoryCount}개 대분류, {aiSetupNewItemResult.createdSubitemCount}개 세부항목을 단가표에 추가했습니다.
+                        </strong>
+                        {aiSetupNewItemResult.skippedCount > 0 && (
+                          <p>{aiSetupNewItemResult.skippedCount}개 항목은 같은 대분류 안에 이미 있어 기존 항목으로 연결했습니다.</p>
+                        )}
+                        {aiSetupNewItemResult.failedCount > 0 && (
+                          <p>{aiSetupNewItemResult.failedCount}개 항목은 추가하지 못했습니다. 확인 모달에서 실패 항목을 확인해주세요.</p>
+                        )}
+                      </div>
+                    )}
+                    {aiSetupNewItemError && <div className="error-box">{aiSetupNewItemError}</div>}
+
+                    <div className="ai-price-update-actions ai-new-item-actions">
+                      <div>
+                        <strong>새 항목 후보 단가표 추가</strong>
+                        <p>
+                          이 버튼은 공사항목으로 분류되고 처리 방식이 새 항목으로 추가인 행만 단가표에 추가합니다.
+                          수량/인원, 비용/세금 후보, 검산/합계 행은 저장하지 않습니다.
+                        </p>
+                        {aiSetupNewItemTargets.length === 0 && (
+                          <p className="ai-plan-empty">추가할 새 항목 후보가 없습니다. 공사항목 행의 처리 방식을 새 항목으로 추가로 바꿔주세요.</p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={openAiSetupNewItemConfirm}
+                        disabled={aiSetupNewItemSaving || aiSetupNewItemTargets.length === 0}
+                      >
+                        {aiSetupNewItemSaving ? "추가 중..." : "새 항목 후보를 단가표에 추가"}
+                      </button>
                     </div>
 
                     {aiSetupPriceResult && (
