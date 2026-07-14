@@ -80,8 +80,14 @@ export function getAiActionOptionsForRowType(rowType) {
       { value: "ignore", label: "무시" },
     ];
   }
-  if (["cost_item", "margin_item", "tax_item"].includes(rowType)) {
+  if (rowType === "cost_item") {
     return [{ value: "cost", label: "비용 후보" }];
+  }
+  if (rowType === "margin_item") {
+    return [{ value: "cost", label: "비용/마진 후보" }];
+  }
+  if (rowType === "tax_item") {
+    return [{ value: "cost", label: "세금 후보" }];
   }
   if (["subtotal_row", "total_row"].includes(rowType)) {
     return [{ value: "validate", label: "검산용" }];
@@ -90,6 +96,13 @@ export function getAiActionOptionsForRowType(rowType) {
     return [{ value: "ignore", label: "무시" }];
   }
   return [{ value: "review", label: "검토 필요" }];
+}
+
+export function getAiActionSelectValue(row) {
+  const options = getAiActionOptionsForRowType(row?.rowType);
+  return options.some((option) => option.value === row?.action)
+    ? row.action
+    : options[0]?.value ?? "review";
 }
 
 export function getAiActionLabel(action) {

@@ -35,6 +35,7 @@ import {
   isAiWorkItemRow,
   getAiCatalogMappingUnavailableMessage,
   getAiActionOptionsForRowType,
+  getAiActionSelectValue,
   getAiActionLabel,
   getAiRecommendationActionLabel,
 } from "./features/aiExcelImport/display";
@@ -6934,16 +6935,12 @@ export default function App() {
                                   </td>
                                   <td>
                                     <select
-                                      value={row.action}
+                                      value={getAiActionSelectValue(row)}
                                       onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { action: event.target.value })}
                                     >
-                                      <option value="link">기존 항목에 연결</option>
-                                      <option value="new">새 항목으로 추가</option>
-                                      <option value="cost">비용 후보</option>
-                                      <option value="tax">세금 후보</option>
-                                      <option value="validate">검산용</option>
-                                      <option value="ignore">무시</option>
-                                      <option value="review">검토 필요</option>
+                                      {getAiActionOptionsForRowType(row.rowType).map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
                                     </select>
                                   </td>
                                   <td>
