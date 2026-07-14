@@ -1969,6 +1969,16 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
     const selectedSubitem = (selectedCategory?.subitems ?? []).find((subitem) => subitem.id === selectedSubitemId);
     const action = override.action ?? getDefaultAiActionForRowType(rowType, autoStatus);
 
+    const matchStatus = rowType === "ignored" || action === "ignore"
+      ? "ignored"
+      : action === "link" && selectedCategoryId && selectedSubitemId
+        ? "matched"
+        : action === "new"
+          ? "new_candidate"
+          : action === "review"
+            ? "needs_review"
+            : autoStatus;
+
     return {
       ...row,
       sourceCategory,
@@ -1976,7 +1986,7 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
       categoryMatch,
       subitemMatch,
       rowType,
-      matchStatus: rowType === "ignored" || action === "ignore" ? "ignored" : action === "new" ? "new_candidate" : action === "review" ? "needs_review" : autoStatus,
+      matchStatus,
       action,
       selectedCategoryId,
       selectedCategoryName: selectedCategory?.name ?? categoryMatch?.matchedCategoryName ?? "",
@@ -7818,6 +7828,7 @@ export default function App() {
                     <div className="ai-plan-notice">
                       현재 단계에서는 기존 항목 단가/인건비, 새 항목 후보, 선택 조건의 템플릿 수량/인원만 반영할 수 있습니다.
                       비용/세금 후보와 검산/합계 행은 저장하지 않습니다.
+                      새 항목 후보가 있는 경우 먼저 단가표에 새 항목을 추가해야 해당 항목의 수량/인원을 템플릿에 저장할 수 있습니다.
                     </div>
 
                     {aiSetupNewItemResult && (
@@ -7825,6 +7836,7 @@ export default function App() {
                         <strong>
                           {aiSetupNewItemResult.createdCategoryCount}개 대분류, {aiSetupNewItemResult.createdSubitemCount}개 세부항목을 단가표에 추가했습니다.
                         </strong>
+                        <p>새로 추가된 항목은 기존 항목으로 연결되며, 수량/인원이 있으면 템플릿 저장 후보에 포함됩니다.</p>
                         {aiSetupNewItemResult.skippedCount > 0 && (
                           <p>{aiSetupNewItemResult.skippedCount}개 항목은 같은 대분류 안에 이미 있어 기존 항목으로 연결했습니다.</p>
                         )}
@@ -7841,6 +7853,7 @@ export default function App() {
                         <p>
                           이 버튼은 공사항목으로 분류되고 처리 방식이 새 항목으로 추가인 행만 단가표에 추가합니다.
                           수량/인원, 비용/세금 후보, 검산/합계 행은 저장하지 않습니다.
+                          추가 후 반영 계획이 갱신되고 새로 추가된 항목도 템플릿 저장 후보에 포함됩니다.
                         </p>
                         {aiSetupNewItemTargets.length === 0 && (
                           <p className="ai-plan-empty">추가할 새 항목 후보가 없습니다. 공사항목 행의 처리 방식을 새 항목으로 추가로 바꿔주세요.</p>
