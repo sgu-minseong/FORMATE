@@ -1208,6 +1208,27 @@ function formatDisplayDateTime(value) {
   });
 }
 
+function formatRecentSaveTime(value) {
+  if (!value) return "";
+  const savedAt = new Date(value);
+  if (Number.isNaN(savedAt.getTime())) return "";
+  return Date.now() - savedAt.getTime() < 60_000 ? "방금 저장됨" : formatDisplayDateTime(value);
+}
+
+function getAiSaveTargetName(target) {
+  const categoryName = formatExcelCellValue(target?.selectedCategoryName ?? target?.categoryName ?? target?.sourceCategory).trim();
+  const itemName = formatExcelCellValue(target?.selectedSubitemName ?? target?.subitemName ?? target?.sourceItemName).trim();
+  return [categoryName, itemName].filter(Boolean).join(" / ") || "이름 없는 항목";
+}
+
+function getCompactNameSummary(names, limit = 3) {
+  const uniqueNames = Array.from(new Set((names ?? []).filter(Boolean)));
+  if (uniqueNames.length === 0) return "";
+  const visible = uniqueNames.slice(0, limit).join(", ");
+  const remaining = uniqueNames.length - limit;
+  return remaining > 0 ? `${visible} 외 ${remaining}개` : visible;
+}
+
 function sanitizeFileNamePart(value, fallback) {
   const cleaned = `${value ?? ""}`
     .trim()
@@ -2712,6 +2733,11 @@ export default function App() {
     ["비용/합계", aiSetupImportApplyPlanSummary.costCandidates + aiSetupImportApplyPlanSummary.validationRows],
     ["검토 필요", aiSetupImportApplyPlanSummary.reviewRows],
   ];
+  const aiSetupAutoExcludedCount =
+    aiSetupImportApplyPlanSummary.costCandidates +
+    aiSetupImportApplyPlanSummary.validationRows +
+    aiSetupImportApplyPlanSummary.reviewRows +
+    aiSetupImportApplyPlanSummary.ignoredRows;
   const adminSearchTerm = adminSearch.trim().toLowerCase();
   const filteredAdminItems = useMemo(() => {
     return adminItems.filter((item) => {
@@ -3464,6 +3490,9 @@ export default function App() {
         skippedCount: skippedRows.length,
         failedCount: failedRows.length,
         failedRows,
+        savedAt: new Date().toISOString(),
+        savedNames: successRows.map((result) => getAiSaveTargetName(result.target)),
+        skippedNames: skippedRows.map((result) => getAiSaveTargetName(result.target)),
       });
 
       if (successRows.length > 0) {
@@ -3520,7 +3549,7 @@ export default function App() {
         const allowedSubitem = allowedSubitems.get(target.matchedSubitemId);
         if (!allowedSubitem || allowedSubitem.itemId !== target.matchedItemId) {
           preflightResults.push({
-            status: "rejected",
+            status: "skipped",
             target,
             reason: "현재 업체의 기존 세부항목으로 확인되지 않았습니다.",
           });
@@ -3552,10 +3581,16 @@ export default function App() {
       }
 
       if (preparedTargets.length === 0) {
+        const skippedRows = preflightResults.filter((result) => result.status === "skipped");
+        const failedRows = preflightResults.filter((result) => result.status === "rejected");
         setAiSetupTemplateResult({
           successCount: 0,
-          failedCount: preflightResults.length,
-          failedRows: preflightResults,
+          skippedCount: skippedRows.length,
+          failedCount: failedRows.length,
+          failedRows,
+          savedAt: new Date().toISOString(),
+          savedNames: [],
+          skippedNames: skippedRows.map((result) => getAiSaveTargetName(result.target)),
           templateId: "",
           createdTemplate: false,
         });
@@ -3639,12 +3674,17 @@ export default function App() {
       }
 
       const successRows = results.filter((result) => result.status === "fulfilled");
+      const skippedRows = results.filter((result) => result.status === "skipped");
       const failedRows = results.filter((result) => result.status === "rejected");
 
       setAiSetupTemplateResult({
         successCount: successRows.length,
+        skippedCount: skippedRows.length,
         failedCount: failedRows.length,
         failedRows,
+        savedAt: new Date().toISOString(),
+        savedNames: successRows.map((result) => getAiSaveTargetName(result.target)),
+        skippedNames: skippedRows.map((result) => getAiSaveTargetName(result.target)),
         templateId: templateRow.id,
         createdTemplate,
       });
@@ -3846,6 +3886,9 @@ export default function App() {
         skippedCount: skippedRows.length,
         failedCount: failedRows.length,
         failedRows,
+        savedAt: new Date().toISOString(),
+        savedNames: successRows.map((result) => getAiSaveTargetName(result.target)),
+        skippedNames: skippedRows.map((result) => getAiSaveTargetName(result.target)),
       });
 
       if (failedRows.length === 0) {
@@ -3857,6 +3900,61 @@ export default function App() {
     } finally {
       setAiSetupNewItemSaving(false);
     }
+  }
+
+  function renderAiSetupSaveResult({ result, title, successCount, successUnit = "개", successText, skippedText }) {
+    if (!result) return null;
+    const hasFailures = (result.failedCount ?? 0) > 0;
+    const savedSummary = getCompactNameSummary(result.savedNames);
+    const skippedSummary = getCompactNameSummary(result.skippedNames);
+    const savedAtLabel = formatRecentSaveTime(result.savedAt);
+
+    return (
+      <div className={`ai-save-result ${hasFailures ? "has-failure" : "success"}`.trim()}>
+        <div className="ai-save-result-head">
+          <strong>{title} · {successCount}{successUnit}</strong>
+          {savedAtLabel && <span>{savedAtLabel}</span>}
+        </div>
+        {successText && <p>{successText}</p>}
+        {savedSummary && <p>저장됨: {savedSummary}</p>}
+        {(result.skippedCount ?? 0) > 0 && (
+          <p>{skippedText ?? "건너뜀"} · {result.skippedCount}개{skippedSummary ? ` (${skippedSummary})` : ""}</p>
+        )}
+        {(result.failedCount ?? 0) > 0 && (
+          <p>실패 · {result.failedCount}개</p>
+        )}
+        {aiSetupAutoExcludedCount > 0 && (
+          <p>자동 저장 제외 · 비용/세금/검산/검토/무시 행 {aiSetupAutoExcludedCount}개</p>
+        )}
+        {((result.savedNames?.length ?? 0) > 0 || (result.skippedNames?.length ?? 0) > 0 || (result.failedRows?.length ?? 0) > 0) && (
+          <details className="ai-save-result-details">
+            <summary>자세히 보기</summary>
+            {result.savedNames?.length > 0 && (
+              <div>
+                <b>저장된 항목</b>
+                {result.savedNames.map((name, index) => <span key={`saved-${title}-${index}`}>{name}</span>)}
+              </div>
+            )}
+            {result.skippedNames?.length > 0 && (
+              <div>
+                <b>건너뜀</b>
+                {result.skippedNames.map((name, index) => <span key={`skipped-${title}-${index}`}>{name}</span>)}
+              </div>
+            )}
+            {result.failedRows?.length > 0 && (
+              <div>
+                <b>실패</b>
+                {result.failedRows.map((row, index) => (
+                  <span key={`failed-${title}-${index}`}>
+                    {getAiSaveTargetName(row.target)}: {row.reason || "저장 실패"}
+                  </span>
+                ))}
+              </div>
+            )}
+          </details>
+        )}
+      </div>
+    );
   }
 
   async function handleAdminVerify(event) {
@@ -6726,7 +6824,7 @@ export default function App() {
                 취소
               </button>
               <button type="button" className="primary-button" onClick={confirmAiSetupPriceUpdates} disabled={aiSetupPriceSaving || aiSetupPriceUpdateTargets.length === 0}>
-                {aiSetupPriceSaving ? "반영 중..." : "반영하기"}
+                {aiSetupPriceSaving ? "단가표 반영 중..." : "반영하기"}
               </button>
             </div>
           </section>
@@ -6793,7 +6891,7 @@ export default function App() {
                 onClick={confirmAiSetupTemplateValues}
                 disabled={aiSetupTemplateSaving || !aiSetupApplyConditionComplete || aiSetupTemplateValueTargets.length === 0}
               >
-                {aiSetupTemplateSaving ? "저장 중..." : "저장하기"}
+                {aiSetupTemplateSaving ? "템플릿 저장 중..." : "저장하기"}
               </button>
             </div>
           </section>
@@ -6861,7 +6959,7 @@ export default function App() {
                 onClick={confirmAiSetupNewItems}
                 disabled={aiSetupNewItemSaving || aiSetupNewItemTargets.length === 0}
               >
-                {aiSetupNewItemSaving ? "추가 중..." : "추가하기"}
+                {aiSetupNewItemSaving ? "새 항목 추가 중..." : "추가하기"}
               </button>
             </div>
           </section>
@@ -8040,6 +8138,13 @@ export default function App() {
                       )}
                     </div>
 
+                    <div className="ai-save-safety-line">
+                      <span>AI 추천은 자동 저장되지 않습니다.</span>
+                      <span>누른 저장 버튼의 범위만 반영됩니다.</span>
+                      <span>비용/세금/검산 행은 자동 저장하지 않습니다.</span>
+                      <span>묶음 원본은 제외, 자동 분해 행만 저장 후보입니다.</span>
+                    </div>
+
                     <button
                       type="button"
                       className="ai-inline-disclosure"
@@ -8095,20 +8200,15 @@ export default function App() {
                     </>
                     )}
 
-                    {aiSetupNewItemResult && (
-                      <div className={aiSetupNewItemResult.failedCount > 0 ? "error-box" : "success-box"}>
-                        <strong>
-                          {aiSetupNewItemResult.createdCategoryCount}개 대분류, {aiSetupNewItemResult.createdSubitemCount}개 세부항목을 단가표에 추가했습니다.
-                        </strong>
-                        <p>새로 추가된 항목은 기존 항목으로 연결되며, 수량/인원이 있으면 템플릿 저장 후보에 포함됩니다.</p>
-                        {aiSetupNewItemResult.skippedCount > 0 && (
-                          <p>{aiSetupNewItemResult.skippedCount}개 항목은 같은 대분류 안에 이미 있어 기존 항목으로 연결했습니다.</p>
-                        )}
-                        {aiSetupNewItemResult.failedCount > 0 && (
-                          <p>{aiSetupNewItemResult.failedCount}개 항목은 추가하지 못했습니다. 확인 모달에서 실패 항목을 확인해주세요.</p>
-                        )}
-                      </div>
-                    )}
+                    {renderAiSetupSaveResult({
+                      result: aiSetupNewItemResult,
+                      title: "새 항목 추가 완료",
+                      successCount: aiSetupNewItemResult?.createdSubitemCount ?? 0,
+                      successText: aiSetupNewItemResult
+                        ? `${aiSetupNewItemResult.createdCategoryCount}개 대분류, ${aiSetupNewItemResult.createdSubitemCount}개 세부항목을 단가표에 추가했습니다.`
+                        : "",
+                      skippedText: "이미 있거나 연결되어 건너뜀",
+                    })}
                     {aiSetupNewItemError && <div className="error-box">{aiSetupNewItemError}</div>}
 
                     <div className="ai-price-update-actions ai-new-item-actions">
@@ -8124,23 +8224,17 @@ export default function App() {
                         onClick={openAiSetupNewItemConfirm}
                         disabled={aiSetupNewItemSaving || aiSetupNewItemTargets.length === 0}
                       >
-                        {aiSetupNewItemSaving ? "추가 중..." : "새 항목 후보를 단가표에 추가"}
+                        {aiSetupNewItemSaving ? "새 항목 추가 중..." : "새 항목 후보를 단가표에 추가"}
                       </button>
                     </div>
 
-                    {aiSetupPriceResult && (
-                      <div className={aiSetupPriceResult.failedCount > 0 ? "error-box" : "success-box"}>
-                        <strong>
-                          {aiSetupPriceResult.successCount}개 항목의 단가/인건비를 반영했습니다.
-                        </strong>
-                        {aiSetupPriceResult.skippedCount > 0 && (
-                          <p>{aiSetupPriceResult.skippedCount}개 항목은 변경할 값이 없어 건너뛰었습니다.</p>
-                        )}
-                        {aiSetupPriceResult.failedCount > 0 && (
-                          <p>{aiSetupPriceResult.failedCount}개 항목은 반영하지 못했습니다. 확인 모달에서 실패 항목을 확인해주세요.</p>
-                        )}
-                      </div>
-                    )}
+                    {renderAiSetupSaveResult({
+                      result: aiSetupPriceResult,
+                      title: "기존 단가 업데이트 완료",
+                      successCount: aiSetupPriceResult?.successCount ?? 0,
+                      successText: aiSetupPriceResult ? `${aiSetupPriceResult.successCount}개 항목의 단가/인건비를 업데이트했습니다.` : "",
+                      skippedText: "변경할 값이 없어 건너뜀",
+                    })}
                     {aiSetupPriceError && <div className="error-box">{aiSetupPriceError}</div>}
 
                     <div className="ai-price-update-actions">
@@ -8156,23 +8250,19 @@ export default function App() {
                         onClick={openAiSetupPriceConfirm}
                         disabled={aiSetupPriceSaving || aiSetupPriceUpdateTargets.length === 0}
                       >
-                        {aiSetupPriceSaving ? "반영 중..." : "기존 항목 단가만 반영"}
+                        {aiSetupPriceSaving ? "단가표 반영 중..." : "기존 항목 단가만 반영"}
                       </button>
                     </div>
 
-                    {aiSetupTemplateResult && (
-                      <div className={aiSetupTemplateResult.failedCount > 0 ? "error-box" : "success-box"}>
-                        <strong>
-                          {aiSetupTemplateResult.successCount}개 항목의 템플릿 수량/인원을 저장했습니다.
-                        </strong>
-                        {aiSetupTemplateResult.createdTemplate && (
-                          <p>선택 조건의 새 견적 템플릿을 만들고 값을 저장했습니다.</p>
-                        )}
-                        {aiSetupTemplateResult.failedCount > 0 && (
-                          <p>{aiSetupTemplateResult.failedCount}개 항목은 저장하지 못했습니다. 확인 모달에서 실패 항목을 확인해주세요.</p>
-                        )}
-                      </div>
-                    )}
+                    {renderAiSetupSaveResult({
+                      result: aiSetupTemplateResult,
+                      title: "템플릿 저장 완료",
+                      successCount: aiSetupTemplateResult?.successCount ?? 0,
+                      successText: aiSetupTemplateResult
+                        ? `${aiSetupTemplateResult.successCount}개 항목의 템플릿 수량/인원을 저장했습니다.${aiSetupTemplateResult.createdTemplate ? " 새 견적 템플릿도 만들었습니다." : ""}`
+                        : "",
+                      skippedText: "기존 항목 연결이 없어 건너뜀",
+                    })}
                     {aiSetupTemplateError && <div className="error-box">{aiSetupTemplateError}</div>}
 
                     <div className="ai-price-update-actions ai-template-save-actions">
@@ -8190,7 +8280,7 @@ export default function App() {
                         onClick={openAiSetupTemplateConfirm}
                         disabled={aiSetupTemplateSaving || !aiSetupApplyConditionComplete || aiSetupTemplateValueTargets.length === 0}
                       >
-                        {aiSetupTemplateSaving ? "저장 중..." : "선택 조건 템플릿에 수량/인원 저장"}
+                        {aiSetupTemplateSaving ? "템플릿 저장 중..." : "선택 조건 템플릿에 수량/인원 저장"}
                       </button>
                     </div>
                   </section>
@@ -11649,6 +11739,84 @@ const styles = `
     gap: 4px;
     margin: 0;
     padding-left: 18px;
+  }
+  .ai-save-safety-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+  }
+  .ai-save-safety-line span {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+  }
+  .ai-save-safety-line span + span::before {
+    content: "";
+    width: 1px;
+    height: 12px;
+    margin-right: 6px;
+    background: var(--border-default);
+  }
+  .ai-save-result {
+    display: grid;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid rgba(49, 124, 82, 0.2);
+    border-radius: var(--radius-button);
+    background: rgba(49, 124, 82, 0.06);
+  }
+  .ai-save-result.has-failure {
+    border-color: rgba(190, 122, 38, 0.24);
+    background: rgba(190, 122, 38, 0.06);
+  }
+  .ai-save-result-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+  .ai-save-result-head strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .ai-save-result-head span,
+  .ai-save-result p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.45;
+  }
+  .ai-save-result-details {
+    display: grid;
+    gap: 8px;
+  }
+  .ai-save-result-details summary {
+    width: fit-content;
+    color: var(--brand-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    cursor: pointer;
+  }
+  .ai-save-result-details div {
+    display: grid;
+    gap: 4px;
+    padding-top: 4px;
+  }
+  .ai-save-result-details b,
+  .ai-save-result-details span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .ai-save-result-details b {
+    color: var(--text-primary);
   }
   .ai-review-panel {
     display: grid;
