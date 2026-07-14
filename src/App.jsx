@@ -32,6 +32,8 @@ import {
   getAiDisplayMatchStatus,
   getAiRowTypeGuidance,
   getAiDisplayMatchStatusLabel,
+  isAiWorkItemRow,
+  getAiCatalogMappingUnavailableMessage,
   getAiActionOptionsForRowType,
   getAiActionLabel,
   getAiRecommendationActionLabel,
@@ -6897,8 +6899,11 @@ export default function App() {
                           </thead>
                           <tbody>
                             {aiSetupCatalogMatchRows.map((row) => {
-                              const selectedCategory = aiSetupCatalogItems.find((item) => item.id === row.selectedCategoryId);
-                              const availableSubitems = selectedCategory?.subitems ?? [];
+                              const canEditCatalogMapping = isAiWorkItemRow(row);
+                              const selectedCategory = canEditCatalogMapping
+                                ? aiSetupCatalogItems.find((item) => item.id === row.selectedCategoryId)
+                                : null;
+                              const availableSubitems = canEditCatalogMapping ? selectedCategory?.subitems ?? [] : [];
                               return (
                                 <tr key={`catalog-match-${row.sourceRowNumber}`}>
                                   <td className="ai-column-code">{row.sourceRowNumber}</td>
@@ -6942,36 +6947,51 @@ export default function App() {
                                     </select>
                                   </td>
                                   <td>
-                                    <select
-                                      value={row.selectedCategoryId}
-                                      onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { categoryId: event.target.value })}
-                                    >
-                                      <option value="">선택 안 함</option>
-                                      {aiSetupCatalogItems.map((item) => (
-                                        <option key={item.id} value={item.id}>{item.name}</option>
-                                      ))}
-                                    </select>
-                                    {row.categoryMatch && (
-                                      <small className="ai-match-hint">
-                                        {row.categoryMatch.categoryMatchMethod} · {Math.round(row.categoryMatch.categoryConfidence * 100)}%
-                                      </small>
+                                    {canEditCatalogMapping ? (
+                                      <>
+                                        <select
+                                          value={row.selectedCategoryId}
+                                          onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { categoryId: event.target.value })}
+                                        >
+                                          <option value="">선택 안 함</option>
+                                          {aiSetupCatalogItems.map((item) => (
+                                            <option key={item.id} value={item.id}>{item.name}</option>
+                                          ))}
+                                        </select>
+                                        {row.categoryMatch && (
+                                          <small className="ai-match-hint">
+                                            {row.categoryMatch.categoryMatchMethod} · {Math.round(row.categoryMatch.categoryConfidence * 100)}%
+                                          </small>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="ai-match-status ignored">해당 없음</span>
+                                        <small className="ai-match-hint">{getAiCatalogMappingUnavailableMessage(row.rowType)}</small>
+                                      </>
                                     )}
                                   </td>
                                   <td>
-                                    <select
-                                      value={row.selectedSubitemId}
-                                      onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { subitemId: event.target.value })}
-                                      disabled={!row.selectedCategoryId}
-                                    >
-                                      <option value="">선택 안 함</option>
-                                      {availableSubitems.map((subitem) => (
-                                        <option key={subitem.id} value={subitem.id}>{subitem.name}</option>
-                                      ))}
-                                    </select>
-                                    {row.subitemMatch && (
-                                      <small className="ai-match-hint">
-                                        {row.subitemMatch.subitemMatchMethod} · {Math.round(row.subitemMatch.subitemConfidence * 100)}%
-                                      </small>
+                                    {canEditCatalogMapping ? (
+                                      <>
+                                        <select
+                                          value={row.selectedSubitemId}
+                                          onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { subitemId: event.target.value })}
+                                          disabled={!row.selectedCategoryId}
+                                        >
+                                          <option value="">선택 안 함</option>
+                                          {availableSubitems.map((subitem) => (
+                                            <option key={subitem.id} value={subitem.id}>{subitem.name}</option>
+                                          ))}
+                                        </select>
+                                        {row.subitemMatch && (
+                                          <small className="ai-match-hint">
+                                            {row.subitemMatch.subitemMatchMethod} · {Math.round(row.subitemMatch.subitemConfidence * 100)}%
+                                          </small>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="ai-match-status ignored">해당 없음</span>
                                     )}
                                   </td>
                                   <td>{row.quantity ?? ""}</td>

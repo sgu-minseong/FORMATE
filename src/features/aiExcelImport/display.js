@@ -54,6 +54,23 @@ export function getAiDisplayMatchStatusLabel(row) {
   return labels[displayStatus] ?? getAiMatchStatusLabel(displayStatus);
 }
 
+export function isAiWorkItemRow(row) {
+  return `${row?.rowType ?? ""}`.trim() === "work_item";
+}
+
+export function getAiCatalogMappingUnavailableMessage(rowType) {
+  const labels = {
+    cost_item: "공사항목이 아니므로 단가표 항목 연결 대상이 아닙니다.",
+    margin_item: "마진/관리비 성격이라 단가표 항목 연결 대상이 아닙니다.",
+    tax_item: "세금 항목은 단가표 세부항목으로 연결하지 않습니다.",
+    subtotal_row: "검산용 행이라 단가표 항목 연결 대상이 아닙니다.",
+    total_row: "검산용 행이라 단가표 항목 연결 대상이 아닙니다.",
+    needs_review: "공사항목 여부를 먼저 확인해주세요.",
+    ignored: "이번 변환에서 사용하지 않는 행입니다.",
+  };
+  return labels[rowType] ?? "공사항목으로 바꾸면 단가표 항목에 연결할 수 있습니다.";
+}
+
 export function getAiActionOptionsForRowType(rowType) {
   if (rowType === "work_item") {
     return [
