@@ -1961,6 +1961,109 @@ function getAiApplyReadiness(condition, summary) {
   return { status: "ready", label: "저장 전 최종 확인 가능" };
 }
 
+function getAiSetupStepStatusLabel(status) {
+  const labels = {
+    done: "완료",
+    active: "진행 중",
+    pending: "대기",
+    warning: "확인 필요",
+  };
+  return labels[status] ?? "대기";
+}
+
+function hasAiSetupApplyPlanCandidate(summary = {}) {
+  return Object.values(summary).some((count) => Number(count) > 0);
+}
+
+function getAiSetupFlowState({
+  fileName,
+  status,
+  selectedSheet,
+  hasHeader,
+  recognizedCount,
+  previewRowCount,
+  mappedColumnCount,
+  aiLoading,
+  aiResult,
+  catalogMatchRowCount,
+  reviewRowCount,
+  conditionComplete,
+  applyPlanSummary,
+  priceTargetCount,
+  newItemTargetCount,
+  templateTargetCount,
+}) {
+  const hasFile = Boolean(fileName);
+  const hasSheet = Boolean(selectedSheet);
+  const hasPreview = previewRowCount > 0 && mappedColumnCount > 0;
+  const hasApplyPlan = hasAiSetupApplyPlanCandidate(applyPlanSummary);
+  const hasSaveTarget = priceTargetCount + newItemTargetCount + (conditionComplete ? templateTargetCount : 0) > 0;
+
+  const steps = [
+    {
+      number: 1,
+      title: "엑셀 업로드",
+      status: !hasFile ? "active" : status === "error" ? "warning" : "done",
+      detail: !hasFile ? "파일을 선택하세요." : status === "error" ? "파일 읽기를 확인하세요." : "파일을 읽었습니다.",
+    },
+    {
+      number: 2,
+      title: "시트/헤더 확인",
+      status: !hasFile ? "pending" : hasSheet && hasHeader ? "done" : hasSheet ? "warning" : "active",
+      detail: hasSheet && hasHeader ? "헤더 행이 선택됐습니다." : hasSheet ? "헤더 행을 확인하세요." : "분석할 시트를 선택하세요.",
+    },
+    {
+      number: 3,
+      title: "열 매핑 확인",
+      status: !hasHeader ? "pending" : hasPreview ? "done" : recognizedCount > 0 ? "warning" : "warning",
+      detail: hasPreview ? "표준 필드 미리보기가 준비됐습니다." : "필드 매핑을 확인하세요.",
+    },
+    {
+      number: 4,
+      title: "AI 매칭 추천",
+      status: !hasPreview ? "pending" : aiLoading ? "active" : aiResult ? "done" : "active",
+      detail: aiResult ? "추천 결과가 적용됐습니다." : aiLoading ? "추천을 분석 중입니다." : "AI 추천을 실행할 수 있습니다.",
+    },
+    {
+      number: 5,
+      title: "항목 검토",
+      status: !catalogMatchRowCount ? "pending" : reviewRowCount > 0 ? "warning" : "done",
+      detail: reviewRowCount > 0 ? "검토 필요 행이 남아 있습니다." : catalogMatchRowCount ? "매칭 검토가 정리됐습니다." : "표준 행을 먼저 준비하세요.",
+    },
+    {
+      number: 6,
+      title: "공사 조건 선택",
+      status: !hasHeader ? "pending" : conditionComplete ? "done" : templateTargetCount > 0 ? "warning" : "active",
+      detail: conditionComplete ? "템플릿 저장 조건이 준비됐습니다." : "평수와 조건을 선택하세요.",
+    },
+    {
+      number: 7,
+      title: "반영 계획 확인",
+      status: !hasHeader ? "pending" : hasApplyPlan ? "done" : "warning",
+      detail: hasApplyPlan ? "반영 후보가 정리됐습니다." : "저장 후보가 없습니다.",
+    },
+    {
+      number: 8,
+      title: "저장/반영",
+      status: hasSaveTarget ? "active" : hasApplyPlan ? "warning" : "pending",
+      detail: hasSaveTarget ? "필요한 항목만 저장하세요." : hasApplyPlan ? "저장 조건을 확인하세요." : "저장할 후보가 없습니다.",
+    },
+  ];
+
+  let nextAction = "저장 전 반영 계획을 확인한 뒤 필요한 항목만 반영해주세요.";
+  if (!hasFile) nextAction = "엑셀 견적서 파일을 업로드해주세요.";
+  else if (status === "error") nextAction = "파일 읽기 오류를 확인하고 다시 업로드해주세요.";
+  else if (!hasSheet) nextAction = "분석할 시트를 선택해주세요.";
+  else if (!hasHeader) nextAction = "헤더 행을 자동으로 찾지 못했습니다. 헤더 행을 직접 선택해주세요.";
+  else if (!hasPreview) nextAction = "열 매핑을 확인하고 필요한 필드를 수정해주세요.";
+  else if (!aiResult) nextAction = "AI로 매칭 추천을 실행한 뒤 결과를 검토해주세요.";
+  else if (reviewRowCount > 0) nextAction = "검토 필요 행을 확인하고 행 유형/처리 방식을 조정해주세요.";
+  else if (templateTargetCount > 0 && !conditionComplete) nextAction = "템플릿 저장을 위해 평수/주택 유형/세부 유형/거주 상태를 선택해주세요.";
+  else if (!hasApplyPlan) nextAction = "저장할 후보가 없습니다. 매칭 상태와 처리 방식을 확인해주세요.";
+
+  return { steps, nextAction };
+}
+
 export default function App() {
   const previewPdfRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
@@ -2268,6 +2371,42 @@ export default function App() {
   const aiSetupApplyReadiness = useMemo(() => {
     return getAiApplyReadiness(aiSetupApplyCondition, aiSetupImportApplyPlanSummary);
   }, [aiSetupApplyCondition, aiSetupImportApplyPlanSummary]);
+  const aiSetupFlowState = useMemo(() => {
+    return getAiSetupFlowState({
+      fileName: aiSetupFileName,
+      status: aiSetupStatus,
+      selectedSheet: selectedAiSetupSheet,
+      hasHeader: aiSetupMappingAnalysis.hasHeader,
+      recognizedCount: aiSetupMappingAnalysis.recognizedCount,
+      previewRowCount: aiSetupMappingAnalysis.previewRows.length,
+      mappedColumnCount: aiSetupMappedPreviewColumns.length,
+      aiLoading: aiSetupAiLoading,
+      aiResult: aiSetupAiResult,
+      catalogMatchRowCount: aiSetupCatalogMatchRows.length,
+      reviewRowCount: aiSetupImportApplyPlanSummary.reviewRows,
+      conditionComplete: aiSetupApplyConditionComplete,
+      applyPlanSummary: aiSetupImportApplyPlanSummary,
+      priceTargetCount: aiSetupPriceUpdateTargets.length,
+      newItemTargetCount: aiSetupNewItemTargets.length,
+      templateTargetCount: aiSetupTemplateValueTargets.length,
+    });
+  }, [
+    aiSetupAiLoading,
+    aiSetupAiResult,
+    aiSetupApplyConditionComplete,
+    aiSetupCatalogMatchRows.length,
+    aiSetupFileName,
+    aiSetupImportApplyPlanSummary,
+    aiSetupMappedPreviewColumns.length,
+    aiSetupMappingAnalysis.hasHeader,
+    aiSetupMappingAnalysis.previewRows.length,
+    aiSetupMappingAnalysis.recognizedCount,
+    aiSetupNewItemTargets.length,
+    aiSetupPriceUpdateTargets.length,
+    aiSetupStatus,
+    aiSetupTemplateValueTargets.length,
+    selectedAiSetupSheet,
+  ]);
   const aiSetupAutoSelectedFields = useMemo(() => {
     return {
       pyeong: Boolean(aiSetupDetectedConditionHint.pyeong && aiSetupApplyCondition.pyeong === aiSetupDetectedConditionHint.pyeong && !aiSetupApplyConditionTouched.pyeong),
@@ -6565,6 +6704,33 @@ export default function App() {
               </div>
             </div>
 
+            <section className="ai-flow-panel" aria-label="AI 초기 세팅 진행 단계">
+              <div className="ai-flow-head">
+                <div>
+                  <strong>진행 단계</strong>
+                  <p>엑셀 원본 확인부터 저장/반영까지 필요한 순서를 한 번에 확인합니다.</p>
+                </div>
+                <span>AI 추천은 자동 저장되지 않습니다.</span>
+              </div>
+              <div className="ai-flow-steps">
+                {aiSetupFlowState.steps.map((step) => (
+                  <div key={step.number} className={`ai-flow-step ${step.status}`.trim()}>
+                    <span className="ai-flow-step-number">{step.number}</span>
+                    <div>
+                      <strong>{step.title}</strong>
+                      <p>{step.detail}</p>
+                    </div>
+                    <em>{getAiSetupStepStatusLabel(step.status)}</em>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <div className="ai-next-action-box">
+              <span>다음에 할 일</span>
+              <strong>{aiSetupFlowState.nextAction}</strong>
+            </div>
+
             {aiSetupError && <div className="error-box">{aiSetupError}</div>}
 
             {aiSetupSheets.length > 0 && (
@@ -7514,6 +7680,15 @@ export default function App() {
                       현재 단계에서는 기존 항목 단가/인건비, 새 항목 후보, 선택 조건의 템플릿 수량/인원만 반영할 수 있습니다.
                       비용/세금 후보와 검산/합계 행은 저장하지 않습니다.
                       새 항목 후보가 있는 경우 먼저 단가표에 새 항목을 추가해야 해당 항목의 수량/인원을 템플릿에 저장할 수 있습니다.
+                    </div>
+
+                    <div className="ai-save-guide">
+                      <strong>저장 전 확인</strong>
+                      <p>AI 추천은 단가표나 템플릿에 자동 저장되지 않습니다. 저장 전 반영 계획을 확인해주세요.</p>
+                      <ul>
+                        <li>기존 항목 단가/인건비, 새 항목 추가, 템플릿 수량/인원 저장은 각각 별도로 실행됩니다.</li>
+                        <li>비용/세금 후보와 검산/합계 행은 현재 자동 저장되지 않습니다.</li>
+                      </ul>
                     </div>
 
                     {aiSetupNewItemResult && (
@@ -10905,6 +11080,167 @@ const styles = `
     color: var(--text-secondary);
     line-height: 1.55;
   }
+  .ai-flow-panel,
+  .ai-next-action-box,
+  .ai-save-guide {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+  .ai-flow-panel {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-2);
+  }
+  .ai-flow-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .ai-flow-head strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+  }
+  .ai-flow-head p {
+    margin: 4px 0 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+  }
+  .ai-flow-head span {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-flow-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+  .ai-flow-step {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "number body"
+      "status status";
+    gap: 8px 10px;
+    min-height: 108px;
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: #fbfcfe;
+  }
+  .ai-flow-step-number {
+    grid-area: number;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-flow-step > div {
+    grid-area: body;
+    min-width: 0;
+  }
+  .ai-flow-step strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .ai-flow-step p {
+    margin: 3px 0 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.45;
+  }
+  .ai-flow-step em {
+    grid-area: status;
+    justify-self: start;
+    font-style: normal;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-flow-step.done {
+    border-color: rgba(49, 124, 82, 0.18);
+    background: rgba(49, 124, 82, 0.06);
+  }
+  .ai-flow-step.done .ai-flow-step-number,
+  .ai-flow-step.done em {
+    color: #317c52;
+  }
+  .ai-flow-step.active {
+    border-color: rgba(43, 53, 104, 0.18);
+    background: var(--brand-primary-subtle);
+  }
+  .ai-flow-step.active .ai-flow-step-number,
+  .ai-flow-step.active em {
+    color: var(--brand-primary);
+  }
+  .ai-flow-step.warning {
+    border-color: rgba(190, 62, 62, 0.18);
+    background: rgba(190, 62, 62, 0.05);
+  }
+  .ai-flow-step.warning .ai-flow-step-number,
+  .ai-flow-step.warning em {
+    color: #a33a3a;
+  }
+  .ai-flow-step.pending {
+    opacity: 0.72;
+  }
+  .ai-next-action-box {
+    display: grid;
+    gap: 6px;
+    padding: 14px 16px;
+    border-color: rgba(43, 53, 104, 0.14);
+    background: var(--brand-primary-subtle);
+  }
+  .ai-next-action-box span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-next-action-box strong {
+    color: var(--brand-primary);
+    font-size: var(--font-size-body);
+  }
+  .ai-save-guide {
+    display: grid;
+    gap: 8px;
+    padding: 14px 16px;
+    background: #fbfcfe;
+  }
+  .ai-save-guide strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .ai-save-guide p,
+  .ai-save-guide li {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.55;
+  }
+  .ai-save-guide ul {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding-left: 18px;
+  }
   .ai-review-panel {
     display: grid;
     gap: var(--space-2);
@@ -13465,9 +13801,13 @@ const styles = `
     .estimate-template-expanded-content, .estimate-template-detail, .estimate-pyeong-preview,
     .estimate-meta-grid, .adjustment-row, .estimate-editor-total,
     .ai-upload-grid, .ai-sheet-meta, .ai-mapping-groups, .ai-match-summary, .ai-plan-split,
+    .ai-flow-steps,
     .ai-condition-grid, .ai-condition-hint-grid, .ai-final-summary-grid, .ai-price-update-actions,
     .ai-recommendation-actions, .ai-recommendation-summary-grid {
       grid-template-columns: 1fr;
+    }
+    .ai-flow-head {
+      display: grid;
     }
     .ai-mapping-title {
       display: grid;
