@@ -2400,6 +2400,9 @@ export default function App() {
   const [aiSetupAiLoading, setAiSetupAiLoading] = useState(false);
   const [aiSetupAiError, setAiSetupAiError] = useState("");
   const [aiSetupAiResult, setAiSetupAiResult] = useState(null);
+  const [aiSetupAdvancedOpen, setAiSetupAdvancedOpen] = useState(false);
+  const [aiSetupStandardOpen, setAiSetupStandardOpen] = useState(false);
+  const [aiSetupRawOpen, setAiSetupRawOpen] = useState(false);
 
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
@@ -2628,6 +2631,25 @@ export default function App() {
         : aiSetupStatus === "error"
           ? "읽기 실패"
           : "대기 중";
+  const aiSetupAdvancedReviewCount =
+    (aiSetupMappingAnalysis.hasHeader ? 0 : 1) +
+    (aiSetupMappingAnalysis.unknownCount ?? 0) +
+    aiSetupDuplicateWarnings.length;
+  const aiSetupAdvancedBadges = [
+    aiSetupMappingAnalysis.hasHeader
+      ? `헤더 행 ${aiSetupMappingAnalysis.headerRowIndex + 1}행`
+      : "헤더 확인 필요",
+    `열 매핑 ${aiSetupMappingAnalysis.recognizedCount ?? 0}개`,
+    `확인 필요 ${aiSetupAdvancedReviewCount}개`,
+  ];
+  const aiSetupStandardBadges = [
+    `표준화 행 ${aiSetupMappingAnalysis.previewRows.length}개`,
+    `표준 필드 ${aiSetupMappedPreviewColumns.length}개`,
+  ];
+  const aiSetupRawBadges = [
+    `원본 데이터 ${selectedAiSetupSheet?.rowCount ?? 0}행`,
+    `${selectedAiSetupSheet?.columnCount ?? 0}열`,
+  ];
   const adminSearchTerm = adminSearch.trim().toLowerCase();
   const filteredAdminItems = useMemo(() => {
     return adminItems.filter((item) => {
@@ -2993,6 +3015,9 @@ export default function App() {
     setAiSetupAiLoading(false);
     setAiSetupAiError("");
     setAiSetupAiResult(null);
+    setAiSetupAdvancedOpen(false);
+    setAiSetupStandardOpen(false);
+    setAiSetupRawOpen(false);
   }
 
   function updateAiSetupApplyConditionPatch(patch, touchedFields = Object.keys(patch)) {
@@ -6977,6 +7002,25 @@ export default function App() {
                   </div>
                 </div>
 
+                <section className="ai-collapsible-section">
+                  <button
+                    type="button"
+                    className="ai-collapsible-toggle"
+                    onClick={() => setAiSetupAdvancedOpen((open) => !open)}
+                    aria-expanded={aiSetupAdvancedOpen}
+                  >
+                    <span>{aiSetupAdvancedOpen ? "고급 설정 접기" : "고급 설정 보기"}</span>
+                    <em>헤더 행과 열 매핑을 직접 확인하거나 수정합니다.</em>
+                    <div>
+                      {aiSetupAdvancedBadges.map((badge) => (
+                        <b key={badge}>{badge}</b>
+                      ))}
+                    </div>
+                  </button>
+                </section>
+
+                {aiSetupAdvancedOpen && (
+                  <>
                 <section className="ai-manual-review-panel">
                   <div className="ai-mapping-title">
                     <div>
@@ -7141,8 +7185,29 @@ export default function App() {
                     </div>
                   )}
                 </section>
+                  </>
+                )}
 
                 {aiSetupMappingAnalysis.hasHeader && (
+                  <section className="ai-collapsible-section">
+                    <button
+                      type="button"
+                      className="ai-collapsible-toggle"
+                      onClick={() => setAiSetupStandardOpen((open) => !open)}
+                      aria-expanded={aiSetupStandardOpen}
+                    >
+                      <span>{aiSetupStandardOpen ? "표준화 결과 접기" : "표준화 결과 자세히 보기"}</span>
+                      <em>FORMATE 표준 필드로 변환된 결과를 확인합니다.</em>
+                      <div>
+                        {aiSetupStandardBadges.map((badge) => (
+                          <b key={badge}>{badge}</b>
+                        ))}
+                      </div>
+                    </button>
+                  </section>
+                )}
+
+                {aiSetupMappingAnalysis.hasHeader && aiSetupStandardOpen && (
                   <section className="ai-standard-preview">
                     <div className="ai-mapping-title">
                       <div>
@@ -8101,7 +8166,24 @@ export default function App() {
                   </section>
                 )}
 
-                {selectedAiSetupSheet && selectedAiSetupSheet.rowCount > 0 ? (
+                <section className="ai-collapsible-section">
+                  <button
+                    type="button"
+                    className="ai-collapsible-toggle"
+                    onClick={() => setAiSetupRawOpen((open) => !open)}
+                    aria-expanded={aiSetupRawOpen}
+                  >
+                    <span>{aiSetupRawOpen ? "원본 엑셀 데이터 접기" : "원본 엑셀 데이터 보기"}</span>
+                    <em>자동 인식 전 원본 시트 내용을 확인합니다.</em>
+                    <div>
+                      {aiSetupRawBadges.map((badge) => (
+                        <b key={badge}>{badge}</b>
+                      ))}
+                    </div>
+                  </button>
+                </section>
+
+                {aiSetupRawOpen && (selectedAiSetupSheet && selectedAiSetupSheet.rowCount > 0 ? (
                   <section className="ai-raw-data-panel">
                     <div className="ai-mapping-title">
                       <div>
@@ -8137,9 +8219,9 @@ export default function App() {
                     <strong>선택한 시트에 표시할 행이 없습니다.</strong>
                     <p>다른 시트를 선택하거나 원본 엑셀 파일의 내용을 확인해주세요.</p>
                   </div>
-                )}
+                ))}
 
-                {(selectedAiSetupSheet?.rowCount ?? 0) > 100 && (
+                {aiSetupRawOpen && (selectedAiSetupSheet?.rowCount ?? 0) > 100 && (
                   <p className="caption ai-row-limit-note">화면 속도를 위해 첫 100행만 표시합니다. 원본 파일은 저장하지 않습니다.</p>
                 )}
               </section>
@@ -11614,6 +11696,57 @@ const styles = `
     display: grid;
     gap: var(--space-2);
   }
+  .ai-collapsible-section {
+    display: grid;
+  }
+  .ai-collapsible-toggle {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(160px, auto) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 12px 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    text-align: left;
+  }
+  .ai-collapsible-toggle:hover {
+    border-color: rgba(43, 53, 104, 0.24);
+    background: var(--brand-primary-subtle);
+  }
+  .ai-collapsible-toggle span {
+    color: var(--brand-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-bold);
+    white-space: nowrap;
+  }
+  .ai-collapsible-toggle em {
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    font-style: normal;
+    line-height: 1.45;
+  }
+  .ai-collapsible-toggle div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .ai-collapsible-toggle b {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    white-space: nowrap;
+  }
   .ai-mapping-panel,
   .ai-standard-preview,
   .ai-manual-review-panel,
@@ -14129,6 +14262,12 @@ const styles = `
     }
     .ai-flow-head {
       display: grid;
+    }
+    .ai-collapsible-toggle {
+      grid-template-columns: 1fr;
+    }
+    .ai-collapsible-toggle div {
+      justify-content: flex-start;
     }
     .ai-mapping-title {
       display: grid;
