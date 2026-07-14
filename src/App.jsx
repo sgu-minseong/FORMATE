@@ -2403,6 +2403,11 @@ export default function App() {
   const [aiSetupAdvancedOpen, setAiSetupAdvancedOpen] = useState(false);
   const [aiSetupStandardOpen, setAiSetupStandardOpen] = useState(false);
   const [aiSetupRawOpen, setAiSetupRawOpen] = useState(false);
+  const [aiSetupMatchReviewOpen, setAiSetupMatchReviewOpen] = useState(false);
+  const [aiSetupMatchReviewMode, setAiSetupMatchReviewMode] = useState("review");
+  const [aiSetupSplitReviewOpen, setAiSetupSplitReviewOpen] = useState(false);
+  const [aiSetupApplyPlanOpen, setAiSetupApplyPlanOpen] = useState(false);
+  const [aiSetupSaveGuideOpen, setAiSetupSaveGuideOpen] = useState(false);
 
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
@@ -2649,6 +2654,51 @@ export default function App() {
   const aiSetupRawBadges = [
     `원본 데이터 ${selectedAiSetupSheet?.rowCount ?? 0}행`,
     `${selectedAiSetupSheet?.columnCount ?? 0}열`,
+  ];
+  const aiSetupSheetCompactMeta = selectedAiSetupSheet
+    ? `${selectedAiSetupSheet.name} · ${selectedAiSetupSheet.rowCount ?? 0}행 · ${selectedAiSetupSheet.columnCount ?? 0}열`
+    : "";
+  const aiSetupIntroText = aiSetupAiResult
+    ? "검토가 필요한 항목만 확인한 뒤 저장하세요."
+    : "AI가 엑셀을 읽고 FORMATE 항목으로 정리합니다.";
+  const aiSetupCatalogReviewRows = aiSetupCatalogMatchRows.filter((row) => {
+    const displayStatus = getAiDisplayMatchStatus(row);
+    return !["matched", "new_candidate", "ignored", "cost_item", "margin_item", "tax_item", "subtotal_row", "total_row"].includes(displayStatus);
+  });
+  const aiSetupVisibleCatalogMatchRows =
+    aiSetupMatchReviewMode === "review" ? aiSetupCatalogReviewRows : aiSetupCatalogMatchRows;
+  const aiSetupSplitValidationSummaryText = [
+    `묶음 원본 ${aiSetupSplitValidationSummaries.length}개`,
+    `자동 분해 ${aiSetupCatalogMatchRows.filter((row) => row.isSplitRow).length}개`,
+    `금액 미입력 ${aiSetupCatalogMatchRows.filter((row) => row.isSplitRow && !hasImportValue(row.unit_price) && !hasImportValue(row.labor_rate)).length}개`,
+  ].join(" · ");
+  const aiSetupAnalysisSummaryItems = aiSetupAiResult
+    ? [
+        ["기존 연결", aiSetupAiResult.linkExisting],
+        ["템플릿", aiSetupImportApplyPlanSummary.templateValueCandidates],
+        ["분해", aiSetupAiResult.splitRows ?? 0],
+        ["비용/합계", (aiSetupAiResult.costItem ?? 0) + (aiSetupAiResult.marginItem ?? 0) + (aiSetupAiResult.taxItem ?? 0) + (aiSetupAiResult.validationRows ?? 0)],
+        ["검토 필요", aiSetupAiResult.needsReview],
+      ]
+    : [
+        ["표준화", aiSetupMappingAnalysis.previewRows.length],
+        ["열 매핑", aiSetupMappedPreviewColumns.length],
+        ["기존 항목", aiSetupCatalogMatchSummary.matched],
+        ["검토 필요", aiSetupCatalogMatchSummary.needsReview],
+      ];
+  const aiSetupCatalogSummaryItems = [
+    ["전체", aiSetupCatalogMatchSummary.total],
+    ["기존 연결", aiSetupCatalogMatchSummary.matched],
+    ["새 항목", aiSetupCatalogMatchSummary.newCandidate],
+    ["비용/합계", aiSetupCatalogMatchSummary.costSummaryCandidate + aiSetupCatalogMatchSummary.validationRows],
+    ["검토 필요", aiSetupCatalogMatchSummary.needsReview],
+  ];
+  const aiSetupApplyPlanSummaryItems = [
+    ["기존 단가", aiSetupImportApplyPlanSummary.priceUpdates],
+    ["새 항목", aiSetupImportApplyPlanSummary.newCategoryCandidates + aiSetupImportApplyPlanSummary.newSubitemCandidates],
+    ["템플릿", aiSetupImportApplyPlanSummary.templateValueCandidates],
+    ["비용/합계", aiSetupImportApplyPlanSummary.costCandidates + aiSetupImportApplyPlanSummary.validationRows],
+    ["검토 필요", aiSetupImportApplyPlanSummary.reviewRows],
   ];
   const adminSearchTerm = adminSearch.trim().toLowerCase();
   const filteredAdminItems = useMemo(() => {
@@ -6906,8 +6956,7 @@ export default function App() {
                 <p className="eyebrow dark">AI 초기 세팅</p>
                 <h2>AI 초기 세팅</h2>
                 <p className="muted">
-                  기존에 사용하던 엑셀 견적서를 업로드하면, FORMATE가 항목·단가·수량 정보를 읽어 단가표와 견적 템플릿 초안을 만드는 기능입니다.
-                  현재 단계에서는 엑셀 파일을 읽고 시트/행 데이터를 검토 화면에 표시하는 기능까지만 제공합니다.
+                  {aiSetupIntroText}
                 </p>
               </div>
               <span className={`ai-status-pill ${aiSetupStatus}`.trim()}>{aiSetupStatusLabel}</span>
@@ -6927,38 +6976,9 @@ export default function App() {
               </label>
               <div className="ai-upload-summary">
                 <span>선택한 파일</span>
-                <strong>{aiSetupFileName || "아직 선택한 파일이 없습니다."}</strong>
-                <p>
-                  업로드한 파일은 현재 화면에서만 검토합니다. AI API 호출, DB 저장, 템플릿 생성은 아직 실행하지 않습니다.
-                </p>
+                <strong>{aiSetupFileName ? `선택됨 · ${aiSetupFileName}` : "아직 선택한 파일이 없습니다."}</strong>
+                {aiSetupSheetCompactMeta && <p>{aiSetupSheetCompactMeta}</p>}
               </div>
-            </div>
-
-            <section className="ai-flow-panel" aria-label="AI 초기 세팅 진행 단계">
-              <div className="ai-flow-head">
-                <div>
-                  <strong>진행 단계</strong>
-                  <p>엑셀 원본 확인부터 저장/반영까지 필요한 순서를 한 번에 확인합니다.</p>
-                </div>
-                <span>AI 추천은 자동 저장되지 않습니다.</span>
-              </div>
-              <div className="ai-flow-steps">
-                {aiSetupFlowState.steps.map((step) => (
-                  <div key={step.number} className={`ai-flow-step ${step.status}`.trim()}>
-                    <span className="ai-flow-step-number">{step.number}</span>
-                    <div>
-                      <strong>{step.title}</strong>
-                      <p>{step.detail}</p>
-                    </div>
-                    <em>{getAiSetupStepStatusLabel(step.status)}</em>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <div className="ai-next-action-box">
-              <span>다음에 할 일</span>
-              <strong>{aiSetupFlowState.nextAction}</strong>
             </div>
 
             {aiSetupError && <div className="error-box">{aiSetupError}</div>}
@@ -6979,27 +6999,8 @@ export default function App() {
                   ))}
                 </div>
 
-                <div className="ai-sheet-meta">
-                  <div>
-                    <span>파일명</span>
-                    <strong>{aiSetupFileName}</strong>
-                  </div>
-                  <div>
-                    <span>시트 개수</span>
-                    <strong>{aiSetupSheets.length}개</strong>
-                  </div>
-                  <div>
-                    <span>현재 시트</span>
-                    <strong>{selectedAiSetupSheet?.name ?? "-"}</strong>
-                  </div>
-                  <div>
-                    <span>표시 중인 행 수</span>
-                    <strong>{aiSetupPreviewRows.length} / {selectedAiSetupSheet?.rowCount ?? 0}</strong>
-                  </div>
-                  <div>
-                    <span>표시 중인 열 수</span>
-                    <strong>{selectedAiSetupSheet?.columnCount ?? 0}</strong>
-                  </div>
+                <div className="ai-sheet-meta-line">
+                  {aiSetupFileName} · 시트 {aiSetupSheets.length}개 · {aiSetupSheetCompactMeta || "시트 선택 전"} · 표시 {aiSetupPreviewRows.length}행
                 </div>
 
                 <section className="ai-collapsible-section">
@@ -7010,7 +7011,7 @@ export default function App() {
                     aria-expanded={aiSetupAdvancedOpen}
                   >
                     <span>{aiSetupAdvancedOpen ? "고급 설정 접기" : "고급 설정 보기"}</span>
-                    <em>헤더 행과 열 매핑을 직접 확인하거나 수정합니다.</em>
+                    <em>헤더 {aiSetupMappingAnalysis.hasHeader ? `${aiSetupMappingAnalysis.headerRowIndex + 1}행` : "확인 필요"} · 열 매핑 {aiSetupMappingAnalysis.recognizedCount ?? 0}개</em>
                     <div>
                       {aiSetupAdvancedBadges.map((badge) => (
                         <b key={badge}>{badge}</b>
@@ -7196,8 +7197,8 @@ export default function App() {
                       onClick={() => setAiSetupStandardOpen((open) => !open)}
                       aria-expanded={aiSetupStandardOpen}
                     >
-                      <span>{aiSetupStandardOpen ? "표준화 결과 접기" : "표준화 결과 자세히 보기"}</span>
-                      <em>FORMATE 표준 필드로 변환된 결과를 확인합니다.</em>
+                      <span>{aiSetupStandardOpen ? "표준화 결과 접기" : "표준화 결과 보기"}</span>
+                      <em>{aiSetupMappingAnalysis.previewRows.length}행</em>
                       <div>
                         {aiSetupStandardBadges.map((badge) => (
                           <b key={badge}>{badge}</b>
@@ -7272,60 +7273,69 @@ export default function App() {
                       </div>
                     )}
 
-                    <div className="ai-recommendation-actions">
-                      <div>
-                        <strong>AI 추천은 자동 저장되지 않습니다.</strong>
-                        <p>표준 필드 행과 기존 FORMATE 항목을 보고 rowType, 처리 방식, 대분류/세부항목 매칭을 추천합니다. 추천 결과를 확인한 뒤 기존 저장 버튼으로만 반영됩니다.</p>
+                    {aiSetupAiError && <div className="error-box">{aiSetupAiError}</div>}
+                    {aiSetupAiResult && (
+                      <div className="ai-recommendation-summary">
+                        <div className="ai-compact-summary-bar">
+                          {aiSetupAnalysisSummaryItems.map(([label, count]) => (
+                            <span key={label} className={label === "검토 필요" && count > 0 ? "needs-review" : ""}>
+                              {label} <strong>{count}개</strong>
+                            </span>
+                          ))}
+                        </div>
+                        {aiSetupAiResult.warnings?.length > 0 && (
+                          <details className="ai-compact-details">
+                            <summary>AI 안내 {aiSetupAiResult.warnings.length}개 보기</summary>
+                            <div className="ai-recommendation-warnings">
+                            {aiSetupAiResult.warnings.map((warning, index) => (
+                              <p key={`ai-warning-${index}`}>{warning}</p>
+                            ))}
+                            </div>
+                          </details>
+                        )}
                       </div>
+                    )}
+
+                    <div className="ai-compact-summary-bar">
+                      {aiSetupCatalogSummaryItems.map(([label, count]) => (
+                        <span key={label} className={label === "검토 필요" && count > 0 ? "needs-review" : ""}>
+                          {label} <strong>{count}개</strong>
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="ai-compact-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => {
+                          setAiSetupMatchReviewMode("review");
+                          setAiSetupMatchReviewOpen((open) => !(open && aiSetupMatchReviewMode === "review"));
+                        }}
+                      >
+                        검토 필요 {aiSetupCatalogMatchSummary.needsReview}개 확인
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => {
+                          setAiSetupMatchReviewMode("all");
+                          setAiSetupMatchReviewOpen((open) => !(open && aiSetupMatchReviewMode === "all"));
+                        }}
+                      >
+                        전체 항목 보기
+                      </button>
                       <button
                         type="button"
                         className="secondary-button"
                         onClick={handleAiSetupRecommendMatches}
                         disabled={aiSetupAiLoading || aiSetupCatalogMatchRows.length === 0 || !aiSetupMappingAnalysis.hasHeader}
                       >
-                        {aiSetupAiLoading ? "AI 분석 중..." : "AI로 매칭 추천"}
+                        {aiSetupAiLoading ? "AI 분석 중..." : aiSetupAiResult ? "AI 다시 추천" : "AI로 매칭 추천"}
                       </button>
                     </div>
 
-                    {aiSetupAiError && <div className="error-box">{aiSetupAiError}</div>}
-                    {aiSetupAiResult && (
-                      <div className="ai-recommendation-summary">
-                        <div className="ai-recommendation-summary-grid">
-                          <div><span>추천 완료</span><strong>{aiSetupAiResult.appliedCount}개</strong></div>
-                          <div><span>수동 수정 보호</span><strong>{aiSetupAiResult.skippedManualCount}개</strong></div>
-                          <div><span>기존 연결 추천</span><strong>{aiSetupAiResult.linkExisting}개</strong></div>
-                          <div><span>새 항목 추천</span><strong>{aiSetupAiResult.addNewItem}개</strong></div>
-                          <div><span>비용 후보</span><strong>{aiSetupAiResult.costItem}개</strong></div>
-                          <div><span>마진 후보</span><strong>{aiSetupAiResult.marginItem}개</strong></div>
-                          <div><span>세금 후보</span><strong>{aiSetupAiResult.taxItem}개</strong></div>
-                          <div><span>소계/총계 후보</span><strong>{aiSetupAiResult.validationRows}개</strong></div>
-                          <div><span>무시 추천</span><strong>{aiSetupAiResult.ignored}개</strong></div>
-                          <div><span>검토 필요</span><strong>{aiSetupAiResult.needsReview}개</strong></div>
-                          <div><span>자동 분해 행</span><strong>{aiSetupAiResult.splitRows ?? 0}개</strong></div>
-                          <div><span>확인 필요 신호</span><strong>{aiSetupAiResult.reviewSignals}개</strong></div>
-                        </div>
-                        {aiSetupAiResult.warnings?.length > 0 && (
-                          <div className="ai-recommendation-warnings">
-                            {aiSetupAiResult.warnings.map((warning, index) => (
-                              <p key={`ai-warning-${index}`}>{warning}</p>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="ai-match-summary">
-                      <div><span>전체 검토 행</span><strong>{aiSetupCatalogMatchSummary.total}개</strong></div>
-                      <div><span>공사항목</span><strong>{aiSetupCatalogMatchSummary.workItem}개</strong></div>
-                      <div><span>기존 항목 매칭</span><strong>{aiSetupCatalogMatchSummary.matched}개</strong></div>
-                      <div><span>새 항목 후보</span><strong>{aiSetupCatalogMatchSummary.newCandidate}개</strong></div>
-                      <div><span>비용/요약 후보</span><strong>{aiSetupCatalogMatchSummary.costSummaryCandidate}개</strong></div>
-                      <div><span>검산/합계 행</span><strong>{aiSetupCatalogMatchSummary.validationRows}개</strong></div>
-                      <div><span>검토 필요</span><strong>{aiSetupCatalogMatchSummary.needsReview}개</strong></div>
-                      <div><span>무시</span><strong>{aiSetupCatalogMatchSummary.ignored}개</strong></div>
-                    </div>
-
-                    {aiSetupCatalogMatchRows.length > 0 ? (
+                    {aiSetupMatchReviewOpen && (aiSetupVisibleCatalogMatchRows.length > 0 ? (
                       <div className="ai-table-wrap ai-catalog-match-wrap">
                         <table className="ai-data-table ai-catalog-match-table">
                           <thead>
@@ -7347,7 +7357,7 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {aiSetupCatalogMatchRows.map((row) => {
+                            {aiSetupVisibleCatalogMatchRows.map((row) => {
                               const canEditCatalogMapping = isAiWorkItemRow(row);
                               const selectedCategory = canEditCatalogMapping
                                 ? aiSetupCatalogItems.find((item) => item.id === row.selectedCategoryId)
@@ -7502,19 +7512,27 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="ai-empty-sheet">
-                        <strong>매칭 검토할 표준 미리보기 행이 없습니다.</strong>
-                        <p>헤더 행과 열 매핑을 확인해주세요.</p>
+                        <strong>{aiSetupMatchReviewMode === "review" ? "검토 필요 행이 없습니다." : "매칭 검토할 표준 미리보기 행이 없습니다."}</strong>
+                        <p>{aiSetupMatchReviewMode === "review" ? "전체 항목이 필요하면 전체 항목 보기를 눌러 확인하세요." : "헤더 행과 열 매핑을 확인해주세요."}</p>
                       </div>
-                    )}
+                    ))}
 
                     {aiSetupSplitValidationSummaries.length > 0 && (
                       <div className="ai-split-validation-panel">
                         <div className="ai-mapping-title compact">
                           <div>
                             <h4>묶음 공사 분해 검산</h4>
-                            <p>원본 1식 총액은 저장하지 않고, 사용자가 분해 행에 입력한 단가/인건비 합계와 비교만 합니다.</p>
+                            <p>{aiSetupSplitValidationSummaryText}</p>
                           </div>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => setAiSetupSplitReviewOpen((open) => !open)}
+                          >
+                            {aiSetupSplitReviewOpen ? "묶음 분해 접기" : "묶음 분해 보기"}
+                          </button>
                         </div>
+                        {aiSetupSplitReviewOpen && (
                         <div className="ai-table-wrap compact">
                           <table className="ai-data-table ai-catalog-match-table">
                             <thead>
@@ -7545,6 +7563,7 @@ export default function App() {
                             </tbody>
                           </table>
                         </div>
+                        )}
                       </div>
                     )}
 
@@ -7625,10 +7644,7 @@ export default function App() {
                     <div className="ai-mapping-title">
                       <div>
                         <h3>공사 조건 선택</h3>
-                        <p>
-                          엑셀에서 가져온 수량과 인원은 조건별 견적 템플릿 값으로 저장될 수 있습니다.
-                          이 견적서가 어떤 평수와 주택 조건에 해당하는지 먼저 선택해주세요.
-                        </p>
+                        <p>수량/인원을 저장할 조건을 선택하세요.</p>
                       </div>
                     </div>
                     <div className="ai-condition-hint-box">
@@ -7651,11 +7667,11 @@ export default function App() {
                       {hasAiSetupConditionHintValue(aiSetupDetectedConditionHint) ? (
                         <p>
                           {hasAiSetupAutoSelectedCondition
-                            ? "엑셀에서 감지한 정보를 바탕으로 일부 조건을 미리 선택했습니다. 실제 조건과 다르면 직접 수정해주세요. 일부 조건만 감지된 경우 나머지 조건은 직접 선택해주세요."
+                            ? "일부 조건을 미리 선택했습니다. 다르면 수정하세요."
                             : "일부 조건만 감지되었습니다. 나머지 조건은 직접 선택해주세요."}
                         </p>
                       ) : (
-                        <p>조건을 자동으로 찾지 못했습니다. 아래에서 직접 선택해주세요.</p>
+                        <p>감지된 조건이 없습니다. 직접 선택하세요.</p>
                       )}
                     </div>
                     <div className="ai-condition-grid">
@@ -7718,7 +7734,6 @@ export default function App() {
                     <div className={`ai-selected-condition ${aiSetupApplyConditionComplete ? "ready" : ""}`.trim()}>
                       <span>선택 조건</span>
                       <strong>{aiSetupApplyConditionLabel || "아직 선택되지 않았습니다."}</strong>
-                      <p>아직 저장되지 않았습니다. 최종 반영 기능은 다음 단계에서 추가됩니다.</p>
                     </div>
                   </section>
                 )}
@@ -7728,24 +7743,30 @@ export default function App() {
                     <div className="ai-mapping-title">
                       <div>
                         <h3>FORMATE 반영 계획 미리보기</h3>
-                        <p>현재 검토 결과를 기준으로 나중에 단가표와 견적 템플릿에 반영할 수 있는 후보를 정리합니다.</p>
+                        <p>저장 후보만 요약합니다.</p>
                       </div>
                     </div>
-                    <div className="ai-plan-notice">
-                      현재 화면은 반영 계획 미리보기입니다. 아직 단가표나 템플릿에는 저장되지 않았습니다.
+
+                    <div className="ai-compact-summary-bar">
+                      {aiSetupApplyPlanSummaryItems.map(([label, count]) => (
+                        <span key={label} className={label === "검토 필요" && count > 0 ? "needs-review" : ""}>
+                          {label} <strong>{count}개</strong>
+                        </span>
+                      ))}
                     </div>
 
-                    <div className="ai-match-summary">
-                      <div><span>기존 항목 단가 업데이트 후보</span><strong>{aiSetupImportApplyPlanSummary.priceUpdates}개</strong></div>
-                      <div><span>새 대분류 후보</span><strong>{aiSetupImportApplyPlanSummary.newCategoryCandidates}개</strong></div>
-                      <div><span>새 세부항목 후보</span><strong>{aiSetupImportApplyPlanSummary.newSubitemCandidates}개</strong></div>
-                      <div><span>템플릿 수량/인원 후보</span><strong>{aiSetupImportApplyPlanSummary.templateValueCandidates}개</strong></div>
-                      <div><span>비용/세금 후보</span><strong>{aiSetupImportApplyPlanSummary.costCandidates}개</strong></div>
-                      <div><span>검산/합계 행</span><strong>{aiSetupImportApplyPlanSummary.validationRows}개</strong></div>
-                      <div><span>검토 필요</span><strong>{aiSetupImportApplyPlanSummary.reviewRows}개</strong></div>
-                      <div><span>무시</span><strong>{aiSetupImportApplyPlanSummary.ignoredRows}개</strong></div>
+                    <div className="ai-compact-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setAiSetupApplyPlanOpen((open) => !open)}
+                      >
+                        {aiSetupApplyPlanOpen ? "반영 계획 접기" : "반영 계획 자세히 보기"}
+                      </button>
                     </div>
 
+                    {aiSetupApplyPlanOpen && (
+                    <>
                     <div className="ai-plan-section">
                       <h4>기존 항목 업데이트 후보</h4>
                       {aiSetupImportApplyPlan.priceUpdates.length > 0 ? (
@@ -7976,6 +7997,8 @@ export default function App() {
                         <p className="ai-plan-empty">해당 없음</p>
                       )}
                     </div>
+                    </>
+                    )}
                   </section>
                 )}
 
@@ -7984,7 +8007,7 @@ export default function App() {
                     <div className="ai-mapping-title">
                       <div>
                         <h3>최종 반영 확인</h3>
-                        <p>실제 저장 기능을 추가하기 전에, 어떤 데이터가 반영 대상이 될지 마지막으로 점검하는 화면입니다.</p>
+                        <p>저장할 항목을 선택해 반영하세요.</p>
                       </div>
                       <div className="ai-mapping-stats">
                         <span>반영 준비 상태: {aiSetupApplyReadiness.label}</span>
@@ -7999,17 +8022,17 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="ai-final-summary-grid">
-                      <div><span>기존 항목 단가 업데이트 예정</span><strong>{aiSetupImportApplyPlanSummary.priceUpdates}개</strong></div>
-                      <div><span>새 대분류 추가 예정</span><strong>{aiSetupImportApplyPlanSummary.newCategoryCandidates}개</strong></div>
-                      <div><span>새 세부항목 추가 예정</span><strong>{aiSetupImportApplyPlanSummary.newSubitemCandidates}개</strong></div>
-                      <div><span>템플릿 수량/인원 저장 예정</span><strong>{aiSetupImportApplyPlanSummary.templateValueCandidates}개</strong></div>
-                      <div><span>비용/세금 후보</span><strong>{aiSetupImportApplyPlanSummary.costCandidates}개</strong></div>
-                      <div><span>검산/합계 행</span><strong>{aiSetupImportApplyPlanSummary.validationRows}개</strong></div>
-                      <div><span>검토 필요 행</span><strong>{aiSetupImportApplyPlanSummary.reviewRows}개</strong></div>
-                      <div><span>무시 행</span><strong>{aiSetupImportApplyPlanSummary.ignoredRows}개</strong></div>
-                    </div>
+                    <button
+                      type="button"
+                      className="ai-inline-disclosure"
+                      onClick={() => setAiSetupSaveGuideOpen((open) => !open)}
+                      aria-expanded={aiSetupSaveGuideOpen}
+                    >
+                      {aiSetupSaveGuideOpen ? "저장 전 안내 접기" : "저장 전 안내 보기"}
+                    </button>
 
+                    {aiSetupSaveGuideOpen && (
+                    <>
                     <div className="ai-confirm-warning-list">
                       {hasAiSetupAutoSelectedCondition && !aiSetupApplyConditionComplete && (
                         <p>평수는 자동 감지되었지만, 일부 조건이 선택되지 않았습니다. 템플릿 저장 전 나머지 조건을 확인해야 합니다.</p>
@@ -8051,6 +8074,8 @@ export default function App() {
                         <li>비용/세금 후보와 검산/합계 행은 현재 자동 저장되지 않습니다.</li>
                       </ul>
                     </div>
+                    </>
+                    )}
 
                     {aiSetupNewItemResult && (
                       <div className={aiSetupNewItemResult.failedCount > 0 ? "error-box" : "success-box"}>
@@ -8071,11 +8096,6 @@ export default function App() {
                     <div className="ai-price-update-actions ai-new-item-actions">
                       <div>
                         <strong>새 항목 후보 단가표 추가</strong>
-                        <p>
-                          이 버튼은 공사항목으로 분류되고 처리 방식이 새 항목으로 추가인 행만 단가표에 추가합니다.
-                          수량/인원, 비용/세금 후보, 검산/합계 행은 저장하지 않습니다.
-                          추가 후 반영 계획이 갱신되고 새로 추가된 항목도 템플릿 저장 후보에 포함됩니다.
-                        </p>
                         {aiSetupNewItemTargets.length === 0 && (
                           <p className="ai-plan-empty">추가할 새 항목 후보가 없습니다. 공사항목 행의 처리 방식을 새 항목으로 추가로 바꿔주세요.</p>
                         )}
@@ -8108,10 +8128,6 @@ export default function App() {
                     <div className="ai-price-update-actions">
                       <div>
                         <strong>기존 항목 단가/인건비 반영</strong>
-                        <p>
-                          이 버튼은 기존 FORMATE 세부항목의 단가와 인건비만 수정합니다.
-                          새 항목, 템플릿 수량/인원, 비용/세금 후보는 저장하지 않습니다.
-                        </p>
                         {aiSetupPriceUpdateTargets.length === 0 && (
                           <p className="ai-plan-empty">업데이트할 기존 항목 단가/인건비 후보가 없습니다.</p>
                         )}
@@ -8144,10 +8160,6 @@ export default function App() {
                     <div className="ai-price-update-actions ai-template-save-actions">
                       <div>
                         <strong>선택 조건 템플릿 수량/인원 저장</strong>
-                        <p>
-                          이 버튼은 기존 FORMATE 세부항목에 연결된 행의 수량과 인원만 선택한 조건의 견적 템플릿에 저장합니다.
-                          단가/인건비, 새 항목, 비용/세금 후보는 저장하지 않습니다.
-                        </p>
                         {!aiSetupApplyConditionComplete ? (
                           <p className="ai-plan-empty">공사 조건이 완성되지 않았습니다.</p>
                         ) : aiSetupTemplateValueTargets.length === 0 ? (
@@ -8173,8 +8185,8 @@ export default function App() {
                     onClick={() => setAiSetupRawOpen((open) => !open)}
                     aria-expanded={aiSetupRawOpen}
                   >
-                    <span>{aiSetupRawOpen ? "원본 엑셀 데이터 접기" : "원본 엑셀 데이터 보기"}</span>
-                    <em>자동 인식 전 원본 시트 내용을 확인합니다.</em>
+                    <span>{aiSetupRawOpen ? "원본 데이터 접기" : "원본 데이터 보기"}</span>
+                    <em>{selectedAiSetupSheet?.rowCount ?? 0}행 {selectedAiSetupSheet?.columnCount ?? 0}열</em>
                     <div>
                       {aiSetupRawBadges.map((badge) => (
                         <b key={badge}>{badge}</b>
@@ -11397,12 +11409,12 @@ const styles = `
   }
   .ai-upload-box {
     position: relative;
-    min-height: 168px;
+    min-height: 124px;
     display: grid;
     place-items: center;
     align-content: center;
     gap: 8px;
-    padding: var(--space-3);
+    padding: var(--space-2);
     border: 1px dashed var(--border-default);
     border-radius: var(--radius-card);
     background: var(--bg-subtle);
@@ -11441,8 +11453,8 @@ const styles = `
     display: grid;
     align-content: center;
     gap: 8px;
-    min-height: 168px;
-    padding: var(--space-3);
+    min-height: 124px;
+    padding: var(--space-2);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-surface);
@@ -11456,7 +11468,8 @@ const styles = `
     max-width: 560px;
     margin: 0;
     color: var(--text-secondary);
-    line-height: 1.55;
+    font-size: var(--font-size-body-sm);
+    line-height: 1.45;
   }
   .ai-flow-panel,
   .ai-next-action-box,
@@ -11684,6 +11697,19 @@ const styles = `
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .ai-sheet-meta-line {
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .ai-mapping-panel,
   .ai-standard-preview,
   .ai-raw-data-panel,
@@ -11705,9 +11731,10 @@ const styles = `
     grid-template-columns: minmax(160px, auto) minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--space-1);
-    padding: 12px 14px;
+    min-height: 42px;
+    padding: 8px 10px;
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
+    border-radius: var(--radius-button);
     background: var(--bg-surface);
     color: var(--text-primary);
     text-align: left;
@@ -11738,8 +11765,8 @@ const styles = `
   .ai-collapsible-toggle b {
     display: inline-flex;
     align-items: center;
-    min-height: 26px;
-    padding: 0 8px;
+    min-height: 22px;
+    padding: 0 7px;
     border-radius: 999px;
     background: var(--bg-subtle);
     color: var(--text-secondary);
@@ -11882,6 +11909,72 @@ const styles = `
   .ai-match-summary strong {
     color: var(--text-primary);
     font-size: var(--font-size-title-sm);
+  }
+  .ai-compact-summary-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+  }
+  .ai-compact-summary-bar span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 24px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+  }
+  .ai-compact-summary-bar span + span::before {
+    content: "";
+    width: 1px;
+    height: 12px;
+    margin-right: 2px;
+    background: var(--border-default);
+  }
+  .ai-compact-summary-bar strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-caption);
+  }
+  .ai-compact-summary-bar .needs-review,
+  .ai-compact-summary-bar .needs-review strong {
+    color: #a33a3a;
+  }
+  .ai-compact-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ai-compact-actions .secondary-button {
+    min-height: 34px;
+    padding: 0 11px;
+    font-size: var(--font-size-body-sm);
+  }
+  .ai-compact-details {
+    display: grid;
+    gap: 8px;
+  }
+  .ai-compact-details summary,
+  .ai-inline-disclosure {
+    width: fit-content;
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    cursor: pointer;
+  }
+  .ai-inline-disclosure {
+    display: inline-flex;
+    align-items: center;
   }
   .ai-catalog-match-wrap {
     max-height: 560px;
@@ -12205,7 +12298,7 @@ const styles = `
     grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--space-2);
     align-items: center;
-    padding: var(--space-2);
+    padding: 12px;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-subtle);
@@ -12223,6 +12316,18 @@ const styles = `
     color: var(--text-secondary);
     font-size: var(--font-size-body-sm);
     line-height: 1.5;
+  }
+  .ai-final-confirm-panel .ai-price-update-actions {
+    gap: var(--space-1);
+    padding: 10px 12px;
+    border-radius: var(--radius-button);
+  }
+  .ai-final-confirm-panel .ai-price-update-actions strong {
+    font-size: var(--font-size-body-sm);
+  }
+  .ai-final-confirm-panel .primary-button {
+    min-height: 38px;
+    padding: 0 12px;
   }
   .ai-recommendation-actions {
     display: grid;
@@ -12251,10 +12356,9 @@ const styles = `
   .ai-recommendation-summary {
     display: grid;
     gap: var(--space-1);
-    padding: var(--space-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    background: var(--bg-surface);
+    padding: 0;
+    border: 0;
+    background: transparent;
   }
   .ai-recommendation-summary-grid {
     display: grid;
