@@ -1405,6 +1405,12 @@ function getAiSplitRowSourceNumber(sourceRowNumber, index) {
   return `${sourceRowNumber}-${index + 1}`;
 }
 
+function formatAiShortReason(value, maxLength = 72) {
+  const text = formatExcelCellValue(value).trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trim()}...`;
+}
+
 function createAiSplitOverridePatch(splitRow, catalogItems = []) {
   const suggestedSubitemId = splitRow?.suggestedSubitemId || "";
   const suggestedCategoryId = splitRow?.suggestedCategoryId || "";
@@ -1416,7 +1422,7 @@ function createAiSplitOverridePatch(splitRow, catalogItems = []) {
       (item.subitems ?? []).some((subitem) => subitem.id === suggestedSubitemId)
     );
     if (matchedCategory) {
-      categoryId = categoryId || matchedCategory.id;
+      categoryId = categoryId && categoryId === matchedCategory.id ? categoryId : matchedCategory.id;
       const matchedSubitem = (matchedCategory.subitems ?? []).find((subitem) => subitem.id === suggestedSubitemId);
       subitemId = matchedSubitem?.id ?? "";
     } else {
@@ -1504,7 +1510,12 @@ function createAiCatalogMatchRow(row, catalogItems, override = {}, options = {})
       selectedSubitemLaborRate: selectedSubitem?.labor_rate ?? "",
       isSplitParent: Boolean(options.isSplitParent),
       isSplitRow: Boolean(options.isSplitRow),
+      isSplitChild: Boolean(options.isSplitRow),
       sourceParentRowNumber: options.sourceParentRowNumber ?? row.sourceParentRowNumber ?? null,
+      parentSourceRowNumber: options.sourceParentRowNumber ?? row.sourceParentRowNumber ?? null,
+      originalRowNumber: options.isSplitRow
+        ? `${options.sourceParentRowNumber ?? row.sourceParentRowNumber}-${options.splitIndex ?? ""}`
+        : row.sourceRowNumber,
       splitIndex: options.splitIndex ?? null,
       splitCount: options.splitCount ?? 0,
       aiReason: override.aiReason ?? "",
@@ -1553,7 +1564,7 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
           item_name: sourceItemName,
           sourceCategory,
           sourceItemName,
-          unit: "",
+          unit: row.unit || "식",
           quantity: "1",
           unit_price: "",
           labor_rate: "",
@@ -1606,6 +1617,7 @@ function summarizeAiCatalogMatchRows(rows) {
 
 function getAiRecommendationOverridePatch(recommendation) {
   const splitRows = (Array.isArray(recommendation?.splitRows) ? recommendation.splitRows : [])
+    .slice(0, 8)
     .map((splitRow) => ({
       itemName: formatExcelCellValue(splitRow?.itemName ?? splitRow?.label).trim(),
       categoryName: formatExcelCellValue(splitRow?.categoryName).trim(),
@@ -3238,6 +3250,11 @@ export default function App() {
 
   async function handleAiSetupRecommendMatches() {
     if (aiSetupAiLoading || aiSetupCatalogMatchRows.length === 0) return;
+    const hasManualOverrides = Object.values(aiSetupMatchOverrides).some((override) => override?.source === "manual");
+    if (hasManualOverrides) {
+      const shouldContinue = window.confirm("AI 추천을 다시 실행하면 현재 화면에서 수정한 매칭 결과가 새 추천으로 바뀔 수 있습니다. 계속할까요?");
+      if (!shouldContinue) return;
+    }
 
     setAiSetupAiLoading(true);
     setAiSetupAiError("");
@@ -3258,7 +3275,9 @@ export default function App() {
           unit: subitem.unit,
         }))
       );
-      const rows = aiSetupCatalogMatchRows.slice(0, 50).map((row) => ({
+      const rows = aiSetupCatalogMatchRows.filter((row) => !row.isSplitChild).slice(0, 50).map((row) => {
+        const override = aiSetupMatchOverrides[row.sourceRowNumber] ?? {};
+        return ({
         rowIndex: row.sourceRowNumber,
         category: row.category ?? row.sourceCategory ?? "",
         item_name: row.item_name ?? row.sourceItemName ?? "",
@@ -3270,13 +3289,14 @@ export default function App() {
         labor_count: row.labor_count ?? "",
         original_amount: row.original_amount ?? "",
         memo: row.memo ?? "",
-        rowType: row.rowType,
-        action: row.action,
+        rowType: override.rowType ?? row.rowType,
+        action: override.action ?? row.action,
         matchedCategoryId: row.selectedCategoryId,
         matchedCategoryName: row.selectedCategoryName,
         matchedSubitemId: row.selectedSubitemId,
         matchedSubitemName: row.selectedSubitemName,
-      }));
+        });
+      });
 
       const response = await fetch("/api/analyze-excel-import", {
         method: "POST",
@@ -3303,11 +3323,6 @@ export default function App() {
       const recommendationPatches = recommendations.reduce((patches, recommendation) => {
         const sourceRowNumber = Number(recommendation.rowIndex);
         if (!sourceRowNumbers.has(sourceRowNumber)) return patches;
-        const previous = aiSetupMatchOverrides[sourceRowNumber] ?? {};
-        if (previous.source === "manual") {
-          patches.skippedManualCount += 1;
-          return patches;
-        }
         patches.items.push({
           sourceRowNumber,
           patch: {
@@ -7369,9 +7384,12 @@ export default function App() {
                                   className={`${row.isSplitParent ? "ai-split-parent-row" : ""} ${row.isSplitRow ? "ai-split-child-row" : ""}`.trim()}
                                 >
                                   <td className="ai-column-code">
-                                    {row.sourceRowNumber}
-                                    {row.isSplitRow && (
-                                      <small className="ai-match-hint">원본 {row.sourceParentRowNumber}행에서 분해</small>
+                                    {row.originalRowNumber ?? row.sourceRowNumber}
+                                    {row.isSplitChild && (
+                                      <small className="ai-match-hint">자동 분해 · 원본 {row.sourceParentRowNumber}행</small>
+                                    )}
+                                    {row.isSplitParent && (
+                                      <small className="ai-match-hint">분해 원본 · 저장 제외</small>
                                     )}
                                   </td>
                                   <td>{row.sourceCategory || "-"}</td>
@@ -7389,7 +7407,7 @@ export default function App() {
                                   </td>
                                   <td>
                                     {row.isSplitParent ? (
-                                      <span className="ai-match-status subtotal_row">분해됨/검산용 원본</span>
+                                      <span className="ai-match-status subtotal_row">분해 원본 · 저장 제외</span>
                                     ) : (
                                       <select
                                         value={row.rowType}
@@ -7403,13 +7421,13 @@ export default function App() {
                                   </td>
                                   <td>
                                     <span className={`ai-match-status ${row.isSplitParent ? "subtotal_row" : getAiDisplayMatchStatus(row)}`.trim()}>
-                                      {row.isSplitParent ? "분해됨/검산용" : getAiDisplayMatchStatusLabel(row)}
+                                      {row.isSplitParent ? "분해 원본" : getAiDisplayMatchStatusLabel(row)}
                                     </span>
                                     {row.aiReason && (
-                                      <small className="ai-recommendation-reason">
-                                        AI {row.aiConfidence !== null ? `${Math.round(Number(row.aiConfidence) * 100)}%` : ""} · {getAiRecommendationActionLabel(row.aiRecommendedAction)} · {row.aiReason}
+                                      <small className="ai-recommendation-reason" title={row.aiReason}>
+                                        AI {row.aiConfidence !== null ? `${Math.round(Number(row.aiConfidence) * 100)}%` : ""} · {getAiRecommendationActionLabel(row.aiRecommendedAction)} · {formatAiShortReason(row.aiReason)}
                                         {row.aiReviewNotes?.length > 0 && (
-                                          <span>확인 필요 신호 · {row.aiReviewNotes.join(" ")}</span>
+                                          <span title={row.aiReviewNotes.join(" ")}>확인 필요 · {formatAiShortReason(row.aiReviewNotes.join(" "), 56)}</span>
                                         )}
                                       </small>
                                     )}

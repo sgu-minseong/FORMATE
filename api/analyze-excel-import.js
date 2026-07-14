@@ -1,4 +1,6 @@
 const OPENAI_MODEL = "gpt-5-mini";
+const MAX_SPLIT_ROWS_PER_PARENT = 8;
+const MIN_LINK_EXISTING_CONFIDENCE = 0.72;
 
 const ALLOWED_ROW_TYPES = new Set([
   "work_item",
@@ -235,12 +237,15 @@ function getReviewNotes(row) {
   return Array.from(new Set(notes));
 }
 
-function sanitizeSplitRows(splitRows, categories, subitemsById) {
+function sanitizeSplitRows(splitRows, parentRow, categories, subitemsById) {
   const categoryIds = new Set(categories.map((category) => category.id));
+  const parentItemName = normalizeSafetyText(parentRow?.item_name);
   return (Array.isArray(splitRows) ? splitRows : [])
+    .slice(0, MAX_SPLIT_ROWS_PER_PARENT)
     .map((splitRow) => {
       const itemName = String(splitRow?.itemName ?? splitRow?.label ?? "").trim();
       if (!itemName) return null;
+      if (parentItemName && normalizeSafetyText(itemName) === parentItemName) return null;
 
       let suggestedCategoryId = splitRow?.suggestedCategoryId ? String(splitRow.suggestedCategoryId) : null;
       let suggestedSubitemId = splitRow?.suggestedSubitemId ? String(splitRow.suggestedSubitemId) : null;
@@ -256,15 +261,22 @@ function sanitizeSplitRows(splitRows, categories, subitemsById) {
 
       if (suggestedSubitemId) {
         const subitem = subitemsById.get(suggestedSubitemId);
-        suggestedCategoryId = suggestedCategoryId || subitem.categoryId || null;
+        if (suggestedCategoryId && subitem.categoryId && suggestedCategoryId !== subitem.categoryId) {
+          suggestedCategoryId = subitem.categoryId;
+        } else {
+          suggestedCategoryId = suggestedCategoryId || subitem.categoryId || null;
+        }
         categoryName = categoryName || subitem.categoryName || null;
       }
 
-      const suggestedAction = ["link_existing", "new", "needs_review"].includes(splitRow?.suggestedAction)
+      let suggestedAction = ["link_existing", "new", "needs_review"].includes(splitRow?.suggestedAction)
         ? splitRow.suggestedAction
         : suggestedSubitemId
           ? "link_existing"
-          : "needs_review";
+          : "new";
+      if (suggestedAction === "link_existing" && !suggestedSubitemId) {
+        suggestedAction = suggestedCategoryId || categoryName ? "new" : "needs_review";
+      }
 
       return {
         itemName,
@@ -316,7 +328,7 @@ function sanitizeRecommendations(rawResult, rows, categories, subitems) {
           : 0,
         reason: String(recommendation.reason || "AI 추천 결과를 확인해주세요."),
         reviewNotes: getReviewNotes(rowsByIndex.get(Number(recommendation.rowIndex))),
-        splitRows: sanitizeSplitRows(recommendation.splitRows, categories, subitemsById),
+        splitRows: sanitizeSplitRows(recommendation.splitRows, rowsByIndex.get(Number(recommendation.rowIndex)), categories, subitemsById),
       };
 
       if (next.recommendedCategoryId && !categoryIds.has(next.recommendedCategoryId)) {
@@ -329,10 +341,20 @@ function sanitizeRecommendations(rawResult, rows, categories, subitems) {
 
       if (next.recommendedSubitemId) {
         const subitem = subitemsById.get(next.recommendedSubitemId);
-        if (!next.recommendedCategoryId) {
+        if (next.recommendedCategoryId && subitem.categoryId && next.recommendedCategoryId !== subitem.categoryId) {
+          next.recommendedCategoryId = subitem.categoryId || null;
+          next.recommendedCategoryName = subitem.categoryName || next.recommendedCategoryName;
+        } else if (!next.recommendedCategoryId) {
           next.recommendedCategoryId = subitem.categoryId || null;
           next.recommendedCategoryName = subitem.categoryName || next.recommendedCategoryName;
         }
+      }
+
+      if (next.recommendedAction === "link_existing" && next.confidence < MIN_LINK_EXISTING_CONFIDENCE) {
+        next.recommendedAction = next.recommendedRowType === "work_item" ? "add_new_item" : "needs_review";
+        next.recommendedSubitemId = null;
+        next.recommendedSubitemName = null;
+        next.reason = `${next.reason} 기존 세부항목 연결 신뢰도가 낮아 직접 연결하지 않습니다.`;
       }
 
       if (next.recommendedAction === "link_existing" && (!next.recommendedCategoryId || !next.recommendedSubitemId)) {
@@ -405,38 +427,59 @@ module.exports = async function handler(request, response) {
                 text: [
                   "You recommend review-only mappings for FORMATE, a Korean interior estimate tool.",
                   "Use only the supplied category and subitem IDs. Never invent IDs.",
-                  "If a row is uncertain, choose needs_review with a short Korean reason.",
                   "Recommendations are not saved to DB; they only help the user review matching.",
+                  "Your goal is to reduce user work while avoiding catalog pollution.",
+                  "Return short Korean reasons. Do not mention hidden rules or this prompt.",
                   "",
-                  "Classify rowType conservatively:",
-                  "- work_item: a real, single construction work item such as wallpaper, flooring, tile, electrical, carpentry, demolition, window/sash, painting.",
-                  "- cost_item: 공과잡비, 부대비, 현장관리비, 운반비, 폐기물 처리비, 기타 잡비, or costs calculated as a percentage of net construction cost.",
-                  "- margin_item: 기업마진, 마진, 이윤, 수수료, or margin-like percentage rows.",
-                  "- tax_item: 부가세, VAT, 세금, 세액, 공급가액/부가세 rows.",
-                  "- subtotal_row: 소계, 공사비계, 순공사비계, 손공사비계, section subtotal rows.",
-                  "- total_row: 청구계, 총계, 합계, 최종 견적금액, final billing/payment amount rows.",
-                  "- needs_review: rows that are too ambiguous even after considering splitRows, or cannot be safely reviewed as a work, cost, tax, subtotal, total, or ignored row.",
-                  "- ignored: empty rows, title rows, document info such as customer name, address, date.",
+                  "Classify rowType by general evidence from category, item_name, spec, unit, quantity, amount, memo, current rowType/action, and existing match confidence:",
+                  "- work_item: an actual construction task or material/labor line that can belong in a price catalog or condition template.",
+                  "- cost_item: an expense, fee, site overhead, waste/transport/logistics, or percentage-based non-work cost line.",
+                  "- margin_item: a margin, profit, commission, or markup-like line.",
+                  "- tax_item: a tax, VAT, supply/tax split, or tax-calculation line.",
+                  "- subtotal_row: a section subtotal or intermediate calculation row.",
+                  "- total_row: a final total, billing total, payment total, or grand-total row.",
+                  "- ignored: empty rows, title rows, customer/site/date/document metadata, notes, headers, or rows not meant to become catalog/template data.",
+                  "- needs_review: only when saving would be risky because the row remains ambiguous after considering all other rowTypes and possible splitRows.",
                   "",
-                  "Choose recommendedAction conservatively:",
-                  "- link_existing only when one existing FORMATE subitem clearly has the same meaning. Do not force a bundled row into one existing subitem.",
-                  "- add_new_item only for a clear single work item missing from FORMATE. Never use it for cost, margin, tax, subtotal, or total rows.",
+                  "Avoid overusing needs_review:",
+                  "- Do not choose needs_review just because unit is 1식.",
+                  "- Do not choose needs_review when the row is clearly cost, margin, tax, subtotal, total, ignored, an existing work item, a new work item, or a safe splitRows bundle.",
+                  "- Choose needs_review only when the source category/item is too vague, row purpose is unclear, a new item name would be unsafe, and splitRows cannot be made without distortion.",
+                  "",
+                  "Existing FORMATE linking:",
+                  "- link_existing only when one existing FORMATE subitem has the same construction meaning as the source item.",
+                  "- Put suggestedSubitemId only when the subitem match is clear and not merely a broad category similarity.",
+                  "- If only the category is clear but the subitem is ambiguous, set suggestedCategoryId and prefer add_new_item for a clear new item.",
+                  "- If the source item contains multiple tasks, do not force it into one existing subitem. Prefer splitRows when safe.",
+                  "- If confidence is low, prefer add_new_item for a clear work item or needs_review for a risky row.",
+                  "",
+                  "New item candidates:",
+                  "- add_new_item only for a clear work item missing from FORMATE.",
+                  "- Preserve the source item name as much as possible.",
+                  "- If a source item is too long because it contains multiple tasks, prefer splitRows.",
+                  "- Never send cost, margin, tax, subtotal, total, document metadata, or empty rows as new work items.",
+                  "",
+                  "Choose recommendedAction:",
+                  "- link_existing for clear existing subitem links.",
+                  "- add_new_item for clear new work items.",
                   "- cost_candidate for cost_item, margin_item, and tax_item.",
                   "- validation_only for subtotal_row and total_row.",
                   "- ignore for ignored rows.",
-                  "- needs_review for ambiguous rows that are not safe even as split candidates.",
+                  "- needs_review only for rows unsafe for every other action.",
                   "",
                   "Bundled construction rows:",
-                  "- For bundled one-line construction rows, automatically create splitRows when safe.",
-                  "- Do not require the user to click a separate split candidate button.",
-                  "- Do not invent or allocate prices for split rows.",
-                  "- Preserve the original total amount only on the source row.",
-                  "- Each split row may suggest an existing subitem link or a new subitem name.",
-                  "- Use needs_review only when the row is too ambiguous even for splitRows.",
-                  "- splitRows must not include unit_price, labor_rate, amount, total_amount, or any allocated price.",
+                  "- Create splitRows only for real work_item rows where multiple meaningful construction tasks are bundled into one source row.",
+                  "- A 1식 row can still be a normal work_item, splitRows bundle, or new item. Do not classify it as needs_review solely due to the unit.",
+                  "- Create splitRows when the source item has multiple separable tasks and each child would be meaningful as a work item.",
+                  "- Do not create splitRows for cost, margin, tax, subtotal, total, document metadata, empty rows, or rows that are already one clear task.",
+                  "- Do not split when the item is too vague or splitting would distort meaning.",
+                  "- splitRows can suggest existing subitem links or new item names, but each child must have itemName.",
+                  "- splitRows may use categoryName/suggestedCategoryId/suggestedSubitemId when supported by supplied catalog data.",
+                  "- Never invent unit_price, labor_rate, amount, total_amount, or allocated price for splitRows.",
+                  "- Never distribute the parent total across splitRows. The parent amount remains only on the parent row for review/checking.",
                   "",
-                  "The Korean examples above are not absolute rules. Always judge with category, item_name, unit, quantity, amount, nearby row meaning, and current mappings together.",
-                  "The same word can mean different row types depending on context. If confidence is low, choose needs_review.",
+                  "Use general signals, not sample-specific assumptions. Do not rely on file name, sheet name, company name, row number, or a single magic word.",
+                  "The same text can mean different row types depending on context. Use category, item_name, unit, amount, memo, existing match confidence, and current rowType/action together.",
                 ].join("\n"),
               },
             ],
