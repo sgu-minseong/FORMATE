@@ -2176,13 +2176,19 @@ function createAiImportApplyPlan(rows) {
     }
 
     if (isWorkItem && (hasQuantityValue || hasLaborCountValue) && row.action !== "ignore") {
+      const selectedSubitemName = row.selectedSubitemName || sourceItemName || "세부항목 미정";
       plan.templateValueCandidates.push({
         sourceRowNumber: row.sourceRowNumber,
+        matchedSubitemId: row.selectedSubitemId,
+        matchedItemId: row.selectedCategoryId,
+        rowType: row.rowType,
+        action: row.action,
         categoryName: row.selectedCategoryName || sourceCategory || "대분류 미정",
-        subitemName: row.selectedSubitemName || sourceItemName || "세부항목 미정",
+        subitemName: selectedSubitemName,
         quantity: row.quantity,
         laborCount: row.labor_count,
         unit: row.unit || row.selectedSubitemUnit || "",
+        optionValue: getTemplateOptionValue({ name: selectedSubitemName }),
       });
     }
 
@@ -2232,6 +2238,31 @@ function getAiPriceUpdateTargets(plan) {
     row?.willChange &&
     (hasImportValue(row.excelUnitPrice) || hasImportValue(row.excelLaborRate))
   );
+}
+
+function getAiTemplateValueTargets(plan) {
+  return (plan?.templateValueCandidates ?? []).filter((row) =>
+    row?.rowType === "work_item" &&
+    row?.action === "link" &&
+    row?.matchedSubitemId &&
+    row?.matchedItemId &&
+    (hasImportValue(row.quantity) || hasImportValue(row.laborCount))
+  );
+}
+
+function getAiSetupTemplateCondition(condition) {
+  if (!isAiSetupApplyConditionComplete(condition)) return null;
+  return buildTemplateCondition({
+    pyeong: condition.pyeong,
+    buildType: condition.buildType,
+    hasExtension: condition.buildType === "old" && condition.conditionVariant !== OLD_NO_EXTENSION_VARIANT,
+    conditionVariant: condition.conditionVariant,
+  });
+}
+
+function parseAiImportTemplateNumber(value) {
+  if (!hasImportValue(value)) return null;
+  return parseAiImportCurrencyNumber(value);
 }
 
 function createEmptyAiSetupApplyCondition() {
@@ -2521,6 +2552,10 @@ export default function App() {
   const [aiSetupPriceSaving, setAiSetupPriceSaving] = useState(false);
   const [aiSetupPriceResult, setAiSetupPriceResult] = useState(null);
   const [aiSetupPriceError, setAiSetupPriceError] = useState("");
+  const [aiSetupTemplateConfirmOpen, setAiSetupTemplateConfirmOpen] = useState(false);
+  const [aiSetupTemplateSaving, setAiSetupTemplateSaving] = useState(false);
+  const [aiSetupTemplateResult, setAiSetupTemplateResult] = useState(null);
+  const [aiSetupTemplateError, setAiSetupTemplateError] = useState("");
 
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
@@ -2668,6 +2703,9 @@ export default function App() {
   }, [aiSetupImportApplyPlan]);
   const aiSetupPriceUpdateTargets = useMemo(() => {
     return getAiPriceUpdateTargets(aiSetupImportApplyPlan);
+  }, [aiSetupImportApplyPlan]);
+  const aiSetupTemplateValueTargets = useMemo(() => {
+    return getAiTemplateValueTargets(aiSetupImportApplyPlan);
   }, [aiSetupImportApplyPlan]);
   const aiSetupDetectedConditionHint = useMemo(() => {
     return detectAiSetupConditionHint(aiSetupFileName, selectedAiSetupSheet);
@@ -3053,6 +3091,10 @@ export default function App() {
     setAiSetupPriceSaving(false);
     setAiSetupPriceResult(null);
     setAiSetupPriceError("");
+    setAiSetupTemplateConfirmOpen(false);
+    setAiSetupTemplateSaving(false);
+    setAiSetupTemplateResult(null);
+    setAiSetupTemplateError("");
   }
 
   function updateAiSetupApplyConditionPatch(patch, touchedFields = Object.keys(patch)) {
@@ -3315,6 +3357,193 @@ export default function App() {
       setAiSetupPriceError(getFriendlyError(error, "기존 항목 단가/인건비를 반영하지 못했습니다."));
     } finally {
       setAiSetupPriceSaving(false);
+    }
+  }
+
+  function openAiSetupTemplateConfirm() {
+    if (aiSetupTemplateSaving || !aiSetupApplyConditionComplete || aiSetupTemplateValueTargets.length === 0) return;
+    setAiSetupTemplateError("");
+    setAiSetupTemplateResult(null);
+    setAiSetupTemplateConfirmOpen(true);
+  }
+
+  function closeAiSetupTemplateConfirm() {
+    if (aiSetupTemplateSaving) return;
+    setAiSetupTemplateConfirmOpen(false);
+    setAiSetupTemplateError("");
+  }
+
+  async function confirmAiSetupTemplateValues() {
+    if (aiSetupTemplateSaving || !aiSetupApplyConditionComplete || aiSetupTemplateValueTargets.length === 0) return;
+
+    setAiSetupTemplateSaving(true);
+    setAiSetupTemplateError("");
+    setAiSetupTemplateResult(null);
+
+    try {
+      const companyId = requireSelectedCompanyId();
+      const templateCondition = getAiSetupTemplateCondition(aiSetupApplyCondition);
+      if (!templateCondition) {
+        throw new Error("공사 조건이 완성되지 않았습니다.");
+      }
+
+      const allowedSubitems = new Map();
+      aiSetupCatalogItems.forEach((item) => {
+        (item.subitems ?? []).forEach((subitem) => {
+          allowedSubitems.set(subitem.id, { ...subitem, itemId: item.id, itemName: item.name });
+        });
+      });
+
+      const preflightResults = [];
+      const preparedTargets = [];
+      for (const target of aiSetupTemplateValueTargets) {
+        const allowedSubitem = allowedSubitems.get(target.matchedSubitemId);
+        if (!allowedSubitem || allowedSubitem.itemId !== target.matchedItemId) {
+          preflightResults.push({
+            status: "rejected",
+            target,
+            reason: "현재 업체의 기존 세부항목으로 확인되지 않았습니다.",
+          });
+          continue;
+        }
+
+        const hasQuantity = hasImportValue(target.quantity);
+        const hasLaborCount = hasImportValue(target.laborCount);
+        const quantity = hasQuantity ? parseAiImportTemplateNumber(target.quantity) : null;
+        const laborCount = hasLaborCount ? parseAiImportTemplateNumber(target.laborCount) : null;
+
+        if ((hasQuantity && quantity === null) || (hasLaborCount && laborCount === null)) {
+          preflightResults.push({
+            status: "rejected",
+            target,
+            reason: "수량 또는 인원 값을 숫자로 읽을 수 없습니다.",
+          });
+          continue;
+        }
+
+        preparedTargets.push({
+          ...target,
+          hasQuantity,
+          hasLaborCount,
+          quantity,
+          laborCount,
+          optionValue: target.optionValue ?? "",
+        });
+      }
+
+      if (preparedTargets.length === 0) {
+        setAiSetupTemplateResult({
+          successCount: 0,
+          failedCount: preflightResults.length,
+          failedRows: preflightResults,
+          templateId: "",
+          createdTemplate: false,
+        });
+        return;
+      }
+
+      let templateRow = await fetchTemplateRowByCondition(companyId, templateCondition);
+      let createdTemplate = false;
+      if (!templateRow?.id) {
+        const { data: insertedTemplate, error: insertTemplateError } = await supabase
+          .from("admin_condition_templates")
+          .insert({
+            company_id: companyId,
+            ...templateCondition,
+          })
+          .select("id")
+          .single();
+        if (insertTemplateError) throw insertTemplateError;
+        templateRow = insertedTemplate;
+        createdTemplate = true;
+      }
+
+      const results = [...preflightResults];
+      for (const target of preparedTargets) {
+        const optionValue = target.optionValue ?? "";
+        const { data: existingRows, error: existingError } = await supabase
+          .from("admin_condition_template_values")
+          .select("id, quantity, labor_count")
+          .eq("template_id", templateRow.id)
+          .eq("subitem_id", target.matchedSubitemId)
+          .eq("option_value", optionValue)
+          .limit(1);
+        if (existingError) {
+          results.push({ status: "rejected", target, reason: existingError.message || "기존 템플릿 값 확인 실패" });
+          continue;
+        }
+
+        const existingValue = existingRows?.[0] ?? null;
+        if (existingValue?.id) {
+          const updatePayload = {};
+          if (target.hasQuantity) updatePayload.quantity = target.quantity;
+          if (target.hasLaborCount) updatePayload.labor_count = target.laborCount;
+
+          const { data: updatedRows, error: updateError } = await supabase
+            .from("admin_condition_template_values")
+            .update(updatePayload)
+            .eq("id", existingValue.id)
+            .select("id");
+
+          if (updateError) {
+            results.push({ status: "rejected", target, reason: updateError.message || "템플릿 값 업데이트 실패" });
+          } else if (!updatedRows?.length) {
+            results.push({ status: "rejected", target, reason: "업데이트된 템플릿 값이 없습니다." });
+          } else {
+            results.push({ status: "fulfilled", target, mode: "updated" });
+          }
+          continue;
+        }
+
+        const insertPayload = {
+          template_id: templateRow.id,
+          item_id: target.matchedItemId,
+          subitem_id: target.matchedSubitemId,
+          option_value: optionValue,
+          quantity: target.hasQuantity ? target.quantity : null,
+          labor_count: target.hasLaborCount ? target.laborCount : null,
+        };
+
+        const { data: insertedRows, error: insertValueError } = await supabase
+          .from("admin_condition_template_values")
+          .insert(insertPayload)
+          .select("id");
+
+        if (insertValueError) {
+          results.push({ status: "rejected", target, reason: insertValueError.message || "템플릿 값 추가 실패" });
+        } else if (!insertedRows?.length) {
+          results.push({ status: "rejected", target, reason: "추가된 템플릿 값이 없습니다." });
+        } else {
+          results.push({ status: "fulfilled", target, mode: "inserted" });
+        }
+      }
+
+      const successRows = results.filter((result) => result.status === "fulfilled");
+      const failedRows = results.filter((result) => result.status === "rejected");
+
+      setAiSetupTemplateResult({
+        successCount: successRows.length,
+        failedCount: failedRows.length,
+        failedRows,
+        templateId: templateRow.id,
+        createdTemplate,
+      });
+
+      if (successRows.length > 0) {
+        try {
+          await fetchAdminTemplateList();
+        } catch (refreshError) {
+          console.warn("[FORMATE AI setup template refresh]", refreshError);
+        }
+      }
+      if (failedRows.length === 0) {
+        setAiSetupTemplateConfirmOpen(false);
+      }
+    } catch (error) {
+      console.error("[FORMATE AI setup template save]", error);
+      setAiSetupTemplateError(getFriendlyError(error, "선택 조건의 템플릿 수량/인원을 저장하지 못했습니다."));
+    } finally {
+      setAiSetupTemplateSaving(false);
     }
   }
 
@@ -4212,6 +4441,10 @@ export default function App() {
     setAiSetupPriceSaving(false);
     setAiSetupPriceResult(null);
     setAiSetupPriceError("");
+    setAiSetupTemplateConfirmOpen(false);
+    setAiSetupTemplateSaving(false);
+    setAiSetupTemplateResult(null);
+    setAiSetupTemplateError("");
   }
 
   async function saveAndLeaveAdminCatalog() {
@@ -4965,6 +5198,10 @@ export default function App() {
     setAiSetupPriceSaving(false);
     setAiSetupPriceResult(null);
     setAiSetupPriceError("");
+    setAiSetupTemplateConfirmOpen(false);
+    setAiSetupTemplateSaving(false);
+    setAiSetupTemplateResult(null);
+    setAiSetupTemplateError("");
   }
 
   async function addAdminItem() {
@@ -6170,6 +6407,73 @@ export default function App() {
         </div>
       )}
 
+      {aiSetupTemplateConfirmOpen && (
+        <div className="modal-backdrop" onClick={closeAiSetupTemplateConfirm}>
+          <section className="admin-verify-modal ai-price-update-modal ai-template-save-modal" onClick={(event) => event.stopPropagation()}>
+            <div>
+              <p className="eyebrow dark">AI 초기 세팅</p>
+              <h2>선택 조건의 견적 템플릿에 저장할까요?</h2>
+              <p className="muted">
+                선택 조건은 <strong>{aiSetupApplyConditionLabel}</strong>입니다.
+                저장 예정 항목은 <strong>{aiSetupTemplateValueTargets.length}개</strong>입니다.
+              </p>
+            </div>
+            <div className="ai-table-wrap ai-price-update-modal-table">
+              <table className="ai-data-table ai-catalog-match-table">
+                <thead>
+                  <tr>
+                    <th>FORMATE 대분류</th>
+                    <th>FORMATE 세부항목</th>
+                    <th>수량</th>
+                    <th>인원</th>
+                    <th>단위</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aiSetupTemplateValueTargets.map((row) => (
+                    <tr key={`confirm-template-${row.matchedSubitemId}-${row.sourceRowNumber}`}>
+                      <td>{row.categoryName || "-"}</td>
+                      <td>{row.subitemName || "-"}</td>
+                      <td>{displayImportValue(row.quantity)}</td>
+                      <td>{displayImportValue(row.laborCount)}</td>
+                      <td>{row.unit || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="ai-plan-notice">
+              이 작업은 선택한 조건의 견적 템플릿 수량/인원만 저장합니다. 단가/인건비는 단가표에 저장되는 값이며,
+              새 항목과 비용/세금 후보는 저장되지 않습니다.
+            </div>
+            {aiSetupTemplateError && <div className="error-box">{aiSetupTemplateError}</div>}
+            {aiSetupTemplateResult?.failedCount > 0 && (
+              <div className="error-box">
+                <strong>{aiSetupTemplateResult.failedCount}개 항목을 저장하지 못했습니다.</strong>
+                {aiSetupTemplateResult.failedRows.map((row) => (
+                  <p key={`failed-template-${row.target?.matchedSubitemId}-${row.target?.sourceRowNumber}`}>
+                    {row.target?.categoryName || "-"} / {row.target?.subitemName || "-"}: {row.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+            <div className="actions">
+              <button type="button" className="secondary-button" onClick={closeAiSetupTemplateConfirm} disabled={aiSetupTemplateSaving}>
+                취소
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={confirmAiSetupTemplateValues}
+                disabled={aiSetupTemplateSaving || !aiSetupApplyConditionComplete || aiSetupTemplateValueTargets.length === 0}
+              >
+                {aiSetupTemplateSaving ? "저장 중..." : "저장하기"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {conditionSummary && page !== "landing" && page !== "ready" && page !== "condition" && page !== "items" && !page.startsWith("admin") && (
         <div className="sticky-summary">
           <span>견적 조건</span>
@@ -7184,7 +7488,8 @@ export default function App() {
                     </div>
 
                     <div className="ai-plan-notice">
-                      현재 단계에서는 기존 항목에 연결된 단가/인건비만 반영할 수 있습니다. 새 항목 추가와 템플릿 저장은 다음 단계에서 추가됩니다.
+                      현재 단계에서는 기존 항목에 연결된 단가/인건비와 선택 조건의 템플릿 수량/인원만 반영할 수 있습니다.
+                      새 항목 추가, 비용/세금 후보, 검산/합계 행은 저장하지 않습니다.
                     </div>
 
                     {aiSetupPriceResult && (
@@ -7220,6 +7525,44 @@ export default function App() {
                         disabled={aiSetupPriceSaving || aiSetupPriceUpdateTargets.length === 0}
                       >
                         {aiSetupPriceSaving ? "반영 중..." : "기존 항목 단가만 반영"}
+                      </button>
+                    </div>
+
+                    {aiSetupTemplateResult && (
+                      <div className={aiSetupTemplateResult.failedCount > 0 ? "error-box" : "success-box"}>
+                        <strong>
+                          {aiSetupTemplateResult.successCount}개 항목의 템플릿 수량/인원을 저장했습니다.
+                        </strong>
+                        {aiSetupTemplateResult.createdTemplate && (
+                          <p>선택 조건의 새 견적 템플릿을 만들고 값을 저장했습니다.</p>
+                        )}
+                        {aiSetupTemplateResult.failedCount > 0 && (
+                          <p>{aiSetupTemplateResult.failedCount}개 항목은 저장하지 못했습니다. 확인 모달에서 실패 항목을 확인해주세요.</p>
+                        )}
+                      </div>
+                    )}
+                    {aiSetupTemplateError && <div className="error-box">{aiSetupTemplateError}</div>}
+
+                    <div className="ai-price-update-actions ai-template-save-actions">
+                      <div>
+                        <strong>선택 조건 템플릿 수량/인원 저장</strong>
+                        <p>
+                          이 버튼은 기존 FORMATE 세부항목에 연결된 행의 수량과 인원만 선택한 조건의 견적 템플릿에 저장합니다.
+                          단가/인건비, 새 항목, 비용/세금 후보는 저장하지 않습니다.
+                        </p>
+                        {!aiSetupApplyConditionComplete ? (
+                          <p className="ai-plan-empty">공사 조건이 완성되지 않았습니다.</p>
+                        ) : aiSetupTemplateValueTargets.length === 0 ? (
+                          <p className="ai-plan-empty">저장할 템플릿 수량/인원 후보가 없습니다.</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={openAiSetupTemplateConfirm}
+                        disabled={aiSetupTemplateSaving || !aiSetupApplyConditionComplete || aiSetupTemplateValueTargets.length === 0}
+                      >
+                        {aiSetupTemplateSaving ? "저장 중..." : "선택 조건 템플릿에 수량/인원 저장"}
                       </button>
                     </div>
                   </section>
