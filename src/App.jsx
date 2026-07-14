@@ -1542,16 +1542,28 @@ function parseAiImportCurrencyNumber(value) {
 
 function getAiApplyPlanReviewReasons(row) {
   const reasons = [];
-  if (row.rowType === "needs_review") reasons.push("행 유형 확인 필요");
-  if (row.action === "review") reasons.push("처리 방식 확인 필요");
-  if (!row.sourceCategory && !row.sourceItemName) reasons.push("대분류/항목명 없음");
+  if (row.rowType === "needs_review") reasons.push("\uD589 \uC720\uD615 \uD655\uC778 \uD544\uC694");
+  if (row.action === "review" || row.action === "needs_review") reasons.push("\uCC98\uB9AC \uBC29\uC2DD \uD655\uC778 \uD544\uC694");
+  if (!row.sourceCategory && !row.sourceItemName) reasons.push("\uB300\uBD84\uB958/\uD56D\uBAA9\uBA85 \uC5C6\uC74C");
   if (row.rowType === "work_item" && row.action === "link" && !row.selectedSubitemId) {
-    reasons.push("연결할 세부항목 없음");
+    reasons.push("\uC5F0\uACB0\uB41C \uC138\uBD80\uD56D\uBAA9 \uC5C6\uC74C");
   }
-  if (row.rowType === "work_item" && row.action === "new" && !row.sourceItemName) {
-    reasons.push("새 세부항목명 없음");
+  if (row.rowType === "work_item" && row.action === "new" && !row.sourceItemName && !row.sourceCategory) {
+    reasons.push("\uC0C8 \uC138\uBD80\uD56D\uBAA9\uBA85 \uC5C6\uC74C");
   }
   return reasons;
+}
+
+function isAiImportWorkItem(row) {
+  return row?.rowType === "work_item";
+}
+
+function isAiImportLinkAction(action) {
+  return action === "link";
+}
+
+function isAiImportNewAction(action) {
+  return action === "new";
 }
 
 function createAiImportApplyPlan(rows) {
@@ -1568,7 +1580,7 @@ function createAiImportApplyPlan(rows) {
   const categoryCandidateMap = new Map();
 
   (rows ?? []).forEach((row) => {
-    const isWorkItem = row.rowType === "work_item";
+    const isWorkItem = isAiImportWorkItem(row);
     const isIgnored = row.rowType === "ignored" || row.action === "ignore";
     const sourceCategory = row.sourceCategory || "";
     const sourceItemName = row.sourceItemName || "";
@@ -1589,6 +1601,29 @@ function createAiImportApplyPlan(rows) {
       return;
     }
 
+    if (["cost_item", "margin_item", "tax_item"].includes(row.rowType)) {
+      plan.costCandidates.push({
+        sourceRowNumber: row.sourceRowNumber,
+        sourceCategory,
+        sourceItemName,
+        originalAmount: row.original_amount || row.tax || "",
+        rowType: row.rowType,
+        action: row.action,
+      });
+      return;
+    }
+
+    if (["subtotal_row", "total_row"].includes(row.rowType)) {
+      plan.validationRows.push({
+        sourceRowNumber: row.sourceRowNumber,
+        sourceCategory,
+        sourceItemName,
+        originalAmount: row.original_amount || row.tax || "",
+        rowType: row.rowType,
+      });
+      return;
+    }
+
     if (reviewReasons.length > 0) {
       plan.reviewRows.push({
         sourceRowNumber: row.sourceRowNumber,
@@ -1598,28 +1633,31 @@ function createAiImportApplyPlan(rows) {
         rowType: row.rowType,
         action: row.action,
       });
+      return;
     }
 
-    if (isWorkItem && row.action === "link" && row.selectedSubitemId && (hasUnitPriceValue || hasLaborRateValue)) {
-      const unitPriceWillChange = importValuesDiffer(row.selectedSubitemUnitPrice, row.unit_price);
-      const laborRateWillChange = importValuesDiffer(row.selectedSubitemLaborRate, row.labor_rate);
-      plan.priceUpdates.push({
-        sourceRowNumber: row.sourceRowNumber,
-        matchedSubitemId: row.selectedSubitemId,
-        matchedItemId: row.selectedCategoryId,
-        sourceCategory,
-        sourceItemName,
-        selectedCategoryName: row.selectedCategoryName,
-        selectedSubitemName: row.selectedSubitemName,
-        currentUnitPrice: row.selectedSubitemUnitPrice,
-        excelUnitPrice: row.unit_price,
-        currentLaborRate: row.selectedSubitemLaborRate,
-        excelLaborRate: row.labor_rate,
-        willChange: unitPriceWillChange || laborRateWillChange,
-      });
+    if (isWorkItem && isAiImportLinkAction(row.action) && row.selectedSubitemId && (hasUnitPriceValue || hasLaborRateValue)) {
+      const unitPriceWillChange = hasUnitPriceValue && importValuesDiffer(row.selectedSubitemUnitPrice, row.unit_price);
+      const laborRateWillChange = hasLaborRateValue && importValuesDiffer(row.selectedSubitemLaborRate, row.labor_rate);
+      if (unitPriceWillChange || laborRateWillChange) {
+        plan.priceUpdates.push({
+          sourceRowNumber: row.sourceRowNumber,
+          matchedSubitemId: row.selectedSubitemId,
+          matchedItemId: row.selectedCategoryId,
+          sourceCategory,
+          sourceItemName,
+          selectedCategoryName: row.selectedCategoryName,
+          selectedSubitemName: row.selectedSubitemName,
+          currentUnitPrice: row.selectedSubitemUnitPrice,
+          excelUnitPrice: row.unit_price,
+          currentLaborRate: row.selectedSubitemLaborRate,
+          excelLaborRate: row.labor_rate,
+          willChange: true,
+        });
+      }
     }
 
-    if (isWorkItem && !row.selectedCategoryId && sourceCategory && row.action !== "link") {
+    if (isWorkItem && isAiImportNewAction(row.action) && !row.selectedCategoryId && sourceCategory) {
       const key = normalizeCatalogMatchText(sourceCategory);
       const existing = categoryCandidateMap.get(key);
       if (existing) {
@@ -1632,16 +1670,11 @@ function createAiImportApplyPlan(rows) {
       }
     }
 
-    if (
-      isWorkItem &&
-      !row.selectedSubitemId &&
-      (sourceItemName || sourceCategory) &&
-      (row.action === "new" || row.action === "review" || row.matchStatus === "new_candidate" || row.matchStatus === "needs_review")
-    ) {
+    if (isWorkItem && isAiImportNewAction(row.action) && !row.selectedSubitemId && (sourceItemName || sourceCategory)) {
       plan.newSubitemCandidates.push({
         sourceRowNumber: row.sourceRowNumber,
-        categoryName: row.selectedCategoryName || sourceCategory || "새 대분류 후보",
-        sourceItemName: sourceItemName || sourceCategory || "새 세부항목 후보",
+        categoryName: row.selectedCategoryName || sourceCategory || "\uC0C8 \uB300\uBD84\uB958 \uD6C4\uBCF4",
+        sourceItemName: sourceItemName || sourceCategory || "\uC0C8 \uC138\uBD80\uD56D\uBAA9 \uD6C4\uBCF4",
         spec: row.spec,
         unit: row.unit,
         unitPrice: row.unit_price,
@@ -1651,41 +1684,20 @@ function createAiImportApplyPlan(rows) {
       });
     }
 
-    if (isWorkItem && (hasQuantityValue || hasLaborCountValue) && row.action !== "ignore") {
-      const selectedSubitemName = row.selectedSubitemName || sourceItemName || "세부항목 미정";
+    if (isWorkItem && row.selectedSubitemId && (hasQuantityValue || hasLaborCountValue)) {
+      const selectedSubitemName = row.selectedSubitemName || sourceItemName || "\uC138\uBD80\uD56D\uBAA9 \uBBF8\uC815";
       plan.templateValueCandidates.push({
         sourceRowNumber: row.sourceRowNumber,
         matchedSubitemId: row.selectedSubitemId,
         matchedItemId: row.selectedCategoryId,
         rowType: row.rowType,
         action: row.action,
-        categoryName: row.selectedCategoryName || sourceCategory || "대분류 미정",
+        categoryName: row.selectedCategoryName || sourceCategory || "\uB300\uBD84\uB958 \uBBF8\uC815",
         subitemName: selectedSubitemName,
         quantity: row.quantity,
         laborCount: row.labor_count,
         unit: row.unit || row.selectedSubitemUnit || "",
         optionValue: getTemplateOptionValue({ name: selectedSubitemName }),
-      });
-    }
-
-    if (["cost_item", "margin_item", "tax_item"].includes(row.rowType)) {
-      plan.costCandidates.push({
-        sourceRowNumber: row.sourceRowNumber,
-        sourceCategory,
-        sourceItemName,
-        originalAmount: row.original_amount || row.tax || "",
-        rowType: row.rowType,
-        action: row.action,
-      });
-    }
-
-    if (["subtotal_row", "total_row"].includes(row.rowType)) {
-      plan.validationRows.push({
-        sourceRowNumber: row.sourceRowNumber,
-        sourceCategory,
-        sourceItemName,
-        originalAmount: row.original_amount || row.tax || "",
-        rowType: row.rowType,
       });
     }
   });
@@ -1719,7 +1731,6 @@ function getAiPriceUpdateTargets(plan) {
 function getAiTemplateValueTargets(plan) {
   return (plan?.templateValueCandidates ?? []).filter((row) =>
     row?.rowType === "work_item" &&
-    row?.action === "link" &&
     row?.matchedSubitemId &&
     row?.matchedItemId &&
     (hasImportValue(row.quantity) || hasImportValue(row.laborCount))
