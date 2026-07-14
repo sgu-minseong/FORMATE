@@ -63,6 +63,7 @@ const RESPONSE_SCHEMA = {
           "newSubitemName",
           "confidence",
           "reason",
+          "splitRows",
         ],
         properties: {
           rowIndex: { type: "number" },
@@ -76,6 +77,31 @@ const RESPONSE_SCHEMA = {
           newSubitemName: { type: ["string", "null"] },
           confidence: { type: "number", minimum: 0, maximum: 1 },
           reason: { type: "string" },
+          splitRows: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: [
+                "itemName",
+                "categoryName",
+                "suggestedCategoryId",
+                "suggestedSubitemId",
+                "suggestedAction",
+                "confidence",
+                "reason",
+              ],
+              properties: {
+                itemName: { type: "string" },
+                categoryName: { type: ["string", "null"] },
+                suggestedCategoryId: { type: ["string", "null"] },
+                suggestedSubitemId: { type: ["string", "null"] },
+                suggestedAction: { enum: ["link_existing", "new", "needs_review"] },
+                confidence: { type: "number", minimum: 0, maximum: 1 },
+                reason: { type: "string" },
+              },
+            },
+          },
         },
       },
     },
@@ -209,6 +235,52 @@ function getReviewNotes(row) {
   return Array.from(new Set(notes));
 }
 
+function sanitizeSplitRows(splitRows, categories, subitemsById) {
+  const categoryIds = new Set(categories.map((category) => category.id));
+  return (Array.isArray(splitRows) ? splitRows : [])
+    .map((splitRow) => {
+      const itemName = String(splitRow?.itemName ?? splitRow?.label ?? "").trim();
+      if (!itemName) return null;
+
+      let suggestedCategoryId = splitRow?.suggestedCategoryId ? String(splitRow.suggestedCategoryId) : null;
+      let suggestedSubitemId = splitRow?.suggestedSubitemId ? String(splitRow.suggestedSubitemId) : null;
+      let categoryName = splitRow?.categoryName ? String(splitRow.categoryName).trim() : null;
+
+      if (suggestedCategoryId && !categoryIds.has(suggestedCategoryId)) {
+        suggestedCategoryId = null;
+      }
+
+      if (suggestedSubitemId && !subitemsById.has(suggestedSubitemId)) {
+        suggestedSubitemId = null;
+      }
+
+      if (suggestedSubitemId) {
+        const subitem = subitemsById.get(suggestedSubitemId);
+        suggestedCategoryId = suggestedCategoryId || subitem.categoryId || null;
+        categoryName = categoryName || subitem.categoryName || null;
+      }
+
+      const suggestedAction = ["link_existing", "new", "needs_review"].includes(splitRow?.suggestedAction)
+        ? splitRow.suggestedAction
+        : suggestedSubitemId
+          ? "link_existing"
+          : "needs_review";
+
+      return {
+        itemName,
+        categoryName,
+        suggestedCategoryId,
+        suggestedSubitemId,
+        suggestedAction,
+        confidence: Number.isFinite(Number(splitRow?.confidence))
+          ? Math.min(1, Math.max(0, Number(splitRow.confidence)))
+          : 0,
+        reason: String(splitRow?.reason || "원본 묶음 행에서 분리된 공사항목입니다."),
+      };
+    })
+    .filter(Boolean);
+}
+
 function extractOutputText(data) {
   if (typeof data?.output_text === "string") return data.output_text;
   const parts = [];
@@ -244,6 +316,7 @@ function sanitizeRecommendations(rawResult, rows, categories, subitems) {
           : 0,
         reason: String(recommendation.reason || "AI 추천 결과를 확인해주세요."),
         reviewNotes: getReviewNotes(rowsByIndex.get(Number(recommendation.rowIndex))),
+        splitRows: sanitizeSplitRows(recommendation.splitRows, categories, subitemsById),
       };
 
       if (next.recommendedCategoryId && !categoryIds.has(next.recommendedCategoryId)) {
@@ -336,22 +409,31 @@ module.exports = async function handler(request, response) {
                   "Recommendations are not saved to DB; they only help the user review matching.",
                   "",
                   "Classify rowType conservatively:",
-                  "- work_item: a real, single construction work item such as wallpaper, flooring, tile, electrical, carpentry, demolition, window/sash, painting. If multiple trades are bundled in one row, prefer needs_review.",
+                  "- work_item: a real, single construction work item such as wallpaper, flooring, tile, electrical, carpentry, demolition, window/sash, painting.",
                   "- cost_item: 공과잡비, 부대비, 현장관리비, 운반비, 폐기물 처리비, 기타 잡비, or costs calculated as a percentage of net construction cost.",
                   "- margin_item: 기업마진, 마진, 이윤, 수수료, or margin-like percentage rows.",
                   "- tax_item: 부가세, VAT, 세금, 세액, 공급가액/부가세 rows.",
                   "- subtotal_row: 소계, 공사비계, 순공사비계, 손공사비계, section subtotal rows.",
                   "- total_row: 청구계, 총계, 합계, 최종 견적금액, final billing/payment amount rows.",
-                  "- needs_review: unit is 식 and item/category bundles multiple works with comma, slash, 포함, 전체, 인건비, 교체, 철거, or is ambiguous to connect to one existing subitem.",
+                  "- needs_review: rows that are too ambiguous even after considering splitRows, or cannot be safely reviewed as a work, cost, tax, subtotal, total, or ignored row.",
                   "- ignored: empty rows, title rows, document info such as customer name, address, date.",
                   "",
                   "Choose recommendedAction conservatively:",
-                  "- link_existing only when one existing FORMATE subitem clearly has the same meaning. Be cautious with unit 식 bundled rows.",
+                  "- link_existing only when one existing FORMATE subitem clearly has the same meaning. Do not force a bundled row into one existing subitem.",
                   "- add_new_item only for a clear single work item missing from FORMATE. Never use it for cost, margin, tax, subtotal, or total rows.",
                   "- cost_candidate for cost_item, margin_item, and tax_item.",
                   "- validation_only for subtotal_row and total_row.",
                   "- ignore for ignored rows.",
-                  "- needs_review for ambiguous or bundled construction rows.",
+                  "- needs_review for ambiguous rows that are not safe even as split candidates.",
+                  "",
+                  "Bundled construction rows:",
+                  "- For bundled one-line construction rows, automatically create splitRows when safe.",
+                  "- Do not require the user to click a separate split candidate button.",
+                  "- Do not invent or allocate prices for split rows.",
+                  "- Preserve the original total amount only on the source row.",
+                  "- Each split row may suggest an existing subitem link or a new subitem name.",
+                  "- Use needs_review only when the row is too ambiguous even for splitRows.",
+                  "- splitRows must not include unit_price, labor_rate, amount, total_amount, or any allocated price.",
                   "",
                   "The Korean examples above are not absolute rules. Always judge with category, item_name, unit, quantity, amount, nearby row meaning, and current mappings together.",
                   "The same word can mean different row types depending on context. If confidence is low, choose needs_review.",
