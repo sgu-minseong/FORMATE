@@ -2057,6 +2057,13 @@ function normalizePyeongValue(value) {
   return candidates[0] ? String(candidates[0]) : "";
 }
 
+function matchPyeongOptionNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 5 || number >= 100) return "";
+  const matched = PYEONG_OPTIONS.find((pyeong) => Number(pyeong) === Math.round(number));
+  return matched ? String(matched) : "";
+}
+
 function findPyeongCandidatesInText(value) {
   const text = formatExcelCellValue(value);
   if (!text) return [];
@@ -2075,15 +2082,51 @@ function findPyeongCandidatesInText(value) {
 }
 
 function matchPyeongOptionValue(value) {
-  const normalized = normalizePyeongValue(value) || formatExcelCellValue(value).replace(/[^\d]/g, "");
+  const normalized = normalizePyeongValue(value);
   if (!normalized) return "";
-  const number = Number(normalized);
-  if (!Number.isFinite(number) || number < 5 || number >= 100) return "";
-  const matched = PYEONG_OPTIONS.find((pyeong) => Number(pyeong) === number);
-  return matched ? String(matched) : "";
+  return matchPyeongOptionNumber(normalized);
 }
 
-function collectAiSetupConditionSearchTexts(fileName, sheet) {
+function findAreaPyeongCandidatesInText(value) {
+  const text = formatExcelCellValue(value);
+  if (!text) return [];
+  const matches = [];
+  const patterns = [
+    /(?:전용|공급|계약면적|면적)\s*(\d{2,3}(?:\.\d+)?)\s*(?:㎡|m2|m²|제곱미터)?/gi,
+    /(\d{2,3}(?:\.\d+)?)\s*(?:㎡|m2|m²|제곱미터)/gi,
+  ];
+
+  patterns.forEach((pattern) => {
+    let match = pattern.exec(text);
+    while (match) {
+      const area = Number(match[1]);
+      const pyeong = matchPyeongOptionNumber(area / 3.3058);
+      if (pyeong) matches.push(Number(pyeong));
+      match = pattern.exec(text);
+    }
+  });
+
+  return matches;
+}
+
+function resolveUniqueAiSetupCandidate(candidates) {
+  const unique = [...new Set((candidates ?? []).filter(Boolean))];
+  return unique.length === 1 ? unique[0] : "";
+}
+
+function detectAiSetupPyeong(texts) {
+  const directCandidates = [];
+  const areaCandidates = [];
+
+  (texts ?? []).forEach((text) => {
+    directCandidates.push(...findPyeongCandidatesInText(text).map(String));
+    areaCandidates.push(...findAreaPyeongCandidatesInText(text).map(String));
+  });
+
+  return resolveUniqueAiSetupCandidate(directCandidates) || resolveUniqueAiSetupCandidate(areaCandidates);
+}
+
+function collectAiSetupConditionSearchTexts(fileName, sheet, previewRows = []) {
   const texts = [fileName, sheet?.name].filter(Boolean).map(formatExcelCellValue);
   const rows = sheet?.rows ?? [];
   rows.slice(0, 30).forEach((row) => {
@@ -2103,34 +2146,75 @@ function collectAiSetupConditionSearchTexts(fileName, sheet) {
       extraCells += 1;
     }
   }
+
+  (previewRows ?? []).slice(0, 100).forEach((row) => {
+    Object.values(row ?? {}).forEach((value) => {
+      const text = formatExcelCellValue(value).trim();
+      if (text) texts.push(text);
+    });
+  });
+
   return texts;
 }
 
-function detectAiSetupConditionHint(fileName, sheet) {
-  const texts = collectAiSetupConditionSearchTexts(fileName, sheet);
+function detectAiSetupConditionVariant(joinedText) {
+  const explicitCandidates = [];
+  const explicitPattern = /확장형\s*([1-5])|구형\s*([0-5])/g;
+  let explicitMatch = explicitPattern.exec(joinedText);
+  while (explicitMatch) {
+    const candidate = explicitMatch[1] ? `확장형${explicitMatch[1]}` : `구형${explicitMatch[2]}`;
+    if (CONDITION_VARIANT_KEYS.includes(candidate)) explicitCandidates.push(candidate);
+    explicitMatch = explicitPattern.exec(joinedText);
+  }
+
+  const explicitVariant = resolveUniqueAiSetupCandidate(explicitCandidates);
+  if (explicitVariant) return explicitVariant;
+  if (explicitCandidates.length > 1) return "";
+
+  const noExtensionPattern = /(비확장|미확장|무확장|확장\s*없음|확장없음)/;
+  const noExtensionReplacePattern = /(비확장|미확장|무확장|확장\s*없음|확장없음)/g;
+  const hasNoExtension = noExtensionPattern.test(joinedText);
+  const positiveExtensionText = joinedText.replace(noExtensionReplacePattern, " ");
+  const hasExtension = /(확장|발코니\s*확장)/.test(positiveExtensionText);
+  if (hasNoExtension && hasExtension) return "";
+  if (hasNoExtension) return OLD_NO_EXTENSION_VARIANT;
+  if (hasExtension && EXTENDED_VARIANTS.includes("확장형1")) return "확장형1";
+  return "";
+}
+
+function detectAiSetupBuildType(joinedText, conditionVariant) {
+  if (conditionVariant) {
+    if (EXTENDED_VARIANTS.includes(conditionVariant)) return "new";
+    if (conditionVariant === OLD_NO_EXTENSION_VARIANT || OLD_EXTENDED_VARIANTS.includes(conditionVariant)) return "old";
+  }
+
+  const newCandidates = /(신축|확장형|신규)/.test(joinedText);
+  const oldCandidates = /(구형|구축|기축|노후)/.test(joinedText);
+  if (newCandidates && oldCandidates) return "";
+  if (newCandidates) return "new";
+  if (oldCandidates) return "old";
+  return "";
+}
+
+function detectAiSetupOccupancy(joinedText) {
+  const emptyCandidate = /(빈집|공실|입주\s*전|이사\s*전)/.test(joinedText);
+  const occupiedCandidate = /(살림집|거주\s*중|거주중|입주\s*후|이사\s*후|생활\s*중)/.test(joinedText);
+  if (emptyCandidate && occupiedCandidate) return "";
+  if (emptyCandidate) return "empty";
+  if (occupiedCandidate) return "occupied";
+  return "";
+}
+
+function detectAiSetupConditionHint(fileName, sheet, previewRows = []) {
+  const texts = collectAiSetupConditionSearchTexts(fileName, sheet, previewRows);
   const joined = texts.join(" ");
-  const pyeong = texts.map(normalizePyeongValue).find(Boolean) || "";
-  const variantMatch = joined.match(/확장형\s*([1-5])|구형\s*([0-5])/);
-  const conditionVariant = variantMatch
-    ? variantMatch[1]
-      ? `확장형${variantMatch[1]}`
-      : `구형${variantMatch[2]}`
-    : "";
-  const buildType = conditionVariant
-    ? conditionVariant.startsWith("확장형") ? "new" : "old"
-    : /(확장형|신축)/.test(joined)
-      ? "new"
-      : /(구형|구축|기축)/.test(joined)
-        ? "old"
-        : "";
-  const occupancy = /(빈집|공실)/.test(joined)
-    ? "empty"
-    : /(살림집|거주중|입주중)/.test(joined)
-      ? "occupied"
-      : "";
+  const pyeong = detectAiSetupPyeong(texts);
+  const conditionVariant = detectAiSetupConditionVariant(joined);
+  const buildType = detectAiSetupBuildType(joined, conditionVariant);
+  const occupancy = detectAiSetupOccupancy(joined);
 
   return {
-    pyeong: matchPyeongOptionValue(pyeong),
+    pyeong: matchPyeongOptionValue(`${pyeong}평`),
     buildType,
     conditionVariant,
     occupancy,
@@ -2602,11 +2686,8 @@ export default function App() {
     return summarizeAiNewItemTargets(aiSetupNewItemTargets, aiSetupCatalogItems);
   }, [aiSetupCatalogItems, aiSetupNewItemTargets]);
   const aiSetupDetectedConditionHint = useMemo(() => {
-    return detectAiSetupConditionHint(aiSetupFileName, selectedAiSetupSheet);
-  }, [aiSetupFileName, selectedAiSetupSheet]);
-  const aiSetupConditionHintRows = useMemo(() => {
-    return getAiSetupConditionHintRows(aiSetupDetectedConditionHint, conditionVariantLabelMap);
-  }, [aiSetupDetectedConditionHint, conditionVariantLabelMap]);
+    return detectAiSetupConditionHint(aiSetupFileName, selectedAiSetupSheet, aiSetupMappingAnalysis.previewRows);
+  }, [aiSetupFileName, aiSetupMappingAnalysis.previewRows, selectedAiSetupSheet]);
   const aiSetupApplyConditionLabel = useMemo(() => {
     return getAiSetupApplyConditionLabel(aiSetupApplyCondition, conditionVariantLabelMap);
   }, [aiSetupApplyCondition, conditionVariantLabelMap]);
@@ -7763,33 +7844,6 @@ export default function App() {
                         <p>수량/인원을 저장할 조건을 선택하세요.</p>
                       </div>
                     </div>
-                    <div className="ai-condition-hint-box">
-                      <div className="ai-condition-hint-head">
-                        <strong>엑셀에서 감지한 조건 후보</strong>
-                        {hasAiSetupConditionHintValue(aiSetupDetectedConditionHint) ? (
-                          <span>일부 자동 감지</span>
-                        ) : (
-                          <span>감지 안 됨</span>
-                        )}
-                      </div>
-                      <div className="ai-condition-hint-grid">
-                        {aiSetupConditionHintRows.map((row) => (
-                          <div key={row.label}>
-                            <span>{row.label}</span>
-                            <strong>{row.value}</strong>
-                          </div>
-                        ))}
-                      </div>
-                      {hasAiSetupConditionHintValue(aiSetupDetectedConditionHint) ? (
-                        <p>
-                          {hasAiSetupAutoSelectedCondition
-                            ? "일부 조건을 미리 선택했습니다. 다르면 수정하세요."
-                            : "일부 조건만 감지되었습니다. 나머지 조건은 직접 선택해주세요."}
-                        </p>
-                      ) : (
-                        <p>감지된 조건이 없습니다. 직접 선택하세요.</p>
-                      )}
-                    </div>
                     <div className="ai-condition-grid">
                       <label>
                         <span>평수</span>
@@ -7846,10 +7900,6 @@ export default function App() {
                           <option value="occupied">살림집</option>
                         </select>
                       </label>
-                    </div>
-                    <div className={`ai-selected-condition ${aiSetupApplyConditionComplete ? "ready" : ""}`.trim()}>
-                      <span>선택 조건</span>
-                      <strong>{aiSetupApplyConditionLabel || "아직 선택되지 않았습니다."}</strong>
                     </div>
                   </section>
                 )}
