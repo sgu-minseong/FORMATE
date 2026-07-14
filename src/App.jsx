@@ -1952,6 +1952,36 @@ function getDefaultAiActionForRowType(rowType, matchStatus) {
   return "review";
 }
 
+function normalizeAiActionForRowType(rowType, action, matchStatus = "needs_review") {
+  if (rowType === "work_item") {
+    return ["link", "new", "ignore", "review"].includes(action)
+      ? action
+      : getDefaultAiMatchAction(matchStatus);
+  }
+  return getDefaultAiActionForRowType(rowType, matchStatus);
+}
+
+function getAiDisplayMatchStatus(row) {
+  if (row?.rowType === "work_item") return row.matchStatus;
+  if (["cost_item", "margin_item", "tax_item", "subtotal_row", "total_row", "ignored", "needs_review"].includes(row?.rowType)) {
+    return row.rowType;
+  }
+  return "needs_review";
+}
+
+function getAiRowTypeGuidance(rowType) {
+  const labels = {
+    cost_item: "단가표 항목이 아니라 별도 비용 후보입니다.",
+    margin_item: "업체 마진/이윤 성격의 후보입니다.",
+    tax_item: "세금/부가세 성격의 후보입니다.",
+    subtotal_row: "저장용 항목이 아니라 원본 금액 검산용입니다.",
+    total_row: "저장용 항목이 아니라 원본 금액 검산용입니다.",
+    needs_review: "공사항목 여부 또는 매칭 대상을 확인해야 합니다.",
+    ignored: "이번 변환에서 사용하지 않는 행입니다.",
+  };
+  return labels[rowType] ?? "";
+}
+
 function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
   return (previewRows ?? []).map((row) => {
     const sourceCategory = formatExcelCellValue(row.category).trim();
@@ -1967,10 +1997,12 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
       selectedCategoryId && subitemMatch?.matchedSubitemCategoryId === selectedCategoryId ? subitemMatch?.matchedSubitemId : ""
     );
     const selectedSubitem = (selectedCategory?.subitems ?? []).find((subitem) => subitem.id === selectedSubitemId);
-    const action = override.action ?? getDefaultAiActionForRowType(rowType, autoStatus);
+    const action = normalizeAiActionForRowType(rowType, override.action ?? getDefaultAiActionForRowType(rowType, autoStatus), autoStatus);
 
     const matchStatus = rowType === "ignored" || action === "ignore"
       ? "ignored"
+      : rowType !== "work_item"
+        ? rowType
       : action === "link" && selectedCategoryId && selectedSubitemId
         ? "matched"
         : action === "new"
@@ -1998,6 +2030,7 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
       aiReason: override.aiReason ?? "",
       aiConfidence: override.aiConfidence ?? null,
       aiRecommendedAction: override.aiRecommendedAction ?? "",
+      aiReviewNotes: override.aiReviewNotes ?? [],
     };
   });
 }
@@ -2029,6 +2062,41 @@ function getAiMatchStatusLabel(status) {
     ignored: "무시",
   };
   return labels[status] ?? "검토 필요";
+}
+
+function getAiDisplayMatchStatusLabel(row) {
+  const displayStatus = getAiDisplayMatchStatus(row);
+  const labels = {
+    cost_item: "비용 후보",
+    margin_item: "마진 후보",
+    tax_item: "세금 후보",
+    subtotal_row: "소계/검산",
+    total_row: "총계/검산",
+    ignored: "무시",
+    needs_review: "검토 필요",
+  };
+  return labels[displayStatus] ?? getAiMatchStatusLabel(displayStatus);
+}
+
+function getAiActionOptionsForRowType(rowType) {
+  if (rowType === "work_item") {
+    return [
+      { value: "link", label: "기존 항목에 연결" },
+      { value: "new", label: "새 항목으로 추가" },
+      { value: "review", label: "검토 필요" },
+      { value: "ignore", label: "무시" },
+    ];
+  }
+  if (["cost_item", "margin_item", "tax_item"].includes(rowType)) {
+    return [{ value: "cost", label: "비용 후보" }];
+  }
+  if (["subtotal_row", "total_row"].includes(rowType)) {
+    return [{ value: "validate", label: "검산용" }];
+  }
+  if (rowType === "ignored") {
+    return [{ value: "ignore", label: "무시" }];
+  }
+  return [{ value: "review", label: "검토 필요" }];
 }
 
 function getAiActionLabel(action) {
@@ -3472,6 +3540,7 @@ export default function App() {
             aiReason: recommendation.reason ?? "",
             aiConfidence: recommendation.confidence ?? null,
             aiRecommendedAction: recommendation.recommendedAction ?? "",
+            aiReviewNotes: Array.isArray(recommendation.reviewNotes) ? recommendation.reviewNotes : [],
           },
         });
         return patches;
@@ -3494,11 +3563,16 @@ export default function App() {
         (summary, recommendation) => {
           if (recommendation.recommendedAction === "link_existing") summary.linkExisting += 1;
           else if (recommendation.recommendedAction === "add_new_item") summary.addNewItem += 1;
-          else if (["cost_candidate", "validation_only", "ignore"].includes(recommendation.recommendedAction)) summary.other += 1;
+          else if (recommendation.recommendedRowType === "cost_item") summary.costItem += 1;
+          else if (recommendation.recommendedRowType === "margin_item") summary.marginItem += 1;
+          else if (recommendation.recommendedRowType === "tax_item") summary.taxItem += 1;
+          else if (["subtotal_row", "total_row"].includes(recommendation.recommendedRowType)) summary.validationRows += 1;
+          else if (recommendation.recommendedAction === "ignore" || recommendation.recommendedRowType === "ignored") summary.ignored += 1;
           else summary.needsReview += 1;
+          if (Array.isArray(recommendation.reviewNotes) && recommendation.reviewNotes.length > 0) summary.reviewSignals += 1;
           return summary;
         },
-        { linkExisting: 0, addNewItem: 0, other: 0, needsReview: 0 }
+        { linkExisting: 0, addNewItem: 0, costItem: 0, marginItem: 0, taxItem: 0, validationRows: 0, ignored: 0, needsReview: 0, reviewSignals: 0 }
       );
 
       setAiSetupAiResult({
@@ -7427,8 +7501,13 @@ export default function App() {
                           <div><span>수동 수정 보호</span><strong>{aiSetupAiResult.skippedManualCount}개</strong></div>
                           <div><span>기존 연결 추천</span><strong>{aiSetupAiResult.linkExisting}개</strong></div>
                           <div><span>새 항목 추천</span><strong>{aiSetupAiResult.addNewItem}개</strong></div>
-                          <div><span>비용/검산/무시</span><strong>{aiSetupAiResult.other}개</strong></div>
+                          <div><span>비용 후보</span><strong>{aiSetupAiResult.costItem}개</strong></div>
+                          <div><span>마진 후보</span><strong>{aiSetupAiResult.marginItem}개</strong></div>
+                          <div><span>세금 후보</span><strong>{aiSetupAiResult.taxItem}개</strong></div>
+                          <div><span>소계/총계 후보</span><strong>{aiSetupAiResult.validationRows}개</strong></div>
+                          <div><span>무시 추천</span><strong>{aiSetupAiResult.ignored}개</strong></div>
                           <div><span>검토 필요</span><strong>{aiSetupAiResult.needsReview}개</strong></div>
+                          <div><span>확인 필요 신호</span><strong>{aiSetupAiResult.reviewSignals}개</strong></div>
                         </div>
                         {aiSetupAiResult.warnings?.length > 0 && (
                           <div className="ai-recommendation-warnings">
@@ -7498,6 +7577,9 @@ export default function App() {
                                     {row.aiReason && (
                                       <small className="ai-recommendation-reason">
                                         AI {row.aiConfidence !== null ? `${Math.round(Number(row.aiConfidence) * 100)}%` : ""} · {getAiRecommendationActionLabel(row.aiRecommendedAction)} · {row.aiReason}
+                                        {row.aiReviewNotes?.length > 0 && (
+                                          <span>확인 필요 신호 · {row.aiReviewNotes.join(" ")}</span>
+                                        )}
                                       </small>
                                     )}
                                   </td>
@@ -12054,6 +12136,12 @@ const styles = `
     color: var(--text-secondary);
     font-size: var(--font-size-caption);
     line-height: 1.45;
+  }
+  .ai-recommendation-reason span {
+    display: block;
+    margin-top: 4px;
+    color: #8a5a1d;
+    font-weight: var(--font-weight-semibold);
   }
   .ai-mapping-groups {
     display: grid;
