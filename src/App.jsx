@@ -2035,6 +2035,10 @@ function hasImportValue(value) {
   return formatExcelCellValue(value).trim() !== "";
 }
 
+function displayImportValue(value) {
+  return hasImportValue(value) ? formatExcelCellValue(value) : "-";
+}
+
 function normalizeImportComparableValue(value) {
   const text = formatExcelCellValue(value).trim();
   if (!text) return "";
@@ -2049,6 +2053,15 @@ function normalizeImportComparableValue(value) {
 function importValuesDiffer(currentValue, excelValue) {
   if (!hasImportValue(excelValue)) return false;
   return normalizeImportComparableValue(currentValue) !== normalizeImportComparableValue(excelValue);
+}
+
+function parseAiImportCurrencyNumber(value) {
+  const text = formatExcelCellValue(value).trim();
+  if (!text) return null;
+  const numericText = text.replace(/,/g, "").replace(/[^\d.-]/g, "");
+  if (!numericText || numericText === "-" || numericText === "." || numericText === "-.") return null;
+  const number = Number(numericText);
+  return Number.isFinite(number) ? number : null;
 }
 
 function getAiApplyPlanReviewReasons(row) {
@@ -2116,6 +2129,8 @@ function createAiImportApplyPlan(rows) {
       const laborRateWillChange = importValuesDiffer(row.selectedSubitemLaborRate, row.labor_rate);
       plan.priceUpdates.push({
         sourceRowNumber: row.sourceRowNumber,
+        matchedSubitemId: row.selectedSubitemId,
+        matchedItemId: row.selectedCategoryId,
         sourceCategory,
         sourceItemName,
         selectedCategoryName: row.selectedCategoryName,
@@ -2208,6 +2223,178 @@ function summarizeAiImportApplyPlan(plan) {
     reviewRows: plan.reviewRows.length,
     ignoredRows: plan.ignoredRows.length,
   };
+}
+
+function getAiPriceUpdateTargets(plan) {
+  return (plan?.priceUpdates ?? []).filter((row) =>
+    row?.matchedSubitemId &&
+    row?.matchedItemId &&
+    row?.willChange &&
+    (hasImportValue(row.excelUnitPrice) || hasImportValue(row.excelLaborRate))
+  );
+}
+
+function createEmptyAiSetupApplyCondition() {
+  return {
+    pyeong: "",
+    buildType: "",
+    conditionVariant: "",
+    occupancy: "",
+  };
+}
+
+function createEmptyAiSetupConditionTouched() {
+  return {
+    pyeong: false,
+    buildType: false,
+    conditionVariant: false,
+    occupancy: false,
+  };
+}
+
+function normalizePyeongValue(value) {
+  const text = formatExcelCellValue(value);
+  if (!text) return "";
+  const candidates = findPyeongCandidatesInText(text);
+  return candidates[0] ? String(candidates[0]) : "";
+}
+
+function findPyeongCandidatesInText(value) {
+  const text = formatExcelCellValue(value);
+  if (!text) return [];
+  const matches = [];
+  const pattern = /(?:전용|공급|실평수|계약면적)?\s*(\d{1,3})\s*(?:평형|평|py|p)(?![a-z])/gi;
+  let match = pattern.exec(text);
+  while (match) {
+    const numberText = match[1];
+    const number = Number(numberText);
+    if (Number.isFinite(number) && number >= 5 && number < 100) {
+      matches.push(number);
+    }
+    match = pattern.exec(text);
+  }
+  return matches;
+}
+
+function matchPyeongOptionValue(value) {
+  const normalized = normalizePyeongValue(value) || formatExcelCellValue(value).replace(/[^\d]/g, "");
+  if (!normalized) return "";
+  const number = Number(normalized);
+  if (!Number.isFinite(number) || number < 5 || number >= 100) return "";
+  const matched = PYEONG_OPTIONS.find((pyeong) => Number(pyeong) === number);
+  return matched ? String(matched) : "";
+}
+
+function collectAiSetupConditionSearchTexts(fileName, sheet) {
+  const texts = [fileName, sheet?.name].filter(Boolean).map(formatExcelCellValue);
+  const rows = sheet?.rows ?? [];
+  rows.slice(0, 30).forEach((row) => {
+    (row ?? []).forEach((cell) => {
+      const text = formatExcelCellValue(cell).trim();
+      if (text) texts.push(text);
+    });
+  });
+
+  let extraCells = 0;
+  for (const row of rows.slice(30)) {
+    for (const cell of row ?? []) {
+      if (extraCells >= 300) return texts;
+      const text = formatExcelCellValue(cell).trim();
+      if (!text) continue;
+      texts.push(text);
+      extraCells += 1;
+    }
+  }
+  return texts;
+}
+
+function detectAiSetupConditionHint(fileName, sheet) {
+  const texts = collectAiSetupConditionSearchTexts(fileName, sheet);
+  const joined = texts.join(" ");
+  const pyeong = texts.map(normalizePyeongValue).find(Boolean) || "";
+  const variantMatch = joined.match(/확장형\s*([1-5])|구형\s*([0-5])/);
+  const conditionVariant = variantMatch
+    ? variantMatch[1]
+      ? `확장형${variantMatch[1]}`
+      : `구형${variantMatch[2]}`
+    : "";
+  const buildType = conditionVariant
+    ? conditionVariant.startsWith("확장형") ? "new" : "old"
+    : /(확장형|신축)/.test(joined)
+      ? "new"
+      : /(구형|구축|기축)/.test(joined)
+        ? "old"
+        : "";
+  const occupancy = /(빈집|공실)/.test(joined)
+    ? "empty"
+    : /(살림집|거주중|입주중)/.test(joined)
+      ? "occupied"
+      : "";
+
+  return {
+    pyeong: matchPyeongOptionValue(pyeong),
+    buildType,
+    conditionVariant,
+    occupancy,
+    detected: Boolean(pyeong || buildType || conditionVariant || occupancy),
+  };
+}
+
+function hasAiSetupConditionHintValue(hint) {
+  return Boolean(hint?.pyeong || hint?.buildType || hint?.conditionVariant || hint?.occupancy);
+}
+
+function isAiSetupApplyConditionComplete(condition) {
+  return Boolean(condition?.pyeong && condition?.buildType && condition?.conditionVariant && condition?.occupancy);
+}
+
+function getAiSetupApplyConditionLabel(condition, variantLabels = {}) {
+  if (!condition?.pyeong && !condition?.buildType && !condition?.conditionVariant && !condition?.occupancy) return "";
+  const pyeongLabel = condition.pyeong ? `${condition.pyeong}평` : "평수 선택 안 함";
+  const houseType = condition.buildType === "new" ? "확장형" : condition.buildType === "old" ? "구형" : "주택 유형 선택 안 함";
+  const variantLabel = condition.conditionVariant
+    ? formatConditionVariantLabel(condition.conditionVariant, variantLabels)
+    : "세부 유형 선택 안 함";
+  const occupancyLabel = condition.occupancy === "empty"
+    ? "빈집"
+    : condition.occupancy === "occupied"
+      ? "살림집"
+      : "거주 상태 선택 안 함";
+  return [
+    pyeongLabel,
+    houseType,
+    variantLabel,
+    occupancyLabel,
+  ].join(" / ");
+}
+
+function getAiSetupConditionHintRows(hint, variantLabels = {}) {
+  return [
+    { label: "평수", value: hint?.pyeong ? `${hint.pyeong}평` : "감지 안 됨" },
+    { label: "주택 유형", value: hint?.buildType === "new" ? "확장형" : hint?.buildType === "old" ? "구형" : "감지 안 됨" },
+    { label: "세부 유형", value: hint?.conditionVariant ? formatConditionVariantLabel(hint.conditionVariant, variantLabels) : "감지 안 됨" },
+    { label: "거주 상태", value: hint?.occupancy === "empty" ? "빈집" : hint?.occupancy === "occupied" ? "살림집" : "감지 안 됨" },
+  ];
+}
+
+function getAiApplyReadiness(condition, summary) {
+  const hasCondition = isAiSetupApplyConditionComplete(condition);
+  const saveCandidateCount =
+    (summary?.priceUpdates ?? 0) +
+    (summary?.newCategoryCandidates ?? 0) +
+    (summary?.newSubitemCandidates ?? 0) +
+    (summary?.templateValueCandidates ?? 0);
+
+  if (!hasCondition && (summary?.templateValueCandidates ?? 0) > 0) {
+    return { status: "needs_condition", label: "조건 선택 필요" };
+  }
+  if ((summary?.reviewRows ?? 0) > 0) {
+    return { status: "needs_review", label: "검토 필요 행 확인 필요" };
+  }
+  if (saveCandidateCount === 0) {
+    return { status: "empty", label: "저장 후보 없음" };
+  }
+  return { status: "ready", label: "저장 전 최종 확인 가능" };
 }
 
 export default function App() {
@@ -2328,6 +2515,12 @@ export default function App() {
   const [aiSetupCatalogLoading, setAiSetupCatalogLoading] = useState(false);
   const [aiSetupCatalogError, setAiSetupCatalogError] = useState("");
   const [aiSetupMatchOverrides, setAiSetupMatchOverrides] = useState({});
+  const [aiSetupApplyCondition, setAiSetupApplyCondition] = useState(createEmptyAiSetupApplyCondition);
+  const [aiSetupApplyConditionTouched, setAiSetupApplyConditionTouched] = useState(createEmptyAiSetupConditionTouched);
+  const [aiSetupPriceConfirmOpen, setAiSetupPriceConfirmOpen] = useState(false);
+  const [aiSetupPriceSaving, setAiSetupPriceSaving] = useState(false);
+  const [aiSetupPriceResult, setAiSetupPriceResult] = useState(null);
+  const [aiSetupPriceError, setAiSetupPriceError] = useState("");
 
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
@@ -2473,6 +2666,33 @@ export default function App() {
   const aiSetupImportApplyPlanSummary = useMemo(() => {
     return summarizeAiImportApplyPlan(aiSetupImportApplyPlan);
   }, [aiSetupImportApplyPlan]);
+  const aiSetupPriceUpdateTargets = useMemo(() => {
+    return getAiPriceUpdateTargets(aiSetupImportApplyPlan);
+  }, [aiSetupImportApplyPlan]);
+  const aiSetupDetectedConditionHint = useMemo(() => {
+    return detectAiSetupConditionHint(aiSetupFileName, selectedAiSetupSheet);
+  }, [aiSetupFileName, selectedAiSetupSheet]);
+  const aiSetupConditionHintRows = useMemo(() => {
+    return getAiSetupConditionHintRows(aiSetupDetectedConditionHint, conditionVariantLabelMap);
+  }, [aiSetupDetectedConditionHint, conditionVariantLabelMap]);
+  const aiSetupApplyConditionLabel = useMemo(() => {
+    return getAiSetupApplyConditionLabel(aiSetupApplyCondition, conditionVariantLabelMap);
+  }, [aiSetupApplyCondition, conditionVariantLabelMap]);
+  const aiSetupApplyConditionComplete = useMemo(() => {
+    return isAiSetupApplyConditionComplete(aiSetupApplyCondition);
+  }, [aiSetupApplyCondition]);
+  const aiSetupApplyReadiness = useMemo(() => {
+    return getAiApplyReadiness(aiSetupApplyCondition, aiSetupImportApplyPlanSummary);
+  }, [aiSetupApplyCondition, aiSetupImportApplyPlanSummary]);
+  const aiSetupAutoSelectedFields = useMemo(() => {
+    return {
+      pyeong: Boolean(aiSetupDetectedConditionHint.pyeong && aiSetupApplyCondition.pyeong === aiSetupDetectedConditionHint.pyeong && !aiSetupApplyConditionTouched.pyeong),
+      buildType: Boolean(aiSetupDetectedConditionHint.buildType && aiSetupApplyCondition.buildType === aiSetupDetectedConditionHint.buildType && !aiSetupApplyConditionTouched.buildType),
+      conditionVariant: Boolean(aiSetupDetectedConditionHint.conditionVariant && aiSetupApplyCondition.conditionVariant === aiSetupDetectedConditionHint.conditionVariant && !aiSetupApplyConditionTouched.conditionVariant),
+      occupancy: Boolean(aiSetupDetectedConditionHint.occupancy && aiSetupApplyCondition.occupancy === aiSetupDetectedConditionHint.occupancy && !aiSetupApplyConditionTouched.occupancy),
+    };
+  }, [aiSetupApplyCondition, aiSetupApplyConditionTouched, aiSetupDetectedConditionHint]);
+  const hasAiSetupAutoSelectedCondition = Object.values(aiSetupAutoSelectedFields).some(Boolean);
   const aiSetupStatusLabel =
     aiSetupStatus === "reading"
       ? "읽는 중"
@@ -2610,6 +2830,33 @@ export default function App() {
   useEffect(() => {
     setAiSetupMatchOverrides({});
   }, [aiSetupMappingAnalysis.headerRowIndex, aiSetupMappingAnalysis.previewRows, selectedAiSetupSheetName]);
+
+  useEffect(() => {
+    if (!selectedAiSetupSheet || !hasAiSetupConditionHintValue(aiSetupDetectedConditionHint)) return;
+    setAiSetupApplyCondition((prev) => {
+      const next = { ...prev };
+      if (!aiSetupApplyConditionTouched.pyeong && aiSetupDetectedConditionHint.pyeong) {
+        next.pyeong = aiSetupDetectedConditionHint.pyeong;
+      }
+      if (!aiSetupApplyConditionTouched.buildType && aiSetupDetectedConditionHint.buildType) {
+        next.buildType = aiSetupDetectedConditionHint.buildType;
+      }
+      if (!aiSetupApplyConditionTouched.conditionVariant && aiSetupDetectedConditionHint.conditionVariant) {
+        next.conditionVariant = aiSetupDetectedConditionHint.conditionVariant;
+      }
+      if (!aiSetupApplyConditionTouched.occupancy && aiSetupDetectedConditionHint.occupancy) {
+        next.occupancy = aiSetupDetectedConditionHint.occupancy;
+      }
+      return (
+        next.pyeong === prev.pyeong &&
+        next.buildType === prev.buildType &&
+        next.conditionVariant === prev.conditionVariant &&
+        next.occupancy === prev.occupancy
+      )
+        ? prev
+        : next;
+    });
+  }, [aiSetupApplyConditionTouched, aiSetupDetectedConditionHint, selectedAiSetupSheet]);
 
   useEffect(() => {
     if (selectedCompanyId && page === "admin-detail-costs" && selectedDetailSubitemId) {
@@ -2799,6 +3046,24 @@ export default function App() {
     setSelectedAiSetupSheetName("");
     setAiSetupHeaderRowIndex(-1);
     setAiSetupColumnMappings([]);
+    setAiSetupMatchOverrides({});
+    setAiSetupApplyCondition(createEmptyAiSetupApplyCondition());
+    setAiSetupApplyConditionTouched(createEmptyAiSetupConditionTouched());
+    setAiSetupPriceConfirmOpen(false);
+    setAiSetupPriceSaving(false);
+    setAiSetupPriceResult(null);
+    setAiSetupPriceError("");
+  }
+
+  function updateAiSetupApplyConditionPatch(patch, touchedFields = Object.keys(patch)) {
+    setAiSetupApplyCondition((prev) => ({ ...prev, ...patch }));
+    setAiSetupApplyConditionTouched((prev) => {
+      const next = { ...prev };
+      touchedFields.forEach((field) => {
+        next[field] = true;
+      });
+      return next;
+    });
   }
 
   async function handleAiSetupFileChange(event) {
@@ -2954,6 +3219,103 @@ export default function App() {
         [sourceRowNumber]: next,
       };
     });
+  }
+
+  function openAiSetupPriceConfirm() {
+    if (aiSetupPriceSaving || aiSetupPriceUpdateTargets.length === 0) return;
+    setAiSetupPriceError("");
+    setAiSetupPriceResult(null);
+    setAiSetupPriceConfirmOpen(true);
+  }
+
+  function closeAiSetupPriceConfirm() {
+    if (aiSetupPriceSaving) return;
+    setAiSetupPriceConfirmOpen(false);
+    setAiSetupPriceError("");
+  }
+
+  async function confirmAiSetupPriceUpdates() {
+    if (aiSetupPriceSaving || aiSetupPriceUpdateTargets.length === 0) return;
+
+    setAiSetupPriceSaving(true);
+    setAiSetupPriceError("");
+    setAiSetupPriceResult(null);
+
+    try {
+      requireSelectedCompanyId();
+      const allowedSubitems = new Map();
+      aiSetupCatalogItems.forEach((item) => {
+        (item.subitems ?? []).forEach((subitem) => {
+          allowedSubitems.set(subitem.id, { ...subitem, itemId: item.id, itemName: item.name });
+        });
+      });
+
+      const results = [];
+      for (const target of aiSetupPriceUpdateTargets) {
+        const allowedSubitem = allowedSubitems.get(target.matchedSubitemId);
+        if (!allowedSubitem || allowedSubitem.itemId !== target.matchedItemId) {
+          results.push({
+            status: "rejected",
+            target,
+            reason: "현재 업체의 단가표 항목으로 확인되지 않았습니다.",
+          });
+          continue;
+        }
+
+        const payload = {};
+        const nextUnitPrice = parseAiImportCurrencyNumber(target.excelUnitPrice);
+        const nextLaborRate = parseAiImportCurrencyNumber(target.excelLaborRate);
+        if (nextUnitPrice !== null && importValuesDiffer(target.currentUnitPrice, target.excelUnitPrice)) {
+          payload.unit_price = nextUnitPrice;
+        }
+        if (nextLaborRate !== null && importValuesDiffer(target.currentLaborRate, target.excelLaborRate)) {
+          payload.labor_rate = nextLaborRate;
+        }
+
+        if (Object.keys(payload).length === 0) {
+          results.push({ status: "fulfilled", target, skipped: true });
+          continue;
+        }
+
+        const { data, error } = await supabase
+          .from("construction_subitems")
+          .update(payload)
+          .eq("id", target.matchedSubitemId)
+          .eq("item_id", target.matchedItemId)
+          .select("id");
+
+        if (error) {
+          results.push({ status: "rejected", target, reason: error.message || "저장 실패" });
+        } else if (!data || data.length === 0) {
+          results.push({ status: "rejected", target, reason: "업데이트된 항목이 없습니다. 권한 또는 항목 소속을 확인해주세요." });
+        } else {
+          results.push({ status: "fulfilled", target, payload });
+        }
+      }
+
+      const successRows = results.filter((result) => result.status === "fulfilled" && !result.skipped);
+      const skippedRows = results.filter((result) => result.status === "fulfilled" && result.skipped);
+      const failedRows = results.filter((result) => result.status === "rejected");
+
+      setAiSetupPriceResult({
+        successCount: successRows.length,
+        skippedCount: skippedRows.length,
+        failedCount: failedRows.length,
+        failedRows,
+      });
+
+      if (successRows.length > 0) {
+        await fetchAiSetupCatalogItems();
+      }
+      if (failedRows.length === 0) {
+        setAiSetupPriceConfirmOpen(false);
+      }
+    } catch (error) {
+      console.error("[FORMATE AI setup price update]", error);
+      setAiSetupPriceError(getFriendlyError(error, "기존 항목 단가/인건비를 반영하지 못했습니다."));
+    } finally {
+      setAiSetupPriceSaving(false);
+    }
   }
 
   async function handleAdminVerify(event) {
@@ -3833,6 +4195,23 @@ export default function App() {
     setAdminUnsavedLeaveOpen(false);
     setAdminUnsavedLeaveSaving(false);
     setAdminUnsavedLeaveError("");
+    setAiSetupFileName("");
+    setAiSetupStatus("idle");
+    setAiSetupError("");
+    setAiSetupSheets([]);
+    setSelectedAiSetupSheetName("");
+    setAiSetupHeaderRowIndex(-1);
+    setAiSetupColumnMappings([]);
+    setAiSetupCatalogItems([]);
+    setAiSetupCatalogLoading(false);
+    setAiSetupCatalogError("");
+    setAiSetupMatchOverrides({});
+    setAiSetupApplyCondition(createEmptyAiSetupApplyCondition());
+    setAiSetupApplyConditionTouched(createEmptyAiSetupConditionTouched());
+    setAiSetupPriceConfirmOpen(false);
+    setAiSetupPriceSaving(false);
+    setAiSetupPriceResult(null);
+    setAiSetupPriceError("");
   }
 
   async function saveAndLeaveAdminCatalog() {
@@ -4569,6 +4948,23 @@ export default function App() {
     setAdminUnsavedLeaveOpen(false);
     setAdminUnsavedLeaveSaving(false);
     setAdminUnsavedLeaveError("");
+    setAiSetupFileName("");
+    setAiSetupStatus("idle");
+    setAiSetupError("");
+    setAiSetupSheets([]);
+    setSelectedAiSetupSheetName("");
+    setAiSetupHeaderRowIndex(-1);
+    setAiSetupColumnMappings([]);
+    setAiSetupCatalogItems([]);
+    setAiSetupCatalogLoading(false);
+    setAiSetupCatalogError("");
+    setAiSetupMatchOverrides({});
+    setAiSetupApplyCondition(createEmptyAiSetupApplyCondition());
+    setAiSetupApplyConditionTouched(createEmptyAiSetupConditionTouched());
+    setAiSetupPriceConfirmOpen(false);
+    setAiSetupPriceSaving(false);
+    setAiSetupPriceResult(null);
+    setAiSetupPriceError("");
   }
 
   async function addAdminItem() {
@@ -5715,6 +6111,65 @@ export default function App() {
         </div>
       )}
 
+      {aiSetupPriceConfirmOpen && (
+        <div className="modal-backdrop" onClick={closeAiSetupPriceConfirm}>
+          <section className="admin-verify-modal ai-price-update-modal" onClick={(event) => event.stopPropagation()}>
+            <div>
+              <p className="eyebrow dark">AI 초기 세팅</p>
+              <h2>기존 항목 단가/인건비를 반영할까요?</h2>
+              <p className="muted">
+                업데이트 예정 항목은 <strong>{aiSetupPriceUpdateTargets.length}개</strong>입니다.
+                이 작업은 기존 단가표의 단가/인건비만 수정합니다. 새 항목, 템플릿 수량/인원, 비용/세금 후보는 저장되지 않습니다.
+              </p>
+            </div>
+            <div className="ai-table-wrap ai-price-update-modal-table">
+              <table className="ai-data-table ai-catalog-match-table">
+                <thead>
+                  <tr>
+                    <th>FORMATE 대분류</th>
+                    <th>FORMATE 세부항목</th>
+                    <th>현재 단가 → 엑셀 단가</th>
+                    <th>현재 인건비 → 엑셀 인건비</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aiSetupPriceUpdateTargets.map((row) => (
+                    <tr key={`confirm-price-${row.matchedSubitemId}-${row.sourceRowNumber}`}>
+                      <td>{row.selectedCategoryName || "-"}</td>
+                      <td>{row.selectedSubitemName || "-"}</td>
+                      <td>{displayImportValue(row.currentUnitPrice)} → {displayImportValue(row.excelUnitPrice)}</td>
+                      <td>{displayImportValue(row.currentLaborRate)} → {displayImportValue(row.excelLaborRate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="ai-plan-notice">
+              이 작업은 기존 단가표의 단가/인건비만 수정합니다. 새 항목, 템플릿 수량/인원, 비용/세금 후보는 저장되지 않습니다.
+            </div>
+            {aiSetupPriceError && <div className="error-box">{aiSetupPriceError}</div>}
+            {aiSetupPriceResult?.failedCount > 0 && (
+              <div className="error-box">
+                <strong>{aiSetupPriceResult.failedCount}개 항목을 반영하지 못했습니다.</strong>
+                {aiSetupPriceResult.failedRows.map((row) => (
+                  <p key={`failed-price-${row.target?.matchedSubitemId}-${row.target?.sourceRowNumber}`}>
+                    {row.target?.selectedCategoryName || "-"} / {row.target?.selectedSubitemName || "-"}: {row.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+            <div className="actions">
+              <button type="button" className="secondary-button" onClick={closeAiSetupPriceConfirm} disabled={aiSetupPriceSaving}>
+                취소
+              </button>
+              <button type="button" className="primary-button" onClick={confirmAiSetupPriceUpdates} disabled={aiSetupPriceSaving || aiSetupPriceUpdateTargets.length === 0}>
+                {aiSetupPriceSaving ? "반영 중..." : "반영하기"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {conditionSummary && page !== "landing" && page !== "ready" && page !== "condition" && page !== "items" && !page.startsWith("admin") && (
         <div className="sticky-summary">
           <span>견적 조건</span>
@@ -6312,6 +6767,109 @@ export default function App() {
                 )}
 
                 {aiSetupMappingAnalysis.hasHeader && (
+                  <section className="ai-apply-condition-panel">
+                    <div className="ai-mapping-title">
+                      <div>
+                        <h3>공사 조건 선택</h3>
+                        <p>
+                          엑셀에서 가져온 수량과 인원은 조건별 견적 템플릿 값으로 저장될 수 있습니다.
+                          이 견적서가 어떤 평수와 주택 조건에 해당하는지 먼저 선택해주세요.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="ai-condition-hint-box">
+                      <div className="ai-condition-hint-head">
+                        <strong>엑셀에서 감지한 조건 후보</strong>
+                        {hasAiSetupConditionHintValue(aiSetupDetectedConditionHint) ? (
+                          <span>일부 자동 감지</span>
+                        ) : (
+                          <span>감지 안 됨</span>
+                        )}
+                      </div>
+                      <div className="ai-condition-hint-grid">
+                        {aiSetupConditionHintRows.map((row) => (
+                          <div key={row.label}>
+                            <span>{row.label}</span>
+                            <strong>{row.value}</strong>
+                          </div>
+                        ))}
+                      </div>
+                      {hasAiSetupConditionHintValue(aiSetupDetectedConditionHint) ? (
+                        <p>
+                          {hasAiSetupAutoSelectedCondition
+                            ? "엑셀에서 감지한 정보를 바탕으로 일부 조건을 미리 선택했습니다. 실제 조건과 다르면 직접 수정해주세요. 일부 조건만 감지된 경우 나머지 조건은 직접 선택해주세요."
+                            : "일부 조건만 감지되었습니다. 나머지 조건은 직접 선택해주세요."}
+                        </p>
+                      ) : (
+                        <p>조건을 자동으로 찾지 못했습니다. 아래에서 직접 선택해주세요.</p>
+                      )}
+                    </div>
+                    <div className="ai-condition-grid">
+                      <label>
+                        <span>평수</span>
+                        <select
+                          value={aiSetupApplyCondition.pyeong}
+                          onChange={(event) => updateAiSetupApplyConditionPatch({ pyeong: event.target.value })}
+                        >
+                          <option value="">선택 안 함</option>
+                          {PYEONG_OPTIONS.map((pyeong) => (
+                            <option key={pyeong} value={String(pyeong)}>{pyeong}평</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>주택 유형</span>
+                        <select
+                          value={aiSetupApplyCondition.buildType}
+                          onChange={(event) => {
+                            const buildType = event.target.value;
+                            updateAiSetupApplyConditionPatch({
+                              buildType,
+                              conditionVariant: buildType === "new" ? "확장형1" : buildType === "old" ? OLD_NO_EXTENSION_VARIANT : "",
+                            }, ["buildType", "conditionVariant"]);
+                          }}
+                        >
+                          <option value="">선택 안 함</option>
+                          <option value="old">구형</option>
+                          <option value="new">확장형</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>세부 유형</span>
+                        <select
+                          value={aiSetupApplyCondition.conditionVariant}
+                          onChange={(event) => updateAiSetupApplyConditionPatch({ conditionVariant: event.target.value })}
+                          disabled={!aiSetupApplyCondition.buildType}
+                        >
+                          <option value="">선택 안 함</option>
+                          {(aiSetupApplyCondition.buildType === "new" ? EXTENDED_VARIANTS : [OLD_NO_EXTENSION_VARIANT, ...OLD_EXTENDED_VARIANTS]).map((variant) => (
+                            <option key={variant} value={variant}>
+                              {formatConditionVariantLabel(variant, conditionVariantLabelMap)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>거주 상태</span>
+                        <select
+                          value={aiSetupApplyCondition.occupancy}
+                          onChange={(event) => updateAiSetupApplyConditionPatch({ occupancy: event.target.value })}
+                        >
+                          <option value="">선택 안 함</option>
+                          <option value="empty">빈집</option>
+                          <option value="occupied">살림집</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className={`ai-selected-condition ${aiSetupApplyConditionComplete ? "ready" : ""}`.trim()}>
+                      <span>선택 조건</span>
+                      <strong>{aiSetupApplyConditionLabel || "아직 선택되지 않았습니다."}</strong>
+                      <p>아직 저장되지 않았습니다. 최종 반영 기능은 다음 단계에서 추가됩니다.</p>
+                    </div>
+                  </section>
+                )}
+
+                {aiSetupMappingAnalysis.hasHeader && (
                   <section className="ai-apply-plan-panel">
                     <div className="ai-mapping-title">
                       <div>
@@ -6361,10 +6919,10 @@ export default function App() {
                                   <td>{row.sourceItemName || "-"}</td>
                                   <td>{row.selectedCategoryName || "-"}</td>
                                   <td>{row.selectedSubitemName || "-"}</td>
-                                  <td>{row.currentUnitPrice || "-"}</td>
-                                  <td>{row.excelUnitPrice || "-"}</td>
-                                  <td>{row.currentLaborRate || "-"}</td>
-                                  <td>{row.excelLaborRate || "-"}</td>
+                                  <td>{displayImportValue(row.currentUnitPrice)}</td>
+                                  <td>{displayImportValue(row.excelUnitPrice)}</td>
+                                  <td>{displayImportValue(row.currentLaborRate)}</td>
+                                  <td>{displayImportValue(row.excelLaborRate)}</td>
                                   <td>
                                     <span className={`ai-match-status ${row.willChange ? "new_candidate" : "matched"}`}>
                                       {row.willChange ? "변경 예정" : "동일"}
@@ -6441,6 +6999,11 @@ export default function App() {
 
                     <div className="ai-plan-section">
                       <h4>템플릿 값 후보</h4>
+                      <p className="ai-plan-context">
+                        {aiSetupApplyConditionComplete
+                          ? `선택 조건: ${aiSetupApplyConditionLabel}. 선택한 조건의 견적 템플릿 값으로 저장될 후보입니다. 아직 저장되지 않았습니다.`
+                          : "조건을 선택하면 이 수량/인원 값이 어느 템플릿에 저장될지 확인할 수 있습니다."}
+                      </p>
                       {aiSetupImportApplyPlan.templateValueCandidates.length > 0 ? (
                         <div className="ai-table-wrap ai-catalog-match-wrap compact">
                           <table className="ai-data-table ai-catalog-match-table">
@@ -6558,6 +7121,106 @@ export default function App() {
                       ) : (
                         <p className="ai-plan-empty">해당 없음</p>
                       )}
+                    </div>
+                  </section>
+                )}
+
+                {aiSetupMappingAnalysis.hasHeader && (
+                  <section className="ai-final-confirm-panel">
+                    <div className="ai-mapping-title">
+                      <div>
+                        <h3>최종 반영 확인</h3>
+                        <p>실제 저장 기능을 추가하기 전에, 어떤 데이터가 반영 대상이 될지 마지막으로 점검하는 화면입니다.</p>
+                      </div>
+                      <div className="ai-mapping-stats">
+                        <span>반영 준비 상태: {aiSetupApplyReadiness.label}</span>
+                      </div>
+                    </div>
+
+                    <div className="ai-selected-condition final">
+                      <span>선택한 공사 조건</span>
+                      <strong>{aiSetupApplyConditionLabel || "공사 조건이 선택되지 않았습니다."}</strong>
+                      {!aiSetupApplyConditionComplete && (
+                        <p>공사 조건이 선택되지 않아 템플릿 값은 저장할 수 없습니다.</p>
+                      )}
+                    </div>
+
+                    <div className="ai-final-summary-grid">
+                      <div><span>기존 항목 단가 업데이트 예정</span><strong>{aiSetupImportApplyPlanSummary.priceUpdates}개</strong></div>
+                      <div><span>새 대분류 추가 예정</span><strong>{aiSetupImportApplyPlanSummary.newCategoryCandidates}개</strong></div>
+                      <div><span>새 세부항목 추가 예정</span><strong>{aiSetupImportApplyPlanSummary.newSubitemCandidates}개</strong></div>
+                      <div><span>템플릿 수량/인원 저장 예정</span><strong>{aiSetupImportApplyPlanSummary.templateValueCandidates}개</strong></div>
+                      <div><span>비용/세금 후보</span><strong>{aiSetupImportApplyPlanSummary.costCandidates}개</strong></div>
+                      <div><span>검산/합계 행</span><strong>{aiSetupImportApplyPlanSummary.validationRows}개</strong></div>
+                      <div><span>검토 필요 행</span><strong>{aiSetupImportApplyPlanSummary.reviewRows}개</strong></div>
+                      <div><span>무시 행</span><strong>{aiSetupImportApplyPlanSummary.ignoredRows}개</strong></div>
+                    </div>
+
+                    <div className="ai-confirm-warning-list">
+                      {hasAiSetupAutoSelectedCondition && !aiSetupApplyConditionComplete && (
+                        <p>평수는 자동 감지되었지만, 일부 조건이 선택되지 않았습니다. 템플릿 저장 전 나머지 조건을 확인해야 합니다.</p>
+                      )}
+                      {aiSetupImportApplyPlanSummary.reviewRows > 0 && (
+                        <p>검토 필요 행이 남아 있습니다. 실제 반영 전 확인이 필요합니다.</p>
+                      )}
+                      {!aiSetupApplyConditionComplete && (
+                        <p>공사 조건이 선택되지 않아 템플릿 값은 저장할 수 없습니다.</p>
+                      )}
+                      {aiSetupImportApplyPlanSummary.priceUpdates > 0 && (
+                        <p>기존 단가표의 단가/인건비가 변경될 수 있습니다.</p>
+                      )}
+                      {(aiSetupImportApplyPlanSummary.newCategoryCandidates > 0 || aiSetupImportApplyPlanSummary.newSubitemCandidates > 0) && (
+                        <p>새 항목으로 추가될 후보가 있습니다.</p>
+                      )}
+                      {aiSetupImportApplyPlanSummary.costCandidates > 0 && (
+                        <p>비용/세금 후보는 단가표 항목과 별도로 처리해야 합니다.</p>
+                      )}
+                      {aiSetupImportApplyPlanSummary.validationRows > 0 && (
+                        <p>검산/합계 행은 저장용이 아니라 금액 비교용입니다.</p>
+                      )}
+                      {aiSetupApplyReadiness.status === "empty" && (
+                        <p>현재 검토 결과에는 실제 반영 후보가 없습니다.</p>
+                      )}
+                    </div>
+
+                    <div className="ai-plan-notice">
+                      현재 단계에서는 기존 항목에 연결된 단가/인건비만 반영할 수 있습니다. 새 항목 추가와 템플릿 저장은 다음 단계에서 추가됩니다.
+                    </div>
+
+                    {aiSetupPriceResult && (
+                      <div className={aiSetupPriceResult.failedCount > 0 ? "error-box" : "success-box"}>
+                        <strong>
+                          {aiSetupPriceResult.successCount}개 항목의 단가/인건비를 반영했습니다.
+                        </strong>
+                        {aiSetupPriceResult.skippedCount > 0 && (
+                          <p>{aiSetupPriceResult.skippedCount}개 항목은 변경할 값이 없어 건너뛰었습니다.</p>
+                        )}
+                        {aiSetupPriceResult.failedCount > 0 && (
+                          <p>{aiSetupPriceResult.failedCount}개 항목은 반영하지 못했습니다. 확인 모달에서 실패 항목을 확인해주세요.</p>
+                        )}
+                      </div>
+                    )}
+                    {aiSetupPriceError && <div className="error-box">{aiSetupPriceError}</div>}
+
+                    <div className="ai-price-update-actions">
+                      <div>
+                        <strong>기존 항목 단가/인건비 반영</strong>
+                        <p>
+                          이 버튼은 기존 FORMATE 세부항목의 단가와 인건비만 수정합니다.
+                          새 항목, 템플릿 수량/인원, 비용/세금 후보는 저장하지 않습니다.
+                        </p>
+                        {aiSetupPriceUpdateTargets.length === 0 && (
+                          <p className="ai-plan-empty">업데이트할 기존 항목 단가/인건비 후보가 없습니다.</p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={openAiSetupPriceConfirm}
+                        disabled={aiSetupPriceSaving || aiSetupPriceUpdateTargets.length === 0}
+                      >
+                        {aiSetupPriceSaving ? "반영 중..." : "기존 항목 단가만 반영"}
+                      </button>
                     </div>
                   </section>
                 )}
@@ -8806,6 +9469,14 @@ const styles = `
     margin: 0 0 8px;
     font-size: var(--font-size-title-md);
   }
+  .ai-price-update-modal {
+    width: min(920px, calc(100vw - 32px));
+    max-height: 86vh;
+    overflow: auto;
+  }
+  .ai-price-update-modal-table {
+    max-height: 340px;
+  }
   .unsaved-leave-modal .actions {
     justify-content: flex-end;
   }
@@ -9900,7 +10571,9 @@ const styles = `
   .ai-manual-review-panel,
   .ai-column-review-panel,
   .ai-catalog-match-panel,
-  .ai-apply-plan-panel {
+  .ai-apply-plan-panel,
+  .ai-apply-condition-panel,
+  .ai-final-confirm-panel {
     display: grid;
     gap: var(--space-2);
   }
@@ -9909,7 +10582,9 @@ const styles = `
   .ai-manual-review-panel,
   .ai-column-review-panel,
   .ai-catalog-match-panel,
-  .ai-apply-plan-panel {
+  .ai-apply-plan-panel,
+  .ai-apply-condition-panel,
+  .ai-final-confirm-panel {
     padding: var(--space-2);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
@@ -10163,6 +10838,12 @@ const styles = `
     color: var(--text-primary);
     font-size: var(--font-size-title-sm);
   }
+  .ai-plan-context {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+  }
   .ai-plan-empty {
     margin: 0;
     padding: 12px;
@@ -10178,6 +10859,175 @@ const styles = `
     grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.25fr);
     gap: var(--space-1);
     align-items: start;
+  }
+  .ai-condition-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+  .ai-condition-hint-box {
+    display: grid;
+    gap: var(--space-1);
+    padding: 12px 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+  }
+  .ai-condition-hint-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+  }
+  .ai-condition-hint-head strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .ai-condition-hint-head span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    white-space: nowrap;
+  }
+  .ai-condition-hint-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+  .ai-condition-hint-grid div {
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-surface);
+  }
+  .ai-condition-hint-grid span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-condition-hint-grid strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .ai-condition-hint-box p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+  }
+  .ai-condition-grid label {
+    display: grid;
+    gap: 6px;
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+  }
+  .ai-condition-grid select {
+    min-height: 42px;
+    padding: 9px 11px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-button);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .ai-selected-condition {
+    display: grid;
+    gap: 5px;
+    padding: 12px 14px;
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+  }
+  .ai-selected-condition.ready,
+  .ai-selected-condition.final {
+    border-style: solid;
+    border-color: rgba(43, 53, 104, 0.16);
+    background: var(--brand-primary-subtle);
+  }
+  .ai-selected-condition span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-selected-condition strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body);
+  }
+  .ai-selected-condition p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.5;
+  }
+  .ai-final-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-1);
+  }
+  .ai-final-summary-grid div {
+    display: grid;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+  }
+  .ai-final-summary-grid span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .ai-final-summary-grid strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+  }
+  .ai-confirm-warning-list {
+    display: grid;
+    gap: 6px;
+  }
+  .ai-confirm-warning-list p {
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(190, 122, 38, 0.2);
+    border-radius: var(--radius-button);
+    background: rgba(190, 122, 38, 0.06);
+    color: #8a5a1d;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.5;
+  }
+  .ai-price-update-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2);
+    align-items: center;
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+  }
+  .ai-price-update-actions div {
+    display: grid;
+    gap: 6px;
+  }
+  .ai-price-update-actions strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body);
+  }
+  .ai-price-update-actions p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
   }
   .ai-mapping-groups {
     display: grid;
@@ -10658,6 +11508,21 @@ const styles = `
     border: 1px solid var(--color-danger-border);
     background: var(--color-danger-subtle);
     color: var(--color-danger);
+  }
+  .success-box {
+    margin-bottom: var(--space-2);
+    padding: 12px 14px;
+    border: 1px solid rgba(49, 124, 82, 0.22);
+    border-radius: var(--radius-button);
+    background: rgba(49, 124, 82, 0.08);
+    color: #317c52;
+    font-weight: var(--font-weight-semibold);
+  }
+  .success-box p,
+  .error-box p {
+    margin: 6px 0 0;
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
   }
   .admin-tool-panel {
     display: grid;
@@ -12113,7 +12978,8 @@ const styles = `
     .template-list-row, .detail-cost-layout, .detail-add-row, .detail-cost-row, .estimate-card,
     .estimate-template-expanded-content, .estimate-template-detail, .estimate-pyeong-preview,
     .estimate-meta-grid, .adjustment-row, .estimate-editor-total,
-    .ai-upload-grid, .ai-sheet-meta, .ai-mapping-groups, .ai-match-summary, .ai-plan-split {
+    .ai-upload-grid, .ai-sheet-meta, .ai-mapping-groups, .ai-match-summary, .ai-plan-split,
+    .ai-condition-grid, .ai-condition-hint-grid, .ai-final-summary-grid, .ai-price-update-actions {
       grid-template-columns: 1fr;
     }
     .ai-mapping-title {
