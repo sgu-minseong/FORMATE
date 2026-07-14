@@ -5,7 +5,10 @@ export function getAiRowTypeLabel(rowType) {
 }
 
 export function getAiDisplayMatchStatus(row) {
-  if (row?.rowType === "work_item") return row.matchStatus;
+  if (row?.rowType === "work_item") {
+    if (row?.action === "new") return "new_candidate";
+    return row.matchStatus;
+  }
   if (["cost_item", "margin_item", "tax_item", "subtotal_row", "total_row", "ignored", "needs_review"].includes(row?.rowType)) {
     return row.rowType;
   }

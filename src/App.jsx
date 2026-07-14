@@ -31,7 +31,7 @@ import {
   getAiRowTypeLabel,
   getAiDisplayMatchStatus,
   getAiRowTypeGuidance,
-  getAiMatchStatusLabel,
+  getAiDisplayMatchStatusLabel,
   getAiActionOptionsForRowType,
   getAiActionLabel,
   getAiRecommendationActionLabel,
@@ -6915,8 +6915,8 @@ export default function App() {
                                     </select>
                                   </td>
                                   <td>
-                                    <span className={`ai-match-status ${row.matchStatus}`.trim()}>
-                                      {getAiMatchStatusLabel(row.matchStatus)}
+                                    <span className={`ai-match-status ${getAiDisplayMatchStatus(row)}`.trim()}>
+                                      {getAiDisplayMatchStatusLabel(row)}
                                     </span>
                                     {row.aiReason && (
                                       <small className="ai-recommendation-reason">
