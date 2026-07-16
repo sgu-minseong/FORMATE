@@ -650,13 +650,13 @@ function normalizeAdminItems(itemsRows, subitemRows, templateValueRows = []) {
 }
 
 function toNumberOrZero(value) {
-  const numberValue = Number(value);
+  const numberValue = Number(`${value ?? ""}`.replaceAll(",", ""));
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
 function toNullableNumber(value) {
   if (`${value ?? ""}`.trim() === "") return null;
-  const numberValue = Number(value);
+  const numberValue = Number(`${value ?? ""}`.replaceAll(",", ""));
   return Number.isFinite(numberValue) ? numberValue : null;
 }
 
@@ -666,7 +666,21 @@ function toNonNegativeNumberOrZero(value) {
 
 function hasNumericInput(value) {
   if (`${value ?? ""}`.trim() === "") return false;
-  return Number.isFinite(Number(value));
+  return Number.isFinite(Number(`${value ?? ""}`.replaceAll(",", "")));
+}
+
+function stripNumberInputFormatting(value) {
+  return `${value ?? ""}`.replaceAll(",", "").replace(/[^\d.]/g, "");
+}
+
+function formatMoneyInputValue(value) {
+  const raw = stripNumberInputFormatting(value);
+  if (raw === "") return "";
+  const [integerPart, ...decimalParts] = raw.split(".");
+  const integerValue = integerPart === "" ? "0" : integerPart;
+  const formattedInteger = Number(integerValue).toLocaleString("ko-KR");
+  if (!decimalParts.length) return formattedInteger;
+  return `${formattedInteger}.${decimalParts.join("").slice(0, 2)}`;
 }
 
 function getDefaultQuantityForUnit(unit, pyeong) {
@@ -2434,6 +2448,7 @@ export default function App() {
   const [siteMemo, setSiteMemo] = useState("");
   const [estimateVatStatus, setEstimateVatStatus] = useState("부가세 별도");
   const [estimateIssuedAt, setEstimateIssuedAt] = useState(getTodayDateInput);
+  const [previewBackPage, setPreviewBackPage] = useState("items");
   const [estimateCatalog, setEstimateCatalog] = useState([]);
   const [estimateLoading, setEstimateLoading] = useState(false);
   const [estimateSaving, setEstimateSaving] = useState(false);
@@ -5581,6 +5596,7 @@ export default function App() {
     setEstimateError("");
     setEstimateNotice(copy ? "기존 견적서를 복사한 새 초안입니다. 고객 정보와 현장 정보를 입력한 뒤 저장하세요." : "");
     setEstimateDraftSource("template");
+    setPreviewBackPage(destination === "preview" && !copy ? "admin-estimates" : "items");
     setPage(destination);
   }
 
@@ -6106,6 +6122,7 @@ export default function App() {
     setDragOverItemId("");
 
     setAdminSaving(true);
+    setAutoSaveStatus("saving");
     setAdminError("");
     try {
       await Promise.all(
@@ -6124,6 +6141,8 @@ export default function App() {
       markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "항목 순서를 저장하지 못했어요. 다시 시도해주세요."));
+      setAutoSaveStatus("error");
+      setAutoSaveError(error?.message || "순서 저장 실패");
       await fetchAdminItems();
     } finally {
       setAdminSaving(false);
@@ -6166,6 +6185,7 @@ export default function App() {
     setDragOverSubitem(null);
 
     setAdminSaving(true);
+    setAutoSaveStatus("saving");
     setAdminError("");
     try {
       await Promise.all(
@@ -6183,6 +6203,8 @@ export default function App() {
       markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "소재 순서를 저장하지 못했어요. 다시 시도해주세요."));
+      setAutoSaveStatus("error");
+      setAutoSaveError(error?.message || "순서 저장 실패");
       await fetchAdminItems();
     } finally {
       setAdminSaving(false);
@@ -6219,6 +6241,7 @@ export default function App() {
     setDragOverSubitem(null);
 
     setAdminSaving(true);
+    setAutoSaveStatus("saving");
     setAdminError("");
     try {
       await Promise.all(
@@ -6236,6 +6259,8 @@ export default function App() {
       markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "소재 순서를 저장하지 못했어요. 다시 시도해주세요."));
+      setAutoSaveStatus("error");
+      setAutoSaveError(error?.message || "순서 저장 실패");
       await fetchAdminItems();
     } finally {
       setAdminSaving(false);
@@ -6533,6 +6558,7 @@ export default function App() {
           : "저장되었습니다."
       );
       if (createdTemplate) setEstimateDraftSource("template");
+      setPreviewBackPage("items");
       setPage("preview");
     } catch (error) {
       setEstimateError(getFriendlyError(error, "견적서를 저장하지 못했어요. 다시 시도해주세요."));
@@ -8703,7 +8729,13 @@ export default function App() {
                 >
                   조건 다시 선택
                 </button>
-                <button className="primary-button" onClick={() => setPage("preview")}>
+                <button
+                  className="primary-button"
+                  onClick={() => {
+                    setPreviewBackPage("items");
+                    setPage("preview");
+                  }}
+                >
                   견적서 확인하기
                 </button>
               </div>
@@ -8861,11 +8893,11 @@ export default function App() {
                             <span>가격</span>
                             <label className="estimate-draft-field">
                               <input
-                                type="number"
-                                min="0"
-                                value={row.unitPrice ?? ""}
+                                type="text"
+                                inputMode="numeric"
+                                value={formatMoneyInputValue(row.unitPrice)}
                                 onChange={(event) =>
-                                  updateItem(openCategory, index, { unitPrice: event.target.value })
+                                  updateItem(openCategory, index, { unitPrice: stripNumberInputFormatting(event.target.value) })
                                 }
                               />
                               <em>원</em>
@@ -8889,11 +8921,11 @@ export default function App() {
                             <span>인건비</span>
                             <label className="estimate-draft-field">
                               <input
-                                type="number"
-                                min="0"
-                                value={row.laborRate ?? ""}
+                                type="text"
+                                inputMode="numeric"
+                                value={formatMoneyInputValue(row.laborRate)}
                                 onChange={(event) =>
-                                  updateItem(openCategory, index, { laborRate: event.target.value })
+                                  updateItem(openCategory, index, { laborRate: stripNumberInputFormatting(event.target.value) })
                                 }
                               />
                               <em>원</em>
@@ -8981,11 +9013,11 @@ export default function App() {
                         <option value="discount">할인</option>
                       </select>
                       <input
-                        type="number"
-                        min="0"
-                        value={adjustment.amount}
+                        type="text"
+                        inputMode="numeric"
+                        value={formatMoneyInputValue(adjustment.amount)}
                         onChange={(event) =>
-                          updateEstimateAdjustment(adjustment.id, { amount: event.target.value })
+                          updateEstimateAdjustment(adjustment.id, { amount: stripNumberInputFormatting(event.target.value) })
                         }
                         placeholder="금액"
                       />
@@ -9571,22 +9603,22 @@ export default function App() {
                               <label>
                                 <span className="field-label">단가</span>
                                 <input
-                                  type="number"
-                                  min="0"
-                                  value={activeSubitem.unit_price ?? ""}
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={formatMoneyInputValue(activeSubitem.unit_price)}
                                   onChange={(event) =>
-                                    updateLocalSubitemPrice(activeSubitem.id, { unit_price: event.target.value })
+                                    updateLocalSubitemPrice(activeSubitem.id, { unit_price: stripNumberInputFormatting(event.target.value) })
                                   }
                                 />
                               </label>
                               <label>
                                 <span className="field-label">인건비</span>
                                 <input
-                                  type="number"
-                                  min="0"
-                                  value={activeSubitem.labor_rate ?? ""}
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={formatMoneyInputValue(activeSubitem.labor_rate)}
                                   onChange={(event) =>
-                                    updateLocalSubitemPrice(activeSubitem.id, { labor_rate: event.target.value })
+                                    updateLocalSubitemPrice(activeSubitem.id, { labor_rate: stripNumberInputFormatting(event.target.value) })
                                   }
                                 />
                               </label>
@@ -9785,22 +9817,22 @@ export default function App() {
                           <label>
                             <span className="field-label">단가</span>
                             <input
-                              type="number"
-                              min="0"
-                              value={subitem.unit_price ?? ""}
+                              type="text"
+                              inputMode="numeric"
+                              value={formatMoneyInputValue(subitem.unit_price)}
                               onChange={(event) =>
-                                updateLocalSubitemPrice(subitem.id, { unit_price: event.target.value })
+                                updateLocalSubitemPrice(subitem.id, { unit_price: stripNumberInputFormatting(event.target.value) })
                               }
                             />
                           </label>
                           <label>
                             <span className="field-label">인건비</span>
                             <input
-                              type="number"
-                              min="0"
-                              value={subitem.labor_rate ?? ""}
+                              type="text"
+                              inputMode="numeric"
+                              value={formatMoneyInputValue(subitem.labor_rate)}
                               onChange={(event) =>
-                                updateLocalSubitemPrice(subitem.id, { labor_rate: event.target.value })
+                                updateLocalSubitemPrice(subitem.id, { labor_rate: stripNumberInputFormatting(event.target.value) })
                               }
                             />
                           </label>
@@ -9963,10 +9995,10 @@ export default function App() {
                   disabled={!selectedDetailSubitemId}
                 />
                 <input
-                  type="number"
-                  min="0"
-                  value={newDetailCost.cost}
-                  onChange={(event) => setNewDetailCost((current) => ({ ...current, cost: event.target.value }))}
+                  type="text"
+                  inputMode="numeric"
+                  value={formatMoneyInputValue(newDetailCost.cost)}
+                  onChange={(event) => setNewDetailCost((current) => ({ ...current, cost: stripNumberInputFormatting(event.target.value) }))}
                   placeholder="가격"
                   disabled={!selectedDetailSubitemId}
                 />
@@ -9998,11 +10030,11 @@ export default function App() {
                       onBlur={(event) => updateDetailCost(cost.id, { name: event.target.value })}
                     />
                     <input
-                      type="number"
-                      min="0"
-                      value={cost.cost ?? ""}
-                      onChange={(event) => updateLocalDetailCost(cost.id, { cost: event.target.value })}
-                      onBlur={(event) => updateDetailCost(cost.id, { cost: event.target.value })}
+                      type="text"
+                      inputMode="numeric"
+                      value={formatMoneyInputValue(cost.cost)}
+                      onChange={(event) => updateLocalDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
+                      onBlur={(event) => updateDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
                     />
                     <div className="detail-type-toggle">
                       <label className={cost.category_type === "basic" ? "selected" : ""}>
@@ -10225,8 +10257,8 @@ export default function App() {
               <div>
                 <h2>견적서 확인</h2>
               </div>
-              <button className="ghost" onClick={() => setPage("items")}>
-                <ArrowLeft size={18} /> 항목 수정
+              <button className="ghost" onClick={() => setPage(previewBackPage === "admin-estimates" ? "admin-estimates" : "items")}>
+                <ArrowLeft size={18} /> {previewBackPage === "admin-estimates" ? "저장 견적 보기" : "항목 수정"}
               </button>
             </div>
 
@@ -13411,22 +13443,22 @@ const styles = `
     grid-template-columns: 28px minmax(140px, 1.1fr) 120px 100px repeat(4, minmax(118px, 1fr)) 42px;
   }
   .admin-value-row.common-price-row {
-    grid-template-columns: 28px minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr)) 42px;
+    grid-template-columns: 28px minmax(240px, 1.6fr) 82px 118px 118px 42px;
   }
   .admin-flat-list .admin-value-row.common-price-row {
-    grid-template-columns: minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr));
+    grid-template-columns: minmax(240px, 1.6fr) 82px 118px 118px;
   }
   .flooring-value-row.common-price-row {
-    grid-template-columns: 28px minmax(140px, 1.1fr) 120px 100px repeat(2, minmax(118px, 1fr)) 42px;
+    grid-template-columns: 28px minmax(240px, 1.6fr) 108px 82px 118px 118px 42px;
   }
   .admin-value-row.condition-quantity-row {
-    grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(132px, 180px));
+    grid-template-columns: minmax(240px, 1.6fr) 96px 96px;
   }
   .admin-value-row.condition-quantity-row.itemized-quantity-row {
-    grid-template-columns: 28px minmax(180px, 1fr) repeat(2, minmax(132px, 180px)) 42px;
+    grid-template-columns: 28px minmax(240px, 1.6fr) 96px 96px 42px;
   }
   .flooring-value-row.condition-quantity-row {
-    grid-template-columns: 28px minmax(170px, 1fr) 120px repeat(2, minmax(132px, 180px)) 42px;
+    grid-template-columns: 28px minmax(240px, 1.6fr) 108px 96px 96px 42px;
   }
   .admin-value-row label {
     display: grid;
@@ -13587,7 +13619,7 @@ const styles = `
   }
   .detail-add-row {
     display: grid;
-    grid-template-columns: minmax(180px, 1fr) 140px 160px auto;
+    grid-template-columns: minmax(260px, 1fr) 128px 150px auto;
     gap: var(--space-1);
     margin: var(--space-2) 0;
   }
@@ -13597,7 +13629,7 @@ const styles = `
   }
   .detail-cost-row {
     display: grid;
-    grid-template-columns: minmax(160px, 1fr) 140px 250px 42px;
+    grid-template-columns: minmax(260px, 1fr) 128px 230px 42px;
     gap: var(--space-1);
     align-items: center;
     padding: 10px;
@@ -14309,7 +14341,7 @@ const styles = `
   }
   .adjustment-row {
     display: grid;
-    grid-template-columns: minmax(140px, 1.2fr) 110px 130px minmax(120px, auto) minmax(140px, 1fr) auto;
+    grid-template-columns: minmax(200px, 1.4fr) 108px 118px minmax(110px, auto) minmax(220px, 1fr) auto;
     gap: var(--space-1);
     align-items: center;
     padding: var(--space-1);
@@ -14563,10 +14595,34 @@ const styles = `
     font-family: var(--font-number);
     font-variant-numeric: tabular-nums;
   }
+  input[inputmode="numeric"] {
+    font-family: var(--font-number);
+    font-variant-numeric: tabular-nums;
+  }
   table {
     width: 100%;
     border-collapse: collapse;
     background: var(--bg-surface);
+  }
+  .estimate-modal table th:nth-child(2),
+  .estimate-modal table td:nth-child(2),
+  .pdf-capture-area table th:nth-child(2),
+  .pdf-capture-area table td:nth-child(2) {
+    width: 34%;
+    min-width: 220px;
+  }
+  .estimate-modal table th:nth-child(n+3),
+  .estimate-modal table td:nth-child(n+3),
+  .pdf-capture-area table th:nth-child(n+3),
+  .pdf-capture-area table td:nth-child(n+3) {
+    width: 86px;
+    white-space: nowrap;
+  }
+  .estimate-modal table th:first-child,
+  .estimate-modal table td:first-child,
+  .pdf-capture-area table th:first-child,
+  .pdf-capture-area table td:first-child {
+    min-width: 140px;
   }
   th, td {
     padding: 13px;
@@ -15170,22 +15226,22 @@ const styles = `
     font-weight: var(--font-weight-bold);
   }
   .standard-price-table-header {
-    grid-template-columns: 28px minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr)) 42px;
+    grid-template-columns: 28px minmax(240px, 1.6fr) 82px 118px 118px 42px;
   }
   .flat-price-table-header {
-    grid-template-columns: minmax(150px, 1.1fr) 110px repeat(2, minmax(132px, 1fr));
+    grid-template-columns: minmax(240px, 1.6fr) 82px 118px 118px;
   }
   .flooring-price-table-header {
-    grid-template-columns: 28px minmax(140px, 1.1fr) 120px 100px repeat(2, minmax(118px, 1fr)) 42px;
+    grid-template-columns: 28px minmax(240px, 1.6fr) 108px 82px 118px 118px 42px;
   }
   .standard-quantity-table-header {
-    grid-template-columns: 28px minmax(180px, 1fr) repeat(2, minmax(132px, 180px)) 42px;
+    grid-template-columns: 28px minmax(240px, 1.6fr) 96px 96px 42px;
   }
   .flat-quantity-table-header {
-    grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(132px, 180px));
+    grid-template-columns: minmax(240px, 1.6fr) 96px 96px;
   }
   .flooring-quantity-table-header {
-    grid-template-columns: 28px minmax(170px, 1fr) 120px repeat(2, minmax(132px, 180px)) 42px;
+    grid-template-columns: 28px minmax(240px, 1.6fr) 108px 96px 96px 42px;
   }
   .quantity-table-list {
     gap: 0;
