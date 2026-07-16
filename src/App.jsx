@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
@@ -1157,6 +1157,10 @@ function getAdjustmentAmount(adjustment) {
 function getAdjustmentSignedAmount(adjustment) {
   const amount = getAdjustmentAmount(adjustment);
   return adjustment?.type === "discount" ? -amount : amount;
+}
+
+function getTemporaryTaxAmount(amount) {
+  return Math.round(toNumberOrZero(amount) * 0.1);
 }
 
 function getCleanEstimateAdjustments(adjustments) {
@@ -2464,6 +2468,7 @@ export default function App() {
   const [estimateVatStatus, setEstimateVatStatus] = useState("부가세 별도");
   const [estimateIssuedAt, setEstimateIssuedAt] = useState(getTodayDateInput);
   const [previewBackPage, setPreviewBackPage] = useState("items");
+  const [estimatePreviewType, setEstimatePreviewType] = useState("general");
   const [estimateCatalog, setEstimateCatalog] = useState([]);
   const [estimateLoading, setEstimateLoading] = useState(false);
   const [estimateSaving, setEstimateSaving] = useState(false);
@@ -5566,6 +5571,214 @@ export default function App() {
     );
   }
 
+  function renderEstimateAdjustmentEditor() {
+    return (
+      <div className="estimate-adjustment-panel">
+        <div className="selected-summary-header">
+          <h3>추가금/할인</h3>
+          <button type="button" className="secondary-button" onClick={addEstimateAdjustment}>
+            <Plus size={16} /> 추가금/할인 추가
+          </button>
+        </div>
+        {estimateAdjustments.length ? (
+          <div className="adjustment-list">
+            {estimateAdjustments.map((adjustment) => (
+              <div className="adjustment-row" key={adjustment.id}>
+                <input
+                  value={adjustment.label}
+                  onChange={(event) =>
+                    updateEstimateAdjustment(adjustment.id, { label: event.target.value })
+                  }
+                  placeholder="예: 폐기물 추가"
+                />
+                <select
+                  value={adjustment.type}
+                  onChange={(event) =>
+                    updateEstimateAdjustment(adjustment.id, { type: event.target.value })
+                  }
+                >
+                  <option value="charge">추가금</option>
+                  <option value="discount">할인</option>
+                </select>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={formatMoneyInputValue(adjustment.amount)}
+                  onChange={(event) =>
+                    updateEstimateAdjustment(adjustment.id, { amount: stripNumberInputFormatting(event.target.value) })
+                  }
+                  placeholder="금액"
+                />
+                <label className="adjustment-visible-toggle">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(adjustment.visibleToCustomer)}
+                    onChange={(event) =>
+                      updateEstimateAdjustment(adjustment.id, {
+                        visibleToCustomer: event.target.checked,
+                      })
+                    }
+                  />
+                  고객용 표시
+                </label>
+                <input
+                  value={adjustment.memo ?? ""}
+                  onChange={(event) =>
+                    updateEstimateAdjustment(adjustment.id, { memo: event.target.value })
+                  }
+                  placeholder="내부 메모"
+                />
+                <button
+                  type="button"
+                  className="secondary-button adjustment-delete-button"
+                  onClick={() => removeEstimateAdjustment(adjustment.id)}
+                >
+                  <Trash2 size={16} /> 삭제
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted selected-summary-empty">
+            현장 상황에 따른 추가금이나 할인이 있으면 추가하세요.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  function renderEstimateAdjustmentSummary() {
+    return (
+      <div className="customer-adjustment-preview">
+        <h3>추가금/할인</h3>
+        {cleanEstimateAdjustments.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>항목</th>
+                <th>구분</th>
+                <th>금액</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cleanEstimateAdjustments.map((adjustment) => (
+                <tr key={adjustment.id}>
+                  <td>{adjustment.label || (adjustment.type === "discount" ? "할인" : "추가 공사비")}</td>
+                  <td>{adjustment.type === "discount" ? "할인" : "추가금"}</td>
+                  <td>
+                    <span className={`signed-total ${adjustment.type === "discount" ? "negative" : ""}`}>
+                      {adjustment.type === "discount" ? "-" : "+"}
+                      <PriceText value={getAdjustmentAmount(adjustment)} size="sm" />
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="muted selected-summary-empty">추가금/할인 항목이 없습니다.</p>
+        )}
+      </div>
+    );
+  }
+
+  function renderGeneralEstimateTable() {
+    return (
+      <table className="general-estimate-table">
+        <thead>
+          <tr>
+            <th>시공항목</th>
+            <th>내용</th>
+            <th>공급가</th>
+            <th>세액</th>
+          </tr>
+        </thead>
+        <tbody>
+          {selectedRows.map((row, index) => (
+            <tr key={`${row.categoryId}-${row.material}-${index}`}>
+              <td>{row.categoryName}</td>
+              <td>{row.material}</td>
+              <td><PriceText value={row.totalAmount} size="sm" /></td>
+              <td><PriceText value={getTemporaryTaxAmount(row.totalAmount)} size="sm" /></td>
+            </tr>
+          ))}
+          {!selectedRows.length && (
+            <tr>
+              <td colSpan="4">선택된 소재가 없습니다.</td>
+            </tr>
+          )}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan="2">선택 항목 공급가</td>
+            <td><PriceText value={selectedItemsTotal} size="md" /></td>
+            <td><PriceText value={getTemporaryTaxAmount(selectedItemsTotal)} size="md" /></td>
+          </tr>
+          <tr>
+            <td colSpan="2">추가금/할인</td>
+            <td colSpan="2">
+              <span className={`signed-total ${adjustmentTotal < 0 ? "negative" : ""}`}>
+                {adjustmentTotal >= 0 ? "+" : "-"}
+                <PriceText value={Math.abs(adjustmentTotal)} size="sm" />
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td colSpan="2">최종 견적 금액</td>
+            <td colSpan="2"><PriceText value={total} size="md" /></td>
+          </tr>
+        </tfoot>
+      </table>
+    );
+  }
+
+  function renderDetailEstimateTable() {
+    return (
+      <div className="detail-estimate-groups">
+        {Object.entries(selectedRowsByCategory).map(([categoryName, rows]) => (
+          <section className="detail-estimate-group" key={categoryName}>
+            <h3>{categoryName}</h3>
+            <table className="detail-estimate-table">
+              <thead>
+                <tr>
+                  <th>소재/업체</th>
+                  <th>규격</th>
+                  <th>단가/인건비</th>
+                  <th>수량/인원</th>
+                  <th>공급가</th>
+                  <th>세액</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <Fragment key={`${row.categoryId}-${row.subitemId ?? row.material}-${index}`}>
+                    <tr>
+                      <td>{row.material}</td>
+                      <td>{getEstimateRowSpecLabel(row) || "규격 없음"}</td>
+                      <td><PriceText value={row.unitPrice} size="sm" /></td>
+                      <td><PriceText value={row.quantity} unit={row.unit} size="sm" /></td>
+                      <td><PriceText value={row.productAmount} size="sm" /></td>
+                      <td><PriceText value={getTemporaryTaxAmount(row.productAmount)} size="sm" /></td>
+                    </tr>
+                    <tr className="labor-detail-row">
+                      <td>{row.contractor || "-"}</td>
+                      <td>인</td>
+                      <td><PriceText value={row.laborRate} size="sm" /></td>
+                      <td><PriceText value={row.laborCount} unit="명" size="sm" /></td>
+                      <td><PriceText value={row.laborAmount} size="sm" /></td>
+                      <td><PriceText value={getTemporaryTaxAmount(row.laborAmount)} size="sm" /></td>
+                    </tr>
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        ))}
+        {!selectedRows.length && <p className="muted selected-summary-empty">선택된 소재가 없습니다.</p>}
+      </div>
+    );
+  }
+
   function getEstimateTemplateValuePayloads(templateId = "") {
     return Object.values(items)
       .flatMap((rows) => rows ?? [])
@@ -5706,6 +5919,7 @@ export default function App() {
     setSelectedPhotoItemId("");
     setPhotoPreviewMessage("");
     setPreviewBackPage(destination === "preview" && !copy ? "admin-estimates" : "items");
+    if (destination === "preview") setEstimatePreviewType("general");
     setPage(destination);
   }
 
@@ -5762,6 +5976,7 @@ export default function App() {
     setEstimateConditionEditMode(false);
     setSelectedPhotoItemId("");
     setPhotoPreviewMessage("");
+    setEstimatePreviewType("general");
   }
 
   function clearCompanyScopedState() {
@@ -6671,6 +6886,7 @@ export default function App() {
       );
       if (createdTemplate) setEstimateDraftSource("template");
       setPreviewBackPage("items");
+      setEstimatePreviewType("general");
       setPage("preview");
     } catch (error) {
       setEstimateError(getFriendlyError(error, "견적서를 저장하지 못했어요. 다시 시도해주세요."));
@@ -8856,10 +9072,21 @@ export default function App() {
                   className="primary-button"
                   onClick={() => {
                     setPreviewBackPage("items");
+                    setEstimatePreviewType("general");
                     setPage("preview");
                   }}
                 >
-                  견적서 확인하기
+                  일반 견적서 확인
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={() => {
+                    setPreviewBackPage("items");
+                    setEstimatePreviewType("detail");
+                    setPage("preview");
+                  }}
+                >
+                  세부 견적서 확인
                 </button>
               </div>
             </div>
@@ -9111,78 +9338,6 @@ export default function App() {
               ) : (
                 <p className="muted selected-summary-empty">
                   아직 선택한 항목이 없습니다. 필요한 시공 항목을 체크하면 여기에 정리됩니다.
-                </p>
-              )}
-            </div>
-
-            <div className="estimate-adjustment-panel">
-              <div className="selected-summary-header">
-                <h3>추가금/할인</h3>
-                <button type="button" className="secondary-button" onClick={addEstimateAdjustment}>
-                  <Plus size={16} /> 추가금/할인 추가
-                </button>
-              </div>
-              {estimateAdjustments.length ? (
-                <div className="adjustment-list">
-                  {estimateAdjustments.map((adjustment) => (
-                    <div className="adjustment-row" key={adjustment.id}>
-                      <input
-                        value={adjustment.label}
-                        onChange={(event) =>
-                          updateEstimateAdjustment(adjustment.id, { label: event.target.value })
-                        }
-                        placeholder="예: 폐기물 추가"
-                      />
-                      <select
-                        value={adjustment.type}
-                        onChange={(event) =>
-                          updateEstimateAdjustment(adjustment.id, { type: event.target.value })
-                        }
-                      >
-                        <option value="charge">추가금</option>
-                        <option value="discount">할인</option>
-                      </select>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={formatMoneyInputValue(adjustment.amount)}
-                        onChange={(event) =>
-                          updateEstimateAdjustment(adjustment.id, { amount: stripNumberInputFormatting(event.target.value) })
-                        }
-                        placeholder="금액"
-                      />
-                      <label className="adjustment-visible-toggle">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(adjustment.visibleToCustomer)}
-                          onChange={(event) =>
-                            updateEstimateAdjustment(adjustment.id, {
-                              visibleToCustomer: event.target.checked,
-                            })
-                          }
-                        />
-                        고객용 표시
-                      </label>
-                      <input
-                        value={adjustment.memo ?? ""}
-                        onChange={(event) =>
-                          updateEstimateAdjustment(adjustment.id, { memo: event.target.value })
-                        }
-                        placeholder="내부 메모"
-                      />
-                      <button
-                        type="button"
-                        className="secondary-button adjustment-delete-button"
-                        onClick={() => removeEstimateAdjustment(adjustment.id)}
-                      >
-                        <Trash2 size={16} /> 삭제
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="muted selected-summary-empty">
-                  현장 상황에 따른 추가금이나 할인이 있으면 추가하세요.
                 </p>
               )}
             </div>
@@ -10385,11 +10540,27 @@ export default function App() {
           <section className="panel wide">
             <div className="editor-header">
               <div>
-                <h2>견적서 확인</h2>
+                <h2>{estimatePreviewType === "detail" ? "세부 견적서 확인" : "일반 견적서 확인"}</h2>
               </div>
-              <button className="ghost" onClick={() => setPage(previewBackPage === "admin-estimates" ? "admin-estimates" : "items")}>
-                <ArrowLeft size={18} /> {previewBackPage === "admin-estimates" ? "저장 견적 보기" : "항목 수정"}
-              </button>
+              <div className="estimate-header-actions">
+                <button
+                  type="button"
+                  className={estimatePreviewType === "general" ? "primary-button" : "secondary-button"}
+                  onClick={() => setEstimatePreviewType("general")}
+                >
+                  일반 견적서
+                </button>
+                <button
+                  type="button"
+                  className={estimatePreviewType === "detail" ? "primary-button" : "secondary-button"}
+                  onClick={() => setEstimatePreviewType("detail")}
+                >
+                  세부 견적서
+                </button>
+                <button className="ghost" onClick={() => setPage(previewBackPage === "admin-estimates" ? "admin-estimates" : "items")}>
+                  <ArrowLeft size={18} /> {previewBackPage === "admin-estimates" ? "저장 견적 보기" : "항목 수정"}
+                </button>
+              </div>
             </div>
 
             {estimateNotice && <div className="status-box">{estimateNotice}</div>}
@@ -10407,8 +10578,9 @@ export default function App() {
 
               <div className="estimate-meta-grid">
                 <div>
-                  <span>견적서 번호</span>
-                  <strong>{estimateNumber}</strong>
+                  <span>사업자 번호</span>
+                  <strong>000-00-00000</strong>
+                  <em>임의표시</em>
                 </div>
                 <div>
                   <span>업체명</span>
@@ -10490,89 +10662,23 @@ export default function App() {
                 </div>
               </div>
 
-              <table>
-                <thead>
-                  <tr>
-                    <th>시공 항목</th>
-                    <th>소재</th>
-                    <th>수량</th>
-                    <th>인원</th>
-                    <th>가격</th>
-                    <th>인건비</th>
-                    <th>합계</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedRows.map((row, index) => (
-                    <tr key={`${row.categoryId}-${row.material}-${index}`}>
-                      <td>{row.categoryName}</td>
-                      <td>{row.material}</td>
-                      <td>
-                        <PriceText value={row.quantity} unit={row.unit} size="sm" />
-                      </td>
-                      <td>
-                        <PriceText value={row.laborCount} unit="명" size="sm" />
-                      </td>
-                      <td><PriceText value={row.productAmount} size="sm" /></td>
-                      <td><PriceText value={row.laborAmount} size="sm" /></td>
-                      <td><PriceText value={row.totalAmount} size="sm" /></td>
-                    </tr>
-                  ))}
-                  {!selectedRows.length && (
-                    <tr>
-                      <td colSpan="7">선택된 소재가 없습니다.</td>
-                    </tr>
-                  )}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td colSpan="6">선택 항목 합계</td>
-                    <td><PriceText value={selectedItemsTotal} size="md" /></td>
-                  </tr>
-                  <tr>
-                    <td colSpan="6">추가금/할인</td>
-                    <td>
-                      <span className={`signed-total ${adjustmentTotal < 0 ? "negative" : ""}`}>
-                        {adjustmentTotal >= 0 ? "+" : "-"}
-                        <PriceText value={Math.abs(adjustmentTotal)} size="sm" />
-                      </span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td colSpan="6">최종 견적 금액</td>
-                    <td><PriceText value={total} size="md" /></td>
-                  </tr>
-                </tfoot>
-              </table>
+              {estimatePreviewType === "detail" ? renderDetailEstimateTable() : renderGeneralEstimateTable()}
+              <p className="tax-note">세액은 공급가의 10%로 임시 계산했습니다.</p>
 
-              {customerVisibleAdjustments.length > 0 && (
-                <div className="customer-adjustment-preview">
-                  <h3>추가금/할인</h3>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>항목</th>
-                        <th>구분</th>
-                        <th>금액</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {customerVisibleAdjustments.map((adjustment) => (
-                        <tr key={adjustment.id}>
-                          <td>{adjustment.label || (adjustment.type === "discount" ? "할인" : "추가 공사비")}</td>
-                          <td>{adjustment.type === "discount" ? "할인" : "추가금"}</td>
-                          <td>
-                            <span className={`signed-total ${adjustment.type === "discount" ? "negative" : ""}`}>
-                              {adjustment.type === "discount" ? "-" : "+"}
-                              <PriceText value={getAdjustmentAmount(adjustment)} size="sm" />
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              {estimatePreviewType === "general"
+                ? renderEstimateAdjustmentEditor()
+                : renderEstimateAdjustmentSummary()}
+
+              <div className="site-memo-panel preview-site-memo">
+                <label>
+                  현장메모
+                  <textarea
+                    value={siteMemo}
+                    onChange={(event) => setSiteMemo(event.target.value)}
+                    placeholder="고객에게 보여주지 않을 내부 메모를 적어주세요."
+                  />
+                </label>
+              </div>
 
               <div className="estimate-note-box">
                 <strong>견적 조건</strong>
@@ -10586,6 +10692,10 @@ export default function App() {
                 <strong>제외 항목</strong>
                 <p>본 견적서에 명시되지 않은 항목은 별도 견적입니다.</p>
                 <p>가전제품, 가구, 관리사무소 비용, 엘리베이터 사용료 등은 별도 협의가 필요할 수 있습니다.</p>
+              </div>
+
+              <div className="estimate-number-footer">
+                견적서 번호 {estimateNumber}
               </div>
             </div>
 
@@ -14784,6 +14894,22 @@ const styles = `
     color: var(--text-primary);
     font-size: var(--font-size-body-sm);
   }
+  .estimate-meta-grid em {
+    color: var(--text-tertiary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+  }
+  .tax-note {
+    margin: 8px 0 0;
+    color: var(--text-tertiary);
+    font-size: var(--font-size-caption);
+  }
+  .estimate-number-footer {
+    margin-top: var(--space-2);
+    color: var(--text-tertiary);
+    font-size: var(--font-size-caption);
+    text-align: right;
+  }
   .estimate-note-box {
     display: grid;
     gap: 6px;
@@ -14862,6 +14988,48 @@ const styles = `
     width: 100%;
     border-collapse: collapse;
     background: var(--bg-surface);
+  }
+  .pdf-capture-area .general-estimate-table th:nth-child(1),
+  .pdf-capture-area .general-estimate-table td:nth-child(1) {
+    width: 150px;
+  }
+  .pdf-capture-area .general-estimate-table th:nth-child(2),
+  .pdf-capture-area .general-estimate-table td:nth-child(2) {
+    width: auto;
+    min-width: 260px;
+  }
+  .pdf-capture-area .general-estimate-table th:nth-child(3),
+  .pdf-capture-area .general-estimate-table td:nth-child(3),
+  .pdf-capture-area .general-estimate-table th:nth-child(4),
+  .pdf-capture-area .general-estimate-table td:nth-child(4) {
+    width: 130px;
+    white-space: nowrap;
+  }
+  .detail-estimate-groups {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .detail-estimate-group {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .detail-estimate-group h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: var(--font-size-title-sm);
+  }
+  .pdf-capture-area .detail-estimate-table th:nth-child(1),
+  .pdf-capture-area .detail-estimate-table td:nth-child(1) {
+    min-width: 180px;
+  }
+  .pdf-capture-area .detail-estimate-table th:nth-child(n+3),
+  .pdf-capture-area .detail-estimate-table td:nth-child(n+3) {
+    width: 112px;
+    white-space: nowrap;
+  }
+  .labor-detail-row td {
+    background: #fbfcff;
+    color: var(--text-secondary);
   }
   .estimate-modal table th:nth-child(2),
   .estimate-modal table td:nth-child(2),
