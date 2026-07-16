@@ -2455,6 +2455,7 @@ export default function App() {
   const [estimateError, setEstimateError] = useState("");
   const [estimateNotice, setEstimateNotice] = useState("");
   const [estimateDraftSource, setEstimateDraftSource] = useState("template");
+  const [estimateConditionEditMode, setEstimateConditionEditMode] = useState(false);
   const [adminItems, setAdminItems] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminSaving, setAdminSaving] = useState(false);
@@ -5277,13 +5278,87 @@ export default function App() {
     return isEstimateConditionComplete(condition);
   }
 
-  async function goNext() {
-    if (!canGoNext()) return;
-    const loaded = await fetchEstimateCatalog(condition.size, condition);
-    if (loaded) setPage("items");
+  function getEstimateDraftRowKeys(row) {
+    return [
+      row?.subitemId ? `subitem:${row.subitemId}` : "",
+      row?.itemId && row?.material ? `material:${row.itemId}:${row.material}` : "",
+      row?.categoryId && row?.material ? `category:${row.categoryId}:${row.material}` : "",
+    ].filter(Boolean);
   }
 
-  async function fetchEstimateCatalog(pyeong = condition.size, nextCondition = condition) {
+  function isEstimateDraftFieldEdited(row, fieldKey, baseKey) {
+    const currentValue = row?.[fieldKey];
+    const baseValue = row?.[baseKey];
+    const currentText = `${currentValue ?? ""}`.trim();
+    const baseText = `${baseValue ?? ""}`.trim();
+    if (currentText === "" && baseText === "") return false;
+    if (hasNumericInput(currentText) || hasNumericInput(baseText)) {
+      return toNumberOrZero(currentText) !== toNumberOrZero(baseText);
+    }
+    return currentText !== baseText;
+  }
+
+  function mergeEstimateDraftItems(nextItems, previousItems) {
+    const previousRowsByKey = new Map();
+    Object.entries(previousItems ?? {}).forEach(([categoryId, rows]) => {
+      (rows ?? []).forEach((row) => {
+        getEstimateDraftRowKeys({ ...row, categoryId }).forEach((key) => {
+          if (!previousRowsByKey.has(key)) previousRowsByKey.set(key, row);
+        });
+      });
+    });
+
+    return Object.fromEntries(
+      Object.entries(nextItems ?? {}).map(([categoryId, rows]) => [
+        categoryId,
+        (rows ?? []).map((row) => {
+          const previousRow = getEstimateDraftRowKeys({ ...row, categoryId })
+            .map((key) => previousRowsByKey.get(key))
+            .find(Boolean);
+          if (!previousRow) return row;
+
+          const canKeepThickness =
+            previousRow.selectedThickness &&
+            (row.thicknessOptions ?? []).some((option) => option.thickness === previousRow.selectedThickness);
+          const templateRow = canKeepThickness
+            ? applyEstimateRowPatch(row, { selectedThickness: previousRow.selectedThickness })
+            : row;
+          const mergedRow = {
+            ...templateRow,
+            selected: Boolean(previousRow.selected),
+            expanded: Boolean(previousRow.expanded),
+          };
+
+          [
+            ["quantity", "baseQuantity"],
+            ["laborCount", "baseLaborCount"],
+            ["unitPrice", "baseUnitPrice"],
+            ["laborRate", "baseLaborRate"],
+          ].forEach(([fieldKey, baseKey]) => {
+            if (isEstimateDraftFieldEdited(previousRow, fieldKey, baseKey)) {
+              mergedRow[fieldKey] = previousRow[fieldKey];
+            }
+          });
+
+          return recalculateEstimateRow(mergedRow);
+        }),
+      ])
+    );
+  }
+
+  async function goNext() {
+    if (!canGoNext()) return;
+    const loaded = await fetchEstimateCatalog(condition.size, condition, {
+      preserveDraft: estimateConditionEditMode,
+    });
+    if (loaded) {
+      setEstimateConditionEditMode(false);
+      setPage("items");
+    }
+  }
+
+  async function fetchEstimateCatalog(pyeong = condition.size, nextCondition = condition, options = {}) {
+    const preserveDraft = Boolean(options.preserveDraft);
     setEstimateLoading(true);
     setEstimateError("");
     setEstimateNotice("");
@@ -5309,12 +5384,12 @@ export default function App() {
 
       const flatSubitemsChanged = await ensureFlatSubitems(itemRows, subitemRows);
       if (flatSubitemsChanged) {
-        return await fetchEstimateCatalog(pyeong, nextCondition);
+        return await fetchEstimateCatalog(pyeong, nextCondition, options);
       }
 
       const flooringThicknessChanged = await ensureFlooringThicknessSubitems(itemRows, subitemRows);
       if (flooringThicknessChanged) {
-        return await fetchEstimateCatalog(pyeong, nextCondition);
+        return await fetchEstimateCatalog(pyeong, nextCondition, options);
       }
 
       let templateValueRows = [];
@@ -5347,9 +5422,11 @@ export default function App() {
       const firstCategoryId = catalog[0]?.id ?? "";
 
       setEstimateCatalog(catalog);
-      setItems(nextItems);
-      setActiveCategories([]);
-      setOpenCategory(firstCategoryId);
+      setItems((current) => (preserveDraft ? mergeEstimateDraftItems(nextItems, current) : nextItems));
+      if (!preserveDraft) setActiveCategories([]);
+      setOpenCategory((current) =>
+        preserveDraft && catalog.some((item) => item.id === current) ? current : firstCategoryId
+      );
       setEstimatePyeong(String(pyeong));
       setEstimateDraftSource(templateFound ? "template" : "blank");
       return true;
@@ -5596,6 +5673,7 @@ export default function App() {
     setEstimateError("");
     setEstimateNotice(copy ? "기존 견적서를 복사한 새 초안입니다. 고객 정보와 현장 정보를 입력한 뒤 저장하세요." : "");
     setEstimateDraftSource("template");
+    setEstimateConditionEditMode(false);
     setPreviewBackPage(destination === "preview" && !copy ? "admin-estimates" : "items");
     setPage(destination);
   }
@@ -5650,6 +5728,7 @@ export default function App() {
     setEstimateError("");
     setEstimateNotice("");
     setEstimateDraftSource("template");
+    setEstimateConditionEditMode(false);
   }
 
   function clearCompanyScopedState() {
@@ -7087,7 +7166,13 @@ export default function App() {
               <h1>{selectedCompanyName}</h1>
             </div>
             <div className="primary-action-grid">
-              <button className="menu-card feature-card" onClick={() => setPage("condition")}>
+              <button
+                className="menu-card feature-card"
+                onClick={() => {
+                  setEstimateConditionEditMode(false);
+                  setPage("condition");
+                }}
+              >
                 <ClipboardList />
                 <span>견적서 작성하기</span>
                 <p>저장된 템플릿에서 빠르게 시작하거나 빈 견적서로 직접 작성합니다.</p>
@@ -8696,7 +8781,11 @@ export default function App() {
 
             <div className="condition-start-row">
               <button className="primary-button" disabled={!canGoNext() || estimateLoading} onClick={() => goNext()}>
-                {estimateLoading ? "템플릿 불러오는 중..." : "견적서 작성 시작"}
+                {estimateLoading
+                  ? "템플릿 불러오는 중..."
+                  : estimateConditionEditMode
+                    ? "수정한 조건으로 돌아가기"
+                    : "견적서 작성 시작"}
               </button>
             </div>
           </section>
@@ -8723,6 +8812,7 @@ export default function App() {
                   type="button"
                   className="secondary-button"
                   onClick={() => {
+                    setEstimateConditionEditMode(true);
                     setPage("condition");
                     setStep(1);
                   }}
@@ -8795,6 +8885,7 @@ export default function App() {
             <button
               className="secondary-button category-back-button"
               onClick={() => {
+                setEstimateConditionEditMode(true);
                 setPage("condition");
                 setStep(3);
               }}
