@@ -870,6 +870,20 @@ function formatFlooringThickness(thickness) {
   return `${displayValue}T`;
 }
 
+function getEstimateRowSpecLabel(row) {
+  if (row?.selectedThickness) {
+    const normalizedThickness = normalizeFlooringThickness(row.selectedThickness);
+    if (normalizedThickness !== DEFAULT_FLOORING_SPEC) return formatFlooringThickness(normalizedThickness);
+  }
+
+  const parsedFlooringName = parseFlooringThicknessName(row?.displayMaterial ?? row?.material);
+  if (parsedFlooringName?.thickness && parsedFlooringName.thickness !== DEFAULT_FLOORING_SPEC) {
+    return formatFlooringThickness(parsedFlooringName.thickness);
+  }
+
+  return `${row?.spec ?? ""}`.trim();
+}
+
 function composeFlooringSubitemName(baseName, thickness) {
   const nextBaseName = `${baseName ?? ""}`.trim() || "장판";
   const normalizedThickness = normalizeFlooringThickness(thickness);
@@ -1074,6 +1088,7 @@ function createEstimateRowFromSubitem(item, subitem, pyeong, patch = {}) {
     productAmount,
     laborAmount,
     totalAmount: productAmount + laborAmount,
+    contractor: "",
     hasTemplateRecord: Boolean(subitem.template_value_id),
     hasTemplateValue: isReady,
     expanded: false,
@@ -2456,6 +2471,8 @@ export default function App() {
   const [estimateNotice, setEstimateNotice] = useState("");
   const [estimateDraftSource, setEstimateDraftSource] = useState("template");
   const [estimateConditionEditMode, setEstimateConditionEditMode] = useState(false);
+  const [selectedPhotoItemId, setSelectedPhotoItemId] = useState("");
+  const [photoPreviewMessage, setPhotoPreviewMessage] = useState("");
   const [adminItems, setAdminItems] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminSaving, setAdminSaving] = useState(false);
@@ -2603,6 +2620,7 @@ export default function App() {
             unit: row.unit ?? "평",
             unitPrice,
             laborRate,
+            contractor: row.contractor ?? "",
             baseQuantity: toNumberOrZero(row.baseQuantity),
             baseUnitPrice: toNonNegativeNumberOrZero(row.baseUnitPrice),
             baseLaborCount: toNumberOrZero(row.baseLaborCount),
@@ -5327,6 +5345,7 @@ export default function App() {
             ...templateRow,
             selected: Boolean(previousRow.selected),
             expanded: Boolean(previousRow.expanded),
+            contractor: previousRow.contractor ?? "",
           };
 
           [
@@ -5492,6 +5511,15 @@ export default function App() {
     }));
   }
 
+  function getEstimatePhotoItemId(row) {
+    return row?.subitemId ?? `${row?.itemId ?? ""}:${row?.material ?? ""}`;
+  }
+
+  function handleOpenItemPhotos(row) {
+    setSelectedPhotoItemId(getEstimatePhotoItemId(row));
+    setPhotoPreviewMessage("사진 기능은 다음 단계에서 연결됩니다.");
+  }
+
   function applyEstimatePyeongToPyeongUnits() {
     const nextQuantity = `${estimatePyeong ?? ""}`.trim();
     if (!nextQuantity) return;
@@ -5627,6 +5655,7 @@ export default function App() {
         laborCount: item.laborCount ?? item.labor_count ?? "",
         unitPrice: toNonNegativeNumberOrZero(item.unitPrice ?? item.unit_price),
         laborRate: toNonNegativeNumberOrZero(item.laborRate ?? item.labor_rate),
+        contractor: item.contractor ?? item.vendor ?? item.worker ?? "",
         productAmount: toNumberOrZero(item.productAmount),
         laborAmount: toNumberOrZero(item.laborAmount),
         totalAmount: toNumberOrZero(item.totalAmount ?? item.price ?? item.amount),
@@ -5674,6 +5703,8 @@ export default function App() {
     setEstimateNotice(copy ? "기존 견적서를 복사한 새 초안입니다. 고객 정보와 현장 정보를 입력한 뒤 저장하세요." : "");
     setEstimateDraftSource("template");
     setEstimateConditionEditMode(false);
+    setSelectedPhotoItemId("");
+    setPhotoPreviewMessage("");
     setPreviewBackPage(destination === "preview" && !copy ? "admin-estimates" : "items");
     setPage(destination);
   }
@@ -5729,6 +5760,8 @@ export default function App() {
     setEstimateNotice("");
     setEstimateDraftSource("template");
     setEstimateConditionEditMode(false);
+    setSelectedPhotoItemId("");
+    setPhotoPreviewMessage("");
   }
 
   function clearCompanyScopedState() {
@@ -8903,40 +8936,70 @@ export default function App() {
                 </p>
               </div>
             </div>
+            {photoPreviewMessage && <div className="photo-preview-message">{photoPreviewMessage}</div>}
 
             <div className="material-list">
+              <div className="estimate-row-header" aria-hidden="true">
+                <span>체크</span>
+                <span>소재명</span>
+                <span>규격</span>
+                <span>수량</span>
+                <span>단위</span>
+                <span>합계</span>
+                <span>사진보기</span>
+                <span>펼치기</span>
+              </div>
               {(items[openCategory] ?? []).map((row, index) => (
                 <div
                   className={`estimate-template-row ${!row.hasTemplateValue ? "missing-template" : ""} ${row.expanded ? "expanded" : ""} ${row.selected ? "selected" : ""}`.trim()}
                   key={`${row.subitemId ?? row.material}-${index}`}
                 >
                   <div className="estimate-template-main">
-                    <label className="material-check">
+                    <label className="estimate-row-cell estimate-row-check-cell" aria-label={`${row.itemType === "flat" ? row.itemName : row.material} 견적 포함`}>
                       <input
                         type="checkbox"
                         checked={Boolean(row.selected)}
                         onChange={(event) => updateItem(openCategory, index, { selected: event.target.checked })}
                       />
-                      <strong>{row.itemType === "flat" ? row.itemName : row.material}</strong>
-                      <span className="include-copy">견적 포함</span>
                     </label>
-                    <div className="estimate-row-actions">
-                      <span className="estimate-row-total-preview">
-                        <PriceText value={row.totalAmount} size="sm" />
-                      </span>
-                      <div className="estimate-row-badges">
+                    <div className="estimate-row-cell estimate-row-name-cell">
+                      <strong>{row.itemType === "flat" ? row.itemName : row.material}</strong>
+                      <span className="estimate-row-badges">
                         {isEstimateRowModified(row) && <span className="modified-badge">수정됨</span>}
                         {row.selected && <span className="selected-badge">포함</span>}
-                      </div>
-                      <button
-                        type="button"
-                        className="estimate-expand-toggle"
-                        aria-label={`${row.itemType === "flat" ? row.itemName : row.material} 세부 수정 ${row.expanded ? "닫기" : "열기"}`}
-                        onClick={() => updateItem(openCategory, index, { expanded: !row.expanded })}
-                      >
-                        {row.expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                      </button>
+                      </span>
                     </div>
+                    <div className={`estimate-row-cell estimate-row-spec-cell ${getEstimateRowSpecLabel(row) ? "" : "empty"}`.trim()}>
+                      {getEstimateRowSpecLabel(row) || "규격 없음"}
+                    </div>
+                    <label className="estimate-row-cell estimate-row-quantity-cell">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        aria-label={`${row.itemType === "flat" ? row.itemName : row.material} 수량`}
+                        value={row.quantity ?? ""}
+                        onChange={(event) => updateItem(openCategory, index, { quantity: event.target.value })}
+                      />
+                    </label>
+                    <div className="estimate-row-cell estimate-row-unit-cell">{row.unit || ""}</div>
+                    <div className="estimate-row-cell estimate-row-total-cell">
+                      <PriceText value={row.totalAmount} size="sm" />
+                    </div>
+                    <button
+                      type="button"
+                      className={`estimate-row-cell estimate-photo-button ${selectedPhotoItemId === getEstimatePhotoItemId(row) ? "active" : ""}`.trim()}
+                      onClick={() => handleOpenItemPhotos(row)}
+                    >
+                      사진보기
+                    </button>
+                    <button
+                      type="button"
+                      className="estimate-row-cell estimate-expand-toggle"
+                      aria-label={`${row.itemType === "flat" ? row.itemName : row.material} 세부 수정 ${row.expanded ? "닫기" : "열기"}`}
+                      onClick={() => updateItem(openCategory, index, { expanded: !row.expanded })}
+                    >
+                      {row.expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </button>
                   </div>
 
                   <div className="estimate-template-expand">
@@ -8947,39 +9010,6 @@ export default function App() {
                         </p>
                       )}
                         <div className="estimate-template-detail">
-                          {row.thicknessOptions?.length > 0 && (
-                            <div className="thickness-field">
-                              <span>규격/두께</span>
-                              <label className="estimate-draft-field">
-                                <select
-                                  value={row.selectedThickness ?? DEFAULT_FLOORING_SPEC}
-                                  onChange={(event) =>
-                                    updateItem(openCategory, index, { selectedThickness: event.target.value })
-                                  }
-                                >
-                                  {row.thicknessOptions.map((option) => (
-                                    <option key={option.thickness} value={option.thickness}>
-                                      {option.label ?? formatFlooringThickness(option.thickness)}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                            </div>
-                          )}
-                          <div>
-                            <span>수량</span>
-                            <label className="estimate-draft-field">
-                              <input
-                                type="number"
-                                min="0"
-                                value={row.quantity ?? ""}
-                                onChange={(event) =>
-                                  updateItem(openCategory, index, { quantity: event.target.value })
-                                }
-                              />
-                              <em>{row.unit}</em>
-                            </label>
-                          </div>
                           <div>
                             <span>가격</span>
                             <label className="estimate-draft-field">
@@ -9022,12 +9052,21 @@ export default function App() {
                               <em>원</em>
                             </label>
                           </div>
+                          <div>
+                            <span>업체/브랜드</span>
+                            <label className="estimate-draft-field estimate-contractor-field">
+                              <input
+                                type="text"
+                                value={row.contractor ?? ""}
+                                placeholder="업체명 또는 브랜드"
+                                onChange={(event) =>
+                                  updateItem(openCategory, index, { contractor: event.target.value })
+                                }
+                              />
+                            </label>
+                          </div>
                         </div>
 
-                        <div className="estimate-template-total">
-                          <span>이 항목 총액</span>
-                          <PriceText value={row.totalAmount} size="md" />
-                        </div>
                       </div>
                   </div>
                 </div>
@@ -14093,6 +14132,7 @@ const styles = `
   .material-list {
     display: grid;
     gap: var(--space-1);
+    --estimate-row-grid: 28px minmax(160px, 1.2fr) 78px 70px 40px minmax(152px, 170px) 74px 44px;
   }
   .material-row {
     display: grid;
@@ -14108,7 +14148,8 @@ const styles = `
     grid-template-rows: auto 0fr;
     gap: 0;
     align-items: stretch;
-    padding: 18px;
+    max-width: 100%;
+    padding: 10px 12px;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-surface);
@@ -14125,21 +14166,173 @@ const styles = `
   .estimate-template-row > * {
     min-width: 0;
   }
+  .estimate-row-header {
+    display: grid;
+    grid-template-columns: var(--estimate-row-grid);
+    gap: 6px;
+    align-items: center;
+    padding: 0 10px 4px;
+    color: var(--text-tertiary);
+    font-size: 11px;
+    font-weight: var(--font-weight-bold);
+  }
+  .estimate-row-header span {
+    min-width: 0;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .estimate-row-header span:nth-child(2) {
+    text-align: left;
+  }
   .estimate-template-main {
+    display: grid;
+    grid-template-columns: var(--estimate-row-grid);
+    align-items: stretch;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .estimate-row-cell {
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 0;
+    height: 36px;
     display: flex;
     align-items: center;
+    padding: 6px 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: #ffffff;
+    color: var(--text-primary);
+    overflow: hidden;
+  }
+  .estimate-row-check-cell {
+    justify-content: center;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+  }
+  .estimate-row-check-cell input {
+    width: 18px;
+    min-height: 18px;
+    margin: 0;
+  }
+  .estimate-row-name-cell {
     justify-content: space-between;
-    gap: var(--space-2);
+    gap: 6px;
     min-width: 0;
   }
-  .estimate-template-row .material-check {
-    min-width: 0;
-  }
-  .estimate-template-row .material-check strong {
+  .estimate-row-name-cell strong {
+    display: -webkit-box;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-bold);
+    line-height: 1.3;
+  }
+  .estimate-row-spec-cell,
+  .estimate-row-unit-cell {
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    text-align: center;
     white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .estimate-row-spec-cell {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .estimate-row-unit-cell {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .estimate-row-spec-cell.empty {
+    color: var(--text-tertiary);
+  }
+  .estimate-row-quantity-cell {
+    padding: 0;
+  }
+  .estimate-row-quantity-cell input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    padding: 0 8px;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-bold);
+    line-height: 1;
+    text-align: right;
+  }
+  .estimate-row-quantity-cell:focus-within {
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px rgba(43, 53, 104, 0.1);
+  }
+  .estimate-row-total-cell {
+    justify-content: flex-end;
+    color: var(--brand-primary);
+    font-weight: var(--font-weight-bold);
+    text-align: right;
+    white-space: nowrap;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .estimate-row-total-cell .number-text {
+    max-width: 100%;
+    justify-content: flex-end;
+    overflow: hidden;
+    font-size: 15px;
+  }
+  .estimate-row-total-cell .number-text-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .estimate-photo-button,
+  .estimate-expand-toggle {
+    justify-content: center;
+    cursor: pointer;
+  }
+  .estimate-photo-button {
+    min-width: 0;
+    padding-left: 5px;
+    padding-right: 5px;
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+  }
+  .estimate-expand-toggle {
+    min-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .estimate-photo-button:hover,
+  .estimate-photo-button:focus-visible,
+  .estimate-photo-button.active,
+  .estimate-expand-toggle:hover,
+  .estimate-expand-toggle:focus-visible {
+    border-color: var(--brand-primary);
+    color: var(--brand-primary);
+  }
+  .photo-preview-message {
+    margin-bottom: var(--space-1);
+    padding: 9px 11px;
+    border: 1px solid var(--brand-accent-line);
+    border-radius: var(--radius-card);
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
   }
   .estimate-template-row.missing-template {
     background: var(--bg-surface);
@@ -14159,36 +14352,6 @@ const styles = `
     display: inline-flex;
     align-items: center;
     gap: 6px;
-  }
-  .estimate-row-actions {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
-    min-width: 0;
-  }
-  .estimate-row-total-preview {
-    color: var(--brand-primary);
-    font-weight: var(--font-weight-bold);
-    white-space: nowrap;
-  }
-  .estimate-expand-toggle {
-    width: 36px;
-    height: 36px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-button);
-    background: var(--bg-surface);
-    color: var(--text-primary);
-  }
-  .estimate-expand-toggle:hover,
-  .estimate-expand-toggle:focus-visible {
-    border-color: var(--brand-primary);
-    color: var(--brand-primary);
   }
   .modified-badge,
   .modified-inline-badge {
@@ -14224,36 +14387,30 @@ const styles = `
   }
   .estimate-template-expanded-content {
     display: grid;
-    grid-template-columns: minmax(360px, 1fr) minmax(170px, auto);
-    gap: var(--space-2);
-    align-items: center;
-    padding-top: 2px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    align-items: end;
+    padding-top: 0;
   }
   .estimate-template-detail {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1);
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
     min-width: 0;
   }
   .estimate-template-detail div {
-    flex: 1 1 124px;
-    min-width: 124px;
     display: grid;
-    gap: 4px;
-    padding: 10px 12px;
+    gap: 3px;
+    min-width: 0;
+    padding: 7px 9px;
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-button);
+    border-radius: 10px;
     background: var(--bg-subtle);
-  }
-  .estimate-template-detail div:nth-child(2),
-  .estimate-template-detail div:nth-child(4) {
-    flex-basis: 150px;
-    min-width: 150px;
   }
   .estimate-template-detail span,
   .estimate-template-total span {
     color: var(--text-secondary);
-    font-size: var(--font-size-caption);
+    font-size: 11px;
     font-weight: var(--font-weight-semibold);
   }
   .estimate-draft-field {
@@ -14265,29 +14422,32 @@ const styles = `
   .estimate-draft-field input {
     width: 100%;
     min-width: 0;
-    min-height: 30px;
+    min-height: 24px;
     padding: 0;
     border: 0;
     background: transparent;
     color: var(--text-primary);
-    font-size: var(--font-size-body-sm);
+    font-size: 13px;
     font-weight: var(--font-weight-bold);
     text-align: right;
   }
   .estimate-draft-field select {
     width: 100%;
     min-width: 0;
-    min-height: 30px;
+    min-height: 24px;
     padding: 0;
     border: 0;
     background: transparent;
     color: var(--text-primary);
-    font-size: var(--font-size-body-sm);
+    font-size: 13px;
     font-weight: var(--font-weight-bold);
     text-align: right;
   }
   .estimate-draft-field input:focus {
     outline: none;
+  }
+  .estimate-contractor-field input {
+    text-align: left;
   }
   .estimate-draft-field select:focus {
     outline: none;
@@ -14326,12 +14486,20 @@ const styles = `
     line-height: 1.4;
   }
   .estimate-template-total {
-    min-width: 170px;
-    display: grid;
+    min-width: 132px;
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
     gap: 6px;
-    justify-items: end;
+    padding: 7px 9px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    background: #ffffff;
     text-align: right;
     color: var(--brand-primary);
+  }
+  .estimate-template-total .number-text {
+    font-size: 14px;
   }
   .estimate-select-button {
     min-height: 36px;
@@ -14928,20 +15096,22 @@ const styles = `
     .estimate-header-actions .secondary-button {
       width: 100%;
     }
+    .material-list {
+      --estimate-row-grid: 28px minmax(120px, 1fr) 72px 76px 48px;
+    }
+    .estimate-row-header {
+      display: none;
+    }
     .estimate-template-main {
       align-items: flex-start;
-    }
-    .estimate-row-actions {
-      flex-wrap: wrap;
-      justify-content: flex-start;
     }
     .estimate-template-total {
       text-align: left;
       justify-items: start;
       min-width: 0;
     }
-    .estimate-template-row .material-check strong {
-      white-space: normal;
+    .estimate-row-name-cell strong {
+      -webkit-line-clamp: 2;
     }
     .panel.wide,
     .estimate-modal,
@@ -15454,6 +15624,11 @@ const styles = `
     min-height: 52px;
     font-size: 17px;
   }
+  .estimate-template-detail input,
+  .estimate-template-detail select {
+    min-height: 24px;
+    font-size: 13px;
+  }
   .workspace {
     gap: 18px;
     padding: 22px;
@@ -15477,7 +15652,7 @@ const styles = `
   }
   .estimate-template-row {
     border-radius: 18px;
-    padding: 18px;
+    padding: 10px 12px;
   }
   .estimate-template-row.selected {
     box-shadow: 0 16px 42px rgba(36, 48, 79, 0.12);
@@ -15485,33 +15660,13 @@ const styles = `
   .estimate-template-row.missing-template {
     opacity: 0.82;
   }
-  .material-check {
-    align-items: center;
-  }
-  .material-check input {
-    width: 22px;
-    min-height: 22px;
-  }
-  .include-copy {
-    flex: 0 0 auto;
-    padding: 4px 8px;
-    border-radius: 999px;
-    background: var(--bg-subtle);
-    color: var(--text-secondary);
-    font-size: var(--font-size-caption);
-    font-weight: 800;
-  }
-  .estimate-template-row.selected .include-copy {
-    background: #ffffff;
-    color: var(--brand-primary);
+  .estimate-row-cell {
+    border-radius: 12px;
   }
   .selected-badge,
   .modified-badge,
   .modified-inline-badge {
     border-radius: 999px;
-  }
-  .estimate-row-total-preview {
-    font-size: 16px;
   }
   .estimate-expand-toggle {
     border-radius: 12px;
