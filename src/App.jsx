@@ -12161,7 +12161,7 @@ export default function App() {
       )}
 
       {page === "admin-estimates" && renderAppShell(
-        <main className="panel-page admin-page">
+        <main className="panel-page admin-page saved-estimates-page">
           <div className="editor-header">
             <div>
               <button className="ghost" onClick={() => setPage("landing")}>
@@ -12179,13 +12179,14 @@ export default function App() {
 
           <section className="estimate-search-panel">
             <label>
-              고객명 또는 주소 검색
+              <span>고객명 또는 주소 검색</span>
               <input
                 value={estimateSearch}
                 onChange={(event) => setEstimateSearch(event.target.value)}
                 placeholder="예: 홍길동, 아파트, 빌라, 101동"
               />
             </label>
+            <span className="estimate-result-count">{estimates.length}건</span>
           </section>
 
           {adminLoading && <div className="status-box">불러오는 중...</div>}
@@ -12193,7 +12194,7 @@ export default function App() {
 
           <section className="estimate-list">
             {!adminLoading && !estimates.length && (
-              <div className="panel">
+              <div className="estimate-empty-state">
                 <p className="muted">
                   조회된 견적서가 없습니다. 신규 견적서를 저장하면 이곳에 자동으로 쌓입니다.
                 </p>
@@ -12202,32 +12203,32 @@ export default function App() {
 
             {estimates.map((estimate) => (
               <article key={estimate.id} className="estimate-card">
-                <div>
+                <div className="estimate-card-main">
                   <strong>{getSavedEstimateCustomerName(estimate) || "고객명 미입력"}</strong>
-                  <p>현장 주소 {estimate.address || "주소 미입력"}</p>
-                  <p>
-                    작성일 {estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-"} ·
-                    시공 예정일 {estimate.construction_date || "-"}
-                  </p>
+                  <p>{estimate.address || "주소 미입력"}</p>
+                </div>
+                <div className="estimate-card-meta">
+                  <span>작성일 {estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-"}</span>
+                  <span>시공 예정일 {estimate.construction_date || "-"}</span>
                 </div>
                 <div className="estimate-amount">
                   <PriceText value={estimate.total_amount || 0} size="lg" />
                 </div>
                 <div className="estimate-card-actions">
                   <button className="secondary-button" onClick={() => setSelectedEstimate(estimate)}>
-                    상세 보기
-                  </button>
-                  <button
-                    className="secondary-button"
-                    onClick={() => loadSavedEstimateDraft(estimate, { destination: "preview" })}
-                  >
                     보기
                   </button>
                   <button
-                    className="secondary-button"
+                    className="ghost"
+                    onClick={() => loadSavedEstimateDraft(estimate, { destination: "preview" })}
+                  >
+                    견적서 확인
+                  </button>
+                  <button
+                    className="ghost"
                     onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
                   >
-                    복사해서 견적서 작성
+                    복사
                   </button>
                 </div>
               </article>
@@ -16207,6 +16208,10 @@ const styles = `
     min-height: 14px;
   }
   .estimate-search-panel {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) auto;
+    gap: var(--space-1);
+    align-items: end;
     margin-bottom: var(--space-2);
     padding: var(--space-2);
     border: 1px solid var(--border-subtle);
@@ -16216,48 +16221,97 @@ const styles = `
   }
   .estimate-search-panel label {
     display: grid;
-    gap: var(--space-1);
+    gap: 6px;
     font-weight: var(--font-weight-semibold);
+  }
+  .estimate-search-panel label span,
+  .estimate-result-count {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .estimate-result-count {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    white-space: nowrap;
   }
   .estimate-list {
     display: grid;
-    gap: var(--space-1);
+    gap: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    background: var(--bg-surface);
+    box-shadow: var(--shadow-sm);
   }
   .estimate-card {
     display: grid;
-    grid-template-columns: minmax(220px, 1fr) 180px auto;
-    gap: var(--space-2);
+    grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.75fr) 150px auto;
+    gap: var(--space-1);
     align-items: center;
-    padding: var(--space-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-surface);
-    box-shadow: var(--shadow-sm);
-    transition: border-color 150ms ease, box-shadow 150ms ease;
+    box-shadow: none;
+    transition: background-color 150ms ease;
+  }
+  .estimate-card:last-child {
+    border-bottom: 0;
   }
   .estimate-card:hover {
-    border-color: var(--border-default);
-    box-shadow: var(--shadow-md);
+    background: var(--bg-muted);
   }
   .estimate-card strong {
     display: block;
-    margin-bottom: 6px;
-    font-size: var(--font-size-title-sm);
+    margin-bottom: 4px;
+    font-size: var(--font-size-body);
   }
   .estimate-card p {
     margin: 0;
     color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .estimate-card-main,
+  .estimate-card-meta {
+    min-width: 0;
+  }
+  .estimate-card-meta {
+    display: grid;
+    gap: 4px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
   }
   .estimate-amount {
-    font-size: 28px;
+    font-size: var(--font-size-title-sm);
     font-weight: var(--font-weight-bold);
     text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .estimate-card-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-1);
+    gap: 6px;
     justify-content: flex-end;
+  }
+  .estimate-card-actions .secondary-button,
+  .estimate-card-actions .ghost {
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: var(--font-size-caption);
+  }
+  .estimate-empty-state {
+    padding: var(--space-3);
+    text-align: center;
+    background: var(--bg-surface);
+  }
+  .estimate-empty-state p {
+    margin: 0;
   }
   .modal-actions {
     justify-content: flex-start;
@@ -17707,9 +17761,16 @@ const styles = `
     .estimate-amount {
       text-align: left;
     }
+    .saved-estimates-page .estimate-amount {
+      text-align: right;
+    }
     .estimate-card-actions {
       justify-content: stretch;
       flex-direction: column;
+    }
+    .saved-estimates-page .estimate-card-actions {
+      flex-direction: row;
+      justify-content: flex-end;
     }
     .estimate-header-actions,
     .estimate-header-actions .primary-button,
