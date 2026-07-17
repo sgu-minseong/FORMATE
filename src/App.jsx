@@ -10393,7 +10393,7 @@ export default function App() {
                 <p className="eyebrow dark">사진 관리/확인</p>
                 <h2>업체 사진 자료실</h2>
                 <p className="muted">
-                  사진은 현재 선택된 업체 기준으로 분리 저장됩니다. 견적서 작성 화면의 사진보기 연결은 다음 단계에서 진행합니다.
+                  올공사, 부분공사, 세부항목 사진을 현재 업체 기준으로 관리합니다.
                 </p>
               </div>
               <button type="button" className="secondary-button compact-button" onClick={fetchPhotoManagementData} disabled={photoLoading || photoSaving}>
@@ -15297,6 +15297,14 @@ const styles = `
   .photo-management-panel {
     width: min(1180px, 100%);
   }
+  .photo-management-page .editor-header {
+    align-items: flex-start;
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .photo-management-page .editor-header h2 {
+    margin-bottom: 6px;
+  }
   .photo-storage-note {
     display: flex;
     flex-wrap: wrap;
@@ -15358,6 +15366,12 @@ const styles = `
     color: var(--text-secondary);
     font-weight: var(--font-weight-semibold);
   }
+  .photo-tabs button:hover,
+  .photo-tabs button:focus-visible {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    outline: none;
+  }
   .photo-tabs button.active {
     border-color: var(--brand-accent-line);
     background: var(--bg-surface);
@@ -15375,6 +15389,7 @@ const styles = `
     justify-content: space-between;
     gap: var(--space-2);
     align-items: flex-start;
+    padding-bottom: 4px;
   }
   .photo-section-header h3,
   .photo-subitem-group h3 {
@@ -15388,6 +15403,11 @@ const styles = `
     border-radius: var(--radius-card);
     background: var(--bg-surface);
     box-shadow: var(--shadow-sm);
+    transition: border-color 150ms ease, background-color 150ms ease;
+  }
+  .photo-collection-card:hover,
+  .photo-subitem-group:hover {
+    border-color: var(--brand-accent-line);
   }
   .photo-collection-title-row {
     display: grid;
@@ -15426,6 +15446,12 @@ const styles = `
     cursor: pointer;
     white-space: nowrap;
   }
+  .photo-upload-button:hover,
+  .photo-upload-button:focus-within {
+    border-color: var(--brand-primary);
+    background: #f5f7ff;
+    outline: none;
+  }
   .photo-upload-button input {
     position: absolute;
     inset: 0;
@@ -15446,6 +15472,7 @@ const styles = `
     background: var(--bg-subtle);
     color: var(--text-secondary);
     font-size: var(--font-size-body-sm);
+    text-align: center;
   }
   .photo-thumb-grid {
     display: grid;
@@ -15458,9 +15485,15 @@ const styles = `
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-surface);
+    transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+  }
+  .photo-thumb-card:hover {
+    border-color: var(--brand-accent-line);
+    box-shadow: var(--shadow-sm);
   }
   .photo-thumb-card.primary {
     border-color: var(--brand-primary);
+    background: #fbfcff;
   }
   .photo-thumb-image {
     position: relative;
@@ -15514,11 +15547,29 @@ const styles = `
     font-size: 11px;
     font-weight: var(--font-weight-semibold);
   }
+  .photo-thumb-actions button:hover:not(:disabled),
+  .photo-thumb-actions button:focus-visible {
+    border-color: var(--brand-accent-line);
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    outline: none;
+  }
+  .photo-thumb-actions button:disabled {
+    opacity: 0.44;
+  }
   .photo-thumb-actions button.danger {
     color: var(--color-danger);
   }
+  .photo-thumb-actions button.danger:hover:not(:disabled),
+  .photo-thumb-actions button.danger:focus-visible {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-subtle);
+    color: var(--color-danger);
+  }
   .compact-empty {
-    min-height: 160px;
+    min-height: 132px;
+    margin-top: 0;
+    padding: var(--space-3);
   }
   .photo-subitem-table {
     display: grid;
@@ -15535,6 +15586,12 @@ const styles = `
     background: transparent;
     color: var(--text-primary);
     text-align: left;
+    border-radius: var(--radius-button);
+  }
+  .photo-subitem-group-toggle:hover,
+  .photo-subitem-group-toggle:focus-visible {
+    color: var(--brand-primary);
+    outline: none;
   }
   .photo-subitem-group-toggle span {
     display: flex;
@@ -15575,6 +15632,11 @@ const styles = `
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-subtle);
+    transition: border-color 150ms ease, background-color 150ms ease;
+  }
+  .photo-subitem-row:hover {
+    border-color: var(--brand-accent-line);
+    background: #fbfcff;
   }
   .photo-subitem-name {
     display: grid;
@@ -18290,9 +18352,102 @@ const styles = `
     gap: 0;
   }
   .price-table-list .admin-value-row.common-price-row input[inputmode="numeric"],
+  .quantity-table-list .admin-value-row.condition-quantity-row input[type="number"],
+  .detail-cost-row input[inputmode="numeric"],
+  .detail-bulk-panel input[inputmode="numeric"],
   .price-number-field input {
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+  .price-table-list .admin-value-row.common-price-row,
+  .quantity-table-list .admin-value-row.condition-quantity-row,
+  .detail-cost-row {
+    min-height: 46px;
+  }
+  .price-table-list .admin-value-row.common-price-row:nth-of-type(even),
+  .quantity-table-list .admin-value-row.condition-quantity-row:nth-of-type(even),
+  .detail-cost-list .detail-cost-row:nth-of-type(even),
+  .detail-subitem-list button:nth-child(even) {
+    background: #fcfdff;
+  }
+  .price-table-list .admin-value-row.common-price-row:hover,
+  .quantity-table-list .admin-value-row.condition-quantity-row:hover,
+  .detail-cost-row:hover,
+  .detail-subitem-list button:hover {
+    background: #f8faff;
+  }
+  .admin-price-table-header,
+  .admin-quantity-table-header,
+  .detail-cost-header {
+    border-color: var(--border-subtle);
+    background: #f8f9fb;
+    color: var(--text-secondary);
+    letter-spacing: 0;
+  }
+  .price-table-list .admin-bulk-panel,
+  .quantity-table-list .admin-bulk-panel,
+  .detail-bulk-panel {
+    border-color: var(--border-subtle);
+    background: #fbfcfe;
+    box-shadow: none;
+  }
+  .price-table-list .admin-bulk-panel strong,
+  .quantity-table-list .admin-bulk-panel strong,
+  .detail-bulk-panel strong {
+    color: var(--text-primary);
+  }
+  .price-table-list .admin-value-row.common-price-row input:focus,
+  .price-table-list .admin-value-row.common-price-row select:focus,
+  .quantity-table-list .admin-value-row.condition-quantity-row input:focus,
+  .quantity-table-list .admin-value-row.condition-quantity-row select:focus,
+  .detail-cost-row input:focus,
+  .detail-cost-row select:focus {
+    border-color: var(--brand-primary);
+    background: var(--bg-surface);
+    box-shadow: var(--focus-ring);
+  }
+  .price-table-list input::placeholder,
+  .quantity-table-list input::placeholder,
+  .detail-cost-layout input::placeholder,
+  .detail-cost-layout textarea::placeholder,
+  .admin-readonly-material span,
+  .detail-subitem-list span,
+  .detail-cost-list .muted {
+    color: var(--text-tertiary);
+  }
+  .price-table-list .admin-value-row.common-price-row input[inputmode="numeric"],
+  .quantity-table-list .admin-value-row.condition-quantity-row input[type="number"],
+  .detail-cost-row input[inputmode="numeric"],
+  .detail-bulk-panel input[inputmode="numeric"] {
+    font-variant-numeric: tabular-nums;
+  }
+  .admin-item-card svg,
+  .admin-tool-panel svg,
+  .admin-edit-panel svg,
+  .template-list-panel svg,
+  .detail-cost-layout svg,
+  .admin-condition-title svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+  }
+  .admin-item-card .danger-button,
+  .detail-cost-layout .danger-button {
+    width: 36px;
+    min-height: 36px;
+  }
+  .admin-item-card .danger-button:hover,
+  .admin-item-card .danger-button:focus-visible,
+  .detail-cost-layout .danger-button:hover,
+  .detail-cost-layout .danger-button:focus-visible {
+    background: var(--color-danger-subtle);
+    outline: none;
+  }
+  .admin-item-card:hover,
+  .admin-item-card:focus-within,
+  .detail-group:hover,
+  .detail-group:focus-within {
+    border-color: var(--brand-accent-line);
   }
   .price-unit-field select {
     text-align: center;
