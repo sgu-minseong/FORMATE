@@ -211,19 +211,19 @@
   flex-wrap: wrap;
 }
 
-.app-shell {
+.formate-app-shell {
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
   min-height: 100vh;
   background: var(--bg-base);
 }
 
-.app-shell--no-sidebar,
-.app-shell--document {
+.formate-app-shell--no-sidebar,
+.formate-app-shell--document {
   display: block;
 }
 
-.app-shell__sidebar {
+.formate-app-shell__sidebar {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -232,40 +232,40 @@
   background: var(--bg-sidebar);
 }
 
-.app-shell__brand {
+.formate-app-shell__brand {
   display: grid;
   gap: 4px;
   padding: 0 4px var(--space-2);
   color: var(--text-primary);
 }
 
-.app-shell__brand strong {
+.formate-app-shell__brand strong {
   font-size: var(--font-size-title-sm);
 }
 
-.app-shell__brand span,
-.app-shell__user {
+.formate-app-shell__brand span,
+.formate-app-shell__user {
   color: var(--text-secondary);
   font-size: var(--font-size-caption);
 }
 
-.app-shell__nav {
+.formate-app-shell__nav {
   display: grid;
   gap: 6px;
 }
 
-.app-shell__nav-button {
+.formate-app-shell__nav-button {
   width: 100%;
   justify-content: flex-start;
 }
 
-.app-shell__user {
+.formate-app-shell__user {
   margin-top: auto;
   padding-top: var(--space-2);
   border-top: 1px solid var(--border-subtle);
 }
 
-.app-shell__main {
+.formate-app-shell__main {
   min-width: 0;
   padding: var(--space-page-y) var(--space-page-x);
 }

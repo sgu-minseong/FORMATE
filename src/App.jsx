@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient";
 import PriceText from "./components/PriceText.jsx";
+import AppShell from "./components/layout/AppShell.jsx";
 import logoUrl from "./assets/logo.svg";
 import { AI_MAPPING_GROUPS, AI_MAPPING_SELECT_OPTIONS, AI_ROW_TYPE_OPTIONS } from "./features/aiExcelImport/constants";
 import {
@@ -65,6 +66,13 @@ const COMPANY_STORAGE_KEYS = {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
+const APP_SHELL_NAV_ITEMS = [
+  { key: "landing", label: "홈" },
+  { key: "condition", label: "새 견적서 작성" },
+  { key: "admin-estimates", label: "저장 견적 보기" },
+  { key: "photo-management", label: "사진 관리/확인" },
+  { key: "admin", label: "관리자 홈" },
+];
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const UNIT_OPTIONS = ["평", "m²", "m", "개소", "식", "자당", "롤", "박스", "EA"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
@@ -8419,6 +8427,32 @@ export default function App() {
     }
   }
 
+  function handleAppShellNavigate(nextPage) {
+    if (nextPage === "condition") {
+      setEstimateConditionEditMode(false);
+      setPage("condition");
+      return;
+    }
+    if (nextPage === "admin") {
+      openAdminGate("admin");
+      return;
+    }
+    setPage(nextPage);
+  }
+
+  function renderAppShell(children) {
+    return (
+      <AppShell
+        currentPage={page}
+        onNavigate={handleAppShellNavigate}
+        companyName={selectedCompanyName}
+        navItems={APP_SHELL_NAV_ITEMS}
+      >
+        {children}
+      </AppShell>
+    );
+  }
+
   if (companySession.checking) {
     return (
       <div className="app-shell login-shell">
@@ -8893,7 +8927,7 @@ export default function App() {
         </div>
       )}
 
-      {page === "landing" && (
+      {page === "landing" && renderAppShell(
         <main className="landing work-home">
           <section className="landing-actions">
             <div className="section-heading work-home-heading">
@@ -8933,7 +8967,7 @@ export default function App() {
         </main>
       )}
 
-      {page === "admin" && adminVerified && (
+      {page === "admin" && adminVerified && renderAppShell(
         <main className="panel-page">
           <button className="ghost" onClick={() => setPage("landing")}>
             <ArrowLeft size={18} /> 돌아가기
@@ -10314,7 +10348,7 @@ export default function App() {
         </main>
       )}
 
-      {page === "photo-management" && (
+      {page === "photo-management" && renderAppShell(
         <main className="panel-page photo-management-page">
           <button className="ghost" onClick={() => setPage("landing")}>
             <ArrowLeft size={18} /> 뒤로가기
@@ -12092,7 +12126,7 @@ export default function App() {
         </main>
       )}
 
-      {page === "admin-estimates" && (
+      {page === "admin-estimates" && renderAppShell(
         <main className="panel-page admin-page">
           <div className="editor-header">
             <div>

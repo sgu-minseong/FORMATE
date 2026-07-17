@@ -28,39 +28,39 @@ export default function AppShell({
 
   if (isDocumentMode) {
     return (
-      <main className={cx("app-shell app-shell--document", className)}>
+      <main className={cx("formate-app-shell formate-app-shell--document", className)}>
         {children}
       </main>
     );
   }
 
   return (
-    <div className={cx("app-shell", hideSidebar && "app-shell--no-sidebar", className)}>
+    <div className={cx("formate-app-shell", hideSidebar && "formate-app-shell--no-sidebar", className)}>
       {!hideSidebar && (
-        <aside className="app-shell__sidebar">
-          <div className="app-shell__brand">
+        <aside className="formate-app-shell__sidebar">
+          <div className="formate-app-shell__brand">
             <strong>FORMATE</strong>
             {companyName && <span>{companyName}</span>}
           </div>
-          <nav className="app-shell__nav" aria-label="주요 화면">
+          <nav className="formate-app-shell__nav" aria-label="주요 화면">
             {navItems.map((item) => (
               <Button
                 key={item.key}
                 variant={currentPage === item.key ? "primary" : "tertiary"}
                 size="sm"
-                className="app-shell__nav-button"
+                className="formate-app-shell__nav-button"
                 onClick={() => onNavigate?.(item.key)}
               >
                 {item.label}
               </Button>
             ))}
           </nav>
-          {userLabel && <div className="app-shell__user">{userLabel}</div>}
+          {userLabel && <div className="formate-app-shell__user">{userLabel}</div>}
         </aside>
       )}
-      <main className="app-shell__main">
+      <div className="formate-app-shell__main">
         {children}
-      </main>
+      </div>
     </div>
   );
 }
