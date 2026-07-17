@@ -749,6 +749,14 @@ function getLaborRateOccupiedValue(subitem) {
   return subitem?.labor_rate_occupied ?? subitem?.labor_rate ?? "";
 }
 
+function getLaborRateForResidence(subitem, residenceStatus) {
+  const isOccupied = residenceStatus === "occupied" || residenceStatus === "살림집";
+  const preferredValue = isOccupied ? subitem?.labor_rate_occupied : subitem?.labor_rate_empty;
+  if (hasNumericInput(preferredValue)) return toNonNegativeNumberOrZero(preferredValue);
+  if (hasNumericInput(subitem?.labor_rate)) return toNonNegativeNumberOrZero(subitem.labor_rate);
+  return 0;
+}
+
 function getBulkTargetValue(subitem, field) {
   if (field === "labor_rate_empty") return getLaborRateEmptyValue(subitem);
   if (field === "labor_rate_occupied") return getLaborRateOccupiedValue(subitem);
@@ -949,6 +957,7 @@ function formatFlooringThickness(thickness) {
 }
 
 function getEstimateRowSpecLabel(row) {
+  if (row?.selectedSpecOption) return `${row.selectedSpecOption}`.trim();
   if (row?.selectedThickness) {
     const normalizedThickness = normalizeFlooringThickness(row.selectedThickness);
     if (normalizedThickness !== DEFAULT_FLOORING_SPEC) return formatFlooringThickness(normalizedThickness);
@@ -960,6 +969,46 @@ function getEstimateRowSpecLabel(row) {
   }
 
   return `${row?.spec ?? ""}`.trim();
+}
+
+function getEstimateRowSpecChoices(row) {
+  const thicknessChoices = (row?.thicknessOptions ?? [])
+    .map((option) => ({
+      key: `thickness:${option.thickness}`,
+      type: "thickness",
+      value: option.thickness,
+      label: option.label ?? formatFlooringThickness(option.thickness),
+    }))
+    .filter((option) => option.value && option.value !== DEFAULT_FLOORING_SPEC);
+  const specChoices = normalizeSpecOptions(row?.specOptions).map((option) => ({
+    key: `spec:${option}`,
+    type: "spec",
+    value: option,
+    label: option,
+  }));
+  const seenLabels = new Set();
+  return [...thicknessChoices, ...specChoices].filter((option) => {
+    const key = `${option.label}`.trim();
+    if (!key || seenLabels.has(key)) return false;
+    seenLabels.add(key);
+    return true;
+  });
+}
+
+function getEstimateRowSpecChoiceValue(row) {
+  if (row?.selectedSpecOption) return `spec:${row.selectedSpecOption}`;
+  if (row?.selectedThickness && normalizeFlooringThickness(row.selectedThickness) !== DEFAULT_FLOORING_SPEC) {
+    return `thickness:${row.selectedThickness}`;
+  }
+  return "";
+}
+
+function getEstimateRowSpecPatchFromChoice(value) {
+  const [type, ...rest] = `${value ?? ""}`.split(":");
+  const optionValue = rest.join(":");
+  if (type === "thickness") return { selectedThickness: optionValue, selectedSpecOption: "" };
+  if (type === "spec") return { selectedSpecOption: optionValue };
+  return { selectedSpecOption: "", selectedThickness: "" };
 }
 
 function composeFlooringSubitemName(baseName, thickness) {
@@ -1147,12 +1196,13 @@ function hasTemplateValue(row) {
   return hasNumericInput(row?.quantity) || hasNumericInput(row?.labor_count ?? row?.laborCount);
 }
 
-function createEstimateRowFromSubitem(item, subitem, pyeong, patch = {}) {
+function createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus = "empty", patch = {}) {
   const isReady = hasTemplateValue(subitem);
   const quantity = subitem.quantity ?? "";
   const laborCount = subitem.labor_count ?? "";
   const unitPrice = toNonNegativeNumberOrZero(subitem.unit_price);
-  const laborRate = toNonNegativeNumberOrZero(subitem.labor_rate);
+  const laborRate = getLaborRateForResidence(subitem, residenceStatus);
+  const specOptions = normalizeSpecOptions(subitem.spec_options);
   const productAmount = toNumberOrZero(quantity) * unitPrice;
   const laborAmount = toNumberOrZero(laborCount) * laborRate;
   return {
@@ -1168,6 +1218,8 @@ function createEstimateRowFromSubitem(item, subitem, pyeong, patch = {}) {
     baseUnitPrice: unitPrice,
     baseLaborCount: laborCount,
     baseLaborRate: laborRate,
+    specOptions,
+    selectedSpecOption: specOptions[0] ?? "",
     quantity,
     laborCount,
     unitPrice,
@@ -1184,7 +1236,7 @@ function createEstimateRowFromSubitem(item, subitem, pyeong, patch = {}) {
   };
 }
 
-function buildEstimateItemsFromTemplate(catalog, pyeong) {
+function buildEstimateItemsFromTemplate(catalog, pyeong, residenceStatus = "empty") {
   return Object.fromEntries(
     catalog.map((item) => {
       const itemSubitems = item.item_type === "flat" ? item.subitems.slice(0, 1) : item.subitems;
@@ -1199,10 +1251,11 @@ function buildEstimateItemsFromTemplate(catalog, pyeong) {
                 ? "1.8"
                 : optionKeys[0]);
             const selectedOption = group.options[selectedThickness];
-            return createEstimateRowFromSubitem(item, selectedOption, pyeong, {
+            return createEstimateRowFromSubitem(item, selectedOption, pyeong, residenceStatus, {
               material: group.baseName,
               displayMaterial: composeFlooringSubitemName(group.baseName, selectedThickness),
               selectedThickness,
+              selectedSpecOption: "",
               thicknessOptions: optionKeys.map((thickness) => {
                 const option = group.options[thickness];
                 return option
@@ -1213,11 +1266,12 @@ function buildEstimateItemsFromTemplate(catalog, pyeong) {
                       quantity: option.quantity ?? "",
                       laborCount: option.labor_count ?? "",
                       unitPrice: toNonNegativeNumberOrZero(option.unit_price),
-                      laborRate: toNonNegativeNumberOrZero(option.labor_rate),
+                      laborRate: getLaborRateForResidence(option, residenceStatus),
                       baseQuantity: option.quantity ?? "",
                       baseLaborCount: option.labor_count ?? "",
                       baseUnitPrice: toNonNegativeNumberOrZero(option.unit_price),
-                      baseLaborRate: toNonNegativeNumberOrZero(option.labor_rate),
+                      baseLaborRate: getLaborRateForResidence(option, residenceStatus),
+                      specOptions: normalizeSpecOptions(option.spec_options),
                       templateValueId: option.template_value_id ?? null,
                       hasTemplateRecord: Boolean(option.template_value_id),
                       hasTemplateValue: hasTemplateValue(option),
@@ -1226,7 +1280,7 @@ function buildEstimateItemsFromTemplate(catalog, pyeong) {
               }).filter(Boolean),
             });
           })
-        : itemSubitems.map((subitem) => createEstimateRowFromSubitem(item, subitem, pyeong));
+        : itemSubitems.map((subitem) => createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus));
 
       return [item.id, rows];
     })
@@ -2777,6 +2831,8 @@ export default function App() {
             subitemId: row.subitemId,
             material: row.displayMaterial ?? row.material,
             selectedThickness: row.selectedThickness ?? null,
+            selectedSpecOption: row.selectedSpecOption ?? "",
+            spec: getEstimateRowSpecLabel(row),
             pyeong: toNumberOrZero(row.pyeong ?? condition.size),
             conditionPyeong: toNumberOrZero(condition.size),
             estimatePyeong: toNumberOrZero(estimatePyeong || condition.size),
@@ -6208,11 +6264,15 @@ export default function App() {
           const templateRow = canKeepThickness
             ? applyEstimateRowPatch(row, { selectedThickness: previousRow.selectedThickness })
             : row;
+          const canKeepSpecOption =
+            previousRow.selectedSpecOption &&
+            (templateRow.specOptions ?? []).includes(previousRow.selectedSpecOption);
           const mergedRow = {
             ...templateRow,
             selected: Boolean(previousRow.selected),
             expanded: Boolean(previousRow.expanded),
             contractor: previousRow.contractor ?? "",
+            selectedSpecOption: canKeepSpecOption ? previousRow.selectedSpecOption : templateRow.selectedSpecOption,
           };
 
           [
@@ -6304,7 +6364,7 @@ export default function App() {
       }
 
       const catalog = normalizeAdminItems(itemRows, subitemRows, templateValueRows);
-      const nextItems = buildEstimateItemsFromTemplate(catalog, pyeong);
+      const nextItems = buildEstimateItemsFromTemplate(catalog, pyeong, nextCondition.occupancy);
       const firstCategoryId = catalog[0]?.id ?? "";
 
       setEstimateCatalog(catalog);
@@ -6362,6 +6422,8 @@ export default function App() {
       baseLaborCount: matchedOption.baseLaborCount,
       baseUnitPrice: matchedOption.baseUnitPrice,
       baseLaborRate: matchedOption.baseLaborRate,
+      specOptions: matchedOption.specOptions ?? [],
+      selectedSpecOption: "",
       hasTemplateRecord: matchedOption.hasTemplateRecord,
       hasTemplateValue: matchedOption.hasTemplateValue,
       selected: row.selected,
@@ -6814,6 +6876,10 @@ export default function App() {
         subitemId: item.subitemId ?? `${categoryId}-${index}`,
         material: item.material ?? item.name ?? item.description ?? "소재",
         displayMaterial: item.material ?? item.name ?? item.description ?? "소재",
+        selectedThickness: item.selectedThickness ?? null,
+        selectedSpecOption: item.selectedSpecOption ?? "",
+        spec: item.spec ?? "",
+        specOptions: normalizeSpecOptions(item.specOptions),
         unit: item.unit ?? "평",
         pyeong: toNumberOrZero(item.pyeong ?? snapshot.estimate_pyeong ?? snapshot.condition_pyeong),
         baseQuantity: item.baseQuantity ?? item.quantity ?? "",
@@ -7708,12 +7774,27 @@ export default function App() {
   }
 
   function addLocalSubitemSpecOption(subitemId) {
-    const targetSubitem = adminItems
-      .flatMap((item) => item.subitems ?? [])
-      .find((subitem) => subitem.id === subitemId);
+    const targetItem = adminItems.find((item) =>
+      (item.subitems ?? []).some((subitem) => subitem.id === subitemId)
+    );
+    const targetSubitem = (targetItem?.subitems ?? []).find((subitem) => subitem.id === subitemId);
     const nextOption = `${targetSubitem?.spec_option_draft ?? ""}`.trim();
     if (!nextOption || nextOption === DEFAULT_FLOORING_SPEC || nextOption === "기본(삭제예정)") return;
-    updateLocalSubitemSpecOptions(subitemId, [...normalizeSpecOptions(targetSubitem?.spec_options), nextOption]);
+    setAdminItems((current) =>
+      current.map((item) => {
+        const isTargetItem = (item.subitems ?? []).some((subitem) => subitem.id === subitemId);
+        if (!isTargetItem) return item;
+        return {
+          ...item,
+          subitems: item.subitems.map((subitem) => ({
+            ...subitem,
+            spec_options: normalizeSpecOptions([...normalizeSpecOptions(subitem.spec_options), nextOption]),
+            spec_option_draft: subitem.id === subitemId ? "" : subitem.spec_option_draft,
+          })),
+        };
+      })
+    );
+    markAdminCatalogDirty("prices");
   }
 
   function removeLocalSubitemSpecOption(subitemId, option) {
@@ -7759,7 +7840,7 @@ export default function App() {
       return subitem.selected_spec_option;
     }
     if (fallback && options.includes(fallback)) return fallback;
-    return options[0] ?? "";
+    return "";
   }
 
   function renderSpecOptionsPopover(subitem) {
@@ -7846,7 +7927,7 @@ export default function App() {
           value={value}
           onChange={onChange}
         >
-          {!options.length && <option value="">선택</option>}
+          <option value="">선택</option>
           {options.map((option) => (
             <option key={option} value={option}>
               {formatSpecOptionLabel(option)}
@@ -10656,7 +10737,20 @@ export default function App() {
                       </span>
                     </div>
                     <div className={`estimate-row-cell estimate-row-spec-cell ${getEstimateRowSpecLabel(row) ? "" : "empty"}`.trim()}>
-                      {getEstimateRowSpecLabel(row) || "규격 없음"}
+                      {getEstimateRowSpecChoices(row).length ? (
+                        <select
+                          value={getEstimateRowSpecChoiceValue(row)}
+                          onChange={(event) => updateItem(openCategory, index, getEstimateRowSpecPatchFromChoice(event.target.value))}
+                        >
+                          {getEstimateRowSpecChoices(row).map((option) => (
+                            <option key={option.key} value={option.key}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        getEstimateRowSpecLabel(row) || "규격 없음"
+                      )}
                     </div>
                     <label className="estimate-row-cell estimate-row-quantity-cell">
                       <input
@@ -16442,6 +16536,19 @@ const styles = `
   .estimate-row-spec-cell {
     padding-left: 6px;
     padding-right: 6px;
+  }
+  .estimate-row-spec-cell select {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    padding: 0 4px;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
   }
   .estimate-row-unit-cell {
     padding-left: 4px;
