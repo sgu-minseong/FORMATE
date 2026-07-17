@@ -482,6 +482,19 @@ function makeConditionVariantLabelMap(rows = []) {
   );
 }
 
+function mergeConditionVariantLabelOverrides(baseLabels = {}, overrideLabels = {}) {
+  const nextLabels = { ...baseLabels };
+  Object.entries(overrideLabels ?? {}).forEach(([variantKey, label]) => {
+    const trimmedLabel = `${label ?? ""}`.trim();
+    if (!trimmedLabel) return;
+    nextLabels[variantKey] = {
+      ...(nextLabels[variantKey] ?? {}),
+      label: trimmedLabel,
+    };
+  });
+  return nextLabels;
+}
+
 function getConditionVariantLabel(variantKey, variantLabels = {}) {
   return `${variantLabels?.[variantKey]?.label ?? ""}`.trim();
 }
@@ -859,10 +872,6 @@ function isFlooringCategoryName(name) {
 function isFlooringMaterialName(name) {
   const normalized = `${name ?? ""}`.trim();
   return FLOORING_MATERIAL_KEYWORDS.some((keyword) => normalized.includes(keyword));
-}
-
-function isWallpaperCategoryName(name) {
-  return `${name ?? ""}`.trim().includes("도배");
 }
 
 function normalizeFlooringThickness(value) {
@@ -2526,6 +2535,9 @@ export default function App() {
   const [siteMemo, setSiteMemo] = useState("");
   const [estimateVatStatus, setEstimateVatStatus] = useState("부가세 별도");
   const [estimateIssuedAt, setEstimateIssuedAt] = useState(getTodayDateInput);
+  const [estimateConditionVariantLabels, setEstimateConditionVariantLabels] = useState({});
+  const [conditionLabelEditOpen, setConditionLabelEditOpen] = useState(false);
+  const [conditionLabelDrafts, setConditionLabelDrafts] = useState({});
   const [previewBackPage, setPreviewBackPage] = useState("items");
   const [estimatePreviewType, setEstimatePreviewType] = useState("general");
   const [estimateCatalog, setEstimateCatalog] = useState([]);
@@ -2574,7 +2586,7 @@ export default function App() {
   const [adminConditionStep, setAdminConditionStep] = useState("select");
   const [adminCommonPriceSavedAt, setAdminCommonPriceSavedAt] = useState("");
   const [conditionVariantLabels, setConditionVariantLabels] = useState(() => createConditionVariantLabelRows());
-  const [wallpaperBulkInputs, setWallpaperBulkInputs] = useState({});
+  const [adminBulkInputs, setAdminBulkInputs] = useState({});
   const [activeFlooringThicknessByGroup, setActiveFlooringThicknessByGroup] = useState({});
   const [dragItemId, setDragItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
@@ -2589,12 +2601,14 @@ export default function App() {
   const [adminUnsavedLeaveError, setAdminUnsavedLeaveError] = useState("");
   const [detailSubitems, setDetailSubitems] = useState([]);
   const [selectedDetailSubitemId, setSelectedDetailSubitemId] = useState("");
+  const [expandedDetailItemIds, setExpandedDetailItemIds] = useState([]);
   const [detailCosts, setDetailCosts] = useState([]);
   const [newDetailCost, setNewDetailCost] = useState({
     name: "",
     cost: "",
     category_type: "basic",
   });
+  const [detailCostBulkInput, setDetailCostBulkInput] = useState({ cost: "" });
   const [estimates, setEstimates] = useState([]);
   const [estimateSearch, setEstimateSearch] = useState("");
   const [selectedEstimate, setSelectedEstimate] = useState(null);
@@ -2660,14 +2674,20 @@ export default function App() {
     () => makeConditionVariantLabelMap(conditionVariantLabels),
     [conditionVariantLabels]
   );
+  const estimateConditionVariantLabelMap = useMemo(
+    () => mergeConditionVariantLabelOverrides(conditionVariantLabelMap, estimateConditionVariantLabels),
+    [conditionVariantLabelMap, estimateConditionVariantLabels]
+  );
   const conditionSummary = useMemo(
-    () => makeConditionSummary(condition, conditionVariantLabelMap),
-    [condition, conditionVariantLabelMap]
+    () => makeConditionSummary(condition, estimateConditionVariantLabelMap),
+    [condition, estimateConditionVariantLabelMap]
   );
   const conditionChips = useMemo(
-    () => makeConditionChips(condition, conditionVariantLabelMap),
-    [condition, conditionVariantLabelMap]
+    () => makeConditionChips(condition, estimateConditionVariantLabelMap),
+    [condition, estimateConditionVariantLabelMap]
   );
+  const activeEstimateConditionVariant = getConditionVariant(condition);
+  const activeEstimateConditionVariantLabel = getConditionVariantLabel(activeEstimateConditionVariant, estimateConditionVariantLabelMap);
 
   const selectedRows = useMemo(() => {
     return Object.entries(items).flatMap(([categoryId, rows]) => {
@@ -2944,6 +2964,35 @@ export default function App() {
       return itemMatches || subitemMatches;
     });
   }, [adminFavoriteOnly, adminItems, adminSearchTerm]);
+  const detailSubitemGroups = useMemo(() => {
+    const groupMap = new Map();
+    detailSubitems.forEach((subitem) => {
+      const itemId = subitem.item_id ?? "unknown";
+      if (!groupMap.has(itemId)) {
+        groupMap.set(itemId, {
+          id: itemId,
+          name: subitem.item_name ?? "시공 항목",
+          sort_order: subitem.item_sort_order ?? 0,
+          is_favorite: Boolean(subitem.item_is_favorite),
+          subitems: [],
+        });
+      }
+      groupMap.get(itemId).subitems.push(subitem);
+    });
+    return Array.from(groupMap.values())
+      .map((group) => ({
+        ...group,
+        subitems: [...group.subitems].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+      }))
+      .sort((a, b) => {
+        if (a.is_favorite !== b.is_favorite) return a.is_favorite ? -1 : 1;
+        return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+      });
+  }, [detailSubitems]);
+  const selectedDetailSubitem = detailSubitems.find((subitem) => subitem.id === selectedDetailSubitemId) ?? null;
+  const selectedDetailGroup = selectedDetailSubitem
+    ? detailSubitemGroups.find((group) => group.id === selectedDetailSubitem.item_id) ?? null
+    : null;
   const currentAdminTemplateCondition = getAdminTemplateCondition();
   const currentAdminConditionLabel = currentAdminTemplateCondition
     ? makeTemplateLabel(currentAdminTemplateCondition, conditionVariantLabelMap)
@@ -3099,6 +3148,18 @@ export default function App() {
       fetchDetailCosts(selectedDetailSubitemId);
     }
   }, [page, selectedDetailSubitemId, selectedCompanyId]);
+
+  useEffect(() => {
+    if (page !== "admin-detail-costs") return;
+    setExpandedDetailItemIds((current) => {
+      const validIds = new Set(detailSubitemGroups.map((group) => group.id));
+      const selectedItemId = selectedDetailSubitem?.item_id ?? "";
+      const nextIds = current.filter((id) => validIds.has(id));
+      if (selectedItemId && !nextIds.includes(selectedItemId)) return [...nextIds, selectedItemId];
+      if (nextIds.length > 0) return nextIds;
+      return detailSubitemGroups[0]?.id ? [detailSubitemGroups[0].id] : [];
+    });
+  }, [detailSubitemGroups, page, selectedDetailSubitem]);
 
   useEffect(() => {
     if (page !== "photo-management" || photoTab !== PHOTO_TYPES.SUBITEM) return;
@@ -5653,7 +5714,95 @@ export default function App() {
 
   function updateCondition(patch) {
     setCondition((current) => ({ ...current, ...patch }));
+    if (
+      Object.prototype.hasOwnProperty.call(patch, "buildType") ||
+      Object.prototype.hasOwnProperty.call(patch, "expanded") ||
+      Object.prototype.hasOwnProperty.call(patch, "conditionVariant")
+    ) {
+      setConditionLabelEditOpen(false);
+      setConditionLabelDrafts({});
+    }
     setEstimateError("");
+  }
+
+  function getEstimateConditionVariantEditKeys(nextCondition = condition) {
+    if (nextCondition.buildType === "new") return EXTENDED_VARIANTS;
+    if (nextCondition.buildType === "old") {
+      return nextCondition.expanded ? OLD_EXTENDED_VARIANTS : [OLD_NO_EXTENSION_VARIANT];
+    }
+    return [];
+  }
+
+  function openEstimateConditionLabelEditor(variantKeys = getEstimateConditionVariantEditKeys()) {
+    setConditionLabelDrafts(
+      Object.fromEntries(
+        variantKeys.map((variantKey) => [
+          variantKey,
+          `${estimateConditionVariantLabels[variantKey] ?? getConditionVariantLabel(variantKey, conditionVariantLabelMap) ?? ""}`,
+        ])
+      )
+    );
+    setConditionLabelEditOpen(true);
+  }
+
+  function saveEstimateConditionVariantLabel(variantKeys = getEstimateConditionVariantEditKeys()) {
+    if (!condition.buildType || !variantKeys.length) return;
+    setEstimateConditionVariantLabels((current) => {
+      const next = { ...current };
+      variantKeys.forEach((variantKey) => {
+        const nextLabel = `${conditionLabelDrafts[variantKey] ?? ""}`.trim();
+        if (nextLabel) next[variantKey] = nextLabel;
+        else delete next[variantKey];
+      });
+      return next;
+    });
+    setConditionLabelEditOpen(false);
+    setConditionLabelDrafts({});
+    setEstimateNotice("이 견적서에서만 조건 이름을 변경했습니다.");
+  }
+
+  function renderEstimateConditionLabelEditor(variantKeys) {
+    if (!conditionLabelEditOpen) return null;
+    return (
+      <div className="condition-variant-label-editor">
+        <div>
+          <strong>이 견적서에서만 이름 변경</strong>
+          <span>관리자 전역 설정에는 적용되지 않습니다. 빈 값은 전역 이름 또는 기본 key로 표시됩니다.</span>
+        </div>
+        <div className="condition-variant-label-grid">
+          {variantKeys.map((variantKey) => (
+            <label key={variantKey}>
+              {variantKey}
+              <input
+                value={conditionLabelDrafts[variantKey] ?? ""}
+                onChange={(event) =>
+                  setConditionLabelDrafts((current) => ({
+                    ...current,
+                    [variantKey]: event.target.value,
+                  }))
+                }
+                placeholder={getConditionVariantLabel(variantKey, conditionVariantLabelMap) || variantKey}
+              />
+            </label>
+          ))}
+        </div>
+        <div className="condition-variant-label-actions">
+          <button type="button" className="secondary-button" onClick={() => saveEstimateConditionVariantLabel(variantKeys)}>
+            적용
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              setConditionLabelEditOpen(false);
+              setConditionLabelDrafts({});
+            }}
+          >
+            취소
+          </button>
+        </div>
+      </div>
+    );
   }
 
   async function openAdminConditionEditor(condition) {
@@ -6644,6 +6793,20 @@ export default function App() {
     setWorkDate(copy ? "" : estimate.construction_date ?? "");
     setEstimateVatStatus(savedMeta.vatStatus ?? "부가세 별도");
     setEstimateIssuedAt(copy ? getTodayDateInput() : savedMeta.createdDate ?? getDateInputFromValue(estimate.created_at));
+    const restoredConditionVariantLabel =
+      `${snapshot.condition_variant_display_label ?? snapshot.conditionVariantDisplayLabel ?? ""}`.trim();
+    const restoredConditionVariantLabelOverrides =
+      snapshot.condition_variant_label_overrides && typeof snapshot.condition_variant_label_overrides === "object"
+        ? snapshot.condition_variant_label_overrides
+        : {};
+    setEstimateConditionVariantLabels({
+      ...restoredConditionVariantLabelOverrides,
+      ...(restoredConditionVariantLabel && restoredTemplateCondition.condition_variant
+        ? { [restoredTemplateCondition.condition_variant]: restoredConditionVariantLabel }
+        : {}),
+    });
+    setConditionLabelEditOpen(false);
+    setConditionLabelDrafts({});
     setStep(3);
     setSelectedEstimate(null);
     setEstimateError("");
@@ -6703,6 +6866,9 @@ export default function App() {
     setSiteMemo("");
     setEstimateVatStatus("부가세 별도");
     setEstimateIssuedAt(getTodayDateInput());
+    setEstimateConditionVariantLabels({});
+    setConditionLabelEditOpen(false);
+    setConditionLabelDrafts({});
     setEstimateCatalog([]);
     setEstimateError("");
     setEstimateNotice("");
@@ -6721,6 +6887,7 @@ export default function App() {
     setAdminSearch("");
     setAdminFavoriteOnly(false);
     setExpandedAdminItemIds([]);
+    setAdminBulkInputs({});
     setAdminTemplates([]);
     setCurrentAdminTemplateId("");
     setAdminConditionLoaded(false);
@@ -6731,12 +6898,14 @@ export default function App() {
     setSelectedAdminConditionVariant("");
     setDetailSubitems([]);
     setSelectedDetailSubitemId("");
+    setExpandedDetailItemIds([]);
     setDetailCosts([]);
     setNewDetailCost({
       name: "",
       cost: "",
       category_type: "basic",
     });
+    setDetailCostBulkInput({ cost: "" });
     setEstimates([]);
     setEstimateSearch("");
     setSelectedEstimate(null);
@@ -6863,6 +7032,7 @@ export default function App() {
       if (error) throw error;
       setNewDetailCost({ name: "", cost: "", category_type: "basic" });
       await fetchDetailCosts(selectedDetailSubitemId);
+      setAdminNotice("세부비용을 추가했습니다.");
     } catch (error) {
       setAdminError(getFriendlyError(error, "세부비용을 추가하지 못했어요. 다시 시도해주세요."));
     } finally {
@@ -6877,6 +7047,7 @@ export default function App() {
   }
 
   async function updateDetailCost(costId, patch) {
+    setAdminSaving(true);
     setAdminError("");
     try {
       const payload = { ...patch };
@@ -6896,9 +7067,12 @@ export default function App() {
 
       if (error) throw error;
       await fetchDetailCosts(selectedDetailSubitemId);
+      setAdminNotice("세부비용을 저장했습니다.");
     } catch (error) {
       setAdminError(getFriendlyError(error, "세부비용을 수정하지 못했어요. 다시 시도해주세요."));
       await fetchDetailCosts(selectedDetailSubitemId);
+    } finally {
+      setAdminSaving(false);
     }
   }
 
@@ -6914,8 +7088,60 @@ export default function App() {
 
       if (error) throw error;
       await fetchDetailCosts(selectedDetailSubitemId);
+      setAdminNotice("세부비용을 삭제했습니다.");
     } catch (error) {
       setAdminError(getFriendlyError(error, "세부비용을 삭제하지 못했어요. 다시 시도해주세요."));
+    } finally {
+      setAdminSaving(false);
+    }
+  }
+
+  function toggleDetailItemExpanded(itemId) {
+    setExpandedDetailItemIds((current) =>
+      current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]
+    );
+  }
+
+  async function applyDetailCostBulkInput(mode = "empty") {
+    const rawCost = `${detailCostBulkInput.cost ?? ""}`.trim();
+    if (!selectedDetailSubitemId || !rawCost) {
+      setAdminError("일괄 적용할 단가를 입력하세요.");
+      return;
+    }
+    if (mode === "overwrite") {
+      const confirmed = window.confirm("현재 소재의 세부비용 단가를 모두 덮어쓸까요?");
+      if (!confirmed) return;
+    }
+
+    const targetCosts = detailCosts.filter((cost) =>
+      mode === "overwrite" ? true : isEmptyBulkTargetValue(cost.cost)
+    );
+    if (!targetCosts.length) {
+      setAdminNotice("적용할 빈 단가가 없습니다.");
+      return;
+    }
+
+    setAdminSaving(true);
+    setAdminError("");
+    try {
+      const nextCost = toNumberOrZero(rawCost);
+      await Promise.all(
+        targetCosts.map((cost) =>
+          supabase
+            .from("detail_cost_categories")
+            .update({ cost: nextCost })
+            .eq("id", cost.id)
+            .eq("company_id", requireSelectedCompanyId())
+        )
+      ).then((results) => {
+        const failed = results.find((result) => result.error);
+        if (failed?.error) throw failed.error;
+      });
+      await fetchDetailCosts(selectedDetailSubitemId);
+      setAdminNotice(`${targetCosts.length}개 세부비용 단가를 일괄 적용했습니다.`);
+    } catch (error) {
+      setAdminError(getFriendlyError(error, "세부비용 단가를 일괄 적용하지 못했어요. 다시 시도해주세요."));
+      await fetchDetailCosts(selectedDetailSubitemId);
     } finally {
       setAdminSaving(false);
     }
@@ -7367,10 +7593,16 @@ export default function App() {
     markAdminCatalogDirty();
   }
 
-  function updateWallpaperBulkInput(itemId, patch) {
-    setWallpaperBulkInputs((current) => ({
+  function isEmptyBulkTargetValue(value) {
+    return !hasNumericInput(value) || toNumberOrZero(value) === 0;
+  }
+
+  function updateAdminBulkInput(itemId, patch) {
+    setAdminBulkInputs((current) => ({
       ...current,
       [itemId]: {
+        unit_price: "",
+        labor_rate: "",
         quantity: "",
         labor_count: "",
         ...(current[itemId] ?? {}),
@@ -7379,35 +7611,130 @@ export default function App() {
     }));
   }
 
-  function applyWallpaperBulkInput(itemId) {
-    const bulkInput = wallpaperBulkInputs[itemId] ?? {};
-    const hasQuantity = `${bulkInput.quantity ?? ""}`.trim() !== "";
-    const hasLaborCount = `${bulkInput.labor_count ?? ""}`.trim() !== "";
-    if (!hasQuantity && !hasLaborCount) {
-      setAdminError("도배 일괄 적용할 수량 또는 인원을 입력하세요.");
+  function applyAdminBulkInput(itemId, fields, mode = "empty") {
+    const bulkInput = adminBulkInputs[itemId] ?? {};
+    const activeFields = fields.filter((field) => `${bulkInput[field] ?? ""}`.trim() !== "");
+    if (!activeFields.length) {
+      setAdminError("일괄 적용할 값을 입력하세요.");
       return;
     }
+    if (mode === "overwrite") {
+      const confirmed = window.confirm("현재 대분류의 기존 값을 모두 덮어쓸까요? 이 작업은 자동저장 대상입니다.");
+      if (!confirmed) return;
+    }
 
+    const targetItem = adminItems.find((item) => item.id === itemId);
+    const changedCount = (targetItem?.subitems ?? []).filter((subitem) =>
+      activeFields.some((field) => mode === "overwrite" || isEmptyBulkTargetValue(subitem[field]))
+    ).length;
+    if (!changedCount) {
+      setAdminError("");
+      setAdminNotice("적용할 빈 항목이 없습니다.");
+      return;
+    }
     setAdminItems((current) =>
       current.map((item) => {
         if (item.id !== itemId) return item;
         return {
           ...item,
-          subitems: item.subitems.map((subitem) => ({
-            ...subitem,
-            ...(hasQuantity && `${subitem.quantity ?? ""}`.trim() === ""
-              ? { quantity: bulkInput.quantity }
-              : {}),
-            ...(hasLaborCount && `${subitem.labor_count ?? ""}`.trim() === ""
-              ? { labor_count: bulkInput.labor_count }
-              : {}),
-          })),
+          subitems: item.subitems.map((subitem) => {
+            const patch = {};
+            activeFields.forEach((field) => {
+              if (mode === "overwrite" || isEmptyBulkTargetValue(subitem[field])) {
+                patch[field] = bulkInput[field];
+              }
+            });
+            return Object.keys(patch).length ? { ...subitem, ...patch } : subitem;
+          }),
         };
       })
     );
     setAdminError("");
-    setAdminNotice("도배 하위 소재의 빈 수량/인원에 일괄값을 적용했습니다.");
-    markAdminCatalogDirty("quantities");
+    setAdminNotice(`${changedCount}개 하위 항목에 일괄값을 적용했습니다.`);
+    markAdminCatalogDirty(isCommonPriceAdminPage ? "prices" : "quantities");
+  }
+
+  function renderAdminBulkPanel(item) {
+    if (!isCommonPriceAdminPage && !isConditionQuantityAdminPage) return null;
+    const bulkInput = adminBulkInputs[item.id] ?? {};
+    const fields = isCommonPriceAdminPage ? ["unit_price", "labor_rate"] : ["quantity", "labor_count"];
+    return (
+      <div className="admin-bulk-panel">
+        <div>
+          <strong>{item.name} 일괄 입력</strong>
+          <span>
+            {isCommonPriceAdminPage
+              ? "현재 대분류의 단가/인건비를 같은 로직으로 적용합니다. 빈/0 값만 채우거나 전체를 덮어쓸 수 있습니다."
+              : "현재 대분류의 수량/인원을 빈/0 항목에만 적용하거나 전체 덮어쓰기할 수 있습니다."}
+          </span>
+        </div>
+        {isCommonPriceAdminPage ? (
+          <>
+            <label>
+              단가
+              <input
+                type="text"
+                inputMode="numeric"
+                value={formatMoneyInputValue(bulkInput.unit_price)}
+                onChange={(event) => updateAdminBulkInput(item.id, { unit_price: stripNumberInputFormatting(event.target.value) })}
+                placeholder="예: 35000"
+              />
+            </label>
+            <label>
+              인건비
+              <input
+                type="text"
+                inputMode="numeric"
+                value={formatMoneyInputValue(bulkInput.labor_rate)}
+                onChange={(event) => updateAdminBulkInput(item.id, { labor_rate: stripNumberInputFormatting(event.target.value) })}
+                placeholder="예: 180000"
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <label>
+              수량
+              <input
+                type="number"
+                min="0"
+                value={bulkInput.quantity ?? ""}
+                onChange={(event) => updateAdminBulkInput(item.id, { quantity: event.target.value })}
+                placeholder="예: 75"
+              />
+            </label>
+            <label>
+              인원
+              <input
+                type="number"
+                min="0"
+                value={bulkInput.labor_count ?? ""}
+                onChange={(event) => updateAdminBulkInput(item.id, { labor_count: event.target.value })}
+                placeholder="예: 3"
+              />
+            </label>
+          </>
+        )}
+        <div className="admin-bulk-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={adminSaving}
+            onClick={() => applyAdminBulkInput(item.id, fields, "empty")}
+          >
+            빈/0 값에 적용
+          </button>
+          <button
+            type="button"
+            className="ghost danger-text-button"
+            disabled={adminSaving}
+            onClick={() => applyAdminBulkInput(item.id, fields, "overwrite")}
+          >
+            전체 덮어쓰기
+          </button>
+        </div>
+      </div>
+    );
   }
 
   async function saveAdminPrices(options = {}) {
@@ -7598,6 +7925,9 @@ export default function App() {
         summary: conditionSummary,
         condition_pyeong: toNumberOrZero(condition.size),
         estimate_pyeong: toNumberOrZero(estimatePyeong || condition.size),
+        condition_variant_label: activeEstimateConditionVariantLabel,
+        condition_variant_display_label: activeEstimateConditionVariantLabel,
+        condition_variant_label_overrides: estimateConditionVariantLabels,
       };
       const itemsData = {
         items: selectedRows,
@@ -9744,7 +10074,16 @@ export default function App() {
 
               {condition.buildType === "new" && (
                 <div className="condition-static-field condition-static-wide">
-                  <p className="field-label">확장형 세부 유형</p>
+                  <div className="condition-variant-card-head">
+                    <p className="field-label">확장형 세부 유형</p>
+                    <button
+                      type="button"
+                      className="ghost condition-label-link"
+                      onClick={() => openEstimateConditionLabelEditor(EXTENDED_VARIANTS)}
+                    >
+                      이름 변경
+                    </button>
+                  </div>
                   <div className="chips">
                     {EXTENDED_VARIANTS.map((variant) => (
                       <button
@@ -9753,13 +10092,14 @@ export default function App() {
                         className={`condition-variant-option ${getConditionVariant(condition) === variant ? "selected" : ""}`.trim()}
                         onClick={() => updateCondition({ conditionVariant: variant })}
                       >
-                        <span>{variant}</span>
-                        {getConditionVariantLabel(variant, conditionVariantLabelMap) && (
-                          <small>{getConditionVariantLabel(variant, conditionVariantLabelMap)}</small>
+                        <span>{getConditionVariantLabel(variant, estimateConditionVariantLabelMap) || variant}</span>
+                        {getConditionVariantLabel(variant, estimateConditionVariantLabelMap) && (
+                          <small>{variant}</small>
                         )}
                       </button>
                     ))}
                   </div>
+                  {renderEstimateConditionLabelEditor(EXTENDED_VARIANTS)}
                 </div>
               )}
 
@@ -9797,7 +10137,20 @@ export default function App() {
                   </div>
 
                   <div className="condition-static-field condition-static-wide">
-                    <p className="field-label">구형 세부 유형</p>
+                    <div className="condition-variant-card-head">
+                      <p className="field-label">구형 세부 유형</p>
+                      <button
+                        type="button"
+                        className="ghost condition-label-link"
+                        onClick={() =>
+                          openEstimateConditionLabelEditor(
+                            condition.expanded ? OLD_EXTENDED_VARIANTS : [OLD_NO_EXTENSION_VARIANT]
+                          )
+                        }
+                      >
+                        이름 변경
+                      </button>
+                    </div>
                     {condition.expanded ? (
                       <div className="chips">
                         {OLD_EXTENDED_VARIANTS.map((variant) => (
@@ -9807,17 +10160,20 @@ export default function App() {
                             className={`condition-variant-option ${getConditionVariant(condition) === variant ? "selected" : ""}`.trim()}
                             onClick={() => updateCondition({ conditionVariant: variant })}
                           >
-                            <span>{variant}</span>
-                            {getConditionVariantLabel(variant, conditionVariantLabelMap) && (
-                              <small>{getConditionVariantLabel(variant, conditionVariantLabelMap)}</small>
+                            <span>{getConditionVariantLabel(variant, estimateConditionVariantLabelMap) || variant}</span>
+                            {getConditionVariantLabel(variant, estimateConditionVariantLabelMap) && (
+                              <small>{variant}</small>
                             )}
                           </button>
                         ))}
                       </div>
                     ) : (
                       <div className="condition-static-note">
-                        확장 없음은 <strong>{formatConditionVariantLabel(OLD_NO_EXTENSION_VARIANT, conditionVariantLabelMap)}</strong> 기준으로 불러옵니다.
+                        확장 없음은 <strong>{formatConditionVariantLabel(OLD_NO_EXTENSION_VARIANT, estimateConditionVariantLabelMap)}</strong> 기준으로 불러옵니다.
                       </div>
+                    )}
+                    {renderEstimateConditionLabelEditor(
+                      condition.expanded ? OLD_EXTENDED_VARIANTS : [OLD_NO_EXTENSION_VARIANT]
                     )}
                   </div>
                 </>
@@ -10605,6 +10961,7 @@ export default function App() {
                       <strong>장판/바닥재 규격 관리</strong>
                       <span>소재명과 규격/두께를 나눠 입력합니다. 저장은 기존 소재명에 함께 반영됩니다.</span>
                     </div>
+                    {renderAdminBulkPanel(item)}
                     {isCommonPriceAdminPage && (
                       <div className="admin-price-table-header flooring-price-table-header">
                         <span />
@@ -10793,42 +11150,7 @@ export default function App() {
                   </div>
                 ) : itemExpanded ? (
                 <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} ${isCommonPriceAdminPage ? "price-table-list" : isConditionQuantityAdminPage ? "quantity-table-list" : ""}`.trim()}>
-                  {isConditionQuantityAdminPage && isWallpaperCategoryName(item.name) && (
-                    <div className="wallpaper-bulk-panel">
-                      <div>
-                        <strong>도배 일괄 입력</strong>
-                        <span>빈 수량/인원 항목에만 적용합니다. 이미 입력된 소재 값은 유지됩니다.</span>
-                      </div>
-                      <label>
-                        수량
-                        <input
-                          type="number"
-                          min="0"
-                          value={wallpaperBulkInputs[item.id]?.quantity ?? ""}
-                          onChange={(event) => updateWallpaperBulkInput(item.id, { quantity: event.target.value })}
-                          placeholder="예: 75"
-                        />
-                      </label>
-                      <label>
-                        인원
-                        <input
-                          type="number"
-                          min="0"
-                          value={wallpaperBulkInputs[item.id]?.labor_count ?? ""}
-                          onChange={(event) => updateWallpaperBulkInput(item.id, { labor_count: event.target.value })}
-                          placeholder="예: 3"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        disabled={adminSaving}
-                        onClick={() => applyWallpaperBulkInput(item.id)}
-                      >
-                        빈 항목에 적용
-                      </button>
-                    </div>
-                  )}
+                  {renderAdminBulkPanel(item)}
                   {isCommonPriceAdminPage && (
                     <div className={`admin-price-table-header ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"}`.trim()}>
                       {item.item_type !== "flat" && <span />}
@@ -11048,32 +11370,44 @@ export default function App() {
 
           <section className="detail-cost-layout">
             <aside className="detail-subitem-panel">
-              <h3>소재 선택</h3>
-              <p className="muted caption">소재별로 내부 비용을 관리합니다.</p>
-              <select
-                value={selectedDetailSubitemId}
-                onChange={(event) => setSelectedDetailSubitemId(event.target.value)}
-                disabled={!detailSubitems.length}
-              >
-                <option value="">소재 선택</option>
-                {detailSubitems.map((subitem) => (
-                  <option key={subitem.id} value={subitem.id}>
-                    {subitem.item_name} / {subitem.name}
-                  </option>
-                ))}
-              </select>
+              <h3>대분류/소재 선택</h3>
+              <p className="muted caption">대분류를 펼친 뒤 세부 비용을 연결할 소재를 선택합니다.</p>
 
-              <div className="detail-subitem-list">
-                {detailSubitems.map((subitem) => (
-                  <button
-                    key={subitem.id}
-                    className={selectedDetailSubitemId === subitem.id ? "selected" : ""}
-                    onClick={() => setSelectedDetailSubitemId(subitem.id)}
-                  >
-                    <span>{subitem.item_name}</span>
-                    <strong>{subitem.name}</strong>
-                  </button>
-                ))}
+              <div className="detail-group-list">
+                {detailSubitemGroups.map((group) => {
+                  const groupExpanded = expandedDetailItemIds.includes(group.id);
+                  return (
+                    <section className={`detail-group ${groupExpanded ? "expanded" : ""}`.trim()} key={group.id}>
+                      <button
+                        type="button"
+                        className="detail-group-toggle"
+                        onClick={() => toggleDetailItemExpanded(group.id)}
+                        aria-expanded={groupExpanded}
+                      >
+                        <span>
+                          <strong>{group.name}</strong>
+                          <em>{group.subitems.length}개 소재</em>
+                        </span>
+                        {groupExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                      </button>
+
+                      {groupExpanded && (
+                        <div className="detail-subitem-list">
+                          {group.subitems.map((subitem) => (
+                            <button
+                              key={subitem.id}
+                              className={selectedDetailSubitemId === subitem.id ? "selected" : ""}
+                              onClick={() => setSelectedDetailSubitemId(subitem.id)}
+                            >
+                              <strong>{subitem.name}</strong>
+                              <span>{subitem.unit || "단위 미지정"}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
                 {!adminLoading && !detailSubitems.length && (
                   <p className="muted">등록된 소재가 없습니다. 먼저 `시공항목 수정`에서 소재를 추가하세요.</p>
                 )}
@@ -11084,7 +11418,10 @@ export default function App() {
               <div className="detail-cost-title">
                 <div>
                   <p className="eyebrow dark">내부 비용 관리</p>
-                  <h3>부자재 및 기타 비용 관리</h3>
+                  <h3>{selectedDetailSubitem ? selectedDetailSubitem.name : "부자재 및 기타 비용 관리"}</h3>
+                  {selectedDetailGroup && (
+                    <p className="muted caption">{selectedDetailGroup.name} / {selectedDetailSubitem?.unit || "단위 미지정"}</p>
+                  )}
                 </div>
                 <span>고객용 견적서에는 표시하지 않는 내부 비용</span>
               </div>
@@ -11101,7 +11438,7 @@ export default function App() {
                   inputMode="numeric"
                   value={formatMoneyInputValue(newDetailCost.cost)}
                   onChange={(event) => setNewDetailCost((current) => ({ ...current, cost: stripNumberInputFormatting(event.target.value) }))}
-                  placeholder="가격"
+                  placeholder="단가"
                   disabled={!selectedDetailSubitemId}
                 />
                 <select
@@ -11123,7 +11460,51 @@ export default function App() {
                 </button>
               </div>
 
+              <div className="detail-bulk-panel">
+                <div>
+                  <strong>현재 소재 단가 일괄입력</strong>
+                  <span>현재 선택한 소재의 세부 비용에만 적용합니다. 인건비/메모는 현재 DB 컬럼이 없어 저장하지 않습니다.</span>
+                </div>
+                <label>
+                  단가
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formatMoneyInputValue(detailCostBulkInput.cost)}
+                    onChange={(event) => setDetailCostBulkInput({ cost: stripNumberInputFormatting(event.target.value) })}
+                    placeholder="예: 12000"
+                    disabled={!selectedDetailSubitemId}
+                  />
+                </label>
+                <div className="detail-bulk-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={!selectedDetailSubitemId || adminSaving}
+                    onClick={() => applyDetailCostBulkInput("empty")}
+                  >
+                    빈/0 단가에 적용
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost danger-text-button"
+                    disabled={!selectedDetailSubitemId || adminSaving}
+                    onClick={() => applyDetailCostBulkInput("overwrite")}
+                  >
+                    전체 단가 덮어쓰기
+                  </button>
+                </div>
+              </div>
+
               <div className="detail-cost-list">
+                {detailCosts.length > 0 && (
+                  <div className="detail-cost-header">
+                    <span>비용명/부자재명</span>
+                    <span>단가</span>
+                    <span>구분</span>
+                    <span>삭제</span>
+                  </div>
+                )}
                 {detailCosts.map((cost) => (
                   <div key={cost.id} className="detail-cost-row">
                     <input
@@ -14778,9 +15159,9 @@ const styles = `
   .admin-flat-list {
     padding-left: 0;
   }
-  .wallpaper-bulk-panel {
+  .admin-bulk-panel {
     display: grid;
-    grid-template-columns: minmax(220px, 1fr) 140px 140px auto;
+    grid-template-columns: minmax(220px, 1fr) 140px 140px minmax(190px, auto);
     gap: var(--space-1);
     align-items: end;
     padding: var(--space-2);
@@ -14788,24 +15169,33 @@ const styles = `
     border-radius: var(--radius-card);
     background: var(--brand-primary-subtle);
   }
-  .wallpaper-bulk-panel > div {
+  .admin-bulk-panel > div {
     display: grid;
     gap: 4px;
   }
-  .wallpaper-bulk-panel strong {
+  .admin-bulk-panel strong {
     color: var(--text-primary);
   }
-  .wallpaper-bulk-panel span {
+  .admin-bulk-panel span {
     color: var(--text-secondary);
     font-size: var(--font-size-caption);
     line-height: 1.5;
   }
-  .wallpaper-bulk-panel label {
+  .admin-bulk-panel label {
     display: grid;
     gap: 6px;
     color: var(--text-secondary);
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-bold);
+  }
+  .admin-bulk-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  .danger-text-button {
+    color: var(--color-danger);
   }
   .admin-subitem-row {
     display: grid;
@@ -14962,15 +15352,57 @@ const styles = `
   .detail-subitem-panel h3, .detail-cost-panel h3 {
     margin: 0 0 8px;
   }
-  .detail-subitem-list {
+  .detail-group-list {
     display: grid;
     gap: var(--space-1);
     margin-top: var(--space-2);
   }
+  .detail-group {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+    overflow: hidden;
+  }
+  .detail-group.expanded {
+    border-color: var(--brand-accent-line);
+  }
+  .detail-group-toggle {
+    width: 100%;
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    padding: 10px 12px;
+    background: transparent;
+    color: var(--text-primary);
+    text-align: left;
+  }
+  .detail-group-toggle span {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .detail-group-toggle strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .detail-group-toggle em {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+    font-weight: var(--font-weight-semibold);
+  }
+  .detail-subitem-list {
+    display: grid;
+    gap: 6px;
+    padding: 0 10px 10px;
+  }
   .detail-subitem-list button {
     display: grid;
     gap: 4px;
-    padding: 12px;
+    padding: 10px;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-surface);
@@ -15012,9 +15444,54 @@ const styles = `
     gap: var(--space-1);
     margin: var(--space-2) 0;
   }
+  .detail-bulk-panel {
+    display: grid;
+    grid-template-columns: minmax(240px, 1fr) 140px minmax(230px, auto);
+    gap: var(--space-1);
+    align-items: end;
+    margin-bottom: var(--space-2);
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--brand-primary-subtle);
+  }
+  .detail-bulk-panel > div {
+    display: grid;
+    gap: 4px;
+  }
+  .detail-bulk-panel strong {
+    color: var(--text-primary);
+  }
+  .detail-bulk-panel span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.5;
+  }
+  .detail-bulk-panel label {
+    display: grid;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .detail-bulk-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+  }
   .detail-cost-list {
     display: grid;
     gap: var(--space-1);
+  }
+  .detail-cost-header {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) 128px 230px 42px;
+    gap: var(--space-1);
+    padding: 0 10px;
+    color: var(--text-tertiary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
   }
   .detail-cost-row {
     display: grid;
@@ -15246,6 +15723,56 @@ const styles = `
     border-radius: var(--radius-card);
     background: var(--bg-surface);
     box-shadow: var(--shadow-sm);
+  }
+  .condition-variant-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    margin-bottom: 8px;
+  }
+  .condition-variant-card-head .field-label {
+    margin: 0;
+  }
+  .condition-variant-label-editor {
+    display: grid;
+    gap: var(--space-1);
+    margin-top: var(--space-1);
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-subtle);
+  }
+  .condition-variant-label-editor > div:first-child {
+    display: grid;
+    gap: 4px;
+  }
+  .condition-variant-label-editor strong {
+    color: var(--text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .condition-variant-label-editor span {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.5;
+  }
+  .condition-variant-label-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--space-1);
+  }
+  .condition-variant-label-grid label {
+    display: grid;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .condition-variant-label-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
   }
   .estimate-pyeong-panel label {
     font-weight: var(--font-weight-bold);
@@ -16300,10 +16827,10 @@ const styles = `
     .condition-static-grid,
     .admin-pyeong-panel, .admin-catalog-actions, .admin-item-header, .admin-subitem-row, .admin-value-row, .admin-add-subitem-row,
     .admin-flat-list .admin-value-row, .price-item-header, .price-row,
-    .wallpaper-bulk-panel,
+    .admin-bulk-panel,
     .condition-label-row,
-    .template-list-row, .detail-cost-layout, .detail-add-row, .detail-cost-row, .estimate-card,
-    .estimate-template-expanded-content, .estimate-template-detail, .estimate-pyeong-preview,
+    .template-list-row, .detail-cost-layout, .detail-add-row, .detail-bulk-panel, .detail-cost-header, .detail-cost-row, .estimate-card,
+    .estimate-template-expanded-content, .estimate-template-detail, .condition-variant-label-actions, .estimate-pyeong-preview,
     .estimate-meta-grid, .adjustment-row, .estimate-editor-total,
     .ai-upload-grid, .ai-sheet-meta, .ai-mapping-groups, .ai-match-summary, .ai-plan-split,
     .ai-flow-steps,
@@ -16912,13 +17439,13 @@ const styles = `
   .quantity-table-list {
     gap: 0;
   }
-  .quantity-table-list .wallpaper-bulk-panel {
+  .quantity-table-list .admin-bulk-panel {
     margin-bottom: 12px;
     padding: 10px 12px;
     border-radius: 14px;
     background: #fbfcff;
   }
-  .quantity-table-list .wallpaper-bulk-panel input {
+  .quantity-table-list .admin-bulk-panel input {
     min-height: 40px;
     padding: 8px 10px;
     font-size: 15px;
@@ -17019,7 +17546,7 @@ const styles = `
   }
   .admin-item-header,
   .admin-add-subitem-row,
-  .wallpaper-bulk-panel {
+  .admin-bulk-panel {
     border-radius: 14px;
   }
   .admin-value-row input,
