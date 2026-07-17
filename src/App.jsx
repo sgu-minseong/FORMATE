@@ -10686,7 +10686,7 @@ export default function App() {
       )}
 
       {page === "items" && (
-        <main className="workspace">
+        <main className="workspace estimate-workspace">
           <section className="category-column">
             <div className="category-title-row">
               <div>
@@ -10960,6 +10960,7 @@ export default function App() {
               )}
             </div>
 
+            <div className="estimate-side-stack">
             <div className="selected-item-summary">
               <div className="selected-summary-header">
                 <h3>선택한 항목</h3>
@@ -11026,6 +11027,7 @@ export default function App() {
                 <span>최종 견적 금액</span>
                 <PriceText value={total} size="lg" />
               </div>
+            </div>
             </div>
           </section>
         </main>
@@ -18695,9 +18697,132 @@ const styles = `
   .estimate-card-actions .primary-button {
     min-height: 42px;
   }
+  .estimate-workspace {
+    grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+    align-items: start;
+    width: min(1440px, 100%);
+    max-width: 1440px;
+    gap: 20px;
+    padding: 24px;
+  }
+  .estimate-workspace .category-column,
+  .estimate-workspace .editor {
+    min-width: 0;
+    border-color: var(--border-subtle);
+    box-shadow: var(--shadow-sm);
+  }
+  .estimate-workspace .category-column {
+    position: sticky;
+    top: 88px;
+    max-height: calc(100dvh - 112px);
+    overflow: auto;
+    padding: 18px;
+  }
+  .estimate-workspace .editor {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+  }
+  .estimate-workspace .category-title-row,
+  .estimate-workspace .editor-header {
+    margin-bottom: 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .estimate-workspace .estimate-header-actions {
+    gap: 6px;
+  }
+  .estimate-workspace .estimate-header-actions .primary-button,
+  .estimate-workspace .estimate-header-actions .secondary-button {
+    min-width: 116px;
+    min-height: 38px;
+    padding: 0 11px;
+  }
+  .estimate-workspace .estimate-pyeong-panel,
+  .estimate-workspace .selected-item-summary,
+  .estimate-workspace .site-memo-panel {
+    margin-top: 0;
+    background: #fbfcfe;
+    box-shadow: none;
+  }
+  .estimate-workspace .category-grid {
+    margin: 12px 0;
+    gap: 8px;
+  }
+  .estimate-workspace .category-card {
+    min-height: 50px;
+  }
+  .estimate-workspace .total-box {
+    margin-top: 12px;
+    border-color: var(--brand-accent-line);
+    background: var(--brand-primary-subtle);
+  }
+  .estimate-workspace .material-list {
+    gap: 8px;
+    padding: 10px;
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: 18px;
+    background: #fbfcfe;
+  }
+  .estimate-workspace .estimate-row-header,
+  .estimate-workspace .estimate-template-row {
+    min-width: 704px;
+  }
+  .estimate-workspace .estimate-template-row {
+    box-shadow: none;
+  }
+  .estimate-workspace .estimate-template-row:hover {
+    border-color: var(--brand-accent-line);
+    background: #ffffff;
+  }
+  .estimate-workspace .estimate-side-stack {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+    align-items: start;
+    gap: 12px;
+  }
+  .estimate-workspace .selected-item-summary,
+  .estimate-workspace .site-memo-panel,
+  .estimate-workspace .estimate-editor-total {
+    border-radius: 18px;
+  }
+  .estimate-workspace .selected-summary-row {
+    background: #ffffff;
+  }
+  .estimate-workspace .site-memo-panel textarea {
+    min-height: 108px;
+  }
+  .estimate-workspace .estimate-editor-total {
+    grid-column: 1 / -1;
+    bottom: 16px;
+    z-index: 8;
+    margin-top: 0;
+    border-color: var(--brand-accent-line);
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -12px 34px rgba(23, 32, 51, 0.08);
+  }
+  .estimate-workspace svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+  }
   .status-box,
   .error-box {
     border-radius: 14px;
+  }
+  @media (max-width: 1180px) {
+    .estimate-workspace {
+      grid-template-columns: 280px minmax(0, 1fr);
+      padding: 18px;
+    }
+    .estimate-workspace .category-column {
+      position: static;
+      max-height: none;
+    }
+    .estimate-workspace .estimate-side-stack {
+      grid-template-columns: 1fr;
+    }
   }
   @media (prefers-reduced-motion: reduce) {
     main,
