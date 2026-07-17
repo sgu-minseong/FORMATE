@@ -6813,8 +6813,12 @@ export default function App() {
     setEstimateNotice(copy ? "기존 견적서를 복사한 새 초안입니다. 고객 정보와 현장 정보를 입력한 뒤 저장하세요." : "");
     setEstimateDraftSource("template");
     setEstimateConditionEditMode(false);
-    setSelectedPhotoItemId("");
-    setPhotoPreviewMessage("");
+    estimatePhotoRequestRef.current = "";
+    setSelectedPhotoSubitemId("");
+    setSelectedPhotoSubitemName("");
+    setEstimateItemPhotos([]);
+    setIsLoadingEstimateItemPhotos(false);
+    setEstimateItemPhotosError("");
     setPreviewBackPage(destination === "preview" && !copy ? "admin-estimates" : "items");
     if (destination === "preview") setEstimatePreviewType("general");
     setPage(destination);
@@ -6874,8 +6878,12 @@ export default function App() {
     setEstimateNotice("");
     setEstimateDraftSource("template");
     setEstimateConditionEditMode(false);
-    setSelectedPhotoItemId("");
-    setPhotoPreviewMessage("");
+    estimatePhotoRequestRef.current = "";
+    setSelectedPhotoSubitemId("");
+    setSelectedPhotoSubitemName("");
+    setEstimateItemPhotos([]);
+    setIsLoadingEstimateItemPhotos(false);
+    setEstimateItemPhotosError("");
     setEstimatePreviewType("general");
   }
 
