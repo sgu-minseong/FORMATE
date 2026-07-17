@@ -12340,8 +12340,8 @@ export default function App() {
       )}
 
       {page === "preview" && (
-        <main className="panel-page">
-          <section className="panel wide">
+        <main className={`panel-page ${estimatePreviewType === "general" ? "general-preview-page" : ""}`.trim()}>
+          <section className={`panel wide ${estimatePreviewType === "general" ? "general-preview-panel" : ""}`.trim()}>
             <div className="editor-header">
               <div>
                 <h2>{estimatePreviewType === "detail" ? "세부 견적서 확인" : "일반 견적서 확인"}</h2>
@@ -12371,7 +12371,10 @@ export default function App() {
             {estimateError && <div className="error-box">{estimateError}</div>}
             {estimateSaving && <div className="status-box">저장 중...</div>}
 
-            <div className="pdf-capture-area" ref={previewPdfRef}>
+            <div
+              className={`pdf-capture-area ${estimatePreviewType === "general" ? "general-estimate-document" : "detail-estimate-document"}`.trim()}
+              ref={previewPdfRef}
+            >
               <div className="pdf-title-row">
                 <div>
                   <p className="eyebrow dark">FORMATE 인테리어 견적서</p>
@@ -12505,14 +12508,14 @@ export default function App() {
 
             <div className="actions">
               <button
-                className="primary-button"
+                className={estimatePreviewType === "general" ? "secondary-button" : "primary-button"}
                 disabled={estimateSaving}
                 onClick={saveEstimateToSupabase}
               >
                 <Save size={18} /> 견적 저장
               </button>
               <button
-                className="secondary-button"
+                className={estimatePreviewType === "general" ? "primary-button" : "secondary-button"}
                 onClick={downloadEstimatePdf}
               >
                 <Printer size={18} /> PDF 받기
@@ -17493,6 +17496,158 @@ const styles = `
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-surface);
+  }
+  .general-preview-page {
+    background: #f3f5f8;
+  }
+  .general-preview-panel {
+    width: min(1040px, 100%);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .general-preview-panel > .editor-header {
+    margin-bottom: var(--space-2);
+    padding: 14px 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: var(--shadow-sm);
+  }
+  .general-preview-panel > .editor-header h2 {
+    margin: 0;
+    font-size: var(--font-size-title-md);
+  }
+  .general-preview-panel .estimate-header-actions .primary-button,
+  .general-preview-panel .estimate-header-actions .secondary-button,
+  .general-preview-panel .estimate-header-actions .ghost,
+  .general-preview-panel .actions .primary-button,
+  .general-preview-panel .actions .secondary-button {
+    min-height: 38px;
+    padding: 0 12px;
+  }
+  .general-preview-panel .actions {
+    justify-content: flex-end;
+    margin-top: var(--space-2);
+  }
+  .general-estimate-document {
+    width: min(920px, 100%);
+    margin: 0 auto;
+    padding: 38px 42px;
+    border: 1px solid #d9dee8;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 18px 56px rgba(23, 32, 51, 0.1);
+  }
+  .general-estimate-document .pdf-title-row {
+    margin-bottom: 18px;
+    padding-bottom: 18px;
+    border-bottom: 2px solid var(--text-primary);
+  }
+  .general-estimate-document .pdf-title-row h3 {
+    font-size: 28px;
+    letter-spacing: 0;
+  }
+  .general-estimate-document .pdf-title-row .number-text {
+    font-size: 30px;
+    color: var(--brand-primary);
+  }
+  .general-estimate-document .estimate-meta-grid {
+    grid-template-columns: minmax(130px, 1.1fr) minmax(160px, 1.3fr) repeat(3, minmax(110px, 1fr));
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .general-estimate-document .estimate-meta-grid div,
+  .general-estimate-document .estimate-pyeong-preview div,
+  .general-estimate-document .compact-key,
+  .general-estimate-document .estimate-note-box,
+  .general-estimate-document .preview-site-memo,
+  .general-estimate-document .estimate-adjustment-panel {
+    border-color: #e2e7ef;
+    background: #f8fafc;
+    box-shadow: none;
+  }
+  .general-estimate-document .estimate-meta-grid strong {
+    font-size: var(--font-size-body);
+  }
+  .general-estimate-document .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+    padding: 14px;
+    border: 1px solid #e2e7ef;
+    border-radius: 12px;
+    background: #fbfcfe;
+  }
+  .general-estimate-document .form-grid label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .general-estimate-document .form-grid input,
+  .general-estimate-document .form-grid select,
+  .general-estimate-document .preview-site-memo textarea {
+    border-color: #dce3ee;
+    background: #ffffff;
+  }
+  .general-estimate-document .compact-key,
+  .general-estimate-document .estimate-pyeong-preview,
+  .general-estimate-document .estimate-adjustment-panel,
+  .general-estimate-document .preview-site-memo,
+  .general-estimate-document .estimate-note-box {
+    margin-top: 14px;
+  }
+  .general-estimate-document .general-estimate-table {
+    margin-top: 18px;
+    overflow: hidden;
+    border: 1px solid #dfe5ee;
+    border-radius: 10px;
+  }
+  .general-estimate-document .general-estimate-table th,
+  .general-estimate-document .general-estimate-table td {
+    padding: 13px 14px;
+    border-color: #e4e9f1;
+  }
+  .general-estimate-document .general-estimate-table th {
+    background: #f4f6fa;
+    color: var(--text-secondary);
+  }
+  .general-estimate-document .general-estimate-table th:nth-child(3),
+  .general-estimate-document .general-estimate-table th:nth-child(4),
+  .general-estimate-document .general-estimate-table td:nth-child(3),
+  .general-estimate-document .general-estimate-table td:nth-child(4),
+  .general-estimate-document .general-estimate-table tfoot td:not(:first-child) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .general-estimate-document .general-estimate-table tbody tr:nth-child(even) td {
+    background: #fbfcfe;
+  }
+  .general-estimate-document .general-estimate-table tfoot td {
+    background: #f8fafc;
+    font-weight: var(--font-weight-bold);
+  }
+  .general-estimate-document .general-estimate-table tfoot tr:last-child td {
+    border-top: 2px solid var(--brand-primary);
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-body);
+  }
+  .general-estimate-document .tax-note,
+  .general-estimate-document .estimate-note-box p,
+  .general-estimate-document .preview-site-memo label,
+  .general-estimate-document .estimate-number-footer {
+    color: var(--text-secondary);
+  }
+  .general-estimate-document .estimate-note-box strong,
+  .general-estimate-document .customer-adjustment-preview h3,
+  .general-estimate-document .estimate-adjustment-panel h3 {
+    font-size: var(--font-size-title-sm);
+  }
+  .general-preview-panel svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
   }
   .pdf-title-row {
     display: flex;
