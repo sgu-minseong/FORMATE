@@ -1201,6 +1201,13 @@ function getPrimaryPhoto(photoRows = []) {
   return sortedPhotos.find((photo) => photo.is_primary) ?? sortedPhotos[0] ?? null;
 }
 
+function sortPhotosWithPrimaryFirst(photoRows = []) {
+  const sortedPhotos = sortPhotos(photoRows);
+  const primaryPhoto = sortedPhotos.find((photo) => photo.is_primary);
+  if (!primaryPhoto) return sortedPhotos;
+  return [primaryPhoto, ...sortedPhotos.filter((photo) => photo.id !== primaryPhoto.id)];
+}
+
 function getAdjustmentAmount(adjustment) {
   return toNumberOrZero(adjustment?.amount);
 }
@@ -2474,6 +2481,7 @@ export default function App() {
   const autoSaveTargetRef = useRef("");
   const pendingAdminLeaveActionRef = useRef(null);
   const adminItemsRef = useRef([]);
+  const estimatePhotoRequestRef = useRef("");
   const pageRef = useRef("");
   const adminConditionStepRef = useRef("select");
   const currentAdminTemplateConditionRef = useRef(null);
@@ -2527,13 +2535,19 @@ export default function App() {
   const [estimateNotice, setEstimateNotice] = useState("");
   const [estimateDraftSource, setEstimateDraftSource] = useState("template");
   const [estimateConditionEditMode, setEstimateConditionEditMode] = useState(false);
-  const [selectedPhotoItemId, setSelectedPhotoItemId] = useState("");
-  const [photoPreviewMessage, setPhotoPreviewMessage] = useState("");
+  const [selectedPhotoSubitemId, setSelectedPhotoSubitemId] = useState("");
+  const [selectedPhotoSubitemName, setSelectedPhotoSubitemName] = useState("");
+  const [estimateItemPhotos, setEstimateItemPhotos] = useState([]);
+  const [isLoadingEstimateItemPhotos, setIsLoadingEstimateItemPhotos] = useState(false);
+  const [estimateItemPhotosError, setEstimateItemPhotosError] = useState("");
   const [photoTab, setPhotoTab] = useState(PHOTO_TYPES.FULL_PROJECT);
   const [photoCollections, setPhotoCollections] = useState([]);
   const [photoCollectionDrafts, setPhotoCollectionDrafts] = useState({});
   const [photos, setPhotos] = useState([]);
   const [photoCatalog, setPhotoCatalog] = useState([]);
+  const [expandedPhotoCategoryIds, setExpandedPhotoCategoryIds] = useState([]);
+  const [photoAutoSaveStatus, setPhotoAutoSaveStatus] = useState("idle");
+  const [photoAutoSaveMessage, setPhotoAutoSaveMessage] = useState("");
   const [photoLoading, setPhotoLoading] = useState(false);
   const [photoSaving, setPhotoSaving] = useState(false);
   const [photoError, setPhotoError] = useState("");
@@ -3085,6 +3099,16 @@ export default function App() {
       fetchDetailCosts(selectedDetailSubitemId);
     }
   }, [page, selectedDetailSubitemId, selectedCompanyId]);
+
+  useEffect(() => {
+    if (page !== "photo-management" || photoTab !== PHOTO_TYPES.SUBITEM) return;
+    setExpandedPhotoCategoryIds((current) => {
+      const validIds = new Set(photoCatalog.map((item) => item.id));
+      const nextIds = current.filter((id) => validIds.has(id));
+      if (nextIds.length > 0) return nextIds;
+      return photoCatalog[0]?.id ? [photoCatalog[0].id] : [];
+    });
+  }, [page, photoCatalog, photoTab]);
 
   useEffect(() => {
     if (isAdminCatalogEditing) return;
@@ -4286,6 +4310,21 @@ export default function App() {
     return data?.publicUrl ?? "";
   }
 
+  function markPhotoAutoSaveSaving(message = "저장 중...") {
+    setPhotoAutoSaveStatus("saving");
+    setPhotoAutoSaveMessage(message);
+  }
+
+  function markPhotoAutoSaveSaved(message = "저장됨") {
+    setPhotoAutoSaveStatus("saved");
+    setPhotoAutoSaveMessage(message);
+  }
+
+  function markPhotoAutoSaveError(message = "저장 실패") {
+    setPhotoAutoSaveStatus("error");
+    setPhotoAutoSaveMessage(message);
+  }
+
   async function ensureDefaultPhotoCollections(companyId, collectionRows = []) {
     if (collectionRows.length > 0) return false;
     const collectionTypes = [PHOTO_TYPES.FULL_PROJECT, PHOTO_TYPES.PARTIAL_PROJECT];
@@ -4360,6 +4399,7 @@ export default function App() {
   async function addPhotoCollection(photoType) {
     if (![PHOTO_TYPES.FULL_PROJECT, PHOTO_TYPES.PARTIAL_PROJECT].includes(photoType)) return;
     setPhotoSaving(true);
+    markPhotoAutoSaveSaving("분류 저장 중...");
     setPhotoError("");
     setPhotoNotice("");
     try {
@@ -4373,10 +4413,12 @@ export default function App() {
       });
       if (error) throw error;
       setPhotoNotice("분류를 추가했습니다.");
+      markPhotoAutoSaveSaved("분류가 저장되었습니다.");
       await fetchPhotoManagementData();
     } catch (error) {
       console.error("[FORMATE photo collection add]", error);
       setPhotoError(getFriendlyError(error, "사진 분류를 추가하지 못했습니다."));
+      markPhotoAutoSaveError("분류 저장 실패");
     } finally {
       setPhotoSaving(false);
     }
@@ -4390,6 +4432,7 @@ export default function App() {
     }
 
     setPhotoSaving(true);
+    markPhotoAutoSaveSaving("분류명 저장 중...");
     setPhotoError("");
     setPhotoNotice("");
     try {
@@ -4400,10 +4443,12 @@ export default function App() {
         .eq("company_id", requireSelectedCompanyId());
       if (error) throw error;
       setPhotoNotice("분류명을 저장했습니다.");
+      markPhotoAutoSaveSaved("분류명이 저장되었습니다.");
       await fetchPhotoManagementData();
     } catch (error) {
       console.error("[FORMATE photo collection rename]", error);
       setPhotoError(getFriendlyError(error, "사진 분류명을 저장하지 못했습니다."));
+      markPhotoAutoSaveError("분류명 저장 실패");
     } finally {
       setPhotoSaving(false);
     }
@@ -4417,6 +4462,7 @@ export default function App() {
     }
 
     setPhotoSaving(true);
+    markPhotoAutoSaveSaving("분류 삭제 중...");
     setPhotoError("");
     setPhotoNotice("");
     try {
@@ -4431,10 +4477,12 @@ export default function App() {
         .eq("company_id", requireSelectedCompanyId());
       if (error) throw error;
       setPhotoNotice("분류를 삭제했습니다.");
+      markPhotoAutoSaveSaved("분류가 삭제되었습니다.");
       await fetchPhotoManagementData();
     } catch (error) {
       console.error("[FORMATE photo collection delete]", error);
       setPhotoError(getFriendlyError(error, "사진 분류를 삭제하지 못했습니다."));
+      markPhotoAutoSaveError("분류 삭제 실패");
     } finally {
       setPhotoSaving(false);
     }
@@ -4452,16 +4500,19 @@ export default function App() {
     const validationError = validatePhotoFile(file);
     if (validationError) {
       setPhotoError(validationError);
+      markPhotoAutoSaveError("사진 저장 실패");
       return;
     }
 
     const existingPhotos = getPhotosForTarget(targetType, targetId);
     if (targetType === PHOTO_TYPES.SUBITEM && existingPhotos.length >= MAX_SUBITEM_PHOTO_COUNT) {
       setPhotoError(`세부항목 사진은 최대 ${MAX_SUBITEM_PHOTO_COUNT}장까지 등록할 수 있습니다.`);
+      markPhotoAutoSaveError("사진 저장 실패");
       return;
     }
 
     setPhotoSaving(true);
+    markPhotoAutoSaveSaving("사진 저장 중...");
     setPhotoError("");
     setPhotoNotice("");
     try {
@@ -4492,10 +4543,12 @@ export default function App() {
       if (insertError) throw insertError;
 
       setPhotoNotice("사진을 업로드했습니다.");
+      markPhotoAutoSaveSaved("사진이 저장되었습니다.");
       await fetchPhotoManagementData();
     } catch (error) {
       console.error("[FORMATE photo upload]", error);
       setPhotoError(getFriendlyError(error, "사진을 업로드하지 못했습니다."));
+      markPhotoAutoSaveError("사진 저장 실패");
     } finally {
       setPhotoSaving(false);
     }
@@ -4506,6 +4559,7 @@ export default function App() {
     const targetType = photo.target_type ?? photo.photo_type;
     const targetId = getPhotoTargetId(photo);
     setPhotoSaving(true);
+    markPhotoAutoSaveSaving("대표사진 저장 중...");
     setPhotoError("");
     setPhotoNotice("");
     try {
@@ -4524,10 +4578,12 @@ export default function App() {
         .eq("company_id", companyId);
       if (primaryError) throw primaryError;
       setPhotoNotice("대표사진을 변경했습니다.");
+      markPhotoAutoSaveSaved("대표사진이 저장되었습니다.");
       await fetchPhotoManagementData();
     } catch (error) {
       console.error("[FORMATE photo primary]", error);
       setPhotoError(getFriendlyError(error, "대표사진을 변경하지 못했습니다."));
+      markPhotoAutoSaveError("대표사진 저장 실패");
     } finally {
       setPhotoSaving(false);
     }
@@ -4536,6 +4592,7 @@ export default function App() {
   async function deletePhoto(photo) {
     if (!photo?.id) return;
     setPhotoSaving(true);
+    markPhotoAutoSaveSaving("사진 삭제 중...");
     setPhotoError("");
     setPhotoNotice("");
     try {
@@ -4549,10 +4606,12 @@ export default function App() {
         .eq("company_id", requireSelectedCompanyId());
       if (error) throw error;
       setPhotoNotice("사진을 삭제했습니다.");
+      markPhotoAutoSaveSaved("사진이 삭제되었습니다.");
       await fetchPhotoManagementData();
     } catch (error) {
       console.error("[FORMATE photo delete]", error);
       setPhotoError(getFriendlyError(error, "사진을 삭제하지 못했습니다."));
+      markPhotoAutoSaveError("사진 삭제 실패");
     } finally {
       setPhotoSaving(false);
     }
@@ -4568,6 +4627,7 @@ export default function App() {
 
     const sibling = targetPhotos[nextIndex];
     setPhotoSaving(true);
+    markPhotoAutoSaveSaving("사진 순서 저장 중...");
     setPhotoError("");
     setPhotoNotice("");
     try {
@@ -4580,10 +4640,12 @@ export default function App() {
       const failed = results.find((result) => result.error);
       if (failed?.error) throw failed.error;
       setPhotoNotice("사진 순서를 변경했습니다.");
+      markPhotoAutoSaveSaved("사진 순서가 저장되었습니다.");
       await fetchPhotoManagementData();
     } catch (error) {
       console.error("[FORMATE photo order]", error);
       setPhotoError(getFriendlyError(error, "사진 순서를 변경하지 못했습니다."));
+      markPhotoAutoSaveError("사진 순서 저장 실패");
     } finally {
       setPhotoSaving(false);
     }
@@ -4705,6 +4767,14 @@ export default function App() {
   }
 
   function renderSubitemPhotoTab() {
+    const togglePhotoCategory = (itemId) => {
+      setExpandedPhotoCategoryIds((current) =>
+        current.includes(itemId)
+          ? current.filter((id) => id !== itemId)
+          : [...current, itemId]
+      );
+    };
+
     return (
       <div className="photo-tab-panel">
         <div className="photo-section-header">
@@ -4723,39 +4793,53 @@ export default function App() {
         ) : (
           <div className="photo-subitem-groups">
             {photoCatalog.map((item) => (
-              <section className="photo-subitem-group" key={item.id}>
-                <h3>{item.name}</h3>
-                <div className="photo-subitem-table">
-                  <div className="photo-subitem-header">
-                    <span>소재명</span>
-                    <span>사진 관리</span>
-                    <span>사진 추가</span>
-                  </div>
-                  {(item.subitems ?? []).map((subitem) => {
-                    const subitemPhotos = getPhotosForTarget(PHOTO_TYPES.SUBITEM, subitem.id);
-                    const primaryPhoto = getPrimaryPhoto(subitemPhotos);
-                    const isLimitReached = subitemPhotos.length >= MAX_SUBITEM_PHOTO_COUNT;
-                    return (
-                      <div className="photo-subitem-row" key={subitem.id}>
-                        <div className="photo-subitem-name">
-                          <strong>{subitem.name}</strong>
-                          <span>{subitem.unit || ""}</span>
-                        </div>
-                        <div className="photo-subitem-manage">
-                          <div className="photo-count-line">
-                            <span>{subitemPhotos.length}/{MAX_SUBITEM_PHOTO_COUNT}장</span>
-                            <span>{primaryPhoto ? "대표사진 지정됨" : "대표사진 없음"}</span>
+              <section className={`photo-subitem-group ${expandedPhotoCategoryIds.includes(item.id) ? "expanded" : ""}`.trim()} key={item.id}>
+                <button
+                  type="button"
+                  className="photo-subitem-group-toggle"
+                  onClick={() => togglePhotoCategory(item.id)}
+                  aria-expanded={expandedPhotoCategoryIds.includes(item.id)}
+                >
+                  <span>
+                    <strong>{item.name}</strong>
+                    <em>{(item.subitems ?? []).length}개 세부항목</em>
+                  </span>
+                  {expandedPhotoCategoryIds.includes(item.id) ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                </button>
+
+                {expandedPhotoCategoryIds.includes(item.id) && (
+                  <div className="photo-subitem-table">
+                    <div className="photo-subitem-header">
+                      <span>소재명</span>
+                      <span>사진 관리</span>
+                      <span>사진 추가</span>
+                    </div>
+                    {(item.subitems ?? []).map((subitem) => {
+                      const subitemPhotos = getPhotosForTarget(PHOTO_TYPES.SUBITEM, subitem.id);
+                      const primaryPhoto = getPrimaryPhoto(subitemPhotos);
+                      const isLimitReached = subitemPhotos.length >= MAX_SUBITEM_PHOTO_COUNT;
+                      return (
+                        <div className="photo-subitem-row" key={subitem.id}>
+                          <div className="photo-subitem-name">
+                            <strong>{subitem.name}</strong>
+                            <span>{subitem.unit || ""}</span>
                           </div>
-                          {renderPhotoList(PHOTO_TYPES.SUBITEM, subitem.id)}
+                          <div className="photo-subitem-manage">
+                            <div className="photo-count-line">
+                              <span>{subitemPhotos.length}/{MAX_SUBITEM_PHOTO_COUNT}장</span>
+                              <span>{primaryPhoto ? "대표사진 지정됨" : "대표사진 없음"}</span>
+                            </div>
+                            {renderPhotoList(PHOTO_TYPES.SUBITEM, subitem.id)}
+                          </div>
+                          <div className="photo-subitem-upload">
+                            {renderPhotoUploadButton(PHOTO_TYPES.SUBITEM, subitem.id, isLimitReached)}
+                            {isLimitReached && <p>최대 {MAX_SUBITEM_PHOTO_COUNT}장까지 등록됩니다.</p>}
+                          </div>
                         </div>
-                        <div className="photo-subitem-upload">
-                          {renderPhotoUploadButton(PHOTO_TYPES.SUBITEM, subitem.id, isLimitReached)}
-                          {isLimitReached && <p>최대 {MAX_SUBITEM_PHOTO_COUNT}장까지 등록됩니다.</p>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
             ))}
           </div>
@@ -6072,13 +6156,107 @@ export default function App() {
     }));
   }
 
-  function getEstimatePhotoItemId(row) {
-    return row?.subitemId ?? `${row?.itemId ?? ""}:${row?.material ?? ""}`;
+  async function handleOpenItemPhotos(row) {
+    const subitemId = row?.subitemId ?? "";
+    const subitemName = row?.itemType === "flat" ? row?.itemName : row?.material;
+    if (subitemId && selectedPhotoSubitemId === subitemId) {
+      estimatePhotoRequestRef.current = "";
+      setSelectedPhotoSubitemId("");
+      setSelectedPhotoSubitemName("");
+      setEstimateItemPhotos([]);
+      setEstimateItemPhotosError("");
+      return;
+    }
+
+    setSelectedPhotoSubitemId(subitemId);
+    estimatePhotoRequestRef.current = subitemId;
+    setSelectedPhotoSubitemName(subitemName ?? "");
+    setEstimateItemPhotos([]);
+    setEstimateItemPhotosError("");
+
+    if (!subitemId) {
+      setEstimateItemPhotosError("이 항목은 세부항목 ID가 없어 사진을 조회할 수 없습니다.");
+      return;
+    }
+
+    setIsLoadingEstimateItemPhotos(true);
+    try {
+      const companyId = requireSelectedCompanyId();
+      const { data, error } = await supabase
+        .from("photos")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("target_type", PHOTO_TYPES.SUBITEM)
+        .eq("target_id", subitemId)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      if (estimatePhotoRequestRef.current === subitemId) {
+        setEstimateItemPhotos(sortPhotosWithPrimaryFirst(data ?? []));
+      }
+    } catch (error) {
+      console.error("[FORMATE estimate item photos]", error);
+      if (estimatePhotoRequestRef.current === subitemId) {
+        setEstimateItemPhotosError(getFriendlyError(error, "사진을 불러오지 못했습니다."));
+      }
+    } finally {
+      if (estimatePhotoRequestRef.current === subitemId) {
+        setIsLoadingEstimateItemPhotos(false);
+      }
+    }
   }
 
-  function handleOpenItemPhotos(row) {
-    setSelectedPhotoItemId(getEstimatePhotoItemId(row));
-    setPhotoPreviewMessage("사진 기능은 다음 단계에서 연결됩니다.");
+  function closeEstimateItemPhotoPanel() {
+    estimatePhotoRequestRef.current = "";
+    setSelectedPhotoSubitemId("");
+    setSelectedPhotoSubitemName("");
+    setEstimateItemPhotos([]);
+    setEstimateItemPhotosError("");
+    setIsLoadingEstimateItemPhotos(false);
+  }
+
+  function renderEstimateItemPhotoPanel(row) {
+    if (!row?.subitemId || selectedPhotoSubitemId !== row.subitemId) return null;
+    return (
+      <div className="estimate-item-photo-panel">
+        <div className="estimate-item-photo-header">
+          <div>
+            <strong>{selectedPhotoSubitemName || row.material || row.itemName || "세부항목"} 사진</strong>
+            <p>사진 관리/확인 &gt; 세부항목 탭에 등록된 사진입니다.</p>
+          </div>
+          <button type="button" className="ghost compact-button" onClick={closeEstimateItemPhotoPanel}>
+            닫기
+          </button>
+        </div>
+
+        {isLoadingEstimateItemPhotos ? (
+          <div className="photo-empty-inline">사진을 불러오는 중입니다.</div>
+        ) : estimateItemPhotosError ? (
+          <div className="error-box">{estimateItemPhotosError}</div>
+        ) : estimateItemPhotos.length === 0 ? (
+          <div className="photo-empty-inline">
+            등록된 사진이 없습니다.
+            <span>사진 관리/확인에서 세부항목 사진을 추가할 수 있습니다.</span>
+          </div>
+        ) : (
+          <div className="estimate-item-photo-grid">
+            {estimateItemPhotos.map((photo, index) => {
+              const imageUrl = getPhotoPublicUrl(photo);
+              const isPrimary = index === 0 && Boolean(photo.is_primary);
+              return (
+                <figure className={isPrimary ? "primary" : ""} key={photo.id}>
+                  <div>
+                    {imageUrl ? <img src={imageUrl} alt={photo.original_filename || selectedPhotoSubitemName || "세부항목 사진"} /> : <Image size={24} />}
+                    {isPrimary && <span>대표</span>}
+                  </div>
+                  <figcaption title={photo.original_filename || ""}>{photo.original_filename || "사진"}</figcaption>
+                </figure>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
   }
 
   function applyEstimatePyeongToPyeongUnits() {
@@ -6562,11 +6740,20 @@ export default function App() {
     setEstimates([]);
     setEstimateSearch("");
     setSelectedEstimate(null);
+    estimatePhotoRequestRef.current = "";
+    setSelectedPhotoSubitemId("");
+    setSelectedPhotoSubitemName("");
+    setEstimateItemPhotos([]);
+    setIsLoadingEstimateItemPhotos(false);
+    setEstimateItemPhotosError("");
     setPhotoTab(PHOTO_TYPES.FULL_PROJECT);
     setPhotoCollections([]);
     setPhotoCollectionDrafts({});
     setPhotos([]);
     setPhotoCatalog([]);
+    setExpandedPhotoCategoryIds([]);
+    setPhotoAutoSaveStatus("idle");
+    setPhotoAutoSaveMessage("");
     setPhotoLoading(false);
     setPhotoSaving(false);
     setPhotoError("");
@@ -9419,6 +9606,13 @@ export default function App() {
               <span>업로드 제한: 이미지 파일, 10MB 이하</span>
             </div>
 
+            {photoAutoSaveStatus !== "idle" && (
+              <div className={`photo-autosave-status ${photoAutoSaveStatus}`.trim()}>
+                <span>{photoAutoSaveStatus === "saving" ? "저장 중..." : photoAutoSaveStatus === "error" ? "저장 실패" : "저장됨"}</span>
+                <strong>{photoAutoSaveMessage}</strong>
+              </div>
+            )}
+
             <div className="photo-tabs" role="tablist" aria-label="사진 관리 탭">
               {PHOTO_TAB_OPTIONS.map((tab) => (
                 <button
@@ -9786,8 +9980,6 @@ export default function App() {
                 </p>
               </div>
             </div>
-            {photoPreviewMessage && <div className="photo-preview-message">{photoPreviewMessage}</div>}
-
             <div className="material-list">
               <div className="estimate-row-header" aria-hidden="true">
                 <span>체크</span>
@@ -9837,7 +10029,7 @@ export default function App() {
                     </div>
                     <button
                       type="button"
-                      className={`estimate-row-cell estimate-photo-button ${selectedPhotoItemId === getEstimatePhotoItemId(row) ? "active" : ""}`.trim()}
+                      className={`estimate-row-cell estimate-photo-button ${selectedPhotoSubitemId === row.subitemId ? "active" : ""}`.trim()}
                       onClick={() => handleOpenItemPhotos(row)}
                     >
                       사진보기
@@ -9851,6 +10043,8 @@ export default function App() {
                       {row.expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                     </button>
                   </div>
+
+                  {renderEstimateItemPhotoPanel(row)}
 
                   <div className="estimate-template-expand">
                     <div className="estimate-template-expanded-content">
@@ -14068,6 +14262,33 @@ const styles = `
   .photo-storage-note svg {
     color: var(--brand-primary);
   }
+  .photo-autosave-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: var(--space-2);
+    padding: 8px 11px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+  }
+  .photo-autosave-status span {
+    color: var(--brand-primary);
+  }
+  .photo-autosave-status.saving span {
+    color: var(--text-secondary);
+  }
+  .photo-autosave-status.error {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-subtle);
+    color: var(--color-danger);
+  }
+  .photo-autosave-status.error span {
+    color: var(--color-danger);
+  }
   .photo-tabs {
     display: inline-flex;
     gap: 6px;
@@ -14251,6 +14472,40 @@ const styles = `
   .photo-subitem-table {
     display: grid;
     gap: 8px;
+  }
+  .photo-subitem-group-toggle {
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    padding: 0;
+    background: transparent;
+    color: var(--text-primary);
+    text-align: left;
+  }
+  .photo-subitem-group-toggle span {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .photo-subitem-group-toggle strong {
+    font-size: var(--font-size-title-sm);
+  }
+  .photo-subitem-group-toggle em {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+    font-weight: var(--font-weight-semibold);
+  }
+  .photo-subitem-group.expanded {
+    border-color: var(--brand-accent-line);
+  }
+  .photo-subitem-group.expanded .photo-subitem-table {
+    margin-top: var(--space-1);
   }
   .photo-subitem-header,
   .photo-subitem-row {
@@ -15337,6 +15592,85 @@ const styles = `
     color: var(--brand-primary);
     font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-semibold);
+  }
+  .estimate-item-photo-panel {
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px solid var(--brand-accent-line);
+    border-radius: var(--radius-card);
+    background: var(--brand-primary-subtle);
+  }
+  .estimate-item-photo-header {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-1);
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+  .estimate-item-photo-header strong {
+    color: var(--brand-primary);
+    font-size: var(--font-size-body);
+  }
+  .estimate-item-photo-header p {
+    margin: 3px 0 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .estimate-item-photo-panel .photo-empty-inline {
+    background: var(--bg-surface);
+  }
+  .estimate-item-photo-panel .photo-empty-inline span {
+    display: block;
+    margin-top: 4px;
+  }
+  .estimate-item-photo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 8px;
+  }
+  .estimate-item-photo-grid figure {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+  .estimate-item-photo-grid figure.primary {
+    border-color: var(--brand-primary);
+  }
+  .estimate-item-photo-grid figure > div {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    display: grid;
+    place-items: center;
+    background: var(--bg-subtle);
+    color: var(--text-tertiary);
+  }
+  .estimate-item-photo-grid img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+  .estimate-item-photo-grid figure > div span {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    padding: 3px 6px;
+    border-radius: var(--radius-button);
+    background: var(--brand-primary);
+    color: white;
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+  }
+  .estimate-item-photo-grid figcaption {
+    padding: 6px 7px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
   }
   .estimate-template-row.missing-template {
     background: var(--bg-surface);
