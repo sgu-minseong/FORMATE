@@ -2895,6 +2895,12 @@ export default function App() {
       return groups;
     }, {});
   }, [selectedRows]);
+  const recentHomeEstimates = useMemo(() =>
+    [...estimates]
+      .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
+      .slice(0, 3),
+    [estimates]
+  );
   const currentCategory =
     estimateCatalog.find((category) => category.id === openCategory) ??
     categories.find((category) => category.id === openCategory);
@@ -8931,23 +8937,25 @@ export default function App() {
         <main className="landing work-home">
           <section className="landing-actions">
             <div className="section-heading work-home-heading">
+              <span>운영 홈</span>
               <h1>{selectedCompanyName}</h1>
+              <p>새 견적을 시작하거나 최근 저장 견적과 관리 메뉴로 바로 이동합니다.</p>
             </div>
             <div className="primary-action-grid">
               <button
-                className="menu-card feature-card"
+                className="menu-card feature-card home-primary-card"
                 onClick={() => {
                   setEstimateConditionEditMode(false);
                   setPage("condition");
                 }}
               >
                 <ClipboardList />
-                <span>견적서 작성하기</span>
+                <span>새 견적서 작성</span>
                 <p>저장된 템플릿에서 빠르게 시작하거나 빈 견적서로 직접 작성합니다.</p>
               </button>
               <button className="menu-card feature-card" onClick={() => openAdminGate("admin")}>
                 <Settings />
-                <span>템플릿 만들기</span>
+                <span>관리자 홈</span>
                 <p>단가표와 자주 쓰는 견적 템플릿을 미리 만들어둡니다.</p>
               </button>
             </div>
@@ -8963,6 +8971,32 @@ export default function App() {
                 <p>이전에 만든 견적을 찾고 다시 엽니다.</p>
               </button>
             </div>
+            <section className="home-recent-compact">
+              <div className="home-recent-compact-head">
+                <strong>최근 저장 견적</strong>
+                <button type="button" className="ghost" onClick={() => setPage("admin-estimates")}>
+                  전체 보기
+                </button>
+              </div>
+              {recentHomeEstimates.length > 0 ? (
+                <div className="home-recent-compact-list">
+                  {recentHomeEstimates.map((estimate) => (
+                    <button
+                      type="button"
+                      key={estimate.id}
+                      className="home-recent-compact-row"
+                      onClick={() => loadSavedEstimateDraft(estimate, { destination: "preview" })}
+                    >
+                      <span>{getSavedEstimateCustomerName(estimate) || "고객명 미입력"}</span>
+                      <em>{estimate.address || "주소 미입력"}</em>
+                      <PriceText value={estimate.total_amount || 0} size="sm" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted caption">최근 저장 견적이 없습니다.</p>
+              )}
+            </section>
           </section>
         </main>
       )}
@@ -13066,6 +13100,72 @@ const styles = `
     background: var(--brand-primary-subtle);
     color: var(--brand-primary);
     font-size: var(--font-size-body-sm);
+  }
+  .home-primary-card {
+    border-color: var(--brand-primary);
+    background: #fbfcff;
+  }
+  .home-primary-card svg {
+    color: var(--brand-primary);
+  }
+  .home-recent-compact {
+    display: grid;
+    gap: var(--space-1);
+    padding: 14px 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+    box-shadow: var(--shadow-sm);
+  }
+  .home-recent-compact-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .home-recent-compact-head strong {
+    font-size: var(--font-size-body-sm);
+  }
+  .home-recent-compact-list {
+    display: grid;
+    gap: 6px;
+  }
+  .home-recent-compact-row {
+    display: grid;
+    grid-template-columns: minmax(100px, 0.8fr) minmax(160px, 1fr) 112px;
+    gap: var(--space-1);
+    align-items: center;
+    min-height: 38px;
+    padding: 7px 9px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-muted);
+    color: var(--text-primary);
+    text-align: left;
+  }
+  .home-recent-compact-row:hover,
+  .home-recent-compact-row:focus-visible {
+    border-color: var(--brand-accent-line);
+    background: var(--bg-surface);
+    outline: none;
+  }
+  .home-recent-compact-row span,
+  .home-recent-compact-row em {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-recent-compact-row span {
+    font-weight: var(--font-weight-semibold);
+  }
+  .home-recent-compact-row em {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+  }
+  .home-recent-compact-row .number-text {
+    justify-self: end;
   }
   .support-card {
     min-height: 116px;
