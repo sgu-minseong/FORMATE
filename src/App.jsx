@@ -66,7 +66,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
-const UNIT_OPTIONS = ["평", "㎡", "미터", "개소", "식", "자당"];
+const UNIT_OPTIONS = ["평", "m²", "m", "개소", "식", "자당", "롤", "박스", "EA"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
 const FLOORING_THICKNESS_OPTIONS = Array.from({ length: 28 }, (_, index) => (1.8 + index / 10).toFixed(1));
 const DEFAULT_FLOORING_SPEC = "기본";
@@ -664,8 +664,15 @@ function normalizeAdminItems(itemsRows, subitemRows, templateValueRows = []) {
           return {
             ...subitem,
             option_value: getTemplateOptionValue(subitem),
+            cost_price: subitem.cost_price ?? "",
+            cost_unit: normalizeUnitOptionValue(subitem.cost_unit),
             unit_price: subitem.unit_price ?? "",
             labor_rate: subitem.labor_rate ?? "",
+            labor_rate_empty: subitem.labor_rate_empty ?? subitem.labor_rate ?? "",
+            labor_rate_occupied: subitem.labor_rate_occupied ?? subitem.labor_rate ?? "",
+            spec_options: normalizeSpecOptions(subitem.spec_options),
+            spec_option_draft: "",
+            selected_spec_option: "",
             quantity: templateValue?.quantity ?? "",
             labor_count: templateValue?.labor_count ?? "",
             template_value_id: templateValue?.id ?? null,
@@ -697,6 +704,55 @@ function hasNumericInput(value) {
 
 function stripNumberInputFormatting(value) {
   return `${value ?? ""}`.replaceAll(",", "").replace(/[^\d.]/g, "");
+}
+
+function normalizeUnitOptionValue(value) {
+  const rawValue = `${value ?? ""}`.trim();
+  if (rawValue === "㎡") return "m²";
+  if (rawValue === "미터") return "m";
+  return rawValue;
+}
+
+function getUnitSelectOptions(currentUnit = "") {
+  const normalizedCurrent = normalizeUnitOptionValue(currentUnit);
+  if (normalizedCurrent && !UNIT_OPTIONS.includes(normalizedCurrent)) {
+    return [normalizedCurrent, ...UNIT_OPTIONS];
+  }
+  return UNIT_OPTIONS;
+}
+
+function normalizeSpecOptions(value) {
+  let rawOptions = value;
+  if (typeof rawOptions === "string") {
+    try {
+      rawOptions = JSON.parse(rawOptions);
+    } catch {
+      rawOptions = [];
+    }
+  }
+  if (!Array.isArray(rawOptions)) return [];
+
+  return [
+    ...new Set(
+      rawOptions
+        .map((entry) => `${entry ?? ""}`.trim())
+        .filter((entry) => entry && entry !== DEFAULT_FLOORING_SPEC && entry !== "기본(삭제예정)")
+    ),
+  ];
+}
+
+function getLaborRateEmptyValue(subitem) {
+  return subitem?.labor_rate_empty ?? subitem?.labor_rate ?? "";
+}
+
+function getLaborRateOccupiedValue(subitem) {
+  return subitem?.labor_rate_occupied ?? subitem?.labor_rate ?? "";
+}
+
+function getBulkTargetValue(subitem, field) {
+  if (field === "labor_rate_empty") return getLaborRateEmptyValue(subitem);
+  if (field === "labor_rate_occupied") return getLaborRateOccupiedValue(subitem);
+  return subitem?.[field];
 }
 
 function formatMoneyInputValue(value) {
@@ -922,6 +978,15 @@ function getFlooringThicknessSelectOptions(currentThickness) {
       ...FLOORING_THICKNESS_OPTIONS,
     ]),
   ].filter(Boolean).sort(compareFlooringThickness);
+}
+
+function getExistingFlooringThicknessSelectOptions(optionEntries = [], currentThickness) {
+  return [
+    ...new Set([
+      normalizeFlooringThickness(currentThickness),
+      ...optionEntries.map((option) => normalizeFlooringThickness(option.thickness)),
+    ]),
+  ].filter((thickness) => thickness && thickness !== DEFAULT_FLOORING_SPEC).sort(compareFlooringThickness);
 }
 
 function compareFlooringThickness(a, b) {
@@ -2588,6 +2653,7 @@ export default function App() {
   const [conditionVariantLabels, setConditionVariantLabels] = useState(() => createConditionVariantLabelRows());
   const [adminBulkInputs, setAdminBulkInputs] = useState({});
   const [activeFlooringThicknessByGroup, setActiveFlooringThicknessByGroup] = useState({});
+  const [activeSpecOptionsPopoverId, setActiveSpecOptionsPopoverId] = useState("");
   const [dragItemId, setDragItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
   const [dragSubitem, setDragSubitem] = useState(null);
@@ -6042,8 +6108,15 @@ export default function App() {
                   name: canonicalNextName,
                   option_value: getTemplateOptionValue({ name: canonicalNextName }),
                   unit: source?.unit ?? "평",
+                  cost_price: "",
+                  cost_unit: normalizeUnitOptionValue(source?.cost_unit),
                   unit_price: "",
                   labor_rate: "",
+                  labor_rate_empty: "",
+                  labor_rate_occupied: "",
+                  spec_options: [],
+                  spec_option_draft: "",
+                  selected_spec_option: "",
                   quantity: "",
                   labor_count: "",
                   template_value_id: null,
@@ -7369,7 +7442,7 @@ export default function App() {
 
   function updateAdminSubitemUnit(subitemId, unit) {
     setAdminError("");
-    updateLocalSubitemPrice(subitemId, { unit });
+    updateLocalSubitemPrice(subitemId, { unit: normalizeUnitOptionValue(unit) });
   }
 
   function handleAdminItemDragStart(event, itemId) {
@@ -7601,6 +7674,201 @@ export default function App() {
     markAdminCatalogDirty();
   }
 
+  function updateLocalSubitemDraft(subitemId, patch) {
+    setAdminItems((current) =>
+      current.map((item) => ({
+        ...item,
+        subitems: item.subitems.map((subitem) =>
+          subitem.id === subitemId ? { ...subitem, ...patch } : subitem
+        ),
+      }))
+    );
+  }
+
+  function updateLocalSubitemSpecOptions(subitemId, nextOptions) {
+    const normalizedOptions = normalizeSpecOptions(nextOptions);
+    setAdminItems((current) =>
+      current.map((item) => ({
+        ...item,
+        subitems: item.subitems.map((subitem) =>
+          subitem.id === subitemId
+            ? {
+                ...subitem,
+                spec_options: normalizedOptions,
+                spec_option_draft: "",
+                selected_spec_option: normalizedOptions.includes(subitem.selected_spec_option)
+                  ? subitem.selected_spec_option
+                  : normalizedOptions[0] ?? "",
+              }
+            : subitem
+        ),
+      }))
+    );
+    markAdminCatalogDirty("prices");
+  }
+
+  function addLocalSubitemSpecOption(subitemId) {
+    const targetSubitem = adminItems
+      .flatMap((item) => item.subitems ?? [])
+      .find((subitem) => subitem.id === subitemId);
+    const nextOption = `${targetSubitem?.spec_option_draft ?? ""}`.trim();
+    if (!nextOption || nextOption === DEFAULT_FLOORING_SPEC || nextOption === "기본(삭제예정)") return;
+    updateLocalSubitemSpecOptions(subitemId, [...normalizeSpecOptions(targetSubitem?.spec_options), nextOption]);
+  }
+
+  function removeLocalSubitemSpecOption(subitemId, option) {
+    const targetSubitem = adminItems
+      .flatMap((item) => item.subitems ?? [])
+      .find((subitem) => subitem.id === subitemId);
+    updateLocalSubitemSpecOptions(
+      subitemId,
+      normalizeSpecOptions(targetSubitem?.spec_options).filter((entry) => entry !== option)
+    );
+  }
+
+  function moveLocalSubitemSpecOption(subitemId, option, direction) {
+    const targetSubitem = adminItems
+      .flatMap((item) => item.subitems ?? [])
+      .find((subitem) => subitem.id === subitemId);
+    const options = normalizeSpecOptions(targetSubitem?.spec_options);
+    const currentIndex = options.indexOf(option);
+    const nextIndex = currentIndex + direction;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= options.length) return;
+    const nextOptions = [...options];
+    const [moved] = nextOptions.splice(currentIndex, 1);
+    nextOptions.splice(nextIndex, 0, moved);
+    updateLocalSubitemSpecOptions(subitemId, nextOptions);
+  }
+
+  function formatSpecOptionLabel(option) {
+    const rawValue = `${option ?? ""}`.trim();
+    if (!rawValue) return "선택";
+    const normalizedThickness = normalizeFlooringThickness(rawValue);
+    if (normalizedThickness !== DEFAULT_FLOORING_SPEC && /^[1-4](?:\.\d)?T?$/i.test(rawValue)) {
+      return formatFlooringThickness(normalizedThickness);
+    }
+    return rawValue;
+  }
+
+  function getSpecSelectOptions(subitem, extraOptions = []) {
+    return normalizeSpecOptions([...extraOptions, ...normalizeSpecOptions(subitem?.spec_options)]);
+  }
+
+  function getSpecSelectValue(subitem, options = [], fallback = "") {
+    if (subitem?.selected_spec_option && options.includes(subitem.selected_spec_option)) {
+      return subitem.selected_spec_option;
+    }
+    if (fallback && options.includes(fallback)) return fallback;
+    return options[0] ?? "";
+  }
+
+  function renderSpecOptionsPopover(subitem) {
+    if (activeSpecOptionsPopoverId !== subitem?.id) return null;
+    const options = normalizeSpecOptions(subitem?.spec_options);
+    return (
+      <div className="spec-options-popover">
+        <div className="spec-options-popover-list">
+          {options.length ? (
+            options.map((option, index) => (
+              <div className="spec-options-popover-row" key={option}>
+                <span>{formatSpecOptionLabel(option)}</span>
+                <div>
+                  <button
+                    type="button"
+                    className="icon-mini-button"
+                    disabled={adminSaving || index === 0}
+                    onClick={() => moveLocalSubitemSpecOption(subitem.id, option, -1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-mini-button"
+                    disabled={adminSaving || index === options.length - 1}
+                    onClick={() => moveLocalSubitemSpecOption(subitem.id, option, 1)}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-mini-button danger"
+                    disabled={adminSaving}
+                    onClick={() => removeLocalSubitemSpecOption(subitem.id, option)}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="spec-options-popover-empty">등록된 규격 없음</div>
+          )}
+        </div>
+        <div className="spec-options-popover-add">
+          <input
+            value={subitem?.spec_option_draft ?? ""}
+            placeholder="예: 2.2T"
+            onChange={(event) => updateLocalSubitemDraft(subitem.id, { spec_option_draft: event.target.value })}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addLocalSubitemSpecOption(subitem.id);
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            disabled={adminSaving}
+            onClick={() => addLocalSubitemSpecOption(subitem.id)}
+          >
+            추가
+          </button>
+        </div>
+        <div className="spec-options-popover-actions">
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            onClick={() => setActiveSpecOptionsPopoverId("")}
+          >
+            완료
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderSpecOptionsControl(subitem, options = [], value = "", onChange) {
+    return (
+      <div className="spec-options-control">
+        <select
+          className="spec-options-select"
+          value={value}
+          onChange={onChange}
+        >
+          {!options.length && <option value="">선택</option>}
+          {options.map((option) => (
+            <option key={option} value={option}>
+              {formatSpecOptionLabel(option)}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="secondary-button compact-button spec-options-manage-button"
+          disabled={adminSaving}
+          onClick={(event) => {
+            event.preventDefault();
+            setActiveSpecOptionsPopoverId((current) => (current === subitem.id ? "" : subitem.id));
+          }}
+        >
+          관리
+        </button>
+        {renderSpecOptionsPopover(subitem)}
+      </div>
+    );
+  }
+
   function isEmptyBulkTargetValue(value) {
     return !hasNumericInput(value) || toNumberOrZero(value) === 0;
   }
@@ -7611,6 +7879,8 @@ export default function App() {
       [itemId]: {
         unit_price: "",
         labor_rate: "",
+        labor_rate_empty: "",
+        labor_rate_occupied: "",
         quantity: "",
         labor_count: "",
         ...(current[itemId] ?? {}),
@@ -7633,7 +7903,7 @@ export default function App() {
 
     const targetItem = adminItems.find((item) => item.id === itemId);
     const changedCount = (targetItem?.subitems ?? []).filter((subitem) =>
-      activeFields.some((field) => mode === "overwrite" || isEmptyBulkTargetValue(subitem[field]))
+      activeFields.some((field) => mode === "overwrite" || isEmptyBulkTargetValue(getBulkTargetValue(subitem, field)))
     ).length;
     if (!changedCount) {
       setAdminError("");
@@ -7648,8 +7918,9 @@ export default function App() {
           subitems: item.subitems.map((subitem) => {
             const patch = {};
             activeFields.forEach((field) => {
-              if (mode === "overwrite" || isEmptyBulkTargetValue(subitem[field])) {
+              if (mode === "overwrite" || isEmptyBulkTargetValue(getBulkTargetValue(subitem, field))) {
                 patch[field] = bulkInput[field];
+                if (field === "labor_rate_empty") patch.labor_rate = bulkInput[field];
               }
             });
             return Object.keys(patch).length ? { ...subitem, ...patch } : subitem;
@@ -7665,16 +7936,11 @@ export default function App() {
   function renderAdminBulkPanel(item) {
     if (!isCommonPriceAdminPage && !isConditionQuantityAdminPage) return null;
     const bulkInput = adminBulkInputs[item.id] ?? {};
-    const fields = isCommonPriceAdminPage ? ["unit_price", "labor_rate"] : ["quantity", "labor_count"];
+    const fields = isCommonPriceAdminPage ? ["unit_price", "labor_rate_empty", "labor_rate_occupied"] : ["quantity", "labor_count"];
     return (
       <div className="admin-bulk-panel">
-        <div>
-          <strong>{item.name} 일괄 입력</strong>
-          <span>
-            {isCommonPriceAdminPage
-              ? "현재 대분류의 단가/인건비를 같은 로직으로 적용합니다. 빈/0 값만 채우거나 전체를 덮어쓸 수 있습니다."
-              : "현재 대분류의 수량/인원을 빈/0 항목에만 적용하거나 전체 덮어쓰기할 수 있습니다."}
-          </span>
+        <div className="admin-bulk-title">
+          <strong>{item.name} 일괄입력</strong>
         </div>
         {isCommonPriceAdminPage ? (
           <>
@@ -7689,13 +7955,23 @@ export default function App() {
               />
             </label>
             <label>
-              인건비
+              인건비(빈집)
               <input
                 type="text"
                 inputMode="numeric"
-                value={formatMoneyInputValue(bulkInput.labor_rate)}
-                onChange={(event) => updateAdminBulkInput(item.id, { labor_rate: stripNumberInputFormatting(event.target.value) })}
+                value={formatMoneyInputValue(bulkInput.labor_rate_empty)}
+                onChange={(event) => updateAdminBulkInput(item.id, { labor_rate_empty: stripNumberInputFormatting(event.target.value) })}
                 placeholder="예: 180000"
+              />
+            </label>
+            <label>
+              인건비(살림집)
+              <input
+                type="text"
+                inputMode="numeric"
+                value={formatMoneyInputValue(bulkInput.labor_rate_occupied)}
+                onChange={(event) => updateAdminBulkInput(item.id, { labor_rate_occupied: stripNumberInputFormatting(event.target.value) })}
+                placeholder="예: 220000"
               />
             </label>
           </>
@@ -7730,15 +8006,7 @@ export default function App() {
             disabled={adminSaving}
             onClick={() => applyAdminBulkInput(item.id, fields, "empty")}
           >
-            빈/0 값에 적용
-          </button>
-          <button
-            type="button"
-            className="ghost danger-text-button"
-            disabled={adminSaving}
-            onClick={() => applyAdminBulkInput(item.id, fields, "overwrite")}
-          >
-            전체 덮어쓰기
+            적용하기
           </button>
         </div>
       </div>
@@ -7793,12 +8061,19 @@ export default function App() {
           existingSubitems.map((subitem) => {
             const payload = {
               name: getCanonicalFlooringSubitemName(subitem.name),
-              unit: subitem.unit ?? "평",
+              unit: normalizeUnitOptionValue(subitem.unit) || "평",
               sort_order: subitem.sort_order ?? 0,
             };
             if (isCommonPriceSave) {
+              const laborRateEmpty = getLaborRateEmptyValue(subitem);
+              const laborRateOccupied = getLaborRateOccupiedValue(subitem);
+              payload.cost_price = toNonNegativeNumberOrZero(subitem.cost_price);
+              payload.cost_unit = normalizeUnitOptionValue(subitem.cost_unit);
               payload.unit_price = toNonNegativeNumberOrZero(subitem.unit_price);
-              payload.labor_rate = toNonNegativeNumberOrZero(subitem.labor_rate);
+              payload.labor_rate_empty = toNonNegativeNumberOrZero(laborRateEmpty);
+              payload.labor_rate_occupied = toNonNegativeNumberOrZero(laborRateOccupied);
+              payload.labor_rate = toNonNegativeNumberOrZero(laborRateEmpty);
+              payload.spec_options = normalizeSpecOptions(subitem.spec_options);
             }
             return supabase
               .from("construction_subitems")
@@ -7818,9 +8093,14 @@ export default function App() {
             localSubitems.map((subitem) => ({
               item_id: subitem.item_id,
               name: getCanonicalFlooringSubitemName(subitem.name),
-              unit: subitem.unit ?? "평",
+              unit: normalizeUnitOptionValue(subitem.unit) || "평",
+              cost_price: toNonNegativeNumberOrZero(subitem.cost_price),
+              cost_unit: normalizeUnitOptionValue(subitem.cost_unit),
               unit_price: toNonNegativeNumberOrZero(subitem.unit_price),
-              labor_rate: toNonNegativeNumberOrZero(subitem.labor_rate),
+              labor_rate_empty: toNonNegativeNumberOrZero(getLaborRateEmptyValue(subitem)),
+              labor_rate_occupied: toNonNegativeNumberOrZero(getLaborRateOccupiedValue(subitem)),
+              labor_rate: toNonNegativeNumberOrZero(getLaborRateEmptyValue(subitem)),
+              spec_options: normalizeSpecOptions(subitem.spec_options),
               sort_order: subitem.sort_order ?? 0,
             }))
           );
@@ -10971,13 +11251,16 @@ export default function App() {
                     </div>
                     {renderAdminBulkPanel(item)}
                     {isCommonPriceAdminPage && (
-                      <div className="admin-price-table-header flooring-price-table-header">
+                      <div className="admin-price-table-header flooring-price-table-header price-table-grid">
                         <span />
                         <span>소재명</span>
+                        <span>원가</span>
+                        <span>원가 단위</span>
                         <span>규격/두께</span>
                         <span>단위</span>
                         <span>단가</span>
-                        <span>인건비</span>
+                        <span>인건비(빈집)</span>
+                        <span>인건비(살림집)</span>
                         <span>삭제</span>
                       </div>
                     )}
@@ -11002,7 +11285,7 @@ export default function App() {
                       return (
                         <div
                           key={group.baseName}
-                          className={`admin-value-row flooring-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row" : "condition-quantity-row quantity-table-row"} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                          className={`admin-value-row flooring-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row price-table-grid" : "condition-quantity-row quantity-table-row"} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
                           onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
                           onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
                           onDragEnd={clearAdminDragState}
@@ -11034,33 +11317,78 @@ export default function App() {
                               <strong>{group.baseName}</strong>
                             </div>
                           )}
-                          <label>
-                            <span className="field-label">규격/두께</span>
-                            <select
-                              value={activeThickness}
-                              onChange={(event) =>
-                                selectAdminFlooringThickness(item.id, group.baseName, event.target.value)
-                              }
-                            >
-                              {(isCommonPriceAdminPage
-                                ? getFlooringThicknessSelectOptions(activeThickness)
-                                : optionEntries.map((option) => option.thickness)
-                              ).map((thickness) => (
-                                <option key={thickness} value={thickness}>
-                                  {formatFlooringThickness(thickness)}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                          {!isCommonPriceAdminPage && (
+                            <label>
+                              <span className="field-label">규격/두께</span>
+                              <select
+                                value={activeThickness}
+                                onChange={(event) =>
+                                  selectAdminFlooringThickness(item.id, group.baseName, event.target.value)
+                                }
+                              >
+                                {optionEntries.map((option) => option.thickness).map((thickness) => (
+                                  <option key={thickness} value={thickness}>
+                                    {formatFlooringThickness(thickness)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
                           {isCommonPriceAdminPage ? (
                             <>
-                              <label>
+                              <label className="price-internal-field price-number-field">
+                                <span className="field-label">원가</span>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={formatMoneyInputValue(activeSubitem.cost_price)}
+                                  onChange={(event) =>
+                                    updateLocalSubitemPrice(activeSubitem.id, { cost_price: stripNumberInputFormatting(event.target.value) })
+                                  }
+                                />
+                              </label>
+                              <label className="price-internal-field price-unit-field">
+                                <span className="field-label">원가 단위</span>
+                                <select
+                                  value={normalizeUnitOptionValue(activeSubitem.cost_unit)}
+                                  onChange={(event) => updateLocalSubitemPrice(activeSubitem.id, { cost_unit: normalizeUnitOptionValue(event.target.value) })}
+                                >
+                                  <option value="">선택</option>
+                                  {getUnitSelectOptions(activeSubitem.cost_unit).map((unit) => (
+                                    <option key={unit} value={unit}>
+                                      {unit}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="spec-options-field">
+                                <span className="field-label">규격/두께</span>
+                                {(() => {
+                                  const thicknessOptions = getExistingFlooringThicknessSelectOptions(optionEntries, activeThickness);
+                                  const specOptions = getSpecSelectOptions(activeSubitem, thicknessOptions);
+                                  const specValue = getSpecSelectValue(
+                                    activeSubitem,
+                                    specOptions,
+                                    activeThickness === DEFAULT_FLOORING_SPEC ? "" : activeThickness
+                                  );
+                                  return renderSpecOptionsControl(activeSubitem, specOptions, specValue, (event) => {
+                                    const nextValue = event.target.value;
+                                    if (thicknessOptions.includes(nextValue)) {
+                                      updateLocalSubitemDraft(activeSubitem.id, { selected_spec_option: "" });
+                                      selectAdminFlooringThickness(item.id, group.baseName, nextValue);
+                                      return;
+                                    }
+                                    updateLocalSubitemDraft(activeSubitem.id, { selected_spec_option: nextValue });
+                                  });
+                                })()}
+                              </label>
+                              <label className="price-unit-field">
                                 <span className="field-label">단위</span>
                                 <select
-                                  value={activeSubitem.unit ?? ""}
+                                  value={normalizeUnitOptionValue(activeSubitem.unit)}
                                   onChange={(event) => updateAdminSubitemUnit(activeSubitem.id, event.target.value)}
                                 >
-                                  {UNIT_OPTIONS.map((unit) => (
+                                  {getUnitSelectOptions(activeSubitem.unit).map((unit) => (
                                     <option key={unit} value={unit}>
                                       {unit}
                                     </option>
@@ -11078,14 +11406,28 @@ export default function App() {
                                   }
                                 />
                               </label>
-                              <label>
-                                <span className="field-label">인건비</span>
+                              <label className="price-number-field price-sale-field">
+                                <span className="field-label">인건비(빈집)</span>
                                 <input
                                   type="text"
                                   inputMode="numeric"
-                                  value={formatMoneyInputValue(activeSubitem.labor_rate)}
+                                  value={formatMoneyInputValue(getLaborRateEmptyValue(activeSubitem))}
                                   onChange={(event) =>
-                                    updateLocalSubitemPrice(activeSubitem.id, { labor_rate: stripNumberInputFormatting(event.target.value) })
+                                    updateLocalSubitemPrice(activeSubitem.id, {
+                                      labor_rate_empty: stripNumberInputFormatting(event.target.value),
+                                      labor_rate: stripNumberInputFormatting(event.target.value),
+                                    })
+                                  }
+                                />
+                              </label>
+                              <label className="price-number-field price-sale-field">
+                                <span className="field-label">인건비(살림집)</span>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={formatMoneyInputValue(getLaborRateOccupiedValue(activeSubitem))}
+                                  onChange={(event) =>
+                                    updateLocalSubitemPrice(activeSubitem.id, { labor_rate_occupied: stripNumberInputFormatting(event.target.value) })
                                   }
                                 />
                               </label>
@@ -11099,7 +11441,7 @@ export default function App() {
                             </>
                           ) : (
                             <>
-                              <label>
+                              <label className="price-number-field price-sale-field">
                                 <span className="field-label">수량</span>
                                 <input
                                   type="number"
@@ -11160,12 +11502,16 @@ export default function App() {
                 <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} ${isCommonPriceAdminPage ? "price-table-list" : isConditionQuantityAdminPage ? "quantity-table-list" : ""}`.trim()}>
                   {renderAdminBulkPanel(item)}
                   {isCommonPriceAdminPage && (
-                    <div className={`admin-price-table-header ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"}`.trim()}>
+                    <div className={`admin-price-table-header price-table-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"}`.trim()}>
                       {item.item_type !== "flat" && <span />}
                       <span>소재명</span>
+                      <span>원가</span>
+                      <span>원가 단위</span>
+                      <span>규격/두께</span>
                       <span>단위</span>
                       <span>단가</span>
-                      <span>인건비</span>
+                      <span>인건비(빈집)</span>
+                      <span>인건비(살림집)</span>
                       {item.item_type !== "flat" && <span>삭제</span>}
                     </div>
                   )}
@@ -11181,7 +11527,7 @@ export default function App() {
                   {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
                     <div
                       key={subitem.id}
-                      className={`admin-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row" : "condition-quantity-row quantity-table-row"} ${item.item_type !== "flat" && isConditionQuantityAdminPage ? "itemized-quantity-row" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+                      className={`admin-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row price-table-grid" : "condition-quantity-row quantity-table-row"} ${item.item_type !== "flat" && isConditionQuantityAdminPage ? "itemized-quantity-row" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
                       onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
                       onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
                       onDragEnd={clearAdminDragState}
@@ -11233,13 +11579,48 @@ export default function App() {
 
                       {isCommonPriceAdminPage && (
                         <>
-                          <label>
+                          <label className="price-internal-field price-number-field">
+                            <span className="field-label">원가</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={formatMoneyInputValue(subitem.cost_price)}
+                              onChange={(event) =>
+                                updateLocalSubitemPrice(subitem.id, { cost_price: stripNumberInputFormatting(event.target.value) })
+                              }
+                            />
+                          </label>
+                          <label className="price-internal-field price-unit-field">
+                            <span className="field-label">원가 단위</span>
+                            <select
+                              value={normalizeUnitOptionValue(subitem.cost_unit)}
+                              onChange={(event) => updateLocalSubitemPrice(subitem.id, { cost_unit: normalizeUnitOptionValue(event.target.value) })}
+                            >
+                              <option value="">선택</option>
+                              {getUnitSelectOptions(subitem.cost_unit).map((unit) => (
+                                <option key={unit} value={unit}>
+                                  {unit}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="spec-options-field">
+                            <span className="field-label">규격/두께</span>
+                            {(() => {
+                              const specOptions = getSpecSelectOptions(subitem);
+                              const specValue = getSpecSelectValue(subitem, specOptions);
+                              return renderSpecOptionsControl(subitem, specOptions, specValue, (event) =>
+                                updateLocalSubitemDraft(subitem.id, { selected_spec_option: event.target.value })
+                              );
+                            })()}
+                          </label>
+                          <label className="price-unit-field">
                             <span className="field-label">단위</span>
                             <select
-                              value={subitem.unit ?? ""}
+                              value={normalizeUnitOptionValue(subitem.unit)}
                               onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
                             >
-                              {UNIT_OPTIONS.map((unit) => (
+                              {getUnitSelectOptions(subitem.unit).map((unit) => (
                                 <option key={unit} value={unit}>
                                   {unit}
                                 </option>
@@ -11257,14 +11638,28 @@ export default function App() {
                               }
                             />
                           </label>
-                          <label>
-                            <span className="field-label">인건비</span>
+                          <label className="price-number-field price-sale-field">
+                            <span className="field-label">인건비(빈집)</span>
                             <input
                               type="text"
                               inputMode="numeric"
-                              value={formatMoneyInputValue(subitem.labor_rate)}
+                              value={formatMoneyInputValue(getLaborRateEmptyValue(subitem))}
                               onChange={(event) =>
-                                updateLocalSubitemPrice(subitem.id, { labor_rate: stripNumberInputFormatting(event.target.value) })
+                                updateLocalSubitemPrice(subitem.id, {
+                                  labor_rate_empty: stripNumberInputFormatting(event.target.value),
+                                  labor_rate: stripNumberInputFormatting(event.target.value),
+                                })
+                              }
+                            />
+                          </label>
+                          <label className="price-number-field price-sale-field">
+                            <span className="field-label">인건비(살림집)</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={formatMoneyInputValue(getLaborRateOccupiedValue(subitem))}
+                              onChange={(event) =>
+                                updateLocalSubitemPrice(subitem.id, { labor_rate_occupied: stripNumberInputFormatting(event.target.value) })
                               }
                             />
                           </label>
@@ -11272,7 +11667,7 @@ export default function App() {
                       )}
                       {isConditionQuantityAdminPage && (
                         <>
-                          <label>
+                          <label className="price-number-field price-sale-field">
                             <span className="field-label">수량</span>
                             <input
                               type="number"
@@ -15168,39 +15563,42 @@ const styles = `
     padding-left: 0;
   }
   .admin-bulk-panel {
-    display: grid;
-    grid-template-columns: minmax(220px, 1fr) 140px 140px minmax(190px, auto);
-    gap: var(--space-1);
-    align-items: end;
-    padding: var(--space-2);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--brand-primary-subtle);
   }
-  .admin-bulk-panel > div {
-    display: grid;
-    gap: 4px;
+  .admin-bulk-title {
+    flex: 0 0 auto;
+    min-width: 118px;
   }
   .admin-bulk-panel strong {
     color: var(--text-primary);
-  }
-  .admin-bulk-panel span {
-    color: var(--text-secondary);
-    font-size: var(--font-size-caption);
-    line-height: 1.5;
+    font-size: 13px;
+    line-height: 1.2;
   }
   .admin-bulk-panel label {
-    display: grid;
-    gap: 6px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
     color: var(--text-secondary);
-    font-size: var(--font-size-caption);
+    font-size: 12px;
     font-weight: var(--font-weight-bold);
+    white-space: nowrap;
   }
   .admin-bulk-actions {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    justify-content: flex-end;
+    flex: 0 0 auto;
+    justify-content: flex-start;
+  }
+  .admin-bulk-actions .secondary-button {
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 13px;
   }
   .danger-text-button {
     color: var(--color-danger);
@@ -15230,13 +15628,13 @@ const styles = `
     grid-template-columns: 28px minmax(140px, 1.1fr) 120px 100px repeat(4, minmax(118px, 1fr)) 42px;
   }
   .admin-value-row.common-price-row {
-    grid-template-columns: 28px minmax(240px, 1.6fr) 82px 118px 118px 42px;
+    grid-template-columns: var(--price-table-columns);
   }
   .admin-flat-list .admin-value-row.common-price-row {
-    grid-template-columns: minmax(240px, 1.6fr) 82px 118px 118px;
+    grid-template-columns: var(--price-table-flat-columns);
   }
   .flooring-value-row.common-price-row {
-    grid-template-columns: 28px minmax(240px, 1.6fr) 108px 82px 118px 118px 42px;
+    grid-template-columns: var(--price-table-columns);
   }
   .admin-value-row.condition-quantity-row {
     grid-template-columns: minmax(240px, 1.6fr) 96px 96px;
@@ -15258,6 +15656,9 @@ const styles = `
     color: var(--text-tertiary);
     font-size: 11px;
     font-weight: var(--font-weight-medium);
+  }
+  .spec-options-field {
+    min-width: 0;
   }
   .admin-add-subitem-row {
     display: grid;
@@ -17407,9 +17808,33 @@ const styles = `
   }
   .price-table-list {
     gap: 0;
+    --price-table-columns: 22px minmax(200px, 1.35fr) 82px 72px minmax(210px, 1.1fr) 64px 96px 104px 104px 34px;
+    --price-table-flat-columns: minmax(200px, 1.35fr) 82px 72px minmax(210px, 1.1fr) 64px 96px 104px 104px;
+  }
+  .price-table-grid {
+    display: grid;
+    grid-template-columns: var(--price-table-columns);
+    column-gap: 6px;
+    align-items: center;
+  }
+  .admin-flat-list .price-table-grid {
+    grid-template-columns: var(--price-table-flat-columns);
   }
   .price-table-list .flooring-spec-guide {
     margin-bottom: 12px;
+  }
+  .price-table-list .admin-bulk-panel {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border-radius: 10px;
+  }
+  .price-table-list .admin-bulk-panel input {
+    width: 104px;
+    min-height: 32px;
+    padding: 5px 8px;
+    font-size: 14px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
   }
   .admin-price-table-header,
   .admin-quantity-table-header {
@@ -17426,14 +17851,24 @@ const styles = `
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-bold);
   }
+  .price-table-list .admin-price-table-header.price-table-grid {
+    column-gap: 6px;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+  .admin-price-table-header span {
+    min-width: 0;
+    line-height: 1.2;
+    white-space: normal;
+  }
   .standard-price-table-header {
-    grid-template-columns: 28px minmax(240px, 1.6fr) 82px 118px 118px 42px;
+    grid-template-columns: var(--price-table-columns);
   }
   .flat-price-table-header {
-    grid-template-columns: minmax(240px, 1.6fr) 82px 118px 118px;
+    grid-template-columns: var(--price-table-flat-columns);
   }
   .flooring-price-table-header {
-    grid-template-columns: 28px minmax(240px, 1.6fr) 108px 82px 118px 118px 42px;
+    grid-template-columns: var(--price-table-columns);
   }
   .standard-quantity-table-header {
     grid-template-columns: 28px minmax(240px, 1.6fr) 96px 96px 42px;
@@ -17448,15 +17883,16 @@ const styles = `
     gap: 0;
   }
   .quantity-table-list .admin-bulk-panel {
-    margin-bottom: 12px;
-    padding: 10px 12px;
-    border-radius: 14px;
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border-radius: 10px;
     background: #fbfcff;
   }
   .quantity-table-list .admin-bulk-panel input {
-    min-height: 40px;
-    padding: 8px 10px;
-    font-size: 15px;
+    width: 96px;
+    min-height: 32px;
+    padding: 5px 8px;
+    font-size: 14px;
   }
   .quantity-table-list .admin-value-row.condition-quantity-row {
     border-radius: 0;
@@ -17484,19 +17920,155 @@ const styles = `
     border-top: 0;
     border-bottom: 1px solid var(--border-subtle);
     background: #ffffff;
-    padding: 8px 10px;
+    align-items: center;
+    column-gap: 6px;
+    padding: 6px 8px;
   }
   .price-table-list .admin-value-row.common-price-row:hover {
     background: #fbfcff;
   }
   .price-table-list .admin-value-row.common-price-row input,
   .price-table-list .admin-value-row.common-price-row select {
-    min-height: 40px;
-    padding: 8px 10px;
-    font-size: 15px;
+    min-height: 32px;
+    padding: 5px 7px;
+    font-size: 14px;
   }
   .price-table-list .admin-value-row.common-price-row label {
     gap: 0;
+  }
+  .price-table-list .admin-value-row.common-price-row input[inputmode="numeric"],
+  .price-number-field input {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .price-unit-field select {
+    text-align: center;
+    color: var(--text-secondary);
+  }
+  .price-internal-field input,
+  .price-internal-field select {
+    border-color: var(--border-subtle);
+    background: #f8f9fb;
+    color: var(--text-secondary);
+  }
+  .price-sale-field input {
+    background: #ffffff;
+  }
+  .price-table-list .spec-options-field {
+    position: relative;
+    display: block;
+    min-width: 0;
+  }
+  .spec-options-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px;
+    align-items: center;
+    min-width: 0;
+  }
+  .spec-options-select {
+    width: 100%;
+    min-width: 0;
+    appearance: auto;
+    background-position: right 6px center;
+    font-size: 13px;
+  }
+  .spec-options-manage-button {
+    min-height: 32px;
+    padding: 5px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .spec-options-popover {
+    position: absolute;
+    z-index: 35;
+    top: calc(100% + 6px);
+    left: 0;
+    width: 260px;
+    padding: 8px;
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 14px 34px rgba(36, 48, 79, 0.16);
+  }
+  .spec-options-popover-list {
+    display: grid;
+    gap: 4px;
+    max-height: 180px;
+    overflow: auto;
+  }
+  .spec-options-popover-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    align-items: center;
+    min-height: 30px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: #fbfcff;
+  }
+  .spec-options-popover-row span {
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: var(--font-weight-semibold);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .spec-options-popover-row div {
+    display: inline-flex;
+    gap: 3px;
+  }
+  .icon-mini-button {
+    width: 24px;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: #ffffff;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .icon-mini-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+  .icon-mini-button.danger {
+    color: var(--color-danger);
+  }
+  .spec-options-popover-empty {
+    padding: 8px;
+    color: var(--text-tertiary);
+    font-size: 12px;
+  }
+  .spec-options-popover-add {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px;
+    margin-top: 6px;
+  }
+  .spec-options-popover-add input {
+    min-height: 30px;
+    padding: 5px 8px;
+    font-size: 13px;
+  }
+  .spec-options-popover-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 6px;
+  }
+  .price-table-list .admin-value-row.common-price-row .danger-button {
+    width: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    padding: 0;
+  }
+  .price-table-list .admin-value-row.common-price-row .drag-handle {
+    width: 22px;
   }
   .admin-item-card.dragging,
   .admin-value-row.dragging {
