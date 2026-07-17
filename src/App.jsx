@@ -93,7 +93,9 @@ const PHOTO_TAB_OPTIONS = [
 const PHOTO_COLLECTION_DEFAULT_NAMES = ["1000만원대", "2000만원대", "3000만원대"];
 const MAX_SUBITEM_PHOTO_COUNT = 10;
 const MAX_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MATERIAL_NAME_PLACEHOLDER = "추가된 항목의 이름을 입력하세요";
 const CATEGORY_DISPLAY_TARGETS = {
+  바닥: "바닥재",
   몰딩: "목공",
   페인트: "도장/페인트",
   도장: "도장/페인트",
@@ -588,6 +590,13 @@ function getCategoryDisplayName(name) {
   return CATEGORY_DISPLAY_TARGETS[trimmed] ?? trimmed;
 }
 
+function getCategoryPersistName(item) {
+  const displayName = `${item?.name ?? ""}`.trim();
+  const sourceName = `${item?._sourceName ?? ""}`.trim();
+  if (sourceName && displayName === getCategoryDisplayName(sourceName)) return sourceName;
+  return displayName;
+}
+
 function getDefaultCatalogItemAliases(name) {
   return name === "도장/페인트" ? ["도장/페인트", "도장"] : [name];
 }
@@ -639,7 +648,7 @@ function mergeDisplayCategoryItems(items) {
   });
 
   return sortAdminItems(
-    [...mergedByName.values()].map(({ _sourceName, ...item }) => item)
+    [...mergedByName.values()]
   );
 }
 
@@ -2708,6 +2717,7 @@ export default function App() {
   const [adminBulkInputs, setAdminBulkInputs] = useState({});
   const [activeFlooringThicknessByGroup, setActiveFlooringThicknessByGroup] = useState({});
   const [activeSpecOptionsPopoverId, setActiveSpecOptionsPopoverId] = useState("");
+  const [newlyAddedSubitemId, setNewlyAddedSubitemId] = useState("");
   const [dragItemId, setDragItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
   const [dragSubitem, setDragSubitem] = useState(null);
@@ -6069,11 +6079,15 @@ export default function App() {
 
   async function renameAdminFlooringGroup(itemId, subitemIds, nextBaseName) {
     const trimmedBaseName = `${nextBaseName ?? ""}`.trim();
-    if (!trimmedBaseName) return fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" });
-
     const targetIds = new Set(subitemIds);
     const parent = adminItems.find((item) => item.id === itemId);
     const targetSubitems = parent?.subitems?.filter((subitem) => targetIds.has(subitem.id)) ?? [];
+    if (!trimmedBaseName) {
+      if (targetSubitems.length && targetSubitems.every((subitem) => isLocalSubitemId(subitem.id))) {
+        return;
+      }
+      return fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" });
+    }
     if (!targetSubitems.length) return;
 
     const nextCanonicalNames = new Set(
@@ -7294,76 +7308,60 @@ export default function App() {
     }
   }
 
-  async function addAdminSubitem(itemId) {
+  function addAdminSubitem(itemId) {
     const parent = adminItems.find((item) => item.id === itemId);
-    const isFlooringParent = isFlooringThicknessItem(parent);
-    const defaultName = isFlooringParent ? "새 장판" : "새 소재";
-    let nextName = defaultName;
-    let suffix = 2;
-
-    const hasMatchingSubitemName = (candidateName) => {
-      const parsedCandidate = parseFlooringThicknessName(candidateName);
-      const canonicalCandidate = isFlooringParent
-        ? composeFlooringSubitemName(parsedCandidate?.baseName ?? candidateName, DEFAULT_FLOORING_SPEC)
-        : parsedCandidate
-          ? composeFlooringSubitemName(parsedCandidate.baseName, parsedCandidate.thickness)
-          : candidateName.trim();
-      return parent?.subitems?.some((subitem) => {
-        const parsedExisting = parseFlooringThicknessName(subitem.name);
-        const canonicalExisting = isFlooringParent
-          ? composeFlooringSubitemName(parsedExisting?.baseName ?? subitem.name, DEFAULT_FLOORING_SPEC)
-          : parsedExisting
-            ? composeFlooringSubitemName(parsedExisting.baseName, parsedExisting.thickness)
-            : subitem.name.trim();
-        return getCanonicalFlooringSubitemName(canonicalExisting) === getCanonicalFlooringSubitemName(canonicalCandidate);
-      });
+    if (!parent) return;
+    const nextSubitemId = createLocalId("local-subitem");
+    const nextSortOrder = parent?.subitems?.length
+      ? Math.max(...parent.subitems.map((subitem) => subitem.sort_order ?? 0)) + 1
+      : 0;
+    const source = parent.subitems?.[0];
+    const nextSubitem = {
+      id: nextSubitemId,
+      item_id: itemId,
+      name: "",
+      option_value: "",
+      unit: source?.unit ?? "평",
+      cost_price: "",
+      cost_unit: normalizeUnitOptionValue(source?.cost_unit),
+      unit_price: "",
+      labor_rate: "",
+      labor_rate_empty: "",
+      labor_rate_occupied: "",
+      spec_options: [],
+      spec_option_draft: "",
+      selected_spec_option: "",
+      quantity: "",
+      labor_count: "",
+      template_value_id: null,
+      sort_order: nextSortOrder,
     };
 
-    while (hasMatchingSubitemName(nextName)) {
-      nextName = `${defaultName} ${suffix}`;
-      suffix += 1;
-    }
-
-    const parsedNextFlooring = parseFlooringThicknessName(nextName);
-    const canonicalNextName = isFlooringParent
-      ? composeFlooringSubitemName(parsedNextFlooring?.baseName ?? nextName, DEFAULT_FLOORING_SPEC)
-      : parsedNextFlooring
-        ? composeFlooringSubitemName(parsedNextFlooring.baseName, parsedNextFlooring.thickness)
-        : nextName;
-
-    setAdminSaving(true);
     setAdminError("");
-    try {
-      if ((parent?.item_type ?? "itemized") === "flat") {
-        const { error: typeError } = await supabase
-          .from("construction_items")
-          .update({ item_type: "itemized" })
-          .eq("id", itemId)
-          .eq("company_id", requireSelectedCompanyId());
-        if (typeError) throw typeError;
-      }
-
-      const nextSortOrder = parent?.subitems?.length
-        ? Math.max(...parent.subitems.map((subitem) => subitem.sort_order ?? 0)) + 1
-        : 0;
-      const { error } = await supabase.from("construction_subitems").insert({
-        item_id: itemId,
-        name: canonicalNextName,
-        unit: "평",
-        unit_price: 0,
-        labor_rate: 0,
-        sort_order: nextSortOrder,
+    setAdminItems((current) =>
+      current.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              item_type: "itemized",
+              subitems: [...(item.subitems ?? []), nextSubitem],
+            }
+          : item
+      )
+    );
+    setExpandedAdminItemIds((current) => [...new Set([...current, itemId])]);
+    setNewlyAddedSubitemId(nextSubitemId);
+    window.setTimeout(() => {
+      setNewlyAddedSubitemId((current) => (current === nextSubitemId ? "" : current));
+    }, 1800);
+    window.requestAnimationFrame(() => {
+      document.querySelector(`[data-subitem-id="${nextSubitemId}"]`)?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
       });
-      if (error) throw error;
-      await fetchAdminItems();
-      setExpandedAdminItemIds((current) => [...new Set([...current, itemId])]);
-      setAdminNotice("새 소재를 추가했습니다. row 안에서 소재명을 수정해 주세요.");
-      markAdminCatalogSavedNow();
-    } catch (error) {
-      setAdminError(getFriendlyError(error, "소재를 추가하지 못했어요. 다시 시도해주세요."));
-    } finally {
-      setAdminSaving(false);
-    }
+    });
+    setAdminNotice("새 소재를 추가했습니다. 소재명을 입력한 뒤 저장하세요.");
+    markAdminCatalogDirty(isCommonPriceAdminPage ? "prices" : "quantities");
   }
 
   async function deleteAdminItem(itemId) {
@@ -8113,6 +8111,33 @@ export default function App() {
       const snapshotItems = adminItemsRef.current;
       const adminSubitems = snapshotItems.flatMap((item) => item.subitems ?? []);
       const isCommonPriceSave = saveTarget === "prices";
+      const invalidNameSubitem = adminSubitems.find((subitem) => {
+        const name = `${subitem.name ?? ""}`.trim();
+        return !name || name === MATERIAL_NAME_PLACEHOLDER;
+      });
+
+      if (invalidNameSubitem) {
+        const message = "소재명을 입력해야 저장할 수 있습니다.";
+        const parent = snapshotItems.find((item) =>
+          item.subitems?.some((subitem) => subitem.id === invalidNameSubitem.id)
+        );
+        setAdminError(message);
+        if (parent?.id) {
+          setExpandedAdminItemIds((current) => [...new Set([...current, parent.id])]);
+        }
+        setNewlyAddedSubitemId(invalidNameSubitem.id);
+        window.requestAnimationFrame(() => {
+          document.querySelector(`[data-subitem-id="${invalidNameSubitem.id}"]`)?.scrollIntoView({
+            block: "nearest",
+            behavior: "smooth",
+          });
+        });
+        if (auto) {
+          setAutoSaveStatus("error");
+          setAutoSaveError(message);
+        }
+        return false;
+      }
 
       if (snapshotItems.length) {
         await Promise.all(
@@ -8120,7 +8145,7 @@ export default function App() {
             supabase
               .from("construction_items")
               .update({
-                name: `${item.name ?? ""}`.trim() || "새 대분류",
+                name: getCategoryPersistName(item) || "새 대분류",
                 item_type: item.item_type ?? "itemized",
                 is_favorite: Boolean(item.is_favorite),
                 sort_order: item.sort_order ?? 0,
@@ -8136,6 +8161,7 @@ export default function App() {
 
       const existingSubitems = adminSubitems.filter((subitem) => !isLocalSubitemId(subitem.id));
       const localSubitems = adminSubitems.filter((subitem) => isLocalSubitemId(subitem.id));
+      let persistedSubitems = existingSubitems;
 
       if (existingSubitems.length) {
         await Promise.all(
@@ -8167,8 +8193,8 @@ export default function App() {
         });
       }
 
-      if (isCommonPriceSave && localSubitems.length) {
-        const { error: insertError } = await supabase
+      if (localSubitems.length) {
+        const { data: insertedSubitems, error: insertError } = await supabase
           .from("construction_subitems")
           .insert(
             localSubitems.map((subitem) => ({
@@ -8184,8 +8210,16 @@ export default function App() {
               spec_options: normalizeSpecOptions(subitem.spec_options),
               sort_order: subitem.sort_order ?? 0,
             }))
-          );
+          )
+          .select("*");
         if (insertError) throw insertError;
+        persistedSubitems = [
+          ...existingSubitems,
+          ...localSubitems.map((subitem, index) => ({
+            ...subitem,
+            ...(insertedSubitems?.[index] ?? {}),
+          })),
+        ];
       }
 
       if (isCommonPriceSave) {
@@ -8230,7 +8264,7 @@ export default function App() {
         templateRow = insertedTemplate;
       }
 
-      const templateValuePayloads = existingSubitems.map((subitem) => ({
+      const templateValuePayloads = persistedSubitems.map((subitem) => ({
         template_id: templateRow.id,
         item_id: subitem.item_id,
         subitem_id: subitem.id,
@@ -11379,7 +11413,8 @@ export default function App() {
                       return (
                         <div
                           key={group.baseName}
-                          className={`admin-value-row flooring-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row price-table-grid" : "condition-quantity-row quantity-table-row"} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                          className={`admin-value-row flooring-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row price-table-grid" : "condition-quantity-row quantity-table-row"} ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                          data-subitem-id={activeSubitem.id}
                           onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
                           onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
                           onDragEnd={clearAdminDragState}
@@ -11398,6 +11433,7 @@ export default function App() {
                               <span className="field-label">소재명</span>
                               <input
                                 value={group.baseName}
+                                placeholder={MATERIAL_NAME_PLACEHOLDER}
                                 onChange={(event) =>
                                   updateLocalFlooringGroupBaseName(optionIds, event.target.value)
                                 }
@@ -11621,7 +11657,8 @@ export default function App() {
                   {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
                     <div
                       key={subitem.id}
-                      className={`admin-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row price-table-grid" : "condition-quantity-row quantity-table-row"} ${item.item_type !== "flat" && isConditionQuantityAdminPage ? "itemized-quantity-row" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+                      className={`admin-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row price-table-grid" : "condition-quantity-row quantity-table-row"} ${item.item_type !== "flat" && isConditionQuantityAdminPage ? "itemized-quantity-row" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+                      data-subitem-id={subitem.id}
                       onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
                       onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
                       onDragEnd={clearAdminDragState}
@@ -11643,6 +11680,7 @@ export default function App() {
                             <span className="field-label">소재명</span>
                             <input
                               value={subitem.name}
+                              placeholder={MATERIAL_NAME_PLACEHOLDER}
                               onChange={(event) =>
                                 setAdminItems((current) =>
                                   current.map((entry) =>
@@ -18033,6 +18071,19 @@ const styles = `
   }
   .price-table-list .admin-value-row.common-price-row:hover {
     background: #fbfcff;
+  }
+  .admin-value-row.newly-added {
+    animation: admin-new-row-highlight 1.6s ease-out;
+  }
+  @keyframes admin-new-row-highlight {
+    0% {
+      background: #fff6d8;
+      box-shadow: inset 3px 0 0 #f2b94b;
+    }
+    100% {
+      background: #ffffff;
+      box-shadow: inset 3px 0 0 transparent;
+    }
   }
   .price-table-list .admin-value-row.common-price-row input,
   .price-table-list .admin-value-row.common-price-row select {
