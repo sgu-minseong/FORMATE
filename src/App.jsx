@@ -12550,9 +12550,14 @@ const styles = `
     background: var(--bg-base);
     font-size: var(--font-size-body);
     font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-body);
+    letter-spacing: var(--letter-spacing-normal);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
   }
   button, input, select, textarea {
     font: inherit;
+    letter-spacing: var(--letter-spacing-normal);
   }
   button {
     cursor: pointer;
@@ -19226,8 +19231,8 @@ const styles = `
   .estimate-modal h3 {
     font-size: var(--font-size-title-md);
     font-weight: var(--font-weight-semibold);
-    line-height: 1.35;
-    letter-spacing: 0;
+    line-height: var(--line-height-heading);
+    letter-spacing: var(--letter-spacing-tight);
   }
   .section-heading h2,
   .selected-summary-header h3,
@@ -19244,8 +19249,8 @@ const styles = `
   .admin-add-subitem-row strong {
     font-size: 15px;
     font-weight: var(--font-weight-semibold);
-    line-height: 1.4;
-    letter-spacing: 0;
+    line-height: var(--line-height-compact);
+    letter-spacing: var(--letter-spacing-normal);
   }
   .muted,
   .caption,
@@ -19261,7 +19266,17 @@ const styles = `
   .estimate-number-footer {
     color: var(--text-secondary);
     font-size: var(--font-size-caption);
-    line-height: 1.5;
+    line-height: var(--line-height-copy);
+  }
+  p,
+  label,
+  th,
+  td,
+  .status-box,
+  .error-box,
+  .info-box,
+  .success-box {
+    line-height: var(--line-height-copy);
   }
   select,
   input,
@@ -19341,6 +19356,7 @@ const styles = `
   input[inputmode="numeric"] {
     font-family: var(--font-number);
     font-variant-numeric: tabular-nums;
+    letter-spacing: var(--letter-spacing-normal);
   }
   input[type="number"],
   input[inputmode="numeric"],
@@ -19363,6 +19379,19 @@ const styles = `
   .ai-data-table .row-number-cell {
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+  .pdf-capture-area {
+    font-family: var(--font-sans);
+    line-height: 1.48;
+    letter-spacing: var(--letter-spacing-normal);
+  }
+  .pdf-capture-area h3 {
+    line-height: 1.28;
+    letter-spacing: var(--letter-spacing-tight);
+  }
+  .pdf-capture-area th,
+  .pdf-capture-area td {
+    line-height: 1.42;
   }
   button svg,
   .compact-button svg,
