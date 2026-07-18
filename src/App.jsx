@@ -12340,8 +12340,8 @@ export default function App() {
       )}
 
       {page === "preview" && (
-        <main className={`panel-page ${estimatePreviewType === "general" ? "general-preview-page" : ""}`.trim()}>
-          <section className={`panel wide ${estimatePreviewType === "general" ? "general-preview-panel" : ""}`.trim()}>
+        <main className={`panel-page ${estimatePreviewType === "general" ? "general-preview-page" : "detail-preview-page"}`.trim()}>
+          <section className={`panel wide ${estimatePreviewType === "general" ? "general-preview-panel" : "detail-preview-panel"}`.trim()}>
             <div className="editor-header">
               <div>
                 <h2>{estimatePreviewType === "detail" ? "세부 견적서 확인" : "일반 견적서 확인"}</h2>
@@ -12349,14 +12349,14 @@ export default function App() {
               <div className="estimate-header-actions">
                 <button
                   type="button"
-                  className={estimatePreviewType === "general" ? "primary-button" : "secondary-button"}
+                  className={`secondary-button preview-type-button ${estimatePreviewType === "general" ? "active" : ""}`.trim()}
                   onClick={() => setEstimatePreviewType("general")}
                 >
                   일반 견적서
                 </button>
                 <button
                   type="button"
-                  className={estimatePreviewType === "detail" ? "primary-button" : "secondary-button"}
+                  className={`secondary-button preview-type-button ${estimatePreviewType === "detail" ? "active" : ""}`.trim()}
                   onClick={() => setEstimatePreviewType("detail")}
                 >
                   세부 견적서
@@ -17649,6 +17649,179 @@ const styles = `
     height: 18px;
     stroke-width: 1.5;
   }
+  .detail-preview-page {
+    background: #f4f6f9;
+  }
+  .detail-preview-panel {
+    width: min(1180px, 100%);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .detail-preview-panel > .editor-header {
+    margin-bottom: var(--space-2);
+    padding: 14px 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: var(--shadow-sm);
+  }
+  .detail-preview-panel > .editor-header h2 {
+    margin: 0;
+    font-size: var(--font-size-title-md);
+  }
+  .detail-preview-panel .estimate-header-actions .primary-button,
+  .detail-preview-panel .estimate-header-actions .secondary-button,
+  .detail-preview-panel .estimate-header-actions .ghost,
+  .detail-preview-panel .actions .primary-button,
+  .detail-preview-panel .actions .secondary-button {
+    min-height: 38px;
+    padding: 0 12px;
+  }
+  .detail-preview-panel .actions {
+    justify-content: flex-end;
+    margin-top: var(--space-2);
+  }
+  .detail-estimate-document {
+    width: min(1100px, 100%);
+    margin: 0 auto;
+    padding: 34px 36px;
+    border: 1px solid #d8dee8;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 18px 56px rgba(23, 32, 51, 0.1);
+  }
+  .detail-estimate-document .pdf-title-row {
+    margin-bottom: 18px;
+    padding-bottom: 18px;
+    border-bottom: 2px solid var(--brand-primary);
+  }
+  .detail-estimate-document .pdf-title-row h3 {
+    font-size: 27px;
+    letter-spacing: 0;
+  }
+  .detail-estimate-document .pdf-title-row .number-text {
+    font-size: 29px;
+    color: var(--brand-primary);
+  }
+  .detail-estimate-document .estimate-meta-grid {
+    grid-template-columns: minmax(130px, 1fr) minmax(160px, 1.25fr) repeat(3, minmax(110px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .detail-estimate-document .estimate-meta-grid div,
+  .detail-estimate-document .estimate-pyeong-preview div,
+  .detail-estimate-document .compact-key,
+  .detail-estimate-document .customer-adjustment-preview,
+  .detail-estimate-document .estimate-note-box,
+  .detail-estimate-document .preview-site-memo {
+    border-color: #e1e7f0;
+    background: #f8fafc;
+    box-shadow: none;
+  }
+  .detail-estimate-document .form-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 12px;
+    border: 1px solid #e1e7f0;
+    border-radius: 12px;
+    background: #fbfcfe;
+  }
+  .detail-estimate-document .form-grid label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .detail-estimate-document .form-grid input,
+  .detail-estimate-document .form-grid select,
+  .detail-estimate-document .preview-site-memo textarea {
+    border-color: #dce3ee;
+    background: #ffffff;
+  }
+  .detail-estimate-document .detail-estimate-groups {
+    gap: 14px;
+    margin-top: 18px;
+  }
+  .detail-estimate-document .detail-estimate-group {
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid #dfe5ee;
+    border-radius: 12px;
+    background: #fbfcfe;
+  }
+  .detail-estimate-document .detail-estimate-group h3 {
+    display: flex;
+    align-items: center;
+    min-height: 30px;
+    margin: 0;
+    padding: 0 2px;
+    color: var(--brand-primary);
+    font-size: var(--font-size-title-sm);
+  }
+  .detail-estimate-document .detail-estimate-table {
+    overflow: hidden;
+    border: 1px solid #e1e7f0;
+    border-radius: 10px;
+  }
+  .detail-estimate-document .detail-estimate-table th,
+  .detail-estimate-document .detail-estimate-table td {
+    padding: 11px 12px;
+    border-color: #e5eaf2;
+    vertical-align: middle;
+  }
+  .detail-estimate-document .detail-estimate-table th {
+    background: #f2f5fa;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .detail-estimate-document .detail-estimate-table th:nth-child(n+3),
+  .detail-estimate-document .detail-estimate-table td:nth-child(n+3) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .detail-estimate-document .detail-estimate-table tbody tr:nth-child(4n+3) td,
+  .detail-estimate-document .detail-estimate-table tbody tr:nth-child(4n+4) td {
+    background: #fdfefe;
+  }
+  .detail-estimate-document .detail-estimate-table tbody tr:hover td {
+    background: #f6f8fc;
+  }
+  .detail-estimate-document .labor-detail-row td {
+    color: var(--text-secondary);
+    background: #f8fafc;
+  }
+  .detail-estimate-document .labor-detail-row td:nth-child(1),
+  .detail-estimate-document .detail-estimate-table td:empty {
+    color: var(--text-tertiary);
+  }
+  .detail-estimate-document .customer-adjustment-preview,
+  .detail-estimate-document .preview-site-memo,
+  .detail-estimate-document .estimate-note-box,
+  .detail-estimate-document .estimate-pyeong-preview,
+  .detail-estimate-document .compact-key {
+    margin-top: 14px;
+  }
+  .detail-estimate-document .customer-adjustment-preview h3,
+  .detail-estimate-document .estimate-note-box strong {
+    font-size: var(--font-size-title-sm);
+  }
+  .detail-estimate-document .customer-adjustment-preview table th:nth-child(3),
+  .detail-estimate-document .customer-adjustment-preview table td:nth-child(3) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .detail-estimate-document .tax-note,
+  .detail-estimate-document .estimate-note-box p,
+  .detail-estimate-document .preview-site-memo label,
+  .detail-estimate-document .estimate-number-footer {
+    color: var(--text-secondary);
+  }
+  .detail-preview-panel svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+  }
   .pdf-title-row {
     display: flex;
     justify-content: space-between;
@@ -18961,6 +19134,280 @@ const styles = `
     width: 18px;
     height: 18px;
     stroke-width: 1.5;
+  }
+  /* 7-8 final visual polish: hierarchy, state, type, and numeric consistency. */
+  .primary-button,
+  .secondary-button,
+  .ghost {
+    min-height: 40px;
+    border-radius: var(--radius-button);
+    padding: 0 14px;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1;
+    box-shadow: none;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  }
+  .primary-button {
+    border: 1px solid var(--brand-primary);
+    background: var(--brand-primary);
+    color: var(--text-inverse);
+  }
+  .primary-button:hover:not(:disabled) {
+    border-color: var(--brand-primary-hover);
+    background: var(--brand-primary-hover);
+    box-shadow: none;
+    transform: none;
+  }
+  .secondary-button {
+    border: 1px solid var(--border-default);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+  }
+  .secondary-button:hover:not(:disabled) {
+    border-color: var(--brand-accent-line);
+    background: var(--bg-muted);
+  }
+  .ghost {
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+  }
+  .ghost:hover:not(:disabled) {
+    background: var(--bg-subtle);
+    color: var(--text-primary);
+  }
+  .primary-button:focus-visible,
+  .secondary-button:focus-visible,
+  .ghost:focus-visible,
+  .icon-button:focus-visible,
+  .danger-button:focus-visible,
+  .template-delete-button:focus-visible,
+  .selected-summary-remove:focus-visible,
+  .estimate-photo-button:focus-visible,
+  .estimate-expand-toggle:focus-visible,
+  .preview-top button:focus-visible,
+  .photo-tabs button:focus-visible,
+  .segmented button:focus-visible,
+  .chips button:focus-visible {
+    outline: none;
+    border-color: var(--brand-primary);
+    box-shadow: var(--focus-ring);
+  }
+  .danger-button,
+  .template-delete-button,
+  .photo-thumb-actions button.danger {
+    border-color: var(--color-danger-border);
+    background: var(--bg-surface);
+    color: var(--color-danger);
+    box-shadow: none;
+  }
+  .danger-button:hover:not(:disabled),
+  .danger-button:focus-visible,
+  .template-delete-button:hover:not(:disabled),
+  .template-delete-button:focus-visible,
+  .danger-text-button:hover:not(:disabled),
+  .danger-text:hover:not(:disabled) {
+    border-color: rgba(194, 46, 46, 0.34);
+    background: var(--color-danger-subtle);
+    color: var(--color-danger);
+  }
+  .preview-type-button.active {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+  }
+  .panel h2,
+  .category-column h2,
+  .editor h2,
+  .editor-header h2,
+  .ui-page-header h1,
+  .admin-verify-modal h2,
+  .estimate-modal h3 {
+    font-size: var(--font-size-title-md);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.35;
+    letter-spacing: 0;
+  }
+  .section-heading h2,
+  .selected-summary-header h3,
+  .customer-adjustment-preview h3,
+  .estimate-adjustment-panel h3,
+  .saved-estimate-extra h4,
+  .detail-estimate-group h3,
+  .admin-condition-title strong,
+  .template-list-panel strong,
+  .admin-edit-title strong,
+  .admin-catalog-actions strong,
+  .admin-empty-edit-notice strong,
+  .condition-label-guide strong,
+  .admin-add-subitem-row strong {
+    font-size: 15px;
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.4;
+    letter-spacing: 0;
+  }
+  .muted,
+  .caption,
+  .ui-page-header__description,
+  .estimate-meta-grid span,
+  .estimate-pyeong-preview span,
+  .admin-condition-title span,
+  .template-list-panel span,
+  .admin-edit-title span,
+  .admin-catalog-actions span,
+  .admin-add-subitem-row span,
+  .tax-note,
+  .estimate-number-footer {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: 1.5;
+  }
+  select,
+  input,
+  textarea,
+  .custom-select-trigger,
+  .admin-search-field,
+  .estimate-pyeong-input {
+    border-radius: var(--radius-button);
+  }
+  select:focus,
+  input:focus,
+  textarea:focus,
+  .custom-select-trigger:focus-visible,
+  .custom-select-trigger.open,
+  .admin-search-field:focus-within,
+  .estimate-pyeong-input:focus-within {
+    border-color: var(--brand-primary);
+    background: var(--bg-surface);
+    box-shadow: var(--focus-ring);
+    outline: none;
+  }
+  .empty-state,
+  .estimate-empty-state,
+  .admin-empty-edit-notice,
+  .ai-empty-sheet,
+  .compact-empty {
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-card);
+    background: var(--bg-muted);
+    box-shadow: none;
+    color: var(--text-secondary);
+  }
+  .estimate-empty-state {
+    padding: var(--space-4);
+  }
+  .photo-empty-inline,
+  .selected-summary-empty,
+  .ai-plan-empty,
+  .spec-options-popover-empty,
+  .ai-mapping-empty,
+  .estimate-row-spec-cell.empty,
+  .admin-readonly-material span,
+  td:empty {
+    color: var(--text-tertiary);
+  }
+  .category-card:hover,
+  .template-list-row:hover,
+  .selected-summary-row:hover,
+  .adjustment-row:hover,
+  .estimate-template-row:hover,
+  .admin-value-row:hover,
+  .admin-item-card:hover,
+  .estimate-card:hover {
+    background: #f8faff;
+  }
+  .ai-data-table tbody tr:nth-child(even) td:not(.row-number-cell),
+  .estimate-modal table tbody tr:nth-child(even) td,
+  .selected-summary-row:nth-child(even),
+  .adjustment-row:nth-child(even),
+  .estimate-card:nth-child(even) {
+    background: #fcfdff;
+  }
+  .ai-data-table tbody tr:hover td:not(.row-number-cell),
+  .estimate-modal table tbody tr:hover td,
+  .general-estimate-document .general-estimate-table tbody tr:hover td,
+  .detail-estimate-document .detail-estimate-table tbody tr:hover td {
+    background: #f6f8fc;
+  }
+  .number-text,
+  .signed-total,
+  .estimate-amount,
+  .estimate-row-total-cell,
+  .estimate-template-total,
+  .estimate-editor-total .final-total,
+  .preview-total strong,
+  input[type="number"],
+  input[inputmode="numeric"] {
+    font-family: var(--font-number);
+    font-variant-numeric: tabular-nums;
+  }
+  input[type="number"],
+  input[inputmode="numeric"],
+  .price-number-field input,
+  .estimate-row-quantity-cell input,
+  .estimate-amount,
+  .estimate-row-total-cell,
+  .estimate-template-total,
+  .estimate-editor-total .final-total {
+    text-align: right;
+  }
+  td .number-text,
+  th .number-text {
+    justify-content: flex-end;
+  }
+  .estimate-modal table td:has(.number-text),
+  .estimate-modal table th:nth-child(n+3),
+  .pdf-capture-area table td:has(.number-text),
+  .pdf-capture-area table th:nth-child(n+3),
+  .ai-data-table .row-number-cell {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  button svg,
+  .compact-button svg,
+  .icon-button svg,
+  .danger-button svg,
+  .admin-tool-panel svg,
+  .admin-edit-panel svg,
+  .template-list-panel svg,
+  .detail-cost-layout svg,
+  .photo-storage-note svg,
+  .estimate-workspace svg,
+  .general-preview-panel svg,
+  .detail-preview-panel svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+    flex: 0 0 auto;
+  }
+  .empty-state > svg,
+  .compact-empty > svg,
+  .ui-empty-state__icon svg {
+    width: 24px;
+    height: 24px;
+    stroke-width: 1.5;
+  }
+  .panel,
+  .category-column,
+  .editor,
+  .selected-item-summary,
+  .site-memo-panel,
+  .estimate-adjustment-panel,
+  .estimate-editor-total,
+  .estimate-card,
+  .estimate-modal,
+  .pdf-capture-area,
+  .admin-pyeong-panel,
+  .template-list-panel,
+  .admin-edit-panel,
+  .admin-tool-panel,
+  .admin-catalog-actions,
+  .estimate-selected-condition-panel,
+  .estimate-pyeong-panel,
+  .total-box {
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-sm);
   }
   .status-box,
   .error-box {
