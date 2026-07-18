@@ -18204,31 +18204,48 @@ const styles = `
     }
   }
 
-  /* taste redesign layer: trust-first B2B tool, low cognitive load, one clear next action */
+  /* FORMATE v8.1 design layer */
   :root {
-    --bg-base: #f6f7fb;
-    --bg-surface: #ffffff;
-    --bg-subtle: #f2f5fa;
-    --bg-surface-overlay: rgba(255, 255, 255, 0.94);
-    --text-primary: #172033;
-    --text-secondary: #5f6d82;
-    --text-tertiary: #8a95a8;
-    --brand-primary: #24304f;
-    --brand-primary-hover: #17213a;
-    --brand-primary-subtle: #eef3ff;
-    --brand-accent-line: #aeb9dd;
-    --border-default: #d6deea;
-    --border-subtle: #e6ebf2;
-    --radius-card: 16px;
-    --radius-button: 12px;
-    --shadow-sm: 0 10px 30px rgba(23, 32, 51, 0.06);
-    --shadow-md: 0 22px 54px rgba(23, 32, 51, 0.12);
-    --focus-ring: 0 0 0 4px rgba(36, 48, 79, 0.14);
+    --color-bg: #F6F4EF;
+    --color-surface: #FFFFFF;
+    --color-surface-subtle: #FBFAF7;
+    --color-border: #E2DED6;
+    --color-border-strong: #CFC8BC;
+    --color-text-primary: #1F2933;
+    --color-text-secondary: #667085;
+    --color-text-muted: #98A2B3;
+    --color-primary: #0F766E;
+    --color-primary-hover: #115E59;
+    --color-primary-soft: #F0FDFA;
+    --color-primary-border: #99F6E4;
+    --color-header-bg: #F3F1EC;
+    --color-row-alt: #FBFAF7;
+    --color-row-hover: #F1EFE8;
+    --color-cell-focus: #F0FDFA;
+    --color-danger: #DC2626;
+    --color-danger-bg: #FEF2F2;
+    --color-danger-border: #FECACA;
+    --bg-base: var(--color-bg);
+    --bg-surface: var(--color-surface);
+    --bg-subtle: var(--color-surface-subtle);
+    --bg-surface-overlay: rgba(255, 255, 255, 0.96);
+    --text-primary: var(--color-text-primary);
+    --text-secondary: var(--color-text-secondary);
+    --text-tertiary: var(--color-text-muted);
+    --brand-primary: var(--color-primary);
+    --brand-primary-hover: var(--color-primary-hover);
+    --brand-primary-subtle: var(--color-primary-soft);
+    --brand-accent-line: var(--color-primary-border);
+    --border-default: var(--color-border);
+    --border-subtle: var(--color-border);
+    --radius-card: 8px;
+    --radius-button: 6px;
+    --shadow-sm: none;
+    --shadow-md: none;
+    --focus-ring: 0 0 0 3px rgba(153, 246, 228, 0.45);
   }
   body {
-    background:
-      radial-gradient(circle at 18% 0%, rgba(238, 243, 255, 0.9), transparent 30%),
-      var(--bg-base);
+    background: var(--bg-base);
   }
   button {
     transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
