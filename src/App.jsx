@@ -72,11 +72,11 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
 const APP_SHELL_NAV_ITEMS = [
-  { key: "landing", label: "홈" },
-  { key: "condition", label: "새 견적서 작성" },
-  { key: "admin-estimates", label: "저장 견적 보기" },
-  { key: "photo-management", label: "사진 관리/확인" },
-  { key: "admin", label: "관리자 홈" },
+  { key: "landing", label: "홈", icon: <Home /> },
+  { key: "condition", label: "새 견적서 작성", icon: <ClipboardList /> },
+  { key: "admin-estimates", label: "저장 견적 보기", icon: <FileText /> },
+  { key: "photo-management", label: "사진 관리/확인", icon: <Image /> },
+  { key: "admin", label: "관리자 홈", icon: <Settings /> },
 ];
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const UNIT_OPTIONS = ["평", "m²", "m", "개소", "식", "자당", "롤", "박스", "EA"];
@@ -6712,7 +6712,7 @@ export default function App() {
       <div className="customer-adjustment-preview">
         <h3>추가금/할인</h3>
         {cleanEstimateAdjustments.length ? (
-          <table>
+          <table className="preview-table customer-adjustment-table">
             <thead>
               <tr>
                 <th>항목</th>
@@ -6744,7 +6744,7 @@ export default function App() {
 
   function renderGeneralEstimateTable() {
     return (
-      <table className="general-estimate-table">
+      <table className="preview-table general-estimate-table">
         <thead>
           <tr>
             <th>시공항목</th>
@@ -6798,7 +6798,7 @@ export default function App() {
         {Object.entries(selectedRowsByCategory).map(([categoryName, rows]) => (
           <section className="detail-estimate-group" key={categoryName}>
             <h3>{categoryName}</h3>
-            <table className="detail-estimate-table">
+            <table className="preview-table detail-estimate-table">
               <thead>
                 <tr>
                   <th>소재/업체</th>
@@ -8468,6 +8468,7 @@ export default function App() {
         companyName={selectedCompanyName}
         navItems={APP_SHELL_NAV_ITEMS}
         className={shellOptions.className || ""}
+        collapsed={!!shellOptions.collapsed}
       >
         {children}
       </AppShell>
@@ -10490,7 +10491,7 @@ export default function App() {
         </main>
       )}
 
-      {page === "condition" && (
+      {page === "condition" && renderAppShell(
         <main className="panel-page condition-page">
           <section className="panel condition-builder-panel">
             <div className="editor-header condition-builder-header">
@@ -10501,12 +10502,12 @@ export default function App() {
                   템플릿으로 불러온 항목과 수량은 작성 중 현장에 맞게 수정할 수 있습니다.
                 </p>
               </div>
-              <button className="ghost" onClick={resetFlow}>
-                <ArrowLeft size={18} /> 이전
-              </button>
+              <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={resetFlow}>
+                이전
+              </Button>
             </div>
 
-            <div className={`estimate-current-condition ${canGoNext() ? "active" : ""}`.trim()}>
+            <div className={`estimate-current-condition ${conditionChips.length > 0 ? "has-value" : ""} ${canGoNext() ? "active" : ""}`.trim()}>
               <span>선택한 템플릿</span>
               <strong>
                 {conditionChips.length > 0 ? conditionChips.join(" · ") : "시작할 템플릿을 선택하세요."}
@@ -10522,7 +10523,7 @@ export default function App() {
                 <div className="custom-select">
                   <button
                     type="button"
-                    className={`custom-select-trigger ${pyeongDropdownOpen ? "open" : ""}`.trim()}
+                    className={`custom-select-trigger ${condition.size ? "has-value" : ""} ${pyeongDropdownOpen ? "open" : ""}`.trim()}
                     onClick={() => setPyeongDropdownOpen((current) => !current)}
                     aria-expanded={pyeongDropdownOpen}
                   >
@@ -10703,17 +10704,17 @@ export default function App() {
             {estimateError && <div className="error-box">{estimateError}</div>}
 
             <div className="condition-start-row">
-              <button className="primary-button" disabled={!canGoNext() || estimateLoading} onClick={() => goNext()}>
+              <Button variant="primary" disabled={!canGoNext() || estimateLoading} onClick={() => goNext()}>
                 {estimateLoading
                   ? "템플릿 불러오는 중..."
                   : estimateConditionEditMode
                     ? "수정한 조건으로 돌아가기"
                     : "견적서 작성 시작"}
-              </button>
+              </Button>
             </div>
           </section>
         </main>
-      )}
+      , { collapsed: true })}
 
       {page === "items" && (
         <main className="workspace estimate-workspace">
@@ -12436,8 +12437,8 @@ export default function App() {
                 >
                   세부 견적서
                 </button>
-                <button className="ghost" onClick={() => setPage(previewBackPage === "admin-estimates" ? "admin-estimates" : "items")}>
-                  <ArrowLeft size={18} /> {previewBackPage === "admin-estimates" ? "저장 견적 보기" : "항목 수정"}
+                <button className="secondary-button" onClick={() => setPage(previewBackPage === "admin-estimates" ? "admin-estimates" : "items")}>
+                  <ArrowLeft size={18} /> {previewBackPage === "admin-estimates" ? "저장 견적 보기" : "견적 재생성"}
                 </button>
               </div>
             </div>
@@ -12583,14 +12584,14 @@ export default function App() {
 
             <div className="actions">
               <button
-                className={estimatePreviewType === "general" ? "secondary-button" : "primary-button"}
+                className="secondary-button"
                 disabled={estimateSaving}
                 onClick={saveEstimateToSupabase}
               >
                 <Save size={18} /> 견적 저장
               </button>
               <button
-                className={estimatePreviewType === "general" ? "primary-button" : "secondary-button"}
+                className="primary-button"
                 onClick={downloadEstimatePdf}
               >
                 <Printer size={18} /> PDF 받기
@@ -19641,6 +19642,14 @@ const styles = `
   .admin-action-row svg {
     color: var(--color-text-secondary);
   }
+  .formate-app-shell--collapsed .formate-app-shell__brand {
+    display: none;
+  }
+  .formate-app-shell--collapsed .formate-app-shell__nav-button svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 1.5;
+  }
   .home-action-row span,
   .admin-action-row span {
     display: grid;
@@ -19673,6 +19682,208 @@ const styles = `
   .home-recent-compact-row:focus-visible {
     background: var(--color-row-hover);
     outline: none;
+  }
+  .formate-app-shell--collapsed .condition-page {
+    width: 100%;
+    max-width: var(--viewport-preferred-width);
+    min-height: 100dvh;
+    padding: var(--space-page-y) var(--space-page-x);
+  }
+  .condition-page .condition-builder-panel {
+    width: 100%;
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-panel);
+    background: var(--color-surface);
+    box-shadow: none;
+    gap: var(--space-section-gap);
+  }
+  .condition-page .condition-builder-header {
+    align-items: flex-start;
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .condition-page .condition-builder-header h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-work-title);
+  }
+  .condition-page .condition-builder-header .muted {
+    max-width: 760px;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .estimate-current-condition {
+    gap: var(--space-0-5);
+    padding: var(--space-card-padding);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-subtle);
+    box-shadow: none;
+  }
+  .condition-page .estimate-current-condition.active {
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
+    box-shadow: none;
+  }
+  .condition-page .estimate-current-condition span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .estimate-current-condition strong {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+    letter-spacing: var(--letter-spacing-normal);
+  }
+  .condition-page .estimate-current-condition.has-value strong {
+    color: var(--color-text-primary);
+  }
+  .condition-page .estimate-current-condition p {
+    display: block;
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .condition-static-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .condition-page .condition-static-field,
+  .condition-page .condition-static-wide {
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+    gap: var(--space-1);
+  }
+  .condition-page .condition-static-wide {
+    grid-column: 1 / -1;
+  }
+  .condition-page .field-label,
+  .condition-page .condition-static-wide .field-label {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .custom-select {
+    max-width: none;
+  }
+  .condition-page .custom-select-menu {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+  }
+  .condition-page .custom-select-section p {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .pyeong-option-row.selected {
+    background: var(--color-primary-soft);
+  }
+  .condition-page .pyeong-option-row.selected .pyeong-option-main {
+    color: var(--color-primary);
+  }
+  .condition-page .custom-select-menu button:hover,
+  .condition-page .custom-select-menu button:focus-visible {
+    background: var(--color-row-hover);
+    outline: none;
+  }
+  .condition-page .custom-select-menu .favorite-pyeong-toggle.active {
+    color: var(--color-primary);
+  }
+  .condition-page .custom-select-trigger,
+  .condition-page .segmented button,
+  .condition-page .chips button {
+    min-height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
+    box-shadow: none;
+  }
+  .condition-page .custom-select-trigger:hover,
+  .condition-page .custom-select-trigger:focus-visible,
+  .condition-page .custom-select-trigger.open,
+  .condition-page .segmented button:hover,
+  .condition-page .segmented button:focus-visible,
+  .condition-page .chips button:hover,
+  .condition-page .chips button:focus-visible {
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    box-shadow: var(--focus-ring);
+    outline: none;
+  }
+  .condition-page .segmented button.selected,
+  .condition-page .chips button.selected {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    box-shadow: none;
+  }
+  .condition-page .custom-select-trigger.has-value {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+  .condition-page .chips {
+    gap: var(--space-1);
+  }
+  .condition-page .chips button.condition-variant-option {
+    min-height: var(--button-height);
+    padding: var(--space-1) var(--space-1-5);
+    border-radius: var(--radius-button);
+    justify-items: start;
+    text-align: left;
+  }
+  .condition-page .condition-variant-option small {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .condition-variant-option.selected small {
+    color: var(--color-primary);
+  }
+  .condition-page .condition-static-note {
+    min-height: var(--button-height);
+    padding: var(--space-1) var(--space-1-5);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-button);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .condition-static-note strong {
+    color: var(--color-text-primary);
+  }
+  .condition-page .condition-label-link {
+    min-height: var(--button-height-sm);
+    color: var(--color-text-secondary);
+  }
+  .condition-page .condition-start-row {
+    justify-content: flex-end;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
   }
   .saved-estimates-page .estimate-list .ui-table-wrap,
   .saved-estimates-page .estimate-modal .ui-table-wrap {
@@ -19774,6 +19985,193 @@ const styles = `
   }
   .saved-estimate-modal-empty {
     margin-top: var(--space-2);
+  }
+  .general-preview-page,
+  .detail-preview-page {
+    background: var(--color-bg);
+  }
+  .general-preview-panel,
+  .detail-preview-panel {
+    width: min(var(--viewport-preferred-width), 100%);
+  }
+  .general-preview-panel > .editor-header,
+  .detail-preview-panel > .editor-header {
+    margin-bottom: var(--space-2);
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .general-preview-panel > .editor-header h2,
+  .detail-preview-panel > .editor-header h2 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-work-title);
+  }
+  .general-estimate-document,
+  .detail-estimate-document {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .general-estimate-document .pdf-title-row,
+  .detail-estimate-document .pdf-title-row {
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border-strong);
+  }
+  .general-estimate-document .pdf-title-row h3,
+  .detail-estimate-document .pdf-title-row h3 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-page-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-page-title);
+    letter-spacing: var(--letter-spacing-normal);
+  }
+  .general-estimate-document .pdf-title-row .number-text,
+  .detail-estimate-document .pdf-title-row .number-text {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+  }
+  .pdf-capture-area .estimate-meta-grid {
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .general-estimate-document .estimate-meta-grid div,
+  .detail-estimate-document .estimate-meta-grid div,
+  .general-estimate-document .estimate-pyeong-preview div,
+  .detail-estimate-document .estimate-pyeong-preview div,
+  .general-estimate-document .compact-key,
+  .detail-estimate-document .compact-key,
+  .general-estimate-document .estimate-note-box,
+  .detail-estimate-document .estimate-note-box,
+  .general-estimate-document .preview-site-memo,
+  .detail-estimate-document .preview-site-memo,
+  .general-estimate-document .estimate-adjustment-panel,
+  .detail-estimate-document .customer-adjustment-preview {
+    border-color: var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-subtle);
+    box-shadow: none;
+  }
+  .general-estimate-document .form-grid,
+  .detail-estimate-document .form-grid {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-subtle);
+  }
+  .general-estimate-document .form-grid input,
+  .general-estimate-document .form-grid select,
+  .detail-estimate-document .form-grid input,
+  .detail-estimate-document .form-grid select,
+  .general-estimate-document .preview-site-memo textarea,
+  .detail-estimate-document .preview-site-memo textarea {
+    border-color: var(--color-border-strong);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+  }
+  .pdf-capture-area .preview-table {
+    width: 100%;
+    margin-top: var(--space-3);
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-table);
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .pdf-capture-area .preview-table th,
+  .pdf-capture-area .preview-table td {
+    height: var(--table-row-height);
+    padding: 0 var(--space-table-cell-x);
+    border: 0;
+    border-right: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+    text-align: left;
+    vertical-align: middle;
+  }
+  .pdf-capture-area .preview-table th:last-child,
+  .pdf-capture-area .preview-table td:last-child {
+    border-right: 0;
+  }
+  .pdf-capture-area .preview-table th {
+    height: var(--table-header-height);
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-header);
+    letter-spacing: var(--letter-spacing-table-header);
+  }
+  .pdf-capture-area .preview-table tbody tr:nth-child(even) td {
+    background: var(--color-row-alt);
+  }
+  .pdf-capture-area .preview-table tbody tr:hover td {
+    background: var(--color-row-hover);
+  }
+  .pdf-capture-area .preview-table td:has(.number-text),
+  .pdf-capture-area .preview-table th:nth-child(n+3),
+  .pdf-capture-area .preview-table td:nth-child(n+3) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .pdf-capture-area .preview-table .number-text {
+    justify-content: flex-end;
+    font-variant-numeric: tabular-nums;
+  }
+  .pdf-capture-area .general-estimate-table tfoot td {
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-medium);
+  }
+  .pdf-capture-area .general-estimate-table tfoot tr:last-child td {
+    border-top: 1px solid var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+  }
+  .pdf-capture-area .detail-estimate-group {
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .pdf-capture-area .detail-estimate-group h3 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .pdf-capture-area .labor-detail-row td {
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+  }
+  .pdf-capture-area .preview-table td:empty,
+  .pdf-capture-area .labor-detail-row td:first-child {
+    color: var(--color-text-muted);
+  }
+  .general-preview-panel .actions .primary-button,
+  .detail-preview-panel .actions .primary-button {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--text-inverse);
+  }
+  .general-preview-panel .actions .secondary-button,
+  .detail-preview-panel .actions .secondary-button {
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
   }
   @media (max-width: 1180px) {
     .estimate-workspace {
