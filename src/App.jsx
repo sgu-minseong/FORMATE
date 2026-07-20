@@ -20499,9 +20499,12 @@ const styles = `
   }
   .items-v2-category-sidebar {
     position: sticky;
-    top: 0;
+    top: 56px;
     width: var(--layout-local-sidebar);
-    height: 100dvh;
+    height: calc(100dvh - 56px);
+    max-height: calc(100dvh - 56px);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
     border-right: 1px solid var(--color-border);
     background: var(--color-surface);
   }
