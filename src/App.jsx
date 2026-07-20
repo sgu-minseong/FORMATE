@@ -29,6 +29,7 @@ import Button from "./components/ui/Button.jsx";
 import EmptyState from "./components/ui/EmptyState.jsx";
 import Input from "./components/ui/Input.jsx";
 import PageHeader from "./components/ui/PageHeader.jsx";
+import Table from "./components/ui/Table.jsx";
 import logoUrl from "./assets/logo.svg";
 import { AI_MAPPING_GROUPS, AI_MAPPING_SELECT_OPTIONS, AI_ROW_TYPE_OPTIONS } from "./features/aiExcelImport/constants";
 import {
@@ -12195,23 +12196,23 @@ export default function App() {
         <main className="panel-page admin-page saved-estimates-page">
           <div className="editor-header">
             <div>
-              <button className="ghost" onClick={() => setPage("landing")}>
-                <ArrowLeft size={18} /> 홈으로
-              </button>
+              <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
+                홈으로
+              </Button>
               <h2>저장한 견적</h2>
               <p className="muted caption">고객명이나 주소로 찾고 다시 열 수 있습니다.</p>
             </div>
             <div className="admin-actions">
-              <button className="secondary-button" disabled={adminLoading} onClick={() => fetchEstimates()}>
-                <RefreshCcw size={18} /> 새로고침
-              </button>
+              <Button variant="secondary" leftIcon={<RefreshCcw />} disabled={adminLoading} onClick={() => fetchEstimates()}>
+                새로고침
+              </Button>
             </div>
           </div>
 
           <section className="estimate-search-panel">
             <label>
               <span>고객명 또는 주소 검색</span>
-              <input
+              <Input
                 value={estimateSearch}
                 onChange={(event) => setEstimateSearch(event.target.value)}
                 placeholder="예: 홍길동, 아파트, 빌라, 101동"
@@ -12232,38 +12233,67 @@ export default function App() {
               </div>
             )}
 
-            {estimates.map((estimate) => (
-              <article key={estimate.id} className="estimate-card">
-                <div className="estimate-card-main">
-                  <strong>{getSavedEstimateCustomerName(estimate) || "고객명 미입력"}</strong>
-                  <p>{estimate.address || "주소 미입력"}</p>
-                </div>
-                <div className="estimate-card-meta">
-                  <span>작성일 {estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-"}</span>
-                  <span>시공 예정일 {estimate.construction_date || "-"}</span>
-                </div>
-                <div className="estimate-amount">
-                  <PriceText value={estimate.total_amount || 0} size="lg" />
-                </div>
-                <div className="estimate-card-actions">
-                  <button className="secondary-button" onClick={() => setSelectedEstimate(estimate)}>
-                    보기
-                  </button>
-                  <button
-                    className="ghost"
-                    onClick={() => loadSavedEstimateDraft(estimate, { destination: "preview" })}
-                  >
-                    견적서 확인
-                  </button>
-                  <button
-                    className="ghost"
-                    onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
-                  >
-                    복사
-                  </button>
-                </div>
-              </article>
-            ))}
+            {!!estimates.length && (
+              <Table
+                className="saved-estimates-table"
+                columns={[
+                  { key: "customer", label: "고객명", width: "18%" },
+                  { key: "address", label: "현장 주소", width: "30%" },
+                  { key: "createdAt", label: "작성일", width: "13%" },
+                  { key: "constructionDate", label: "시공 예정일", width: "13%" },
+                  { key: "amount", label: "총액", align: "right", width: "12%" },
+                  { key: "actions", label: "작업", align: "right", width: "14%" },
+                ]}
+                rows={estimates.map((estimate) => ({
+                  id: estimate.id,
+                  estimate,
+                  customer: getSavedEstimateCustomerName(estimate) || "고객명 미입력",
+                  address: estimate.address || "주소 미입력",
+                  createdAt: estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-",
+                  constructionDate: estimate.construction_date || "-",
+                  amount: estimate.total_amount || 0,
+                }))}
+                renderCell={({ row, column, value }) => {
+                  if (column.key === "customer") {
+                    return <strong className="saved-estimate-customer">{value}</strong>;
+                  }
+
+                  if (column.key === "address") {
+                    return <span className={row.estimate.address ? "saved-estimate-address" : "saved-estimate-muted"}>{value}</span>;
+                  }
+
+                  if (column.key === "amount") {
+                    return <PriceText value={value} size="sm" />;
+                  }
+
+                  if (column.key === "actions") {
+                    return (
+                      <div className="saved-estimate-table-actions">
+                        <Button variant="secondary" size="sm" onClick={() => setSelectedEstimate(row.estimate)}>
+                          보기
+                        </Button>
+                        <Button
+                          variant="tertiary"
+                          size="sm"
+                          onClick={() => loadSavedEstimateDraft(row.estimate, { destination: "preview" })}
+                        >
+                          견적서 확인
+                        </Button>
+                        <Button
+                          variant="tertiary"
+                          size="sm"
+                          onClick={() => loadSavedEstimateDraft(row.estimate, { copy: true, destination: "items" })}
+                        >
+                          복사
+                        </Button>
+                      </div>
+                    );
+                  }
+
+                  return <span className={value === "-" ? "saved-estimate-muted" : ""}>{value}</span>;
+                }}
+              />
+            )}
           </section>
 
           {selectedEstimate && (
@@ -12284,57 +12314,73 @@ export default function App() {
                       <p className="muted caption">{selectedEstimate.condition_snapshot.summary}</p>
                     )}
                   </div>
-                  <button className="ghost" onClick={() => setSelectedEstimate(null)}>
+                  <Button variant="tertiary" onClick={() => setSelectedEstimate(null)}>
                     닫기
-                  </button>
+                  </Button>
                 </div>
 
                 <div className="estimate-card-actions modal-actions">
-                  <button
-                    className="secondary-button"
+                  <Button
+                    variant="tertiary"
                     onClick={() => loadSavedEstimateDraft(selectedEstimate, { destination: "preview" })}
                   >
-                    보기
-                  </button>
-                  <button
-                    className="secondary-button"
+                    다시 열기
+                  </Button>
+                  <Button
+                    variant="tertiary"
                     onClick={() => loadSavedEstimateDraft(selectedEstimate, { copy: true, destination: "items" })}
                   >
                     복사해서 견적서 작성
-                  </button>
+                  </Button>
                 </div>
 
-                <table>
-                  <thead>
-                    <tr>
-                      <th>시공 항목</th>
-                      <th>소재/내용</th>
-                      <th>수량</th>
-                      <th>인원</th>
-                      <th>가격</th>
-                      <th>인건비</th>
-                      <th>합계</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedEstimateItems.map((item, index) => (
-                      <tr key={`${item.categoryName ?? item.category ?? "item"}-${index}`}>
-                        <td>{item.categoryName ?? item.category ?? item.itemName ?? "-"}</td>
-                        <td>{item.material ?? item.name ?? item.description ?? "-"}</td>
-                        <td><PriceText value={item.quantity ?? 0} unit={item.unit ?? ""} size="sm" /></td>
-                        <td><PriceText value={item.laborCount ?? item.labor_count ?? 0} unit="명" size="sm" /></td>
-                        <td><PriceText value={item.productAmount ?? item.price ?? item.amount ?? 0} size="sm" /></td>
-                        <td><PriceText value={item.laborAmount ?? 0} size="sm" /></td>
-                        <td><PriceText value={item.totalAmount ?? item.price ?? item.amount ?? 0} size="sm" /></td>
-                      </tr>
-                    ))}
-                    {!selectedEstimateItems.length && (
-                      <tr>
-                        <td colSpan="7">저장된 항목 데이터가 없습니다.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                {selectedEstimateItems.length ? (
+                  <Table
+                    className="saved-estimate-detail-table"
+                    columns={[
+                      { key: "category", label: "시공 항목", width: "18%" },
+                      { key: "material", label: "소재/내용", width: "28%" },
+                      { key: "quantity", label: "수량", align: "right", width: "10%" },
+                      { key: "laborCount", label: "인원", align: "right", width: "8%" },
+                      { key: "productAmount", label: "가격", align: "right", width: "12%" },
+                      { key: "laborAmount", label: "인건비", align: "right", width: "12%" },
+                      { key: "totalAmount", label: "합계", align: "right", width: "12%" },
+                    ]}
+                    rows={selectedEstimateItems.map((item, index) => ({
+                      id: `${item.categoryName ?? item.category ?? "item"}-${index}`,
+                      item,
+                      category: item.categoryName ?? item.category ?? item.itemName ?? "-",
+                      material: item.material ?? item.name ?? item.description ?? "-",
+                      quantity: item.quantity ?? 0,
+                      laborCount: item.laborCount ?? item.labor_count ?? 0,
+                      productAmount: item.productAmount ?? item.price ?? item.amount ?? 0,
+                      laborAmount: item.laborAmount ?? 0,
+                      totalAmount: item.totalAmount ?? item.price ?? item.amount ?? 0,
+                    }))}
+                    emptyAsZeroMuted
+                    renderCell={({ row, column, value }) => {
+                      if (column.key === "quantity") {
+                        return <PriceText value={value} unit={row.item.unit ?? ""} size="sm" />;
+                      }
+
+                      if (column.key === "laborCount") {
+                        return <PriceText value={value} unit="명" size="sm" />;
+                      }
+
+                      if (column.align === "right") {
+                        return <PriceText value={value} size="sm" />;
+                      }
+
+                      return <span className={value === "-" ? "saved-estimate-muted" : ""}>{value}</span>;
+                    }}
+                  />
+                ) : (
+                  <EmptyState
+                    className="saved-estimate-modal-empty"
+                    title="저장된 항목 데이터가 없습니다."
+                    description="이 견적서에 저장된 시공 항목 정보를 찾지 못했습니다."
+                  />
+                )}
 
                 {(selectedEstimateAdjustments.length > 0 || selectedEstimateSiteMemo) && (
                   <div className="saved-estimate-extra">
@@ -16363,24 +16409,25 @@ const styles = `
     align-items: end;
     margin-bottom: var(--space-2);
     padding: var(--space-2);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
-    background: var(--bg-surface);
-    box-shadow: var(--shadow-sm);
+    background: var(--color-surface);
+    box-shadow: none;
   }
   .estimate-search-panel label {
     display: grid;
-    gap: 6px;
-    font-weight: var(--font-weight-semibold);
+    gap: var(--space-label-gap);
+    font-weight: var(--font-weight-medium);
   }
   .estimate-search-panel label span,
   .estimate-result-count {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-bold);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
   }
   .estimate-result-count {
-    min-height: 44px;
+    min-height: var(--button-height);
     display: inline-flex;
     align-items: center;
     justify-content: flex-end;
@@ -16388,12 +16435,9 @@ const styles = `
   }
   .estimate-list {
     display: grid;
-    gap: 0;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    overflow: hidden;
-    background: var(--bg-surface);
-    box-shadow: var(--shadow-sm);
+    gap: var(--space-2);
+    background: transparent;
+    box-shadow: none;
   }
   .estimate-card {
     display: grid;
@@ -16457,7 +16501,7 @@ const styles = `
   .estimate-empty-state {
     padding: var(--space-3);
     text-align: center;
-    background: var(--bg-surface);
+    background: var(--color-surface);
   }
   .estimate-empty-state p {
     margin: 0;
@@ -19629,6 +19673,107 @@ const styles = `
   .home-recent-compact-row:focus-visible {
     background: var(--color-row-hover);
     outline: none;
+  }
+  .saved-estimates-page .estimate-list .ui-table-wrap,
+  .saved-estimates-page .estimate-modal .ui-table-wrap {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-table);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .saved-estimates-page .estimate-list .ui-table-scroll,
+  .saved-estimates-page .estimate-modal .ui-table-scroll {
+    overflow: auto;
+  }
+  .saved-estimates-page .ui-table {
+    width: 100%;
+    border-collapse: collapse;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .saved-estimates-page .ui-table th,
+  .saved-estimates-page .ui-table td {
+    height: var(--table-row-height);
+    padding: 0 var(--space-table-cell-x);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    text-align: left;
+    vertical-align: middle;
+  }
+  .saved-estimates-page .ui-table th {
+    height: var(--table-header-height);
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-header);
+    letter-spacing: var(--letter-spacing-table-header);
+  }
+  .saved-estimates-page .ui-table .ui-table__cell--right,
+  .saved-estimates-page .ui-table th.ui-table__cell--right,
+  .saved-estimates-page .ui-table td.ui-table__cell--right {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .saved-estimates-page .ui-table--zebra tbody tr:nth-child(even) td,
+  .saved-estimates-page .estimate-modal .ui-table--zebra tbody tr:nth-child(even) td {
+    background: var(--color-row-alt);
+  }
+  .saved-estimates-page .ui-table tbody tr:hover td,
+  .saved-estimates-page .estimate-modal .ui-table tbody tr:hover td {
+    background: var(--color-row-hover);
+  }
+  .saved-estimate-customer {
+    display: block;
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-cell);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .saved-estimate-address,
+  .saved-estimate-muted {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .saved-estimate-address {
+    color: var(--color-text-primary);
+  }
+  .saved-estimate-muted {
+    color: var(--color-text-muted);
+  }
+  .saved-estimate-table-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: var(--space-0-5);
+    justify-content: flex-end;
+    white-space: nowrap;
+  }
+  .saved-estimate-table-actions .ui-button {
+    min-width: 0;
+  }
+  .saved-estimates-page .modal-actions {
+    display: flex;
+    gap: var(--space-1);
+    justify-content: flex-start;
+    margin-bottom: var(--space-2);
+  }
+  .saved-estimates-page .estimate-modal {
+    width: min(960px, 100%);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+  }
+  .saved-estimate-detail-table td:nth-child(2) {
+    min-width: 220px;
+  }
+  .saved-estimate-modal-empty {
+    margin-top: var(--space-2);
   }
   @media (max-width: 1180px) {
     .estimate-workspace {
