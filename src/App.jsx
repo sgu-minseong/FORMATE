@@ -8681,11 +8681,9 @@ export default function App() {
         />
         <section className="items-v2-workspace">
           <header className="items-v2-header">
-            <div>
+            <div className="items-v2-titleline">
               <h1>견적서 작성</h1>
-              <p>{estimateDraftSource === "blank"
-                ? "빈 견적서로 시작했습니다. 필요한 항목을 체크하고 이번 현장 기준으로 수정하세요."
-                : "템플릿에서 불러온 기본값입니다. 필요한 항목을 체크하고 이번 현장 기준으로 수정하세요."}</p>
+              <span>{conditionSummary}</span>
             </div>
             <div className="items-v2-header-actions">
               <Button
@@ -8710,6 +8708,26 @@ export default function App() {
                 }}
               >
                 이전
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setPreviewBackPage("items");
+                  setEstimatePreviewType("general");
+                  setPage("preview");
+                }}
+              >
+                일반 견적서 확인
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setPreviewBackPage("items");
+                  setEstimatePreviewType("detail");
+                  setPage("preview");
+                }}
+              >
+                세부 견적서 확인
               </Button>
             </div>
           </header>
@@ -8791,30 +8809,6 @@ export default function App() {
               { label: "추가금/할인", value: `${adjustmentTotal >= 0 ? "+" : "-"}${Math.abs(adjustmentTotal).toLocaleString("ko-KR")}원` },
               { label: "최종 견적 금액", value: `${total.toLocaleString("ko-KR")}원` },
             ]}
-            actions={(
-              <div className="items-v2-total-actions">
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setPreviewBackPage("items");
-                    setEstimatePreviewType("general");
-                    setPage("preview");
-                  }}
-                >
-                  일반 견적서 확인
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setPreviewBackPage("items");
-                    setEstimatePreviewType("detail");
-                    setPage("preview");
-                  }}
-                >
-                  세부 견적서 확인
-                </Button>
-              </div>
-            )}
           />
         </section>
       </main>,
@@ -8955,7 +8949,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""}`.trim()}>
       <style>{styles}</style>
 
       <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""} ${page === "items" ? "with-estimate-condition" : ""}`.trim()}>
@@ -8979,6 +8973,53 @@ export default function App() {
               </strong>
             </div>
           )}
+          {page === "items" && USE_ITEMS_SCREEN_V2 ? (
+          <div className="header-estimate-actions">
+            <Button
+              variant="tertiary"
+              size="sm"
+              onClick={() => {
+                setEstimateConditionEditMode(true);
+                setPage("condition");
+                setStep(1);
+              }}
+            >
+              조건 다시 선택
+            </Button>
+            <Button
+              variant="tertiary"
+              size="sm"
+              leftIcon={<ArrowLeft />}
+              onClick={() => {
+                setEstimateConditionEditMode(true);
+                setPage("condition");
+                setStep(3);
+              }}
+            >
+              이전
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setPreviewBackPage("items");
+                setEstimatePreviewType("general");
+                setPage("preview");
+              }}
+            >
+              일반 견적서 확인
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setPreviewBackPage("items");
+                setEstimatePreviewType("detail");
+                setPage("preview");
+              }}
+            >
+              세부 견적서 확인
+            </Button>
+          </div>
+          ) : (
           <div className="company-session">
             <span className="session-status-dot">로그인됨</span>
             <span>{selectedCompanyName}님 반갑습니다.</span>
@@ -8986,6 +9027,7 @@ export default function App() {
               로그아웃
             </button>
           </div>
+          )}
       </header>
 
       {adminVerifyOpen && (
@@ -13018,7 +13060,10 @@ const styles = `
   }
   .app-shell {
     min-height: 100vh;
-    padding-top: 70px;
+    padding-top: 56px;
+  }
+  .app-shell.items-v2-shell {
+    padding-top: 56px;
   }
   .app-shell svg {
     stroke-width: 1.75;
@@ -13159,7 +13204,7 @@ const styles = `
     left: 0;
     right: 0;
     z-index: 80;
-    height: 64px;
+    height: 56px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -13179,12 +13224,12 @@ const styles = `
     text-align: left;
   }
   .global-brand img {
-    width: 34px;
-    height: 34px;
+    width: 24px;
+    height: 24px;
     display: block;
   }
   .global-brand strong {
-    font-size: var(--font-size-title-sm);
+    font-size: var(--font-size-section-title);
     letter-spacing: 0;
   }
   .global-header.with-admin-condition,
@@ -13194,13 +13239,15 @@ const styles = `
   }
   .header-admin-condition,
   .header-estimate-condition {
-    display: grid;
-    justify-items: center;
-    gap: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
     min-width: 0;
     max-width: min(54vw, 620px);
     justify-self: center;
-    padding: 6px 14px;
+    min-height: 32px;
+    padding: 0 var(--space-1-5);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-subtle);
@@ -13210,14 +13257,14 @@ const styles = `
   .header-admin-condition.active,
   .header-estimate-condition {
     border-color: var(--brand-primary);
-    background: rgba(244, 246, 255, 0.98);
+    background: var(--bg-surface);
     color: var(--text-primary);
   }
   .header-admin-condition span,
   .header-estimate-condition span {
-    font-size: 11px;
+    font-size: var(--font-size-caption);
     font-weight: var(--font-weight-semibold);
-    line-height: 1.1;
+    line-height: var(--line-height-caption);
   }
   .header-admin-condition strong,
   .header-estimate-condition strong {
@@ -13226,8 +13273,8 @@ const styles = `
     overflow: hidden;
     color: inherit;
     font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-bold);
-    line-height: 1.25;
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -13614,6 +13661,17 @@ const styles = `
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .header-estimate-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+    justify-self: end;
+    min-width: 0;
+  }
+  .header-estimate-actions .ui-button {
+    height: var(--button-height);
   }
   .home-recent-compact-row span {
     font-weight: var(--font-weight-semibold);
@@ -14119,12 +14177,15 @@ const styles = `
   }
   .ai-setup-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
+    min-height: 56px;
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--color-border);
   }
   .ai-setup-header h2 {
-    margin-bottom: 8px;
+    margin-bottom: 0;
   }
   .ai-setup-header .muted {
     max-width: 780px;
@@ -17165,8 +17226,11 @@ const styles = `
     display: flex;
     justify-content: space-between;
     gap: var(--space-2);
-    align-items: flex-start;
-    margin-bottom: var(--space-3);
+    align-items: center;
+    min-height: 56px;
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--border-subtle);
   }
   .admin-last-updated-pill {
     width: fit-content;
@@ -18570,30 +18634,28 @@ const styles = `
     }
     .global-header.with-admin-condition,
     .global-header.with-estimate-condition {
-      height: auto;
-      min-height: 64px;
-      grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-areas:
-        "brand company"
-        "condition condition";
-      gap: 6px var(--space-1);
-      padding-top: 8px;
-      padding-bottom: 8px;
+      height: 56px;
+      min-height: 56px;
+      grid-template-columns: minmax(120px, 1fr) minmax(180px, auto) minmax(120px, 1fr);
+      grid-template-areas: "brand condition company";
+      gap: var(--space-1);
+      padding-top: 0;
+      padding-bottom: 0;
     }
     .global-header.with-admin-condition .global-brand,
     .global-header.with-estimate-condition .global-brand {
       grid-area: brand;
     }
     .global-header.with-admin-condition .company-session,
-    .global-header.with-estimate-condition .company-session {
+    .global-header.with-estimate-condition .company-session,
+    .global-header.with-estimate-condition .header-estimate-actions {
       grid-area: company;
     }
     .global-header.with-admin-condition .header-admin-condition,
     .global-header.with-estimate-condition .header-estimate-condition {
       grid-area: condition;
-      width: 100%;
       max-width: none;
-      padding: 5px 10px;
+      padding: 0 var(--space-1);
     }
     .global-header.with-admin-condition .header-admin-condition strong,
     .global-header.with-estimate-condition .header-estimate-condition strong {
@@ -18601,7 +18663,7 @@ const styles = `
     }
     .global-header.with-admin-condition ~ .admin-page,
     .global-header.with-estimate-condition ~ .workspace {
-      margin-top: 42px;
+      margin-top: 0;
     }
     .company-session {
       gap: 6px;
@@ -18748,14 +18810,17 @@ const styles = `
     transform: translateY(1px);
   }
   .app-shell {
-    padding-top: 72px;
+    padding-top: 56px;
+  }
+  .app-shell.items-v2-shell {
+    padding-top: 56px;
   }
   .global-header {
-    height: 72px;
-    padding: 0 clamp(16px, 3vw, 36px);
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    height: 56px;
+    padding: 0 var(--space-3);
+    background: var(--bg-surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
   .global-brand strong,
   .hero-brand strong,
@@ -18763,13 +18828,15 @@ const styles = `
     letter-spacing: -0.01em;
   }
   .company-session {
-    padding: 6px 8px;
+    min-height: var(--button-height);
+    padding: 0 var(--space-1);
     border: 1px solid var(--border-subtle);
-    border-radius: 999px;
+    border-radius: var(--radius-button);
     background: var(--bg-surface);
   }
   .company-switch-button {
-    border-radius: 999px;
+    min-height: var(--button-height-sm);
+    border-radius: var(--radius-button);
   }
   .login-shell {
     padding: 24px;
@@ -20264,11 +20331,13 @@ const styles = `
     padding: var(--space-page-y) var(--space-page-x);
   }
   .detail-cost-page > .editor-header {
-    margin-bottom: var(--space-3);
-    padding: var(--space-card-padding);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-card);
-    background: var(--color-surface);
+    min-height: 56px;
+    margin-bottom: var(--space-2);
+    padding: 0 0 var(--space-1);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: transparent;
     box-shadow: none;
   }
   .detail-cost-page > .editor-header h2 {
@@ -20441,7 +20510,7 @@ const styles = `
     flex-direction: column;
     gap: var(--space-3);
     min-width: 0;
-    padding: var(--space-page-y) var(--space-page-x) 0;
+    padding: 0 var(--space-page-x) 0;
   }
   .items-v2-header,
   .items-v2-toolbar,
@@ -20451,6 +20520,23 @@ const styles = `
     justify-content: space-between;
     gap: var(--space-2);
   }
+  .items-v2-header {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    min-height: 56px;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+  .items-v2-shell .items-v2-header {
+    display: none;
+  }
+  .items-v2-titleline {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
   .items-v2-header h1 {
     margin: 0;
     color: var(--color-text-primary);
@@ -20458,19 +20544,24 @@ const styles = `
     font-weight: var(--font-weight-semibold);
     line-height: var(--line-height-work-title);
   }
-  .items-v2-header p,
+  .items-v2-titleline span,
   .items-v2-section-header p {
     margin: 0;
     color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
     line-height: var(--line-height-caption);
   }
+  .items-v2-titleline span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .items-v2-header-actions,
   .items-v2-total-actions {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
   .items-v2-toolbar {
     padding: var(--space-toolbar-y) var(--space-toolbar-x);
@@ -21087,12 +21178,15 @@ const styles = `
   }
   @media (max-width: 840px) {
     .app-shell {
-      padding-top: 86px;
+      padding-top: 56px;
+    }
+    .app-shell.items-v2-shell {
+      padding-top: 56px;
     }
     .global-header {
-      min-height: 86px;
-      height: auto;
-      flex-wrap: wrap;
+      min-height: 56px;
+      height: 56px;
+      flex-wrap: nowrap;
       align-content: center;
     }
     .primary-action-grid,

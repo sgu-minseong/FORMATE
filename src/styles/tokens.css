@@ -297,10 +297,11 @@
 
 .ui-page-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding-bottom: var(--space-2);
+  min-height: 56px;
+  padding-bottom: var(--space-1);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -369,14 +370,14 @@
 .formate-app-shell__brand {
   display: grid;
   gap: var(--space-0-5);
-  padding: 0 var(--space-0-5) var(--space-2);
+  padding: 0 var(--space-0-5) var(--space-1);
   color: var(--color-text-primary);
 }
 
 .formate-app-shell__brand strong {
-  font-size: var(--font-size-page-title);
+  font-size: var(--font-size-section-title);
   font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-page-title);
+  line-height: var(--line-height-section-title);
 }
 
 .formate-app-shell__brand span,
