@@ -25,6 +25,10 @@ import {
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient";
 import PriceText from "./components/PriceText.jsx";
 import AppShell from "./components/layout/AppShell.jsx";
+import Button from "./components/ui/Button.jsx";
+import EmptyState from "./components/ui/EmptyState.jsx";
+import Input from "./components/ui/Input.jsx";
+import PageHeader from "./components/ui/PageHeader.jsx";
 import logoUrl from "./assets/logo.svg";
 import { AI_MAPPING_GROUPS, AI_MAPPING_SELECT_OPTIONS, AI_ROW_TYPE_OPTIONS } from "./features/aiExcelImport/constants";
 import {
@@ -4861,7 +4865,7 @@ export default function App() {
   function renderPhotoUploadButton(targetType, targetId, disabled = false) {
     return (
       <label className={`photo-upload-button ${disabled ? "disabled" : ""}`.trim()}>
-        <Plus size={15} />
+        <Plus size={18} strokeWidth={1.5} />
         <span>사진 추가</span>
         <input
           type="file"
@@ -4881,7 +4885,14 @@ export default function App() {
     const primaryPhoto = getPrimaryPhoto(targetPhotos);
 
     if (!targetPhotos.length) {
-      return <div className="photo-empty-inline">등록된 사진이 없습니다.</div>;
+      return (
+        <EmptyState
+          className="photo-empty-state"
+          icon={<Image size={24} strokeWidth={1.5} />}
+          title="등록된 사진 없음"
+          description="이 분류에 사용할 사진을 추가해 주세요."
+        />
+      );
     }
 
     return (
@@ -4892,7 +4903,7 @@ export default function App() {
           return (
             <article className={`photo-thumb-card ${isPrimary ? "primary" : ""}`.trim()} key={photo.id}>
               <div className="photo-thumb-image">
-                {imageUrl ? <img src={imageUrl} alt={photo.original_filename || "등록 사진"} /> : <Image size={24} />}
+                {imageUrl ? <img src={imageUrl} alt={photo.original_filename || "등록 사진"} /> : <Image size={24} strokeWidth={1.5} />}
                 {isPrimary && <span>대표</span>}
               </div>
               <div className="photo-thumb-meta">
@@ -4930,17 +4941,18 @@ export default function App() {
             <h3>{tabLabel} 분류</h3>
             <p className="muted">금액대 같은 분류명은 자유롭게 바꿀 수 있습니다.</p>
           </div>
-          <button type="button" className="secondary-button compact-button" onClick={() => addPhotoCollection(photoType)} disabled={photoSaving}>
-            <Plus size={16} /> 분류 추가
-          </button>
+          <Button variant="primary" leftIcon={<Plus />} onClick={() => addPhotoCollection(photoType)} disabled={photoSaving}>
+            분류 추가
+          </Button>
         </div>
 
         {collectionsForType.length === 0 ? (
-          <div className="empty-state compact-empty">
-            <Image size={34} />
-            <h3>분류가 없습니다</h3>
-            <p>분류를 추가한 뒤 사진을 업로드하세요.</p>
-          </div>
+          <EmptyState
+            className="compact-empty"
+            icon={<Image size={24} strokeWidth={1.5} />}
+            title="분류가 없습니다"
+            description="분류를 추가한 뒤 사진을 업로드하세요."
+          />
         ) : (
           <div className="photo-collection-list">
             {collectionsForType.map((collection) => (
@@ -4956,12 +4968,12 @@ export default function App() {
                     }
                     aria-label="사진 분류명"
                   />
-                  <button type="button" className="secondary-button compact-button" onClick={() => savePhotoCollectionName(collection.id)} disabled={photoSaving}>
+                  <Button variant="secondary" size="sm" onClick={() => savePhotoCollectionName(collection.id)} disabled={photoSaving}>
                     저장
-                  </button>
-                  <button type="button" className="ghost danger-text" onClick={() => deletePhotoCollection(collection)} disabled={photoSaving}>
-                    <Trash2 size={16} /> 삭제
-                  </button>
+                  </Button>
+                  <Button variant="danger" size="sm" leftIcon={<Trash2 />} onClick={() => deletePhotoCollection(collection)} disabled={photoSaving}>
+                    삭제
+                  </Button>
                   {renderPhotoUploadButton(photoType, collection.id)}
                 </div>
                 {renderPhotoList(photoType, collection.id)}
@@ -4992,11 +5004,12 @@ export default function App() {
         </div>
 
         {photoCatalog.length === 0 ? (
-          <div className="empty-state compact-empty">
-            <Image size={34} />
-            <h3>세부항목이 없습니다</h3>
-            <p>현재 업체의 단가표 세부항목을 먼저 준비해 주세요.</p>
-          </div>
+          <EmptyState
+            className="compact-empty"
+            icon={<Image size={24} strokeWidth={1.5} />}
+            title="세부항목이 없습니다"
+            description="현재 업체의 단가표 세부항목을 먼저 준비해 주세요."
+          />
         ) : (
           <div className="photo-subitem-groups">
             {photoCatalog.map((item) => (
@@ -5011,7 +5024,7 @@ export default function App() {
                     <strong>{item.name}</strong>
                     <em>{(item.subitems ?? []).length}개 세부항목</em>
                   </span>
-                  {expandedPhotoCategoryIds.includes(item.id) ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                  {expandedPhotoCategoryIds.includes(item.id) ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
                 </button>
 
                 {expandedPhotoCategoryIds.includes(item.id) && (
@@ -8446,13 +8459,14 @@ export default function App() {
     setPage(nextPage);
   }
 
-  function renderAppShell(children) {
+  function renderAppShell(children, shellOptions = {}) {
     return (
       <AppShell
         currentPage={page}
         onNavigate={handleAppShellNavigate}
         companyName={selectedCompanyName}
         navItems={APP_SHELL_NAV_ITEMS}
+        className={shellOptions.className || ""}
       >
         {children}
       </AppShell>
@@ -8500,29 +8514,25 @@ export default function App() {
               <p className="login-helper">업체 코드와 비밀번호만 입력하면 바로 사용할 수 있습니다.</p>
             </div>
             <form className="login-form" onSubmit={handleCompanyLogin}>
-              <label>
-                업체 코드
-                <input
-                  value={loginCode}
-                  onChange={(event) => setLoginCode(event.target.value)}
-                  autoComplete="username"
-                  placeholder="예: 삼풍"
-                />
-              </label>
-              <label>
-                비밀번호
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={(event) => setLoginPassword(event.target.value)}
-                  autoComplete="current-password"
-                  placeholder="비밀번호"
-                />
-              </label>
+              <Input
+                label="업체 코드"
+                value={loginCode}
+                onChange={(event) => setLoginCode(event.target.value)}
+                autoComplete="username"
+                placeholder="예: 삼풍"
+              />
+              <Input
+                label="비밀번호"
+                type="password"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                autoComplete="current-password"
+                placeholder="비밀번호"
+              />
               {loginError && <div className="error-box">{loginError}</div>}
-              <button className="primary-button" type="submit" disabled={loginLoading}>
+              <Button variant="primary" type="submit" disabled={loginLoading}>
                 {loginLoading ? "확인 중..." : "FORMATE 시작하기"}
-              </button>
+              </Button>
             </form>
           </section>
         ) : (
@@ -8936,39 +8946,46 @@ export default function App() {
       {page === "landing" && renderAppShell(
         <main className="landing work-home">
           <section className="landing-actions">
-            <div className="section-heading work-home-heading">
-              <span>운영 홈</span>
-              <h1>{selectedCompanyName}</h1>
-              <p>새 견적을 시작하거나 최근 저장 견적과 관리 메뉴로 바로 이동합니다.</p>
-            </div>
-            <div className="primary-action-grid">
+            <PageHeader
+              eyebrow="운영 홈"
+              title={selectedCompanyName}
+              description="새 견적을 시작하거나 최근 저장 견적과 관리 메뉴로 바로 이동합니다."
+              className="work-home-heading"
+            />
+            <div className="home-action-list">
               <button
-                className="menu-card feature-card home-primary-card"
+                className="home-action-row home-action-row--primary"
                 onClick={() => {
                   setEstimateConditionEditMode(false);
                   setPage("condition");
                 }}
               >
-                <ClipboardList />
-                <span>새 견적서 작성</span>
-                <p>저장된 템플릿에서 빠르게 시작하거나 빈 견적서로 직접 작성합니다.</p>
+                <ClipboardList size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>새 견적서 작성</strong>
+                  <em>저장된 템플릿에서 빠르게 시작하거나 빈 견적서로 직접 작성합니다.</em>
+                </span>
               </button>
-              <button className="menu-card feature-card" onClick={() => openAdminGate("admin")}>
-                <Settings />
-                <span>관리자 홈</span>
-                <p>단가표와 자주 쓰는 견적 템플릿을 미리 만들어둡니다.</p>
+              <button className="home-action-row" onClick={() => openAdminGate("admin")}>
+                <Settings size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>관리자 홈</strong>
+                  <em>단가표와 자주 쓰는 견적 템플릿을 미리 만들어둡니다.</em>
+                </span>
               </button>
-            </div>
-            <div className="secondary-action-grid">
-              <button className="menu-card support-card" onClick={() => setPage("photo-management")}>
-                <Image />
-                <span>사진 관리/확인</span>
-                <p>올공사, 부분공사, 세부항목 사진을 업체별로 관리합니다.</p>
+              <button className="home-action-row" onClick={() => setPage("photo-management")}>
+                <Image size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>사진 관리/확인</strong>
+                  <em>올공사, 부분공사, 세부항목 사진을 업체별로 관리합니다.</em>
+                </span>
               </button>
-              <button className="menu-card support-card" onClick={() => setPage("admin-estimates")}>
-                <Wrench />
-                <span>저장 견적 보기</span>
-                <p>이전에 만든 견적을 찾고 다시 엽니다.</p>
+              <button className="home-action-row" onClick={() => setPage("admin-estimates")}>
+                <Wrench size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>저장 견적 보기</strong>
+                  <em>이전에 만든 견적을 찾고 다시 엽니다.</em>
+                </span>
               </button>
             </div>
             <section className="home-recent-compact">
@@ -8999,33 +9016,38 @@ export default function App() {
             </section>
           </section>
         </main>
+        , { className: "formate-app-shell--overview" }
       )}
 
       {page === "admin" && adminVerified && renderAppShell(
-        <main className="panel-page">
-          <button className="ghost" onClick={() => setPage("landing")}>
-            <ArrowLeft size={18} /> 돌아가기
-          </button>
-          <section className="panel">
-            <p className="eyebrow dark">템플릿 만들기</p>
-            <h2>템플릿 만들기</h2>
-            <p className="muted">
-              고객에게 보여주는 견적서가 아니라, 우리 업체 내부 템플릿입니다.
-            </p>
-            <div className="admin-menu">
+        <main className="panel-page admin-home-page">
+          <section className="admin-home-section">
+            <PageHeader
+              eyebrow="관리자 홈"
+              title="템플릿 만들기"
+              description="고객에게 보여주는 견적서가 아니라, 우리 업체 내부 템플릿입니다."
+              actions={
+                <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
+                  돌아가기
+                </Button>
+              }
+            />
+            <div className="admin-action-list">
               <button
-                className="menu-card"
+                className="admin-action-row"
                 onClick={() => {
                   setPage("admin-prices");
                   fetchAdminItems({ mode: "prices" });
                 }}
               >
-                <ClipboardList />
-                <span>1. 단가표 관리</span>
-                <p>자주 쓰는 기본 단가와 인건비를 저장해두세요. 견적서 작성 중에도 금액은 수정할 수 있습니다.</p>
+                <ClipboardList size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>1. 단가표 관리</strong>
+                  <em>자주 쓰는 기본 단가와 인건비를 저장해두세요. 견적서 작성 중에도 금액은 수정할 수 있습니다.</em>
+                </span>
               </button>
               <button
-                className="menu-card"
+                className="admin-action-row"
                 onClick={() => {
                   setPage("admin-items");
                   setAdminConditionStep("select");
@@ -9033,23 +9055,30 @@ export default function App() {
                   fetchAdminItems({ mode: "condition", condition: null });
                 }}
               >
-                <ClipboardList />
-                <span>2. 견적 템플릿 만들기</span>
-                <p>자주 쓰는 견적 템플릿을 만들어두세요. 기본 수량과 기본 인원을 저장할 수 있습니다.</p>
+                <ClipboardList size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>2. 견적 템플릿 만들기</strong>
+                  <em>자주 쓰는 견적 템플릿을 만들어두세요. 기본 수량과 기본 인원을 저장할 수 있습니다.</em>
+                </span>
               </button>
-              <button className="menu-card" onClick={() => setPage("admin-detail-costs")}>
-                <FileText />
-                <span>3. 세부 비용 관리</span>
-                <p>철거, 폐기물, 운반비처럼 견적서에 추가할 수 있는 비용을 관리합니다.</p>
+              <button className="admin-action-row" onClick={() => setPage("admin-detail-costs")}>
+                <FileText size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>3. 세부 비용 관리</strong>
+                  <em>철거, 폐기물, 운반비처럼 견적서에 추가할 수 있는 비용을 관리합니다.</em>
+                </span>
               </button>
-              <button className="menu-card" onClick={() => setPage("admin-ai-setup")}>
-                <Image />
-                <span>4. AI 초기 세팅</span>
-                <p>기존에 사용하던 엑셀 견적서를 업로드하면 항목과 금액을 분석해 단가표와 템플릿 초안을 만들 수 있습니다.</p>
+              <button className="admin-action-row" onClick={() => setPage("admin-ai-setup")}>
+                <Image size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>4. AI 초기 세팅</strong>
+                  <em>기존에 사용하던 엑셀 견적서를 업로드하면 항목과 금액을 분석해 단가표와 템플릿 초안을 만들 수 있습니다.</em>
+                </span>
               </button>
             </div>
           </section>
         </main>
+        , { className: "formate-app-shell--overview" }
       )}
 
       {page === "admin-ai-setup" && adminVerified && (
@@ -10313,35 +10342,37 @@ export default function App() {
         </main>
       )}
 
-      {page === "admin-condition-labels" && adminVerified && (
+      {page === "admin-condition-labels" && adminVerified && renderAppShell(
         <main className="panel-page admin-page">
           <div className="editor-header">
             <div>
-              <button className="ghost" onClick={() => setPage("admin-items")}>
-                <ArrowLeft size={18} /> 견적 템플릿 만들기
-              </button>
+              <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("admin-items")}>
+                견적 템플릿 만들기
+              </Button>
               <h2>확장형/구형 설명 관리</h2>
               <p className="muted caption">
                 조건 key는 확장형1, 구형2처럼 유지하고, 업체 내부에서 이해하기 쉬운 설명만 표시용으로 저장합니다.
               </p>
             </div>
             <div className="admin-actions">
-              <button
+              <Button
                 type="button"
-                className="secondary-button"
+                variant="secondary"
+                leftIcon={<RefreshCcw />}
                 disabled={adminLoading || adminSaving}
                 onClick={() => fetchConditionVariantLabels()}
               >
-                <RefreshCcw size={18} /> 되돌리기
-              </button>
-              <button
+                되돌리기
+              </Button>
+              <Button
                 type="button"
-                className="primary-button"
+                variant="primary"
+                leftIcon={<Save />}
                 disabled={adminLoading || adminSaving}
                 onClick={saveConditionVariantLabels}
               >
-                <Save size={18} /> 저장
-              </button>
+                저장
+              </Button>
             </div>
           </div>
 
@@ -10359,22 +10390,18 @@ export default function App() {
               {conditionVariantLabels.map((row) => (
                 <div className="condition-label-row" key={row.variant_key}>
                   <strong>{row.variant_key}</strong>
-                  <label>
-                    표시 이름
-                    <input
-                      value={row.label}
-                      onChange={(event) => updateConditionVariantLabel(row.variant_key, { label: event.target.value })}
-                      placeholder={row.variant_key === OLD_NO_EXTENSION_VARIANT ? "예: 확장 없음" : "예: 거실 + 주방 확장"}
-                    />
-                  </label>
-                  <label>
-                    상세 설명
-                    <input
-                      value={row.description}
-                      onChange={(event) => updateConditionVariantLabel(row.variant_key, { description: event.target.value })}
-                      placeholder="선택 기준이나 내부 메모"
-                    />
-                  </label>
+                  <Input
+                    label="표시 이름"
+                    value={row.label}
+                    onChange={(event) => updateConditionVariantLabel(row.variant_key, { label: event.target.value })}
+                    placeholder={row.variant_key === OLD_NO_EXTENSION_VARIANT ? "예: 확장 없음" : "예: 거실 + 주방 확장"}
+                  />
+                  <Input
+                    label="상세 설명"
+                    value={row.description}
+                    onChange={(event) => updateConditionVariantLabel(row.variant_key, { description: event.target.value })}
+                    placeholder="선택 기준이나 내부 메모"
+                  />
                 </div>
               ))}
             </div>
@@ -10384,22 +10411,22 @@ export default function App() {
 
       {page === "photo-management" && renderAppShell(
         <main className="panel-page photo-management-page">
-          <button className="ghost" onClick={() => setPage("landing")}>
-            <ArrowLeft size={18} /> 뒤로가기
-          </button>
           <section className="panel photo-management-panel">
-            <div className="editor-header">
-              <div>
-                <p className="eyebrow dark">사진 관리/확인</p>
-                <h2>업체 사진 자료실</h2>
-                <p className="muted">
-                  올공사, 부분공사, 세부항목 사진을 현재 업체 기준으로 관리합니다.
-                </p>
-              </div>
-              <button type="button" className="secondary-button compact-button" onClick={fetchPhotoManagementData} disabled={photoLoading || photoSaving}>
-                <RefreshCcw size={16} /> 새로고침
-              </button>
-            </div>
+            <PageHeader
+              eyebrow="사진 관리/확인"
+              title="업체 사진 자료실"
+              description="올공사, 부분공사, 세부항목 사진을 현재 업체 기준으로 관리합니다."
+              actions={
+                <>
+                  <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
+                    뒤로가기
+                  </Button>
+                  <Button variant="secondary" leftIcon={<RefreshCcw />} onClick={fetchPhotoManagementData} disabled={photoLoading || photoSaving}>
+                    새로고침
+                  </Button>
+                </>
+              }
+            />
 
             <div className="photo-storage-note">
               <Image size={18} />
@@ -10447,16 +10474,18 @@ export default function App() {
         </main>
       )}
 
-      {page === "ready" && (
+      {page === "ready" && renderAppShell(
         <main className="simple-page">
-          <button className="ghost" onClick={() => setPage("landing")}>
-            <ArrowLeft size={18} /> 돌아가기
-          </button>
-          <div className="empty-state">
-            <Building2 size={42} />
-            <h2>준비 중입니다</h2>
-            <p>현재 프로토타입에서는 신규 견적서 입력 흐름만 확인할 수 있습니다.</p>
-          </div>
+          <EmptyState
+            icon={<Building2 size={24} strokeWidth={1.5} />}
+            title="준비 중입니다"
+            description="현재 프로토타입에서는 신규 견적서 입력 흐름만 확인할 수 있습니다."
+            action={
+              <Button variant="secondary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
+                홈으로 돌아가기
+              </Button>
+            }
+          />
         </main>
       )}
 
@@ -15305,54 +15334,56 @@ const styles = `
     font-size: var(--font-size-body-sm);
   }
   .photo-management-panel {
-    width: min(1180px, 100%);
+    width: 100%;
+    padding: var(--space-card-padding);
+    border-color: var(--color-border);
+    border-radius: var(--radius-panel);
+    background: var(--color-surface);
+    box-shadow: none;
   }
-  .photo-management-page .editor-header {
-    align-items: flex-start;
-    padding-bottom: var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-  .photo-management-page .editor-header h2 {
-    margin-bottom: 6px;
+  .photo-management-page .ui-page-header {
+    margin-bottom: var(--space-2);
   }
   .photo-storage-note {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 14px;
+    gap: var(--space-1) var(--space-1-5);
     margin: 0 0 var(--space-2);
-    padding: 10px 12px;
-    border: 1px solid var(--border-subtle);
+    padding: var(--space-1) var(--space-1-5);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
-    background: var(--bg-subtle);
-    color: var(--text-secondary);
-    font-size: var(--font-size-body-sm);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
   }
   .photo-storage-note svg {
-    color: var(--brand-primary);
+    color: var(--color-text-secondary);
   }
   .photo-autosave-status {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-1);
     margin-bottom: var(--space-2);
-    padding: 8px 11px;
-    border: 1px solid var(--border-subtle);
+    padding: var(--space-1) var(--space-1-5);
+    border: 1px solid var(--color-info-border);
     border-radius: var(--radius-button);
-    background: var(--bg-subtle);
-    color: var(--text-secondary);
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-semibold);
+    background: var(--color-info-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
   }
   .photo-autosave-status span {
-    color: var(--brand-primary);
+    color: var(--color-info);
   }
   .photo-autosave-status.saving span {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
   }
   .photo-autosave-status.error {
     border-color: var(--color-danger-border);
-    background: var(--color-danger-subtle);
+    background: var(--color-danger-bg);
     color: var(--color-danger);
   }
   .photo-autosave-status.error span {
@@ -15360,106 +15391,123 @@ const styles = `
   }
   .photo-tabs {
     display: inline-flex;
-    gap: 6px;
+    gap: var(--space-0-5);
     margin-bottom: var(--space-2);
-    padding: 5px;
-    border: 1px solid var(--border-subtle);
+    padding: var(--space-0-5);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
-    background: var(--bg-subtle);
+    background: var(--color-surface-subtle);
   }
   .photo-tabs button {
-    min-height: 34px;
-    padding: 7px 13px;
+    min-height: var(--button-height-sm);
+    padding: 0 var(--space-1-5);
     border: 1px solid transparent;
     border-radius: var(--radius-button);
     background: transparent;
-    color: var(--text-secondary);
-    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
   }
   .photo-tabs button:hover,
   .photo-tabs button:focus-visible {
-    background: var(--bg-surface);
-    color: var(--text-primary);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
     outline: none;
   }
   .photo-tabs button.active {
-    border-color: var(--brand-accent-line);
-    background: var(--bg-surface);
-    color: var(--brand-primary);
-    box-shadow: var(--shadow-sm);
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    box-shadow: none;
   }
   .photo-tab-panel,
   .photo-collection-list,
   .photo-subitem-groups {
     display: grid;
-    gap: var(--space-2);
+    gap: var(--space-section-gap);
   }
   .photo-section-header {
     display: flex;
     justify-content: space-between;
     gap: var(--space-2);
     align-items: flex-start;
-    padding-bottom: 4px;
+    padding-bottom: 0;
   }
   .photo-section-header h3,
   .photo-subitem-group h3 {
-    margin: 0 0 5px;
-    font-size: var(--font-size-title-sm);
+    margin: 0 0 var(--space-0-5);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
   }
   .photo-collection-card,
   .photo-subitem-group {
-    padding: var(--space-2);
-    border: 1px solid var(--border-default);
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
-    background: var(--bg-surface);
-    box-shadow: var(--shadow-sm);
-    transition: border-color 150ms ease, background-color 150ms ease;
+    background: var(--color-surface);
+    box-shadow: none;
+    transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
   }
   .photo-collection-card:hover,
   .photo-subitem-group:hover {
-    border-color: var(--brand-accent-line);
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-hover);
   }
   .photo-collection-title-row {
     display: grid;
     grid-template-columns: minmax(180px, 1fr) auto auto auto;
-    gap: 8px;
+    gap: var(--space-1);
     align-items: center;
-    margin-bottom: var(--space-1);
+    margin-bottom: var(--space-1-5);
   }
   .photo-collection-title-row input {
     min-width: 0;
-    height: 38px;
-    border: 1px solid var(--border-default);
+    height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-button);
-    padding: 0 11px;
-    background: var(--bg-surface);
-    color: var(--text-primary);
-    font-weight: var(--font-weight-semibold);
+    padding: 0 var(--space-input-x);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
+  }
+  .photo-collection-title-row input:focus {
+    border-color: var(--color-primary-border);
+    box-shadow: var(--focus-ring);
+    outline: none;
   }
   .danger-text {
     color: var(--color-danger);
   }
   .photo-upload-button {
     position: relative;
-    min-height: 36px;
+    min-height: var(--button-height);
     display: inline-flex;
     justify-content: center;
     align-items: center;
-    gap: 6px;
-    padding: 8px 11px;
-    border: 1px solid var(--brand-accent-line);
+    gap: var(--space-1);
+    padding: 0 var(--space-button-x);
+    border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-button);
-    background: var(--brand-primary-subtle);
-    color: var(--brand-primary);
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-semibold);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
     cursor: pointer;
     white-space: nowrap;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
   }
   .photo-upload-button:hover,
   .photo-upload-button:focus-within {
-    border-color: var(--brand-primary);
-    background: #f5f7ff;
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    box-shadow: var(--focus-ring);
     outline: none;
   }
   .photo-upload-button input {
@@ -15484,34 +15532,38 @@ const styles = `
     font-size: var(--font-size-body-sm);
     text-align: center;
   }
+  .photo-empty-state {
+    min-height: 128px;
+    align-content: center;
+  }
   .photo-thumb-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 10px;
+    gap: var(--space-1);
   }
   .photo-thumb-card {
     min-width: 0;
     overflow: hidden;
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
-    background: var(--bg-surface);
+    background: var(--color-surface);
     transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
   }
   .photo-thumb-card:hover {
-    border-color: var(--brand-accent-line);
-    box-shadow: var(--shadow-sm);
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-hover);
   }
   .photo-thumb-card.primary {
-    border-color: var(--brand-primary);
-    background: #fbfcff;
+    border-color: var(--color-success-border);
+    background: var(--color-success-bg);
   }
   .photo-thumb-image {
     position: relative;
     aspect-ratio: 4 / 3;
     display: grid;
     place-items: center;
-    background: var(--bg-subtle);
-    color: var(--text-tertiary);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-muted);
   }
   .photo-thumb-image img {
     width: 100%;
@@ -15521,47 +15573,54 @@ const styles = `
   }
   .photo-thumb-image span {
     position: absolute;
-    top: 7px;
-    left: 7px;
-    padding: 4px 7px;
-    border-radius: var(--radius-button);
-    background: var(--brand-primary);
-    color: white;
+    top: var(--space-1);
+    left: var(--space-1);
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-success-border);
+    border-radius: var(--radius-badge);
+    background: var(--color-success-bg);
+    color: var(--color-success);
     font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-bold);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
   }
   .photo-thumb-meta {
     display: grid;
-    gap: 7px;
-    padding: 8px;
+    gap: var(--space-1);
+    padding: var(--space-1);
   }
   .photo-thumb-meta p {
     margin: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
   }
   .photo-thumb-actions {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
+    gap: var(--space-0-5);
   }
   .photo-thumb-actions button {
-    min-height: 28px;
-    border: 1px solid var(--border-subtle);
+    min-height: var(--button-height-sm);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-button);
-    background: var(--bg-surface);
-    color: var(--text-secondary);
-    font-size: 11px;
-    font-weight: var(--font-weight-semibold);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
   }
   .photo-thumb-actions button:hover:not(:disabled),
   .photo-thumb-actions button:focus-visible {
-    border-color: var(--brand-accent-line);
-    background: var(--brand-primary-subtle);
-    color: var(--brand-primary);
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
     outline: none;
   }
   .photo-thumb-actions button:disabled {
@@ -15573,7 +15632,7 @@ const styles = `
   .photo-thumb-actions button.danger:hover:not(:disabled),
   .photo-thumb-actions button.danger:focus-visible {
     border-color: var(--color-danger-border);
-    background: var(--color-danger-subtle);
+    background: var(--color-danger-bg);
     color: var(--color-danger);
   }
   .compact-empty {
@@ -15583,102 +15642,120 @@ const styles = `
   }
   .photo-subitem-table {
     display: grid;
-    gap: 8px;
+    gap: var(--space-1);
   }
   .photo-subitem-group-toggle {
     width: 100%;
-    min-height: 44px;
+    min-height: var(--table-row-height);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-1);
     padding: 0;
     background: transparent;
-    color: var(--text-primary);
+    color: var(--color-text-primary);
     text-align: left;
     border-radius: var(--radius-button);
   }
   .photo-subitem-group-toggle:hover,
   .photo-subitem-group-toggle:focus-visible {
-    color: var(--brand-primary);
+    color: var(--color-primary);
     outline: none;
   }
   .photo-subitem-group-toggle span {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--space-1);
     min-width: 0;
   }
   .photo-subitem-group-toggle strong {
-    font-size: var(--font-size-title-sm);
+    font-size: var(--font-size-section-title);
+    line-height: var(--line-height-section-title);
   }
   .photo-subitem-group-toggle em {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
     font-style: normal;
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
   }
   .photo-subitem-group.expanded {
-    border-color: var(--brand-accent-line);
+    border-color: var(--color-primary-border);
   }
   .photo-subitem-group.expanded .photo-subitem-table {
-    margin-top: var(--space-1);
+    margin-top: var(--space-1-5);
   }
   .photo-subitem-header,
   .photo-subitem-row {
     display: grid;
     grid-template-columns: minmax(180px, 0.8fr) minmax(280px, 1.6fr) 130px;
-    gap: 8px;
+    gap: var(--space-1);
     align-items: start;
   }
   .photo-subitem-header {
-    color: var(--text-secondary);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-bold);
+    min-height: var(--table-header-height);
+    align-items: center;
+    padding: 0 var(--space-table-cell-x);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-header);
+    letter-spacing: var(--letter-spacing-table-header);
   }
   .photo-subitem-row {
-    padding: 10px;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    background: var(--bg-subtle);
+    padding: var(--space-1-5);
+    border: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-surface);
     transition: border-color 150ms ease, background-color 150ms ease;
   }
+  .photo-subitem-row:nth-child(even) {
+    background: var(--color-row-alt);
+  }
   .photo-subitem-row:hover {
-    border-color: var(--brand-accent-line);
-    background: #fbfcff;
+    border-color: var(--color-border-strong);
+    background: var(--color-row-hover);
   }
   .photo-subitem-name {
     display: grid;
-    gap: 5px;
+    gap: var(--space-0-5);
     min-width: 0;
   }
   .photo-subitem-name strong {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--text-primary);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-cell);
   }
   .photo-subitem-name span,
   .photo-subitem-upload p,
   .photo-count-line {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
   }
   .photo-subitem-manage {
     display: grid;
-    gap: 8px;
+    gap: var(--space-1);
     min-width: 0;
   }
   .photo-count-line {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    font-weight: var(--font-weight-semibold);
+    gap: var(--space-1);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
   }
   .photo-subitem-upload {
     display: grid;
-    gap: 6px;
+    gap: var(--space-label-gap);
     justify-items: start;
   }
   .photo-subitem-upload p {
@@ -19458,6 +19535,100 @@ const styles = `
   .status-box,
   .error-box {
     border-radius: 14px;
+  }
+  .formate-app-shell--overview .formate-app-shell__brand {
+    display: none;
+  }
+  .formate-app-shell--overview .formate-app-shell__sidebar {
+    padding-top: var(--space-3);
+  }
+  .work-home,
+  .admin-home-page {
+    padding-top: var(--space-3);
+    padding-bottom: var(--space-4);
+  }
+  .work-home .landing-actions,
+  .admin-home-section {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .work-home-heading {
+    margin-bottom: 0;
+  }
+  .home-action-list,
+  .admin-action-list {
+    display: grid;
+    gap: var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    padding: var(--space-1);
+    box-shadow: none;
+  }
+  .home-action-row,
+  .admin-action-row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-1-5);
+    border: 1px solid transparent;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-primary);
+    padding: var(--space-2);
+    text-align: left;
+    cursor: pointer;
+  }
+  .home-action-row:hover,
+  .home-action-row:focus-visible,
+  .admin-action-row:hover,
+  .admin-action-row:focus-visible {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    box-shadow: var(--shadow-hover);
+    outline: none;
+  }
+  .home-action-row--primary {
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
+  }
+  .home-action-row svg,
+  .admin-action-row svg {
+    color: var(--color-text-secondary);
+  }
+  .home-action-row span,
+  .admin-action-row span {
+    display: grid;
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+  .home-action-row strong,
+  .admin-action-row strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .home-action-row em,
+  .admin-action-row em {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-caption);
+  }
+  .home-recent-compact {
+    margin-top: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .home-recent-compact-row:hover,
+  .home-recent-compact-row:focus-visible {
+    background: var(--color-row-hover);
+    outline: none;
   }
   @media (max-width: 1180px) {
     .estimate-workspace {
