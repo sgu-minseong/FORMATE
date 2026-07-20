@@ -83,7 +83,7 @@
   --shadow-lg: none;
   --shadow-hover: 0 1px 3px rgba(16, 24, 40, 0.08);
   --shadow-popover: 0 8px 24px rgba(16, 24, 40, 0.12);
-  --focus-ring: 0 0 0 3px rgba(153, 246, 228, 0.45);
+  --focus-ring: 0 0 0 1px var(--color-primary-border);
 
   --font-sans: "Pretendard", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-number: "Pretendard", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -397,8 +397,8 @@
 }
 
 .formate-app-shell__nav-button.ui-button--primary {
-  background: var(--color-primary-soft);
-  border-color: var(--color-primary-soft);
+  background: var(--color-surface-subtle);
+  border-color: transparent;
   color: var(--color-primary);
   font-weight: var(--font-weight-medium);
 }
@@ -517,7 +517,7 @@
 
 .ui-input:focus,
 .ui-select:focus {
-  border-color: var(--color-primary-border);
+  border-color: var(--color-primary);
   outline: none;
   box-shadow: var(--focus-ring);
 }
@@ -557,7 +557,7 @@
 
 .ui-badge--warning {
   border-color: var(--color-warning-border);
-  background: var(--color-warning-bg);
+  background: var(--color-surface-subtle);
   color: var(--color-warning);
 }
 
@@ -592,8 +592,8 @@
 }
 
 .ui-toggle-button[aria-pressed="true"] {
-  border-color: var(--color-primary-border);
-  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  background: var(--color-surface-subtle);
   color: var(--color-primary);
   font-weight: var(--font-weight-medium);
 }
@@ -651,7 +651,7 @@
 
 .ui-category-sidebar__item--active {
   border-left-color: var(--category-color, var(--cat-etc));
-  background: var(--color-primary-soft);
+  background: var(--color-surface-subtle);
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
 }
@@ -743,7 +743,12 @@
 }
 
 .ui-table tbody tr.ui-table__row--selected td {
-  background: var(--color-primary-soft);
+  background: var(--color-surface-subtle);
+  font-weight: var(--font-weight-medium);
+}
+
+.ui-table tbody tr.ui-table__row--selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
 .ui-table .ui-table__cell--right {
@@ -768,8 +773,8 @@
 }
 
 .ui-table__input:focus {
-  border-color: var(--color-primary-border);
-  background: var(--color-cell-focus);
+  border-color: var(--color-primary);
+  background: var(--color-surface);
   outline: none;
 }
 

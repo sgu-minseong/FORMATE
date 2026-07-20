@@ -18736,7 +18736,7 @@ const styles = `
     --radius-button: 6px;
     --shadow-sm: none;
     --shadow-md: none;
-    --focus-ring: 0 0 0 3px rgba(153, 246, 228, 0.45);
+    --focus-ring: 0 0 0 1px var(--color-primary-border);
   }
   body {
     background: var(--bg-base);
@@ -20098,8 +20098,8 @@ const styles = `
     box-shadow: none;
   }
   .condition-page .estimate-current-condition.active {
-    border-color: var(--color-primary-border);
-    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    background: var(--color-surface-subtle);
     box-shadow: none;
   }
   .condition-page .estimate-current-condition span {
@@ -20165,7 +20165,7 @@ const styles = `
     line-height: var(--line-height-caption);
   }
   .condition-page .pyeong-option-row.selected {
-    background: var(--color-primary-soft);
+    background: var(--color-surface-subtle);
   }
   .condition-page .pyeong-option-row.selected .pyeong-option-main {
     color: var(--color-primary);
@@ -20198,8 +20198,8 @@ const styles = `
   .condition-page .segmented button:focus-visible,
   .condition-page .chips button:hover,
   .condition-page .chips button:focus-visible {
-    border-color: var(--color-primary-border);
-    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    background: var(--color-surface);
     color: var(--color-primary);
     box-shadow: var(--focus-ring);
     outline: none;
@@ -20207,13 +20207,13 @@ const styles = `
   .condition-page .segmented button.selected,
   .condition-page .chips button.selected {
     border-color: var(--color-primary);
-    background: var(--color-primary-soft);
+    background: var(--color-surface-subtle);
     color: var(--color-primary);
     box-shadow: none;
   }
   .condition-page .custom-select-trigger.has-value {
     border-color: var(--color-primary);
-    background: var(--color-primary-soft);
+    background: var(--color-surface-subtle);
     color: var(--color-primary);
   }
   .condition-page .chips {
@@ -20392,8 +20392,8 @@ const styles = `
     font-variant-numeric: tabular-nums;
   }
   .detail-cost-page .detail-cost-table-input:focus {
-    border-color: var(--color-primary-border);
-    background: var(--color-cell-focus);
+    border-color: var(--color-primary);
+    background: var(--color-surface);
     box-shadow: none;
     outline: none;
   }
@@ -20412,7 +20412,7 @@ const styles = `
   }
   .detail-cost-page .detail-type-toggle label.selected {
     border-color: var(--color-primary);
-    background: var(--color-primary-soft);
+    background: var(--color-surface-subtle);
     color: var(--color-primary);
   }
   .detail-cost-page .detail-cost-empty {
@@ -20528,7 +20528,7 @@ const styles = `
     outline: none;
   }
   .items-v2-pyeong-controls > div:focus-within {
-    border-color: var(--color-primary-border);
+    border-color: var(--color-primary);
     box-shadow: var(--focus-ring);
   }
   .items-v2-pyeong-controls span {
@@ -20612,12 +20612,12 @@ const styles = `
   }
   .items-v2-badge--selected {
     border-color: var(--color-primary-border);
-    background: var(--color-primary-soft);
+    background: var(--color-surface);
     color: var(--color-primary);
   }
   .items-v2-badge--warning {
     border-color: var(--color-warning-border);
-    background: var(--color-warning-bg);
+    background: var(--color-surface-subtle);
     color: var(--color-warning);
   }
   .items-v2-inline-input,
@@ -20638,8 +20638,8 @@ const styles = `
   }
   .items-v2-inline-input:focus,
   .items-v2-inline-select:focus {
-    border-color: var(--color-primary-border);
-    background: var(--color-cell-focus);
+    border-color: var(--color-primary);
+    background: var(--color-surface);
     outline: none;
   }
   .items-v2-muted-value {
@@ -20656,7 +20656,7 @@ const styles = `
   }
   .items-v2-icon-button:hover,
   .items-v2-icon-button.active {
-    background: var(--color-primary-soft);
+    background: var(--color-surface-subtle);
     color: var(--color-primary);
   }
   .items-v2-table-section .ui-table__expanded-row td {
@@ -20723,7 +20723,7 @@ const styles = `
     font-style: normal;
   }
   .items-v2-money-field:focus-within {
-    border-color: var(--color-primary-border);
+    border-color: var(--color-primary);
     box-shadow: var(--focus-ring);
   }
   .items-v2-money-field input:focus {
@@ -20756,7 +20756,7 @@ const styles = `
     resize: vertical;
   }
   .items-v2-site-memo textarea:focus {
-    border-color: var(--color-primary-border);
+    border-color: var(--color-primary);
     box-shadow: var(--focus-ring);
     outline: none;
   }
