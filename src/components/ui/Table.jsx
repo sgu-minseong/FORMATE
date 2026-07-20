@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { GripVertical } from "lucide-react";
 
 function cx(...classes) {
@@ -25,6 +26,7 @@ export default function Table({
   rows = [],
   onCellChange,
   renderCell,
+  renderExpandedRow,
   zebra = true,
   rowHeight = 40,
   stickyHeader = false,
@@ -76,59 +78,70 @@ export default function Table({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr
-                key={getRowKey(row, rowIndex)}
-                className={cx(row.selected && "ui-table__row--selected")}
-                draggable={draggable}
-                onDragStart={draggable ? (event) => handleDragStart(event, rowIndex) : undefined}
-                onDragOver={draggable ? (event) => event.preventDefault() : undefined}
-                onDrop={draggable ? (event) => handleDrop(event, rowIndex) : undefined}
-                style={{ height: rowHeight }}
-              >
-                {draggable && (
-                  <td className="ui-table__drag-cell">
-                    <span className="ui-table__drag-handle" aria-hidden="true">
-                      <GripVertical size={16} strokeWidth={1.5} />
-                    </span>
-                  </td>
-                )}
-                {columns.map((column) => {
-                  const rawValue = row[column.key];
-                  const muted = emptyAsZeroMuted && isMutedValue(rawValue);
-                  const cellClassName = cx(
-                    column.align === "right" && "ui-table__cell--right",
-                    muted && "ui-table__empty-value",
-                  );
+            {rows.map((row, rowIndex) => {
+              const rowKey = getRowKey(row, rowIndex);
+              const expandedRow = renderExpandedRow?.({ row, rowIndex });
 
-                  if (renderCell) {
-                    return (
-                      <td key={column.key} className={cellClassName}>
-                        {renderCell({ row, column, value: rawValue, rowIndex })}
+              return (
+                <Fragment key={rowKey}>
+                  <tr
+                    className={cx(row.selected && "ui-table__row--selected")}
+                    draggable={draggable}
+                    onDragStart={draggable ? (event) => handleDragStart(event, rowIndex) : undefined}
+                    onDragOver={draggable ? (event) => event.preventDefault() : undefined}
+                    onDrop={draggable ? (event) => handleDrop(event, rowIndex) : undefined}
+                    style={{ height: rowHeight }}
+                  >
+                    {draggable && (
+                      <td className="ui-table__drag-cell">
+                        <span className="ui-table__drag-handle" aria-hidden="true">
+                          <GripVertical size={16} strokeWidth={1.5} />
+                        </span>
                       </td>
-                    );
-                  }
+                    )}
+                    {columns.map((column) => {
+                      const rawValue = row[column.key];
+                      const muted = emptyAsZeroMuted && isMutedValue(rawValue);
+                      const cellClassName = cx(
+                        column.align === "right" && "ui-table__cell--right",
+                        muted && "ui-table__empty-value",
+                      );
 
-                  if (column.editable && onCellChange) {
-                    return (
-                      <td key={column.key} className={cellClassName}>
-                        <input
-                          className="ui-table__input"
-                          value={rawValue ?? ""}
-                          onChange={(event) => onCellChange(row, column.key, event.target.value)}
-                        />
-                      </td>
-                    );
-                  }
+                      if (renderCell) {
+                        return (
+                          <td key={column.key} className={cellClassName}>
+                            {renderCell({ row, column, value: rawValue, rowIndex })}
+                          </td>
+                        );
+                      }
 
-                  return (
-                    <td key={column.key} className={cellClassName}>
-                      {renderValue(rawValue, emptyAsZeroMuted)}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+                      if (column.editable && onCellChange) {
+                        return (
+                          <td key={column.key} className={cellClassName}>
+                            <input
+                              className="ui-table__input"
+                              value={rawValue ?? ""}
+                              onChange={(event) => onCellChange(row, column.key, event.target.value)}
+                            />
+                          </td>
+                        );
+                      }
+
+                      return (
+                        <td key={column.key} className={cellClassName}>
+                          {renderValue(rawValue, emptyAsZeroMuted)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  {expandedRow && (
+                    <tr className="ui-table__expanded-row">
+                      <td colSpan={columns.length + (draggable ? 1 : 0)}>{expandedRow}</td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

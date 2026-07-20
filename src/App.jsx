@@ -26,9 +26,11 @@ import { isSupabaseConfigured, supabase } from "./lib/supabaseClient";
 import PriceText from "./components/PriceText.jsx";
 import AppShell from "./components/layout/AppShell.jsx";
 import Button from "./components/ui/Button.jsx";
+import CategorySidebar from "./components/ui/CategorySidebar.jsx";
 import EmptyState from "./components/ui/EmptyState.jsx";
 import Input from "./components/ui/Input.jsx";
 import PageHeader from "./components/ui/PageHeader.jsx";
+import StickyTotalBar from "./components/ui/StickyTotalBar.jsx";
 import Table from "./components/ui/Table.jsx";
 import logoUrl from "./assets/logo.svg";
 import { AI_MAPPING_GROUPS, AI_MAPPING_SELECT_OPTIONS, AI_ROW_TYPE_OPTIONS } from "./features/aiExcelImport/constants";
@@ -78,6 +80,7 @@ const APP_SHELL_NAV_ITEMS = [
   { key: "photo-management", label: "사진 관리/확인", icon: <Image /> },
   { key: "admin", label: "관리자 홈", icon: <Settings /> },
 ];
+const USE_ITEMS_SCREEN_V2 = true;
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const UNIT_OPTIONS = ["평", "m²", "m", "개소", "식", "자당", "롤", "박스", "EA"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
@@ -8475,6 +8478,350 @@ export default function App() {
     );
   }
 
+  function renderItemsScreenV2() {
+    const currentRows = items[openCategory] ?? [];
+    const itemTableColumns = [
+      { key: "selected", label: "", width: "32px" },
+      { key: "material", label: "소재명" },
+      { key: "spec", label: "규격", width: "120px" },
+      { key: "quantity", label: "수량", align: "right", width: "100px" },
+      { key: "unit", label: "단위", width: "60px" },
+      { key: "totalAmount", label: "합계", align: "right", width: "140px" },
+      { key: "photos", label: "사진", width: "56px" },
+      { key: "expanded", label: "", width: "48px" },
+    ];
+    const categoryItems = estimateCatalog.map((category) => ({
+      id: category.id,
+      label: category.name,
+      count: (items[category.id] ?? []).length,
+      active: openCategory === category.id,
+    }));
+
+    const renderItemCell = ({ row, column, rowIndex }) => {
+      const rowLabel = row.itemType === "flat" ? row.itemName : row.material;
+
+      if (column.key === "selected") {
+        return (
+          <label className="items-v2-check-cell" aria-label={`${rowLabel} 견적 포함`}>
+            <input
+              type="checkbox"
+              checked={Boolean(row.selected)}
+              onChange={(event) => updateItem(openCategory, rowIndex, { selected: event.target.checked })}
+            />
+          </label>
+        );
+      }
+
+      if (column.key === "material") {
+        return (
+          <div className="items-v2-material-cell">
+            <strong>{rowLabel}</strong>
+            <span>
+              {isEstimateRowModified(row) && <em className="items-v2-badge items-v2-badge--muted">수정됨</em>}
+              {row.selected && <em className="items-v2-badge items-v2-badge--selected">포함</em>}
+              {!row.hasTemplateValue && <em className="items-v2-badge items-v2-badge--warning">미입력</em>}
+            </span>
+          </div>
+        );
+      }
+
+      if (column.key === "spec") {
+        const choices = getEstimateRowSpecChoices(row);
+
+        return choices.length ? (
+          <select
+            className="items-v2-inline-select"
+            value={getEstimateRowSpecChoiceValue(row)}
+            onChange={(event) => updateItem(openCategory, rowIndex, getEstimateRowSpecPatchFromChoice(event.target.value))}
+          >
+            {choices.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className={getEstimateRowSpecLabel(row) ? "" : "items-v2-muted-value"}>
+            {getEstimateRowSpecLabel(row) || "규격 없음"}
+          </span>
+        );
+      }
+
+      if (column.key === "quantity") {
+        return (
+          <input
+            className="items-v2-inline-input items-v2-inline-input--number"
+            type="text"
+            inputMode="decimal"
+            aria-label={`${rowLabel} 수량`}
+            value={row.quantity ?? ""}
+            onChange={(event) => updateItem(openCategory, rowIndex, { quantity: event.target.value })}
+          />
+        );
+      }
+
+      if (column.key === "unit") {
+        return <span className={row.unit ? "" : "items-v2-muted-value"}>{row.unit || "-"}</span>;
+      }
+
+      if (column.key === "totalAmount") {
+        return <PriceText value={row.totalAmount} size="sm" />;
+      }
+
+      if (column.key === "photos") {
+        return (
+          <button
+            type="button"
+            className={`items-v2-icon-button ${selectedPhotoSubitemId === row.subitemId ? "active" : ""}`.trim()}
+            aria-label={`${rowLabel} 사진보기`}
+            title="사진보기"
+            onClick={() => handleOpenItemPhotos(row)}
+          >
+            <Image size={18} strokeWidth={1.5} />
+          </button>
+        );
+      }
+
+      if (column.key === "expanded") {
+        return (
+          <button
+            type="button"
+            className="items-v2-icon-button"
+            aria-label={`${rowLabel} 세부 수정 ${row.expanded ? "닫기" : "열기"}`}
+            title={row.expanded ? "세부 수정 닫기" : "세부 수정 열기"}
+            onClick={() => updateItem(openCategory, rowIndex, { expanded: !row.expanded })}
+          >
+            {row.expanded ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
+          </button>
+        );
+      }
+
+      return row[column.key] ?? "";
+    };
+
+    const renderItemExpandedRow = ({ row, rowIndex }) => {
+      const photoPanel = renderEstimateItemPhotoPanel(row);
+      if (!row.expanded && !photoPanel) return null;
+
+      return (
+        <div className="items-v2-expanded-stack">
+          {photoPanel}
+          {row.expanded && (
+            <div className="items-v2-detail-panel">
+              {!row.hasTemplateValue && (
+                <p className="items-v2-detail-note">
+                  아직 이 조건의 수량/인원 기준이 없습니다. 이번 견적에서 직접 입력해 사용할 수 있습니다.
+                </p>
+              )}
+              <label>
+                <span>단가</span>
+                <div className="items-v2-money-field">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formatMoneyInputValue(row.unitPrice)}
+                    onChange={(event) =>
+                      updateItem(openCategory, rowIndex, { unitPrice: stripNumberInputFormatting(event.target.value) })
+                    }
+                  />
+                  <em>원</em>
+                </div>
+              </label>
+              <label>
+                <span>인원</span>
+                <div className="items-v2-money-field">
+                  <input
+                    type="number"
+                    min="0"
+                    value={row.laborCount ?? ""}
+                    onChange={(event) => updateItem(openCategory, rowIndex, { laborCount: event.target.value })}
+                  />
+                  <em>명</em>
+                </div>
+              </label>
+              <label>
+                <span>인건비</span>
+                <div className="items-v2-money-field">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formatMoneyInputValue(row.laborRate)}
+                    onChange={(event) =>
+                      updateItem(openCategory, rowIndex, { laborRate: stripNumberInputFormatting(event.target.value) })
+                    }
+                  />
+                  <em>원</em>
+                </div>
+              </label>
+              <label>
+                <span>업체/브랜드</span>
+                <div className="items-v2-money-field items-v2-brand-field">
+                  <input
+                    type="text"
+                    value={row.contractor ?? ""}
+                    placeholder="업체명 또는 브랜드"
+                    onChange={(event) => updateItem(openCategory, rowIndex, { contractor: event.target.value })}
+                  />
+                </div>
+              </label>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    return renderAppShell(
+      <main className="items-v2-page">
+        <CategorySidebar
+          title="공사 항목"
+          items={categoryItems}
+          onSelect={(categoryId) => toggleCategory(categoryId)}
+          className="items-v2-category-sidebar"
+          aria-label="견적 공사 항목"
+        />
+        <section className="items-v2-workspace">
+          <header className="items-v2-header">
+            <div>
+              <h1>견적서 작성</h1>
+              <p>{estimateDraftSource === "blank"
+                ? "빈 견적서로 시작했습니다. 필요한 항목을 체크하고 이번 현장 기준으로 수정하세요."
+                : "템플릿에서 불러온 기본값입니다. 필요한 항목을 체크하고 이번 현장 기준으로 수정하세요."}</p>
+            </div>
+            <div className="items-v2-header-actions">
+              <Button
+                variant="tertiary"
+                size="sm"
+                onClick={() => {
+                  setEstimateConditionEditMode(true);
+                  setPage("condition");
+                  setStep(1);
+                }}
+              >
+                조건 다시 선택
+              </Button>
+              <Button
+                variant="tertiary"
+                size="sm"
+                leftIcon={<ArrowLeft />}
+                onClick={() => {
+                  setEstimateConditionEditMode(true);
+                  setPage("condition");
+                  setStep(3);
+                }}
+              >
+                이전
+              </Button>
+            </div>
+          </header>
+
+          <div className="items-v2-toolbar">
+            <div className="items-v2-condition-summary">
+              <span>현재 조건</span>
+              <strong>{conditionSummary}</strong>
+            </div>
+            <div className="items-v2-pyeong-controls">
+              <label htmlFor="items-v2-estimate-pyeong">견적 기준 평수</label>
+              <div>
+                <input
+                  id="items-v2-estimate-pyeong"
+                  type="number"
+                  min="1"
+                  max="90"
+                  value={estimatePyeong}
+                  onChange={(event) => setEstimatePyeong(event.target.value)}
+                />
+                <span>평</span>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!estimatePyeong}
+                onClick={applyEstimatePyeongToPyeongUnits}
+              >
+                평 단위 수량에 적용
+              </Button>
+            </div>
+          </div>
+
+          {estimateLoading && <div className="status-box">시공 항목을 불러오는 중...</div>}
+          {estimateNotice && <div className="status-box">{estimateNotice}</div>}
+          {estimateError && <div className="error-box">{estimateError}</div>}
+
+          <section className="items-v2-table-section">
+            <div className="items-v2-section-header">
+              <div>
+                <h2>{currentCategory?.name || "공사 항목"} 견적 내역</h2>
+                <p>{condition.size ? `${condition.size}평 템플릿` : "견적 템플릿"}</p>
+              </div>
+              <span>{currentRows.length}개 항목</span>
+            </div>
+            {openCategory && currentRows.length ? (
+              <Table
+                columns={itemTableColumns}
+                rows={currentRows}
+                renderCell={renderItemCell}
+                renderExpandedRow={renderItemExpandedRow}
+                zebra
+                rowHeight={40}
+                emptyAsZeroMuted
+                className="items-v2-table"
+              />
+            ) : (
+              <EmptyState
+                title={estimateCatalog.length ? "이 항목에 등록된 소재가 없습니다." : "등록된 시공 항목이 없습니다."}
+                description={estimateCatalog.length ? "관리자 페이지에서 소재를 추가하면 이 화면에서 견적에 포함할 수 있습니다." : "관리자 페이지에서 항목과 소재를 먼저 추가하세요."}
+              />
+            )}
+          </section>
+
+          <details className="items-v2-site-memo">
+            <summary>현장 메모</summary>
+            <textarea
+              value={siteMemo}
+              onChange={(event) => setSiteMemo(event.target.value)}
+              placeholder="고객에게 보여주지 않을 내부 메모를 적어두세요."
+            />
+          </details>
+
+          <StickyTotalBar
+            className="items-v2-total-bar"
+            label={`${selectedRows.length}개 선택`}
+            amounts={[
+              { label: "선택 항목 합계", value: `${selectedItemsTotal.toLocaleString("ko-KR")}원` },
+              { label: "추가금/할인", value: `${adjustmentTotal >= 0 ? "+" : "-"}${Math.abs(adjustmentTotal).toLocaleString("ko-KR")}원` },
+              { label: "최종 견적 금액", value: `${total.toLocaleString("ko-KR")}원` },
+            ]}
+            actions={(
+              <div className="items-v2-total-actions">
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setPreviewBackPage("items");
+                    setEstimatePreviewType("general");
+                    setPage("preview");
+                  }}
+                >
+                  일반 견적서 확인
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setPreviewBackPage("items");
+                    setEstimatePreviewType("detail");
+                    setPage("preview");
+                  }}
+                >
+                  세부 견적서 확인
+                </Button>
+              </div>
+            )}
+          />
+        </section>
+      </main>,
+      { collapsed: true, className: "formate-app-shell--items-v2" }
+    );
+  }
+
   if (companySession.checking) {
     return (
       <div className="app-shell login-shell">
@@ -10716,7 +11063,9 @@ export default function App() {
         </main>
       , { collapsed: true })}
 
-      {page === "items" && (
+      {page === "items" && USE_ITEMS_SCREEN_V2 && renderItemsScreenV2()}
+
+      {page === "items" && !USE_ITEMS_SCREEN_V2 && (
         <main className="workspace estimate-workspace">
           <section className="category-column">
             <div className="category-title-row">
@@ -11976,27 +12325,28 @@ export default function App() {
         </main>
       )}
 
-      {page === "admin-detail-costs" && adminVerified && (
-        <main className="panel-page admin-page">
+      {page === "admin-detail-costs" && adminVerified && renderAppShell(
+        <main className="panel-page admin-page detail-cost-page">
           <div className="editor-header">
             <div>
-              <button className="ghost" onClick={() => setPage("admin")}>
-                <ArrowLeft size={18} /> 관리자 홈
-              </button>
+              <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("admin")}>
+                관리자 홈
+              </Button>
               <h2>세부견적 관리</h2>
               <p className="muted caption">고객용 견적서에는 표시하지 않는 내부 비용입니다.</p>
             </div>
             <div className="admin-actions">
-              <button
-                className="secondary-button"
+              <Button
+                variant="secondary"
+                leftIcon={<RefreshCcw />}
                 disabled={adminLoading || adminSaving}
                 onClick={() => {
                   fetchDetailSubitems();
                   if (selectedDetailSubitemId) fetchDetailCosts(selectedDetailSubitemId);
                 }}
               >
-                <RefreshCcw size={18} /> 되돌리기
-              </button>
+                되돌리기
+              </Button>
             </div>
           </div>
 
@@ -12005,50 +12355,28 @@ export default function App() {
           {adminError && <div className="error-box">{adminError}</div>}
 
           <section className="detail-cost-layout">
-            <aside className="detail-subitem-panel">
-              <h3>대분류/소재 선택</h3>
-              <p className="muted caption">대분류를 펼친 뒤 세부 비용을 연결할 소재를 선택합니다.</p>
-
-              <div className="detail-group-list">
-                {detailSubitemGroups.map((group) => {
-                  const groupExpanded = expandedDetailItemIds.includes(group.id);
-                  return (
-                    <section className={`detail-group ${groupExpanded ? "expanded" : ""}`.trim()} key={group.id}>
-                      <button
-                        type="button"
-                        className="detail-group-toggle"
-                        onClick={() => toggleDetailItemExpanded(group.id)}
-                        aria-expanded={groupExpanded}
-                      >
-                        <span>
-                          <strong>{group.name}</strong>
-                          <em>{group.subitems.length}개 소재</em>
-                        </span>
-                        {groupExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                      </button>
-
-                      {groupExpanded && (
-                        <div className="detail-subitem-list">
-                          {group.subitems.map((subitem) => (
-                            <button
-                              key={subitem.id}
-                              className={selectedDetailSubitemId === subitem.id ? "selected" : ""}
-                              onClick={() => setSelectedDetailSubitemId(subitem.id)}
-                            >
-                              <strong>{subitem.name}</strong>
-                              <span>{subitem.unit || "단위 미지정"}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </section>
-                  );
-                })}
-                {!adminLoading && !detailSubitems.length && (
-                  <p className="muted">등록된 소재가 없습니다. 먼저 `시공항목 수정`에서 소재를 추가하세요.</p>
+            <div className="detail-cost-sidebar">
+              <CategorySidebar
+                title="대분류/소재"
+                aria-label="세부견적 소재 선택"
+                items={detailSubitemGroups.flatMap((group) =>
+                  group.subitems.map((subitem) => ({
+                    id: subitem.id,
+                    label: `${group.name} · ${subitem.name}`,
+                    active: selectedDetailSubitemId === subitem.id,
+                  }))
                 )}
-              </div>
-            </aside>
+                onSelect={(subitemId) => setSelectedDetailSubitemId(subitemId)}
+              />
+              <p className="muted caption detail-cost-sidebar-hint">소재를 선택하면 오른쪽에서 내부 비용을 관리합니다.</p>
+                {!adminLoading && !detailSubitems.length && (
+                <EmptyState
+                  className="detail-cost-empty"
+                  title="등록된 소재가 없습니다."
+                  description="먼저 시공항목 수정에서 소재를 추가하세요."
+                />
+                )}
+            </div>
 
             <section className="detail-cost-panel">
               <div className="detail-cost-title">
@@ -12063,13 +12391,13 @@ export default function App() {
               </div>
 
               <div className="detail-add-row">
-                <input
+                <Input
                   value={newDetailCost.name}
                   onChange={(event) => setNewDetailCost((current) => ({ ...current, name: event.target.value }))}
                   placeholder="항목명 예: 풀, 아크졸, 부직포"
                   disabled={!selectedDetailSubitemId}
                 />
-                <input
+                <Input
                   type="text"
                   inputMode="numeric"
                   value={formatMoneyInputValue(newDetailCost.cost)}
@@ -12087,13 +12415,14 @@ export default function App() {
                   <option value="basic">기본에 포함</option>
                   <option value="full">전체에만 포함</option>
                 </select>
-                <button
-                  className="primary-button"
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus />}
                   disabled={!selectedDetailSubitemId || adminSaving || !newDetailCost.name.trim()}
                   onClick={addDetailCost}
                 >
-                  <Plus size={18} /> 추가
-                </button>
+                  추가
+                </Button>
               </div>
 
               <div className="detail-bulk-panel">
@@ -12103,7 +12432,7 @@ export default function App() {
                 </div>
                 <label>
                   단가
-                  <input
+                  <Input
                     type="text"
                     inputMode="numeric"
                     value={formatMoneyInputValue(detailCostBulkInput.cost)}
@@ -12113,85 +12442,128 @@ export default function App() {
                   />
                 </label>
                 <div className="detail-bulk-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
+                  <Button
+                    variant="secondary"
                     disabled={!selectedDetailSubitemId || adminSaving}
                     onClick={() => applyDetailCostBulkInput("empty")}
                   >
                     빈/0 단가에 적용
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost danger-text-button"
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
                     disabled={!selectedDetailSubitemId || adminSaving}
                     onClick={() => applyDetailCostBulkInput("overwrite")}
                   >
                     전체 단가 덮어쓰기
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               <div className="detail-cost-list">
                 {detailCosts.length > 0 && (
-                  <div className="detail-cost-header">
-                    <span>비용명/부자재명</span>
-                    <span>단가</span>
-                    <span>구분</span>
-                    <span>삭제</span>
-                  </div>
+                  <Table
+                    className="detail-cost-table"
+                    columns={[
+                      { key: "name", label: "비용명/부자재명", width: "36%" },
+                      { key: "cost", label: "단가", align: "right", width: "20%" },
+                      { key: "categoryType", label: "구분", width: "30%" },
+                      { key: "actions", label: "삭제", align: "right", width: "14%" },
+                    ]}
+                    rows={detailCosts.map((cost) => ({
+                      id: cost.id,
+                      detailCost: cost,
+                      name: cost.name,
+                      cost: cost.cost,
+                      categoryType: cost.category_type,
+                    }))}
+                    emptyAsZeroMuted
+                    renderCell={({ row, column }) => {
+                      const cost = row.detailCost;
+
+                      if (column.key === "name") {
+                        return (
+                          <input
+                            className="detail-cost-table-input"
+                            value={cost.name}
+                            onChange={(event) => updateLocalDetailCost(cost.id, { name: event.target.value })}
+                            onBlur={(event) => updateDetailCost(cost.id, { name: event.target.value })}
+                          />
+                        );
+                      }
+
+                      if (column.key === "cost") {
+                        return (
+                          <input
+                            className="detail-cost-table-input numeric"
+                            type="text"
+                            inputMode="numeric"
+                            value={formatMoneyInputValue(cost.cost)}
+                            onChange={(event) => updateLocalDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
+                            onBlur={(event) => updateDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
+                          />
+                        );
+                      }
+
+                      if (column.key === "categoryType") {
+                        return (
+                          <div className="detail-type-toggle">
+                            <label className={cost.category_type === "basic" ? "selected" : ""}>
+                              <input
+                                type="radio"
+                                name={`detail-type-${cost.id}`}
+                                checked={cost.category_type === "basic"}
+                                onChange={() => updateDetailCost(cost.id, { category_type: "basic" })}
+                              />
+                              기본에 포함
+                            </label>
+                            <label className={cost.category_type === "full" ? "selected" : ""}>
+                              <input
+                                type="radio"
+                                name={`detail-type-${cost.id}`}
+                                checked={cost.category_type === "full"}
+                                onChange={() => updateDetailCost(cost.id, { category_type: "full" })}
+                              />
+                              전체에만 포함
+                            </label>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          leftIcon={<Trash2 />}
+                          disabled={adminSaving}
+                          onClick={() => deleteDetailCost(cost.id)}
+                        >
+                          삭제
+                        </Button>
+                      );
+                    }}
+                  />
                 )}
-                {detailCosts.map((cost) => (
-                  <div key={cost.id} className="detail-cost-row">
-                    <input
-                      value={cost.name}
-                      onChange={(event) => updateLocalDetailCost(cost.id, { name: event.target.value })}
-                      onBlur={(event) => updateDetailCost(cost.id, { name: event.target.value })}
-                    />
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={formatMoneyInputValue(cost.cost)}
-                      onChange={(event) => updateLocalDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
-                      onBlur={(event) => updateDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
-                    />
-                    <div className="detail-type-toggle">
-                      <label className={cost.category_type === "basic" ? "selected" : ""}>
-                        <input
-                          type="radio"
-                          name={`detail-type-${cost.id}`}
-                          checked={cost.category_type === "basic"}
-                          onChange={() => updateDetailCost(cost.id, { category_type: "basic" })}
-                        />
-                        기본에 포함
-                      </label>
-                      <label className={cost.category_type === "full" ? "selected" : ""}>
-                        <input
-                          type="radio"
-                          name={`detail-type-${cost.id}`}
-                          checked={cost.category_type === "full"}
-                          onChange={() => updateDetailCost(cost.id, { category_type: "full" })}
-                        />
-                        전체에만 포함
-                      </label>
-                    </div>
-                    <button className="danger-button" disabled={adminSaving} onClick={() => deleteDetailCost(cost.id)}>
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                ))}
 
                 {!adminLoading && selectedDetailSubitemId && !detailCosts.length && (
-                  <p className="muted">이 소재에 등록된 부자재 및 기타 비용이 없습니다.</p>
+                  <EmptyState
+                    className="detail-cost-empty"
+                    title="등록된 내부 비용이 없습니다."
+                    description="상단 입력 영역에서 부자재나 기타 비용을 추가하세요."
+                  />
                 )}
                 {!selectedDetailSubitemId && (
-                  <p className="muted">왼쪽에서 소재를 선택하면 세부견적 항목을 관리할 수 있습니다.</p>
+                  <EmptyState
+                    className="detail-cost-empty"
+                    title="소재를 선택하세요."
+                    description="왼쪽에서 소재를 선택하면 세부견적 항목을 관리할 수 있습니다."
+                  />
                 )}
               </div>
             </section>
           </section>
         </main>
-      )}
+      , { collapsed: true })}
 
       {page === "admin-estimates" && renderAppShell(
         <main className="panel-page admin-page saved-estimates-page">
@@ -19884,6 +20256,516 @@ const styles = `
     justify-content: flex-end;
     padding-top: var(--space-2);
     border-top: 1px solid var(--color-border);
+  }
+  .formate-app-shell--collapsed .detail-cost-page {
+    width: 100%;
+    max-width: var(--viewport-preferred-width);
+    min-height: 100dvh;
+    padding: var(--space-page-y) var(--space-page-x);
+  }
+  .detail-cost-page > .editor-header {
+    margin-bottom: var(--space-3);
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .detail-cost-page > .editor-header h2 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-work-title);
+  }
+  .detail-cost-page .detail-cost-layout {
+    display: grid;
+    grid-template-columns: var(--layout-local-sidebar) minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: start;
+  }
+  .detail-cost-sidebar {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .detail-cost-sidebar .ui-category-sidebar {
+    width: var(--layout-local-sidebar);
+    min-height: 560px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .detail-cost-sidebar .ui-category-sidebar__list {
+    max-height: calc(100dvh - 220px);
+    overflow: auto;
+  }
+  .detail-cost-sidebar-hint {
+    margin: 0;
+    padding: 0 var(--space-1);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .detail-cost-page .detail-cost-panel {
+    min-width: 0;
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .detail-cost-page .detail-cost-title {
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .detail-cost-page .detail-cost-title h3 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .detail-cost-page .detail-cost-title > span {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-badge);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+  }
+  .detail-cost-page .detail-add-row {
+    grid-template-columns: minmax(260px, 1fr) 140px 160px auto;
+    gap: var(--space-1);
+    margin: var(--space-2) 0;
+  }
+  .detail-cost-page .detail-add-row select {
+    height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+  }
+  .detail-cost-page .detail-bulk-panel {
+    grid-template-columns: minmax(280px, 1fr) 160px auto;
+    gap: var(--space-1);
+    margin-bottom: var(--space-2);
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-subtle);
+    box-shadow: none;
+  }
+  .detail-cost-page .detail-bulk-panel strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .detail-cost-page .detail-bulk-panel span,
+  .detail-cost-page .detail-bulk-panel label {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .detail-cost-page .detail-bulk-actions {
+    gap: var(--space-1);
+  }
+  .detail-cost-page .detail-cost-list {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .detail-cost-page .detail-cost-table {
+    table-layout: fixed;
+  }
+  .detail-cost-page .detail-cost-table-input {
+    width: 100%;
+    height: 32px;
+    border: 1px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .detail-cost-page .detail-cost-table-input.numeric {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .detail-cost-page .detail-cost-table-input:focus {
+    border-color: var(--color-primary-border);
+    background: var(--color-cell-focus);
+    box-shadow: none;
+    outline: none;
+  }
+  .detail-cost-page .detail-type-toggle {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+  .detail-cost-page .detail-type-toggle label {
+    min-height: var(--button-height-sm);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+  }
+  .detail-cost-page .detail-type-toggle label.selected {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+  .detail-cost-page .detail-cost-empty {
+    margin-top: 0;
+  }
+  .formate-app-shell--items-v2 .formate-app-shell__main {
+    padding: 0;
+  }
+  .items-v2-page {
+    display: grid;
+    grid-template-columns: var(--layout-local-sidebar) minmax(0, 1fr);
+    min-height: 100dvh;
+    min-width: 0;
+    background: var(--color-bg);
+  }
+  .items-v2-category-sidebar {
+    position: sticky;
+    top: 0;
+    width: var(--layout-local-sidebar);
+    height: 100dvh;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .items-v2-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+    padding: var(--space-page-y) var(--space-page-x) 0;
+  }
+  .items-v2-header,
+  .items-v2-toolbar,
+  .items-v2-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .items-v2-header h1 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-work-title);
+  }
+  .items-v2-header p,
+  .items-v2-section-header p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .items-v2-header-actions,
+  .items-v2-total-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+  .items-v2-toolbar {
+    padding: var(--space-toolbar-y) var(--space-toolbar-x);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .items-v2-condition-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .items-v2-condition-summary span,
+  .items-v2-pyeong-controls label,
+  .items-v2-section-header span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .items-v2-condition-summary strong {
+    min-width: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
+  }
+  .items-v2-pyeong-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .items-v2-pyeong-controls > div {
+    display: inline-flex;
+    align-items: center;
+    width: 120px;
+    height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  .items-v2-pyeong-controls input {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0 var(--space-input-x);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .items-v2-pyeong-controls input:focus {
+    outline: none;
+  }
+  .items-v2-pyeong-controls > div:focus-within {
+    border-color: var(--color-primary-border);
+    box-shadow: var(--focus-ring);
+  }
+  .items-v2-pyeong-controls span {
+    padding-right: var(--space-input-x);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .items-v2-table-section {
+    min-width: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-table);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  .items-v2-section-header {
+    padding: var(--space-card-padding);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .items-v2-section-header h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .items-v2-table-section .ui-table-wrap {
+    border: 0;
+    border-radius: 0;
+  }
+  .items-v2-table-section .ui-table {
+    table-layout: fixed;
+  }
+  .items-v2-table-section .ui-table th,
+  .items-v2-table-section .ui-table td {
+    white-space: nowrap;
+  }
+  .items-v2-check-cell,
+  .items-v2-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .items-v2-check-cell input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-primary);
+  }
+  .items-v2-material-cell {
+    display: grid;
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+  .items-v2-material-cell strong {
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-cell);
+    text-overflow: ellipsis;
+  }
+  .items-v2-material-cell span {
+    display: inline-flex;
+    gap: var(--space-0-5);
+    min-height: 0;
+  }
+  .items-v2-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-badge);
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-table-header);
+    font-style: normal;
+    font-weight: var(--font-weight-medium);
+    line-height: 22px;
+  }
+  .items-v2-badge--muted {
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+  }
+  .items-v2-badge--selected {
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+  .items-v2-badge--warning {
+    border-color: var(--color-warning-border);
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+  }
+  .items-v2-inline-input,
+  .items-v2-inline-select {
+    width: 100%;
+    height: var(--button-height-sm);
+    border: 1px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .items-v2-inline-input--number {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
+  }
+  .items-v2-inline-input:focus,
+  .items-v2-inline-select:focus {
+    border-color: var(--color-primary-border);
+    background: var(--color-cell-focus);
+    outline: none;
+  }
+  .items-v2-muted-value {
+    color: var(--color-text-muted);
+  }
+  .items-v2-icon-button {
+    width: var(--button-height-sm);
+    height: var(--button-height-sm);
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+  .items-v2-icon-button:hover,
+  .items-v2-icon-button.active {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+  .items-v2-table-section .ui-table__expanded-row td {
+    height: auto;
+    padding: 0;
+    background: var(--color-surface-subtle) !important;
+  }
+  .items-v2-expanded-stack {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-card-padding);
+  }
+  .items-v2-detail-panel {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-2);
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .items-v2-detail-note {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .items-v2-detail-panel label {
+    display: grid;
+    gap: var(--space-label-gap);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .items-v2-money-field {
+    display: flex;
+    align-items: center;
+    height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  .items-v2-money-field input {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0 var(--space-input-x);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .items-v2-brand-field input {
+    text-align: left;
+    font-variant-numeric: normal;
+  }
+  .items-v2-money-field em {
+    padding-right: var(--space-input-x);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+  }
+  .items-v2-money-field:focus-within {
+    border-color: var(--color-primary-border);
+    box-shadow: var(--focus-ring);
+  }
+  .items-v2-money-field input:focus {
+    outline: none;
+  }
+  .items-v2-site-memo {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .items-v2-site-memo summary {
+    cursor: pointer;
+    padding: var(--space-toolbar-y) var(--space-toolbar-x);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
+  }
+  .items-v2-site-memo textarea {
+    width: calc(100% - var(--space-4));
+    min-height: 96px;
+    margin: 0 var(--space-2) var(--space-2);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    padding: var(--space-1);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-body);
+    resize: vertical;
+  }
+  .items-v2-site-memo textarea:focus {
+    border-color: var(--color-primary-border);
+    box-shadow: var(--focus-ring);
+    outline: none;
+  }
+  .items-v2-total-bar {
+    margin-right: calc(var(--space-page-x) * -1);
+    margin-left: calc(var(--space-page-x) * -1);
+  }
+  .items-v2-total-bar .ui-sticky-total-bar__amount-value {
+    white-space: nowrap;
   }
   .saved-estimates-page .estimate-list .ui-table-wrap,
   .saved-estimates-page .estimate-modal .ui-table-wrap {
