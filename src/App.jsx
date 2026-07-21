@@ -8464,13 +8464,19 @@ export default function App() {
   }
 
   function renderAppShell(children, shellOptions = {}) {
+    const providedShellClassName = shellOptions.className || "";
+    const shellClassName = [
+      !shellOptions.collapsed && !providedShellClassName.includes("formate-app-shell--overview") && "formate-app-shell--overview",
+      providedShellClassName,
+    ].filter(Boolean).join(" ");
+
     return (
       <AppShell
         currentPage={page}
         onNavigate={handleAppShellNavigate}
         companyName={selectedCompanyName}
         navItems={APP_SHELL_NAV_ITEMS}
-        className={shellOptions.className || ""}
+        className={shellClassName}
         collapsed={!!shellOptions.collapsed}
       >
         {children}
