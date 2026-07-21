@@ -32,7 +32,7 @@ import Input from "./components/ui/Input.jsx";
 import PageHeader from "./components/ui/PageHeader.jsx";
 import StickyTotalBar from "./components/ui/StickyTotalBar.jsx";
 import Table from "./components/ui/Table.jsx";
-import logoUrl from "./assets/logo.svg";
+import logoUrl from "./assets/formate-logo-icon.png";
 import { AI_MAPPING_GROUPS, AI_MAPPING_SELECT_OPTIONS, AI_ROW_TYPE_OPTIONS } from "./features/aiExcelImport/constants";
 import {
   getAiRowTypeLabel,
@@ -13133,8 +13133,8 @@ const styles = `
     color: var(--text-primary);
   }
   .login-brand img {
-    width: 34px;
-    height: 34px;
+    width: 38px;
+    height: 38px;
     display: block;
   }
   .login-brand strong {
@@ -13224,8 +13224,8 @@ const styles = `
     text-align: left;
   }
   .global-brand img {
-    width: 24px;
-    height: 24px;
+    width: 27px;
+    height: 27px;
     display: block;
   }
   .global-brand strong {
@@ -13366,8 +13366,8 @@ const styles = `
     font-weight: var(--font-weight-bold);
   }
   .hero-brand img {
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     display: block;
   }
   .hero-brand strong {
