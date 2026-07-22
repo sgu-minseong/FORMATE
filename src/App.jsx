@@ -2716,6 +2716,7 @@ export default function App() {
   const [adminSearch, setAdminSearch] = useState("");
   const [adminFavoriteOnly, setAdminFavoriteOnly] = useState(false);
   const [expandedAdminItemIds, setExpandedAdminItemIds] = useState([]);
+  const [selectedAdminCategoryId, setSelectedAdminCategoryId] = useState("");
   const [selectedAdminPyeong, setSelectedAdminPyeong] = useState("");
   const [selectedAdminBuildType, setSelectedAdminBuildType] = useState("");
   const [selectedAdminHasExtension, setSelectedAdminHasExtension] = useState(false);
@@ -3160,11 +3161,30 @@ export default function App() {
   const isAdminCatalogEditing = isCommonPriceAdminPage || showAdminConditionEditor;
   const hasUnsavedAdminCatalogChanges =
     isAdminCatalogEditing && ["dirty", "saving", "error"].includes(autoSaveStatus);
+  const selectedAdminPriceItem =
+    isCommonPriceAdminPage
+      ? filteredAdminItems.find((item) => item.id === selectedAdminCategoryId) ?? filteredAdminItems[0] ?? null
+      : null;
 
   adminItemsRef.current = adminItems;
   pageRef.current = page;
   adminConditionStepRef.current = adminConditionStep;
   currentAdminTemplateConditionRef.current = currentAdminTemplateCondition;
+
+  useEffect(() => {
+    if (!isCommonPriceAdminPage) return;
+
+    const firstVisibleItemId = filteredAdminItems[0]?.id ?? "";
+    if (!firstVisibleItemId) {
+      if (selectedAdminCategoryId) setSelectedAdminCategoryId("");
+      return;
+    }
+
+    const selectedItemVisible = filteredAdminItems.some((item) => item.id === selectedAdminCategoryId);
+    if (!selectedItemVisible) {
+      setSelectedAdminCategoryId(firstVisibleItemId);
+    }
+  }, [filteredAdminItems, isCommonPriceAdminPage, selectedAdminCategoryId]);
 
   useEffect(() => {
     let active = true;
@@ -8123,6 +8143,450 @@ export default function App() {
     );
   }
 
+  function renderAdminPriceCategorySidebar() {
+    return (
+      <aside className="admin-price-v2-sidebar" aria-label="단가표 대분류">
+        <div className="admin-price-v2-sidebar-header">
+          <span>대분류</span>
+          <strong>{filteredAdminItems.length}개</strong>
+        </div>
+        <div className="admin-price-v2-category-list">
+          {filteredAdminItems.map((item) => {
+            const active = selectedAdminPriceItem?.id === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`admin-price-v2-category-item ${active ? "active" : ""} ${dragItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drop-target" : ""}`.trim()}
+                onClick={() => setSelectedAdminCategoryId(item.id)}
+                onDragOver={(event) => handleAdminItemDragOver(event, item.id)}
+                onDrop={() => reorderAdminItems(item.id)}
+                onDragEnd={clearAdminDragState}
+              >
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="대분류 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminItemDragStart(event, item.id)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <span className="admin-price-v2-category-name">
+                  {item.is_favorite && <Star size={14} fill="currentColor" />}
+                  <span>{item.name}</span>
+                </span>
+                <span className="admin-price-v2-category-count">{(item.subitems ?? []).length}개</span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
+  function renderAdminPriceContext(item) {
+    if (!item) return null;
+    return (
+      <div className="admin-price-v2-context">
+        <div className="admin-price-v2-context-main">
+          <span className="admin-price-v2-context-label">선택 대분류</span>
+          <input
+            value={item.name}
+            aria-label="대분류명"
+            onChange={(event) =>
+              setAdminItems((current) =>
+                current.map((entry) =>
+                  entry.id === item.id ? { ...entry, name: event.target.value } : entry
+                )
+              )
+            }
+            onInput={() => markAdminCatalogDirty()}
+            onBlur={(event) => renameAdminItem(item.id, event.target.value)}
+          />
+          <span className="items-v2-badge items-v2-badge--muted">
+            {item.item_type === "flat" ? "단일 항목" : "소재형"}
+          </span>
+          <span className="items-v2-badge items-v2-badge--muted">{(item.subitems ?? []).length}개 소재</span>
+        </div>
+        <div className="admin-price-v2-context-actions">
+          <button
+            type="button"
+            className={`items-v2-icon-button ${item.is_favorite ? "active" : ""}`.trim()}
+            title="즐겨찾기"
+            disabled={adminSaving}
+            onClick={() => toggleAdminFavorite(item)}
+          >
+            <Star size={18} strokeWidth={1.5} fill={item.is_favorite ? "currentColor" : "none"} />
+          </button>
+          <button
+            type="button"
+            className="danger-button admin-price-v2-danger-button"
+            title="대분류 삭제"
+            disabled={adminSaving}
+            onClick={() => deleteAdminItem(item.id)}
+          >
+            <Trash2 size={18} strokeWidth={1.5} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderAdminPriceHeader(item, isFlooring = false) {
+    return (
+      <div className={`admin-price-table-header price-table-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"} ${isFlooring ? "flooring-price-table-header" : ""}`.trim()}>
+        {item.item_type !== "flat" && <span />}
+        <span>소재명</span>
+        <span>원가</span>
+        <span>원가 단위</span>
+        <span>규격/두께</span>
+        <span>단위</span>
+        <span>단가</span>
+        <span>인건비(빈집)</span>
+        <span>인건비(살림집)</span>
+        {item.item_type !== "flat" && <span>삭제</span>}
+      </div>
+    );
+  }
+
+  function renderAdminPriceSubitemCells(subitem) {
+    return (
+      <>
+        <label className="price-internal-field price-number-field">
+          <span className="field-label">원가</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(subitem.cost_price)}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, { cost_price: stripNumberInputFormatting(event.target.value) })
+            }
+          />
+        </label>
+        <label className="price-internal-field price-unit-field">
+          <span className="field-label">원가 단위</span>
+          <select
+            value={normalizeUnitOptionValue(subitem.cost_unit)}
+            onChange={(event) => updateLocalSubitemPrice(subitem.id, { cost_unit: normalizeUnitOptionValue(event.target.value) })}
+          >
+            <option value="">선택</option>
+            {getUnitSelectOptions(subitem.cost_unit).map((unit) => (
+              <option key={unit} value={unit}>
+                {unit}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="spec-options-field">
+          <span className="field-label">규격/두께</span>
+          {(() => {
+            const specOptions = getSpecSelectOptions(subitem);
+            const specValue = getSpecSelectValue(subitem, specOptions);
+            return renderSpecOptionsControl(subitem, specOptions, specValue, (event) =>
+              updateLocalSubitemDraft(subitem.id, { selected_spec_option: event.target.value })
+            );
+          })()}
+        </label>
+        <label className="price-unit-field">
+          <span className="field-label">단위</span>
+          <select
+            value={normalizeUnitOptionValue(subitem.unit)}
+            onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
+          >
+            {getUnitSelectOptions(subitem.unit).map((unit) => (
+              <option key={unit} value={unit}>
+                {unit}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="field-label">단가</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(subitem.unit_price)}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, { unit_price: stripNumberInputFormatting(event.target.value) })
+            }
+          />
+        </label>
+        <label className="price-number-field price-sale-field">
+          <span className="field-label">인건비(빈집)</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(getLaborRateEmptyValue(subitem))}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, {
+                labor_rate_empty: stripNumberInputFormatting(event.target.value),
+                labor_rate: stripNumberInputFormatting(event.target.value),
+              })
+            }
+          />
+        </label>
+        <label className="price-number-field price-sale-field">
+          <span className="field-label">인건비(살림집)</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(getLaborRateOccupiedValue(subitem))}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, { labor_rate_occupied: stripNumberInputFormatting(event.target.value) })
+            }
+          />
+        </label>
+      </>
+    );
+  }
+
+  function renderAdminPriceRows(item) {
+    const itemSubitems = getVisibleAdminSubitems(item);
+    if (isFlooringThicknessItem(item)) {
+      return (
+        <div className="price-table-list admin-price-v2-grid-list">
+          {renderAdminPriceHeader(item, true)}
+          {getFlooringThicknessGroups(itemSubitems).map((group) => {
+            const optionEntries = getFlooringOptionEntries(group);
+            const optionIds = optionEntries.map((option) => option.id);
+            const activeThickness = getAdminFlooringActiveThickness(item.id, group);
+            const activeSubitem = group.options[activeThickness] ?? optionEntries[0];
+            if (!activeSubitem) return null;
+            return (
+              <div
+                key={group.baseName}
+                className={`admin-value-row flooring-value-row common-price-row price-table-row price-table-grid ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                data-subitem-id={activeSubitem.id}
+                onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
+                onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
+                onDragEnd={clearAdminDragState}
+              >
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="소재 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, activeSubitem.id, group.baseName)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <label className="admin-material-name-field">
+                  <span className="field-label">소재명</span>
+                  <input
+                    value={group.baseName}
+                    placeholder={MATERIAL_NAME_PLACEHOLDER}
+                    onChange={(event) => updateLocalFlooringGroupBaseName(optionIds, event.target.value)}
+                    onBlur={(event) => renameAdminFlooringGroup(item.id, optionIds, event.target.value)}
+                  />
+                </label>
+                {renderAdminPriceSubitemCells(activeSubitem)}
+                <button
+                  className="danger-button admin-price-v2-danger-button"
+                  disabled={adminSaving}
+                  onClick={() => deleteAdminSubitem(activeSubitem.id)}
+                >
+                  <Trash2 size={18} strokeWidth={1.5} />
+                </button>
+              </div>
+            );
+          })}
+          {!itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
+          {item.item_type !== "flat" && (
+            <div className="admin-add-subitem-row admin-price-v2-add-row">
+              <span>{item.name}에 소재 추가</span>
+              <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+                <Plus size={18} /> 소재 추가
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} price-table-list admin-price-v2-grid-list`.trim()}>
+        {renderAdminPriceHeader(item)}
+        {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
+          <div
+            key={subitem.id}
+            className={`admin-value-row common-price-row price-table-row price-table-grid ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+            data-subitem-id={subitem.id}
+            onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
+            onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
+            onDragEnd={clearAdminDragState}
+          >
+            {item.item_type === "flat" ? (
+              <strong className="flat-subitem-name">{item.name}</strong>
+            ) : (
+              <>
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="소재 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, subitem.id)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <label className="admin-material-name-field">
+                  <span className="field-label">소재명</span>
+                  <input
+                    value={subitem.name}
+                    placeholder={MATERIAL_NAME_PLACEHOLDER}
+                    onChange={(event) =>
+                      setAdminItems((current) =>
+                        current.map((entry) =>
+                          entry.id === item.id
+                            ? {
+                                ...entry,
+                                subitems: entry.subitems.map((entrySubitem) =>
+                                  entrySubitem.id === subitem.id
+                                    ? { ...entrySubitem, name: event.target.value }
+                                    : entrySubitem
+                                ),
+                              }
+                            : entry
+                        )
+                      )
+                    }
+                    onInput={() => markAdminCatalogDirty()}
+                    onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
+                  />
+                </label>
+              </>
+            )}
+            {renderAdminPriceSubitemCells(subitem)}
+            {item.item_type !== "flat" && (
+              <button
+                className="danger-button admin-price-v2-danger-button"
+                disabled={adminSaving}
+                onClick={() => deleteAdminSubitem(subitem.id)}
+              >
+                <Trash2 size={18} strokeWidth={1.5} />
+              </button>
+            )}
+          </div>
+        ))}
+        {item.item_type !== "flat" && !itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
+        {item.item_type !== "flat" && (
+          <div className="admin-add-subitem-row admin-price-v2-add-row">
+            <span>{item.name}에 소재 추가</span>
+            <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+              <Plus size={18} /> 소재 추가
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderAdminPricesWorkbench() {
+    const item = selectedAdminPriceItem;
+    const itemSubitemCount = item ? getVisibleAdminSubitems(item).length : 0;
+
+    return renderAppShell(
+      <main className="admin-price-v2-page">
+        {renderAdminPriceCategorySidebar()}
+        <section className="admin-price-v2-workspace">
+          <header className="admin-price-v2-header">
+            <div className="items-v2-titleline">
+              <h1>단가표 관리</h1>
+              <span>업체 공통 단가와 인건비 기준</span>
+            </div>
+            <div className="items-v2-header-actions">
+              <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
+                {getAutoSaveStatusLabel()}
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<RefreshCcw />}
+                disabled={adminLoading || adminSaving}
+                onClick={() => requestAdminCatalogLeave(() => fetchAdminItems({ mode: "prices" }))}
+              >
+                되돌리기
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Save />}
+                disabled={adminLoading || adminSaving}
+                onClick={() => saveAdminPrices({ target: "prices" })}
+              >
+                저장하기
+              </Button>
+            </div>
+          </header>
+
+          <div className="items-v2-toolbar admin-price-v2-toolbar">
+            <label className="admin-search-field admin-price-v2-search">
+              <Search size={17} />
+              <input
+                value={adminSearch}
+                onChange={(event) => setAdminSearch(event.target.value)}
+                placeholder="대분류 또는 소재 검색"
+              />
+            </label>
+            <label className="admin-favorite-filter admin-price-v2-favorite">
+              <input
+                type="checkbox"
+                checked={adminFavoriteOnly}
+                onChange={(event) => setAdminFavoriteOnly(event.target.checked)}
+              />
+              즐겨찾기만 보기
+            </label>
+            {item && renderAdminBulkPanel(item)}
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<Plus />}
+              disabled={adminLoading || adminSaving}
+              onClick={addAdminItem}
+            >
+              대분류 추가
+            </Button>
+          </div>
+
+          {adminLoading && <div className="status-box">불러오는 중...</div>}
+          {adminSaving && <div className="status-box">저장 중...</div>}
+          {adminNotice && <div className="status-box">{adminNotice}</div>}
+          {adminError && <div className="error-box">{adminError}</div>}
+
+          {item ? (
+            <section className="items-v2-table-section admin-price-v2-table-section">
+              <div className="items-v2-section-header admin-price-v2-section-header">
+                <div>
+                  <h2>{item.name}</h2>
+                  <p>선택된 대분류의 단가표 row만 표시합니다.</p>
+                </div>
+                <span>{itemSubitemCount}개 소재</span>
+              </div>
+              {renderAdminPriceContext(item)}
+              <div className="admin-price-v2-table-scroll">
+                {renderAdminPriceRows(item)}
+              </div>
+            </section>
+          ) : (
+            <section className="items-v2-table-section admin-price-v2-table-section">
+              <div className="items-v2-section-header admin-price-v2-section-header">
+                <div>
+                  <h2>단가표</h2>
+                  <p>표시할 대분류가 없습니다.</p>
+                </div>
+              </div>
+              <EmptyState
+                title="표시할 대분류가 없습니다."
+                description="검색 조건을 바꾸거나 대분류를 추가하세요."
+              />
+            </section>
+          )}
+        </section>
+      </main>,
+      { collapsed: true, className: "formate-app-shell--admin-price-v2" }
+    );
+  }
+
   async function saveAdminPrices(options = {}) {
     const {
       auto = false,
@@ -11461,7 +11925,9 @@ export default function App() {
         </main>
       )}
 
-      {(isCommonPriceAdminPage || isConditionQuantityAdminPage) && adminVerified && (
+      {isCommonPriceAdminPage && adminVerified && renderAdminPricesWorkbench()}
+
+      {isConditionQuantityAdminPage && adminVerified && (
         <main className="panel-page admin-page">
           <div className="editor-header">
             <div>
@@ -20866,6 +21332,356 @@ const styles = `
   }
   .items-v2-total-bar .ui-sticky-total-bar__amount-value {
     white-space: nowrap;
+  }
+  .formate-app-shell--admin-price-v2 .formate-app-shell__main {
+    padding: 0;
+  }
+  .admin-price-v2-page {
+    display: grid;
+    grid-template-columns: var(--layout-local-sidebar) minmax(0, 1fr);
+    min-height: 100dvh;
+    min-width: 0;
+    background: var(--color-bg);
+  }
+  .admin-price-v2-sidebar {
+    position: sticky;
+    top: 56px;
+    width: var(--layout-local-sidebar);
+    height: calc(100dvh - 56px);
+    max-height: calc(100dvh - 56px);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .admin-price-v2-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .admin-price-v2-sidebar-header strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-price-v2-category-list {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2);
+  }
+  .admin-price-v2-category-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 36px;
+    width: 100%;
+    padding: 0 var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-primary);
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
+  .admin-price-v2-category-item:hover {
+    background: var(--color-surface-subtle);
+  }
+  .admin-price-v2-category-item.active {
+    background: var(--color-primary-soft);
+    box-shadow: inset 3px 0 0 var(--color-primary);
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-price-v2-category-item.drop-target {
+    border-color: var(--color-primary-border);
+  }
+  .admin-price-v2-drag-handle {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    line-height: 1;
+    cursor: grab;
+  }
+  .admin-price-v2-category-name {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .admin-price-v2-category-name span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .admin-price-v2-category-name svg {
+    flex: 0 0 auto;
+    color: var(--color-text-secondary);
+  }
+  .admin-price-v2-category-count {
+    min-width: 34px;
+    height: 22px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-badge);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: 20px;
+    text-align: center;
+  }
+  .admin-price-v2-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+    padding: 0 var(--space-page-x) var(--space-3);
+  }
+  .admin-price-v2-header {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: 56px;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+  .admin-price-v2-header h1 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-work-title);
+  }
+  .admin-price-v2-toolbar {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-width: 0;
+    overflow: visible;
+  }
+  .admin-price-v2-search {
+    flex: 1 1 180px;
+    min-width: 160px;
+    max-width: 240px;
+    min-height: var(--button-height-sm);
+  }
+  .admin-price-v2-search input {
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-table-cell);
+  }
+  .admin-price-v2-favorite {
+    flex: 0 0 auto;
+    min-height: var(--button-height-sm);
+    white-space: nowrap;
+  }
+  .admin-price-v2-toolbar > .admin-bulk-panel {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .admin-price-v2-toolbar .admin-bulk-title {
+    display: none;
+  }
+  .admin-price-v2-toolbar .admin-bulk-panel label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+    white-space: nowrap;
+  }
+  .admin-price-v2-toolbar .admin-bulk-panel input {
+    width: 72px;
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-table-cell);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .admin-price-v2-toolbar .admin-bulk-actions {
+    display: inline-flex;
+  }
+  .admin-price-v2-toolbar .secondary-button,
+  .admin-price-v2-toolbar .ui-button {
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+  }
+  .admin-price-v2-table-section {
+    min-width: 0;
+  }
+  .admin-price-v2-section-header {
+    min-height: 56px;
+  }
+  .admin-price-v2-context {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: 44px;
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .admin-price-v2-context-main,
+  .admin-price-v2-context-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .admin-price-v2-context-label {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+    white-space: nowrap;
+  }
+  .admin-price-v2-context input {
+    width: 220px;
+    height: var(--button-height-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-input);
+    padding: 0 var(--space-1);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-price-v2-context input:focus {
+    border-color: var(--color-primary);
+    outline: none;
+  }
+  .admin-price-v2-table-scroll {
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-gutter: stable;
+  }
+  .admin-price-v2-grid-list {
+    min-width: 1160px;
+    gap: 0;
+    --price-table-columns: 22px minmax(220px, 1.35fr) 96px 80px minmax(220px, 1.1fr) 72px 104px 116px 116px 40px;
+    --price-table-flat-columns: minmax(220px, 1.35fr) 96px 80px minmax(220px, 1.1fr) 72px 104px 116px 116px;
+  }
+  .admin-price-v2-grid-list .admin-price-table-header {
+    min-height: var(--table-header-height);
+    height: var(--table-header-height);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-header);
+    letter-spacing: var(--letter-spacing-table-header);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row {
+    min-height: var(--table-row-height);
+    padding: 0 var(--space-table-cell-x);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-surface);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row:nth-of-type(even) {
+    background: var(--color-row-alt);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row:hover {
+    background: var(--color-row-hover);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row label {
+    gap: 0;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row .field-label {
+    display: none;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row input,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row select,
+  .admin-price-v2-grid-list .spec-options-control {
+    width: 100%;
+    min-width: 0;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row input,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row select {
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    border: 1px solid transparent;
+    border-radius: 0;
+    padding: 0 var(--space-1);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row input:focus,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row select:focus {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    box-shadow: none;
+    outline: none;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row input[inputmode="numeric"],
+  .admin-price-v2-grid-list .price-number-field input {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-price-v2-grid-list .spec-options-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 56px;
+    gap: var(--space-1);
+  }
+  .admin-price-v2-grid-list .spec-options-manage-button {
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-caption);
+  }
+  .admin-price-v2-danger-button {
+    width: var(--button-height-sm);
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    padding: 0;
+  }
+  .admin-price-v2-add-row {
+    min-height: 44px;
+    border-radius: 0;
+    border-top: 0;
+    background: var(--color-surface);
+  }
+  .admin-price-v2-add-row span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .admin-price-v2-empty {
+    margin: 0;
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--color-border);
   }
   .saved-estimates-page .estimate-list .ui-table-wrap,
   .saved-estimates-page .estimate-modal .ui-table-wrap {
