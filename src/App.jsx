@@ -8341,12 +8341,147 @@ export default function App() {
     );
   }
 
+  function renderAdminPriceHeaderV2(item, isFlooring = false) {
+    return (
+      <div className={`admin-price-table-header price-table-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"} ${isFlooring ? "flooring-price-table-header" : ""}`.trim()}>
+        {item.item_type !== "flat" && <span />}
+        <span>소재명</span>
+        <span>규격/두께</span>
+        <span>단위</span>
+        <span>단가</span>
+        <span>인건비(빈집)</span>
+        <span>인건비(살림집)</span>
+        {item.item_type !== "flat" && <span>삭제</span>}
+        <span />
+      </div>
+    );
+  }
+
+  function renderAdminPricePrimarySubitemCells(subitem) {
+    return (
+      <>
+        <label className="spec-options-field">
+          <span className="field-label">규격/두께</span>
+          {(() => {
+            const specOptions = getSpecSelectOptions(subitem);
+            const specValue = getSpecSelectValue(subitem, specOptions);
+            return renderSpecOptionsControl(subitem, specOptions, specValue, (event) =>
+              updateLocalSubitemDraft(subitem.id, { selected_spec_option: event.target.value })
+            );
+          })()}
+        </label>
+        <label className="price-unit-field">
+          <span className="field-label">단위</span>
+          <select
+            value={normalizeUnitOptionValue(subitem.unit)}
+            onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
+          >
+            {getUnitSelectOptions(subitem.unit).map((unit) => (
+              <option key={unit} value={unit}>
+                {unit}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="field-label">단가</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(subitem.unit_price)}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, { unit_price: stripNumberInputFormatting(event.target.value) })
+            }
+          />
+        </label>
+        <label className="price-number-field price-sale-field">
+          <span className="field-label">인건비(빈집)</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(getLaborRateEmptyValue(subitem))}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, {
+                labor_rate_empty: stripNumberInputFormatting(event.target.value),
+                labor_rate: stripNumberInputFormatting(event.target.value),
+              })
+            }
+          />
+        </label>
+        <label className="price-number-field price-sale-field">
+          <span className="field-label">인건비(살림집)</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(getLaborRateOccupiedValue(subitem))}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, { labor_rate_occupied: stripNumberInputFormatting(event.target.value) })
+            }
+          />
+        </label>
+      </>
+    );
+  }
+
+  function renderAdminPriceExpandButton(subitem) {
+    return (
+      <button
+        type="button"
+        className="items-v2-icon-button admin-price-v2-expand-button"
+        aria-label={subitem.expanded ? "원가 정보 닫기" : "원가 정보 열기"}
+        title={subitem.expanded ? "원가 정보 닫기" : "원가 정보 열기"}
+        onClick={() => updateLocalSubitemDraft(subitem.id, { expanded: !subitem.expanded })}
+      >
+        {subitem.expanded ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
+      </button>
+    );
+  }
+
+  function renderAdminPriceExpandedRow(subitem, itemType = "itemized") {
+    if (!subitem?.expanded) return null;
+    return (
+      <div className={`admin-price-v2-expanded-row ${itemType === "flat" ? "flat-price-table-header" : ""}`.trim()}>
+        <div className="items-v2-detail-panel admin-price-v2-detail-panel">
+          <label>
+            <span>원가</span>
+            <div className="items-v2-money-field">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={formatMoneyInputValue(subitem.cost_price)}
+                onChange={(event) =>
+                  updateLocalSubitemPrice(subitem.id, { cost_price: stripNumberInputFormatting(event.target.value) })
+                }
+              />
+              <em>원</em>
+            </div>
+          </label>
+          <label>
+            <span>원가 단위</span>
+            <select
+              className="items-v2-inline-select admin-price-v2-detail-select"
+              value={normalizeUnitOptionValue(subitem.cost_unit)}
+              onChange={(event) => updateLocalSubitemPrice(subitem.id, { cost_unit: normalizeUnitOptionValue(event.target.value) })}
+            >
+              <option value="">선택</option>
+              {getUnitSelectOptions(subitem.cost_unit).map((unit) => (
+                <option key={unit} value={unit}>
+                  {unit}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+    );
+  }
+
   function renderAdminPriceRows(item) {
     const itemSubitems = getVisibleAdminSubitems(item);
     if (isFlooringThicknessItem(item)) {
       return (
         <div className="price-table-list admin-price-v2-grid-list">
-          {renderAdminPriceHeader(item, true)}
+          {renderAdminPriceHeaderV2(item, true)}
           {getFlooringThicknessGroups(itemSubitems).map((group) => {
             const optionEntries = getFlooringOptionEntries(group);
             const optionIds = optionEntries.map((option) => option.id);
@@ -8356,7 +8491,7 @@ export default function App() {
             return (
               <div
                 key={group.baseName}
-                className={`admin-value-row flooring-value-row common-price-row price-table-row price-table-grid ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                className={`admin-value-row flooring-value-row common-price-row price-table-row price-table-grid ${activeSubitem.expanded ? "expanded" : ""} ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
                 data-subitem-id={activeSubitem.id}
                 onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
                 onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
@@ -8380,7 +8515,7 @@ export default function App() {
                     onBlur={(event) => renameAdminFlooringGroup(item.id, optionIds, event.target.value)}
                   />
                 </label>
-                {renderAdminPriceSubitemCells(activeSubitem)}
+                {renderAdminPricePrimarySubitemCells(activeSubitem)}
                 <button
                   className="danger-button admin-price-v2-danger-button"
                   disabled={adminSaving}
@@ -8388,6 +8523,8 @@ export default function App() {
                 >
                   <Trash2 size={18} strokeWidth={1.5} />
                 </button>
+                {renderAdminPriceExpandButton(activeSubitem)}
+                {renderAdminPriceExpandedRow(activeSubitem)}
               </div>
             );
           })}
@@ -8406,11 +8543,11 @@ export default function App() {
 
     return (
       <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} price-table-list admin-price-v2-grid-list`.trim()}>
-        {renderAdminPriceHeader(item)}
+        {renderAdminPriceHeaderV2(item)}
         {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
           <div
             key={subitem.id}
-            className={`admin-value-row common-price-row price-table-row price-table-grid ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+            className={`admin-value-row common-price-row price-table-row price-table-grid ${subitem.expanded ? "expanded" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
             data-subitem-id={subitem.id}
             onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
             onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
@@ -8456,7 +8593,7 @@ export default function App() {
                 </label>
               </>
             )}
-            {renderAdminPriceSubitemCells(subitem)}
+            {renderAdminPricePrimarySubitemCells(subitem)}
             {item.item_type !== "flat" && (
               <button
                 className="danger-button admin-price-v2-danger-button"
@@ -8466,6 +8603,8 @@ export default function App() {
                 <Trash2 size={18} strokeWidth={1.5} />
               </button>
             )}
+            {renderAdminPriceExpandButton(subitem)}
+            {renderAdminPriceExpandedRow(subitem, item.item_type)}
           </div>
         ))}
         {item.item_type !== "flat" && !itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
@@ -8483,7 +8622,6 @@ export default function App() {
 
   function renderAdminPricesWorkbench() {
     const item = selectedAdminPriceItem;
-    const itemSubitemCount = item ? getVisibleAdminSubitems(item).length : 0;
 
     return renderAppShell(
       <main className="admin-price-v2-page">
@@ -8555,14 +8693,6 @@ export default function App() {
 
           {item ? (
             <section className="items-v2-table-section admin-price-v2-table-section">
-              <div className="items-v2-section-header admin-price-v2-section-header">
-                <div>
-                  <h2>{item.name}</h2>
-                  <p>선택된 대분류의 단가표 row만 표시합니다.</p>
-                </div>
-                <span>{itemSubitemCount}개 소재</span>
-              </div>
-              {renderAdminPriceContext(item)}
               <div className="admin-price-v2-table-scroll">
                 {renderAdminPriceRows(item)}
               </div>
@@ -21533,6 +21663,9 @@ const styles = `
   }
   .admin-price-v2-table-section {
     min-width: 0;
+    width: 100%;
+    padding: 0;
+    overflow: hidden;
   }
   .admin-price-v2-section-header {
     min-height: 56px;
@@ -21576,17 +21709,40 @@ const styles = `
     outline: none;
   }
   .admin-price-v2-table-scroll {
+    width: 100%;
+    margin: 0;
     overflow-x: auto;
     overflow-y: visible;
     scrollbar-gutter: stable;
   }
   .admin-price-v2-grid-list {
-    min-width: 1160px;
+    display: block;
+    width: 100%;
+    min-width: 980px;
+    max-width: none;
+    margin: 0;
+    padding-left: 0;
     gap: 0;
-    --price-table-columns: 22px minmax(220px, 1.35fr) 96px 80px minmax(220px, 1.1fr) 72px 104px 116px 116px 40px;
-    --price-table-flat-columns: minmax(220px, 1.35fr) 96px 80px minmax(220px, 1.1fr) 72px 104px 116px 116px;
+    --price-table-columns: 22px minmax(220px, 1fr) 164px 60px 120px 116px 116px 40px 40px;
+    --price-table-flat-columns: minmax(220px, 1fr) 164px 60px 120px 116px 116px 40px;
+  }
+  .admin-price-v2-grid-list.price-table-list,
+  .admin-price-v2-grid-list.admin-subitem-list,
+  .admin-price-v2-grid-list.admin-flat-list {
+    margin-top: 0;
+    padding-left: 0;
+  }
+  .admin-price-v2-grid-list .price-table-grid {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: var(--price-table-columns);
+  }
+  .admin-price-v2-grid-list.admin-flat-list .price-table-grid {
+    grid-template-columns: var(--price-table-flat-columns);
   }
   .admin-price-v2-grid-list .admin-price-table-header {
+    width: 100%;
+    box-sizing: border-box;
     min-height: var(--table-header-height);
     height: var(--table-header-height);
     border: 0;
@@ -21600,12 +21756,19 @@ const styles = `
     letter-spacing: var(--letter-spacing-table-header);
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row {
+    width: 100%;
+    box-sizing: border-box;
     min-height: var(--table-row-height);
     padding: 0 var(--space-table-cell-x);
     border: 0;
     border-bottom: 1px solid var(--color-border);
     border-radius: 0;
     background: var(--color-surface);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row.expanded {
+    row-gap: var(--space-2);
+    padding-top: var(--space-1);
+    padding-bottom: var(--space-1);
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row:nth-of-type(even) {
     background: var(--color-row-alt);
@@ -21652,7 +21815,7 @@ const styles = `
   }
   .admin-price-v2-grid-list .spec-options-control {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 56px;
+    grid-template-columns: minmax(0, 1fr) 48px;
     gap: var(--space-1);
   }
   .admin-price-v2-grid-list .spec-options-manage-button {
@@ -21666,6 +21829,26 @@ const styles = `
     height: var(--button-height-sm);
     min-height: var(--button-height-sm);
     padding: 0;
+  }
+  .admin-price-v2-expand-button {
+    justify-self: center;
+  }
+  .admin-price-v2-expanded-row {
+    grid-column: 1 / -1;
+    padding: 0 0 var(--space-1);
+  }
+  .admin-price-v2-detail-panel {
+    grid-template-columns: repeat(2, minmax(0, 180px));
+    align-items: end;
+    padding: var(--space-2);
+    background: var(--color-surface-subtle);
+  }
+  .admin-price-v2-detail-select {
+    height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    padding: 0 var(--space-input-x);
+    background: var(--color-surface);
   }
   .admin-price-v2-add-row {
     min-height: 44px;
