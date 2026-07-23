@@ -799,6 +799,13 @@ function formatMoneyInputValue(value) {
   return `${formattedInteger}.${decimalParts.join("").slice(0, 2)}`;
 }
 
+function isEmptyOrZeroDisplayValue(value) {
+  const raw = stripNumberInputFormatting(value);
+  if (raw === "") return true;
+  const numericValue = Number(raw);
+  return Number.isFinite(numericValue) && numericValue === 0;
+}
+
 function getDefaultQuantityForUnit(unit, pyeong) {
   return null;
 }
@@ -7975,13 +7982,25 @@ export default function App() {
     );
   }
 
-  function renderSpecOptionsControl(subitem, options = [], value = "", onChange) {
+  function renderSpecOptionsControl(subitem, options = [], value = "", onChange, optionsConfig = {}) {
+    const manageOptionValue = "__formate_spec_options_manage__";
+    const separatorOptionValue = "__formate_spec_options_separator__";
+    const manageInSelect = Boolean(optionsConfig.manageInSelect);
+    const handleChange = (event) => {
+      if (manageInSelect && event.target.value === manageOptionValue) {
+        event.preventDefault();
+        setActiveSpecOptionsPopoverId((current) => (current === subitem.id ? "" : subitem.id));
+        return;
+      }
+      onChange?.(event);
+    };
+
     return (
-      <div className="spec-options-control">
+      <div className={`spec-options-control ${manageInSelect ? "spec-options-control--select-manage" : ""}`.trim()}>
         <select
           className="spec-options-select"
           value={value}
-          onChange={onChange}
+          onChange={handleChange}
         >
           <option value="">선택</option>
           {options.map((option) => (
@@ -7989,7 +8008,14 @@ export default function App() {
               {formatSpecOptionLabel(option)}
             </option>
           ))}
+          {manageInSelect && (
+            <option value={separatorOptionValue} disabled>
+              -----
+            </option>
+          )}
+          {manageInSelect && <option value={manageOptionValue}>옵션 관리</option>}
         </select>
+        {!manageInSelect && (
         <button
           type="button"
           className="secondary-button compact-button spec-options-manage-button"
@@ -8001,6 +8027,7 @@ export default function App() {
         >
           관리
         </button>
+        )}
         {renderSpecOptionsPopover(subitem)}
       </div>
     );
@@ -8350,7 +8377,7 @@ export default function App() {
 
   function renderAdminPriceHeaderV2(item, isFlooring = false) {
     return (
-      <div className={`admin-price-table-header price-table-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"} ${isFlooring ? "flooring-price-table-header" : ""}`.trim()}>
+      <div className={`admin-price-table-header admin-price-v2-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"} ${isFlooring ? "flooring-price-table-header" : ""}`.trim()}>
         {item.item_type !== "flat" && <span />}
         <span>소재명</span>
         <span>규격/두께</span>
@@ -8372,8 +8399,12 @@ export default function App() {
           {(() => {
             const specOptions = getSpecSelectOptions(subitem);
             const specValue = getSpecSelectValue(subitem, specOptions);
-            return renderSpecOptionsControl(subitem, specOptions, specValue, (event) =>
-              updateLocalSubitemDraft(subitem.id, { selected_spec_option: event.target.value })
+            return renderSpecOptionsControl(
+              subitem,
+              specOptions,
+              specValue,
+              (event) => updateLocalSubitemDraft(subitem.id, { selected_spec_option: event.target.value }),
+              { manageInSelect: true }
             );
           })()}
         </label>
@@ -8393,6 +8424,7 @@ export default function App() {
         <label>
           <span className="field-label">단가</span>
           <input
+            className={isEmptyOrZeroDisplayValue(subitem.unit_price) ? "items-v2-muted-value" : ""}
             type="text"
             inputMode="numeric"
             value={formatMoneyInputValue(subitem.unit_price)}
@@ -8404,6 +8436,7 @@ export default function App() {
         <label className="price-number-field price-sale-field">
           <span className="field-label">인건비(빈집)</span>
           <input
+            className={isEmptyOrZeroDisplayValue(getLaborRateEmptyValue(subitem)) ? "items-v2-muted-value" : ""}
             type="text"
             inputMode="numeric"
             value={formatMoneyInputValue(getLaborRateEmptyValue(subitem))}
@@ -8418,6 +8451,7 @@ export default function App() {
         <label className="price-number-field price-sale-field">
           <span className="field-label">인건비(살림집)</span>
           <input
+            className={isEmptyOrZeroDisplayValue(getLaborRateOccupiedValue(subitem)) ? "items-v2-muted-value" : ""}
             type="text"
             inputMode="numeric"
             value={formatMoneyInputValue(getLaborRateOccupiedValue(subitem))}
@@ -8498,7 +8532,7 @@ export default function App() {
             return (
               <div
                 key={group.baseName}
-                className={`admin-value-row flooring-value-row common-price-row price-table-row price-table-grid ${activeSubitem.expanded ? "expanded" : ""} ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                className={`admin-value-row flooring-value-row common-price-row price-table-row admin-price-v2-grid ${activeSubitem.expanded ? "expanded" : ""} ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
                 data-subitem-id={activeSubitem.id}
                 onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
                 onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
@@ -8554,7 +8588,7 @@ export default function App() {
         {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
           <div
             key={subitem.id}
-            className={`admin-value-row common-price-row price-table-row price-table-grid ${subitem.expanded ? "expanded" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+            className={`admin-value-row common-price-row price-table-row admin-price-v2-grid ${subitem.expanded ? "expanded" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
             data-subitem-id={subitem.id}
             onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
             onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
@@ -22080,8 +22114,8 @@ const styles = `
     margin: 0;
     padding-left: 0;
     gap: 0;
-    --price-table-columns: 22px minmax(220px, 1fr) 164px 60px 120px 116px 116px 40px 40px;
-    --price-table-flat-columns: minmax(220px, 1fr) 164px 60px 120px 116px 116px 40px;
+    --price-table-columns: 40px minmax(160px, 1fr) 110px 80px 110px 110px 110px 60px 40px;
+    --price-table-flat-columns: minmax(160px, 1fr) 110px 80px 110px 110px 110px 40px;
   }
   .admin-price-v2-grid-list.price-table-list,
   .admin-price-v2-grid-list.admin-subitem-list,
@@ -22089,12 +22123,14 @@ const styles = `
     margin-top: 0;
     padding-left: 0;
   }
-  .admin-price-v2-grid-list .price-table-grid {
+  .admin-price-v2-grid-list .admin-price-v2-grid {
+    display: grid;
     width: 100%;
     min-width: 0;
     grid-template-columns: var(--price-table-columns);
+    gap: 0;
   }
-  .admin-price-v2-grid-list.admin-flat-list .price-table-grid {
+  .admin-price-v2-grid-list.admin-flat-list .admin-price-v2-grid {
     grid-template-columns: var(--price-table-flat-columns);
   }
   .admin-price-v2-grid-list .admin-price-table-header {
@@ -22116,7 +22152,7 @@ const styles = `
     width: 100%;
     box-sizing: border-box;
     min-height: var(--table-row-height);
-    padding: 0 var(--space-table-cell-x);
+    padding: 0;
     border: 0;
     border-bottom: 1px solid var(--color-border);
     border-radius: 0;
@@ -22126,6 +22162,28 @@ const styles = `
     row-gap: var(--space-2);
     padding-top: var(--space-1);
     padding-bottom: var(--space-1);
+  }
+  .admin-price-v2-grid-list .admin-price-table-header > *,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row > *:not(.admin-price-v2-expanded-row) {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 100%;
+    min-height: inherit;
+    padding: 0 var(--space-table-cell-x);
+    border-right: 1px solid var(--color-border);
+    box-sizing: border-box;
+    white-space: nowrap;
+  }
+  .admin-price-v2-grid-list .admin-price-table-header > *:last-child,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row > *:not(.admin-price-v2-expanded-row):last-of-type {
+    border-right: 0;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row > .admin-price-v2-drag-handle,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row > .admin-price-v2-danger-button,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row > .admin-price-v2-expand-button {
+    justify-content: center;
+    padding: 0;
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row:nth-of-type(even) {
     background: var(--color-row-alt);
@@ -22170,10 +22228,16 @@ const styles = `
     font-variant-numeric: tabular-nums;
     font-weight: var(--font-weight-medium);
   }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row input.items-v2-muted-value {
+    color: var(--color-text-muted);
+  }
   .admin-price-v2-grid-list .spec-options-control {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 48px;
     gap: var(--space-1);
+  }
+  .admin-price-v2-grid-list .spec-options-control--select-manage {
+    display: block;
   }
   .admin-price-v2-grid-list .spec-options-manage-button {
     height: var(--button-height-sm);
