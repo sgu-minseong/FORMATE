@@ -21845,10 +21845,11 @@ const styles = `
     gap: var(--space-3);
     min-width: 0;
     padding: 0 var(--space-page-x) 0;
-    transition: opacity 150ms ease;
+    transition: opacity 150ms ease, filter 150ms ease;
   }
   .items-v2-page--condition-drawer-open .items-v2-workspace {
-    opacity: 0.9;
+    opacity: 0.92;
+    filter: blur(1px) saturate(0.96);
   }
   .items-v2-header,
   .items-v2-toolbar,
