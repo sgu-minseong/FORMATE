@@ -130,6 +130,7 @@ const OLD_EXTENDED_VARIANTS = ["구형1", "구형2", "구형3", "구형4", "구�
 const OLD_NO_EXTENSION_VARIANT = "구형0";
 const CONDITION_VARIANT_KEYS = [...EXTENDED_VARIANTS, OLD_NO_EXTENSION_VARIANT, ...OLD_EXTENDED_VARIANTS];
 const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
+const ADMIN_TEMPLATE_ORDER_STORAGE_PREFIX = "formate.adminTemplateOrder";
 const ADMIN_AUTOSAVE_DELAY_MS = 1200;
 const PHOTO_STORAGE_BUCKET = "formate-photos";
 const PHOTO_TYPES = {
@@ -473,6 +474,38 @@ function readFavoritePyeongs() {
   } catch {
     return [];
   }
+}
+
+function createEmptyAdminTemplateConditionDraft() {
+  return {
+    pyeong: "",
+    buildType: "",
+    hasExtension: false,
+    conditionVariant: "",
+  };
+}
+
+function getAdminTemplateOrderStorageKey(companyId) {
+  return `${ADMIN_TEMPLATE_ORDER_STORAGE_PREFIX}.${companyId || "default"}`;
+}
+
+function readAdminTemplateOrder(companyId) {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(getAdminTemplateOrderStorageKey(companyId)) ?? "[]");
+    return Array.isArray(parsed) ? parsed.map((id) => `${id}`) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeAdminTemplateOrder(companyId, order) {
+  if (typeof window === "undefined" || !companyId) return;
+  window.localStorage.setItem(
+    getAdminTemplateOrderStorageKey(companyId),
+    JSON.stringify((order ?? []).map((id) => `${id}`))
+  );
 }
 
 const categories = [
@@ -2774,6 +2807,12 @@ export default function App() {
   const [currentAdminTemplateId, setCurrentAdminTemplateId] = useState("");
   const [adminConditionLoaded, setAdminConditionLoaded] = useState(false);
   const [adminConditionStep, setAdminConditionStep] = useState("select");
+  const [adminTemplateOrder, setAdminTemplateOrder] = useState([]);
+  const [dragAdminTemplateId, setDragAdminTemplateId] = useState("");
+  const [dragOverAdminTemplateId, setDragOverAdminTemplateId] = useState("");
+  const [adminTemplateConditionDrawerOpen, setAdminTemplateConditionDrawerOpen] = useState(false);
+  const [adminTemplateConditionDraft, setAdminTemplateConditionDraft] = useState(createEmptyAdminTemplateConditionDraft);
+  const [newlyCreatedAdminTemplateKey, setNewlyCreatedAdminTemplateKey] = useState("");
   const [adminCommonPriceSavedAt, setAdminCommonPriceSavedAt] = useState("");
   const [conditionVariantLabels, setConditionVariantLabels] = useState(() => createConditionVariantLabelRows());
   const [adminBulkInputs, setAdminBulkInputs] = useState({});
@@ -3197,6 +3236,23 @@ export default function App() {
   const currentAdminConditionLabel = currentAdminTemplateCondition
     ? makeTemplateLabel(currentAdminTemplateCondition, conditionVariantLabelMap)
     : "";
+  const adminTemplateConditionDraftValue = adminTemplateConditionDraft.pyeong && adminTemplateConditionDraft.buildType
+    ? buildTemplateCondition({
+        pyeong: Number(adminTemplateConditionDraft.pyeong),
+        buildType: adminTemplateConditionDraft.buildType,
+        hasExtension: adminTemplateConditionDraft.buildType === "old" ? Boolean(adminTemplateConditionDraft.hasExtension) : false,
+        conditionVariant: adminTemplateConditionDraft.conditionVariant,
+      })
+    : null;
+  const orderedAdminTemplates = useMemo(() => {
+    const orderIndex = new Map(adminTemplateOrder.map((id, index) => [`${id}`, index]));
+    return [...adminTemplates].sort((a, b) => {
+      const aIndex = orderIndex.has(`${a.id}`) ? orderIndex.get(`${a.id}`) : Number.MAX_SAFE_INTEGER;
+      const bIndex = orderIndex.has(`${b.id}`) ? orderIndex.get(`${b.id}`) : Number.MAX_SAFE_INTEGER;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+      return adminTemplates.indexOf(a) - adminTemplates.indexOf(b);
+    });
+  }, [adminTemplateOrder, adminTemplates]);
   const canEditConditionQuantities = isConditionQuantityAdminPage && adminConditionLoaded && Boolean(currentAdminTemplateCondition);
   const canReorderAdminCatalog = isCommonPriceAdminPage || canEditConditionQuantities;
   const showAdminConditionSelect = isConditionQuantityAdminPage && adminConditionStep === "select";
@@ -3291,6 +3347,10 @@ export default function App() {
   }, [selectedCompanyId]);
 
   useEffect(() => {
+    setAdminTemplateOrder(readAdminTemplateOrder(selectedCompanyId));
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
     if (!selectedCompanyId) return;
     if (!isProtectedAdminPage || adminVerified) return;
 
@@ -3329,6 +3389,26 @@ export default function App() {
       fetchPhotoManagementData();
     }
   }, [page, selectedCompanyId]);
+
+  useEffect(() => {
+    if (!selectedCompanyId || page !== "admin-items" || !adminVerified || !USE_ADMIN_ITEMS_SCREEN_V2) return;
+    if (adminLoading || adminSaving || adminTemplateConditionDrawerOpen) return;
+    if (adminConditionStep === "edit" && adminConditionLoaded && currentAdminTemplateId) return;
+    const firstTemplate = orderedAdminTemplates[0];
+    if (!firstTemplate?.id) return;
+    loadAdminTemplate(firstTemplate);
+  }, [
+    adminConditionLoaded,
+    adminConditionStep,
+    adminLoading,
+    adminSaving,
+    adminTemplateConditionDrawerOpen,
+    adminVerified,
+    currentAdminTemplateId,
+    orderedAdminTemplates,
+    page,
+    selectedCompanyId,
+  ]);
 
   useEffect(() => {
     if (!selectedCompanyId || page !== "admin-ai-setup" || !adminVerified) return;
@@ -6066,6 +6146,141 @@ export default function App() {
     setCurrentAdminTemplateId(template.id);
     setAdminConditionLoaded(false);
     await openAdminConditionEditor(condition);
+  }
+
+  function updateAdminTemplateConditionDraft(patch) {
+    setAdminTemplateConditionDraft((current) => {
+      const next = { ...current, ...patch };
+      if (Object.prototype.hasOwnProperty.call(patch, "buildType")) {
+        if (patch.buildType === "new") {
+          next.hasExtension = false;
+          next.conditionVariant = EXTENDED_VARIANTS[0] ?? "";
+        } else if (patch.buildType === "old") {
+          next.hasExtension = false;
+          next.conditionVariant = OLD_NO_EXTENSION_VARIANT;
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "hasExtension") && next.buildType === "old") {
+        next.conditionVariant = patch.hasExtension
+          ? OLD_EXTENDED_VARIANTS.includes(next.conditionVariant)
+            ? next.conditionVariant
+            : OLD_EXTENDED_VARIANTS[0] ?? ""
+          : OLD_NO_EXTENSION_VARIANT;
+      }
+      return next;
+    });
+    setAdminError("");
+  }
+
+  function openAdminTemplateConditionDrawer() {
+    setAdminTemplateConditionDraft(createEmptyAdminTemplateConditionDraft());
+    setAdminTemplateConditionDrawerOpen(true);
+    setAdminPyeongDropdownOpen(false);
+    setAdminError("");
+  }
+
+  function closeAdminTemplateConditionDrawer() {
+    setAdminTemplateConditionDrawerOpen(false);
+    setAdminPyeongDropdownOpen(false);
+    setAdminTemplateConditionDraft(createEmptyAdminTemplateConditionDraft());
+  }
+
+  function handleAdminTemplateDragStart(event, templateId) {
+    setDragAdminTemplateId(templateId);
+    setDragOverAdminTemplateId("");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", templateId);
+  }
+
+  function handleAdminTemplateDragOver(event, templateId) {
+    if (!dragAdminTemplateId || dragAdminTemplateId === templateId) return;
+    event.preventDefault();
+    setDragOverAdminTemplateId(templateId);
+  }
+
+  function clearAdminTemplateDragState() {
+    setDragAdminTemplateId("");
+    setDragOverAdminTemplateId("");
+  }
+
+  function reorderAdminTemplates(dropTemplateId) {
+    if (!dragAdminTemplateId || dragAdminTemplateId === dropTemplateId) {
+      clearAdminTemplateDragState();
+      return;
+    }
+    const orderedIds = orderedAdminTemplates.map((template) => template.id);
+    const fromIndex = orderedIds.indexOf(dragAdminTemplateId);
+    const toIndex = orderedIds.indexOf(dropTemplateId);
+    if (fromIndex < 0 || toIndex < 0) {
+      clearAdminTemplateDragState();
+      return;
+    }
+    const nextOrder = [...orderedIds];
+    const [movedId] = nextOrder.splice(fromIndex, 1);
+    nextOrder.splice(toIndex, 0, movedId);
+    setAdminTemplateOrder(nextOrder);
+    writeAdminTemplateOrder(selectedCompanyId, nextOrder);
+    clearAdminTemplateDragState();
+  }
+
+  async function createAdminTemplateFromDrawer() {
+    if (!adminTemplateConditionDraftValue) {
+      setAdminError("평수와 주택 조건을 선택해주세요.");
+      return;
+    }
+
+    const draftKey = getTemplateConditionKey(adminTemplateConditionDraftValue);
+    const existingTemplate = adminTemplates.find((template) => getTemplateConditionKey(template) === draftKey);
+    if (existingTemplate?.id) {
+      setNewlyCreatedAdminTemplateKey(draftKey);
+      window.setTimeout(() => setNewlyCreatedAdminTemplateKey(""), 1600);
+      closeAdminTemplateConditionDrawer();
+      await loadAdminTemplate(existingTemplate);
+      setAdminNotice("이미 존재하는 조건입니다. 기존 조건을 열었습니다.");
+      return;
+    }
+
+    setAdminSaving(true);
+    setAdminError("");
+    setAdminNotice("");
+    try {
+      const companyId = requireSelectedCompanyId();
+      let templateRow = await fetchTemplateRowByCondition(companyId, adminTemplateConditionDraftValue);
+      if (!templateRow?.id) {
+        const { data: insertedTemplate, error: insertTemplateError } = await supabase
+          .from("admin_condition_templates")
+          .insert({
+            company_id: companyId,
+            ...adminTemplateConditionDraftValue,
+          })
+          .select("*")
+          .single();
+        if (insertTemplateError) throw insertTemplateError;
+        templateRow = insertedTemplate;
+      }
+
+      if (templateRow?.id) {
+        const nextOrder = [...adminTemplateOrder.filter((id) => id !== templateRow.id), templateRow.id];
+        setAdminTemplateOrder(nextOrder);
+        writeAdminTemplateOrder(companyId, nextOrder);
+      }
+
+      setSelectedAdminPyeong(String(adminTemplateConditionDraftValue.pyeong));
+      setSelectedAdminBuildType(adminTemplateConditionDraft.buildType);
+      setSelectedAdminHasExtension(Boolean(adminTemplateConditionDraftValue.has_extension));
+      setSelectedAdminConditionVariant(adminTemplateConditionDraftValue.condition_variant);
+      setCurrentAdminTemplateId(templateRow?.id ?? "");
+      setNewlyCreatedAdminTemplateKey(getTemplateConditionKey(adminTemplateConditionDraftValue));
+      window.setTimeout(() => setNewlyCreatedAdminTemplateKey(""), 1600);
+      closeAdminTemplateConditionDrawer();
+      await fetchAdminTemplateList();
+      await openAdminConditionEditor(adminTemplateConditionDraftValue);
+      setAdminNotice("새 기본 견적 조건을 만들었습니다.");
+    } catch (error) {
+      setAdminError(getFriendlyError(error, "새 기본 견적 조건을 만들지 못했습니다. 다시 시도해주세요."));
+    } finally {
+      setAdminSaving(false);
+    }
   }
 
   function hasCurrentCompanySubitem(subitemId) {
@@ -8935,6 +9150,130 @@ export default function App() {
     );
   }
 
+  function renderAdminTemplateConditionSidebar() {
+    const currentConditionKey = currentAdminTemplateCondition ? getTemplateConditionKey(currentAdminTemplateCondition) : "";
+
+    return (
+      <aside className="admin-price-v2-sidebar admin-items-v2-sidebar admin-template-condition-sidebar" aria-label="기본 견적 조건 목록">
+        <div className="admin-price-v2-sidebar-header">
+          <span>기본 견적 조건</span>
+          <strong>총 {orderedAdminTemplates.length}개</strong>
+        </div>
+        <div className="admin-price-v2-category-list admin-template-condition-list">
+          {orderedAdminTemplates.map((template) => {
+            const templateKey = getTemplateConditionKey(template);
+            const active = currentAdminTemplateId === template.id || currentConditionKey === templateKey;
+            return (
+              <div
+                key={template.id}
+                className={`admin-price-v2-category-item admin-template-condition-item ${active ? "active" : ""} ${newlyCreatedAdminTemplateKey === templateKey ? "newly-added" : ""} ${dragAdminTemplateId === template.id ? "dragging" : ""} ${dragOverAdminTemplateId === template.id ? "drop-target" : ""}`.trim()}
+                role="button"
+                tabIndex={0}
+                onClick={() => requestAdminCatalogLeave(() => loadAdminTemplate(template))}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    requestAdminCatalogLeave(() => loadAdminTemplate(template));
+                  }
+                }}
+                onDragOver={(event) => handleAdminTemplateDragOver(event, template.id)}
+                onDrop={() => reorderAdminTemplates(template.id)}
+                onDragEnd={clearAdminTemplateDragState}
+              >
+                <span
+                  className="drag-handle admin-price-v2-drag-handle enabled"
+                  title="조건 순서 변경"
+                  draggable={!adminSaving}
+                  onClick={(event) => event.stopPropagation()}
+                  onDragStart={(event) => handleAdminTemplateDragStart(event, template.id)}
+                  onDragEnd={clearAdminTemplateDragState}
+                >
+                  ::
+                </span>
+                <span className="admin-price-v2-category-name admin-template-condition-name">
+                  <span>{makeTemplateLabel(template, conditionVariantLabelMap)}</span>
+                </span>
+                <button
+                  type="button"
+                  className="template-delete-button admin-template-condition-delete"
+                  disabled={adminLoading || adminSaving || templateDeleteLoading}
+                  aria-label={`${makeTemplateLabel(template, conditionVariantLabelMap)} 삭제`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openTemplateDeleteDialog(template);
+                  }}
+                >
+                  <Trash2 size={14} strokeWidth={1.5} />
+                </button>
+              </div>
+            );
+          })}
+          {!orderedAdminTemplates.length && (
+            <div className="admin-template-condition-empty">
+              <strong>저장된 조건이 없습니다.</strong>
+              <span>새 조건을 만들면 기본 수량과 인원을 입력할 수 있습니다.</span>
+            </div>
+          )}
+        </div>
+        <div className="admin-template-condition-sidebar-footer">
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<Plus />}
+            disabled={adminLoading || adminSaving}
+            onClick={openAdminTemplateConditionDrawer}
+          >
+            새 기본 견적 조건 만들기
+          </Button>
+        </div>
+      </aside>
+    );
+  }
+
+  function renderAdminItemsCategoryStrip() {
+    if (!canEditConditionQuantities) return null;
+
+    return (
+      <aside className="admin-items-v2-category-panel" aria-label="대분류 선택">
+        <div className="admin-items-v2-category-panel-head">
+          <span>대분류</span>
+          <strong>{filteredAdminItems.length}개</strong>
+        </div>
+        <div className="admin-items-v2-category-panel-list">
+          {filteredAdminItems.map((item) => {
+            const active = selectedAdminTemplateItem?.id === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`admin-price-v2-category-item admin-items-v2-category-chip ${active ? "active" : ""} ${dragItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drop-target" : ""}`.trim()}
+                onClick={() => setSelectedAdminCategoryId(item.id)}
+                onDragOver={(event) => handleAdminItemDragOver(event, item.id)}
+                onDrop={() => reorderAdminItems(item.id)}
+                onDragEnd={clearAdminDragState}
+              >
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="대분류 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminItemDragStart(event, item.id)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <span className="admin-price-v2-category-name">
+                  {item.is_favorite && <Star size={14} fill="currentColor" />}
+                  <span>{item.name}</span>
+                </span>
+                <span className="admin-price-v2-category-count">{(item.subitems ?? []).length}개</span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
   function renderAdminItemsHeaderV2(item, isFlooring = false) {
     return (
       <div className={`admin-quantity-table-header admin-items-v2-table-header ${item.item_type === "flat" ? "flat-quantity-table-header" : "standard-quantity-table-header"} ${isFlooring ? "flooring-quantity-table-header" : ""}`.trim()}>
@@ -9131,17 +9470,167 @@ export default function App() {
     );
   }
 
+  function renderAdminTemplateConditionDrawer() {
+    if (!adminTemplateConditionDrawerOpen) return null;
+    const draftConditionLabel = adminTemplateConditionDraftValue
+      ? makeTemplateLabel(adminTemplateConditionDraftValue, conditionVariantLabelMap)
+      : "선택중";
+
+    return (
+      <aside className="estimate-condition-drawer admin-template-condition-drawer" aria-label="기본 견적 조건 만들기">
+        <div className="estimate-condition-drawer__header">
+          <div>
+            <span>기본 견적 조건 만들기</span>
+            <strong>{draftConditionLabel}</strong>
+          </div>
+          <Button variant="tertiary" size="sm" onClick={closeAdminTemplateConditionDrawer}>
+            닫기
+          </Button>
+        </div>
+
+        <div className="condition-static-grid estimate-condition-drawer__fields">
+          <div className="condition-static-field">
+            <p className="field-label">평수</p>
+            <div className="custom-select admin-pyeong-select">
+              <button
+                type="button"
+                className={`custom-select-trigger ${adminTemplateConditionDraft.pyeong ? "has-value" : ""} ${adminPyeongDropdownOpen ? "open" : ""}`.trim()}
+                onClick={() => setAdminPyeongDropdownOpen((current) => !current)}
+                aria-expanded={adminPyeongDropdownOpen}
+              >
+                <span>{adminTemplateConditionDraft.pyeong ? `${adminTemplateConditionDraft.pyeong}평` : "평수 선택"}</span>
+                <span aria-hidden="true">⌄</span>
+              </button>
+              {adminPyeongDropdownOpen &&
+                renderPyeongDropdownMenu(adminTemplateConditionDraft.pyeong, (value) => {
+                  updateAdminTemplateConditionDraft({ pyeong: value });
+                  setAdminPyeongDropdownOpen(false);
+                })}
+            </div>
+          </div>
+
+          <div className="condition-static-field">
+            <p className="field-label">주택 유형</p>
+            <div className="segmented flush">
+              <button
+                type="button"
+                className={adminTemplateConditionDraft.buildType === "new" ? "selected" : ""}
+                onClick={() => updateAdminTemplateConditionDraft({ buildType: "new" })}
+              >
+                확장형
+              </button>
+              <button
+                type="button"
+                className={adminTemplateConditionDraft.buildType === "old" ? "selected" : ""}
+                onClick={() => updateAdminTemplateConditionDraft({ buildType: "old" })}
+              >
+                구형
+              </button>
+            </div>
+          </div>
+
+          {adminTemplateConditionDraft.buildType === "new" && (
+            <div className="condition-static-field condition-static-wide">
+              <div className="condition-variant-card-head">
+                <p className="field-label">확장형 세부 유형</p>
+              </div>
+              <div className="chips">
+                {EXTENDED_VARIANTS.map((variant) => (
+                  <button
+                    key={variant}
+                    type="button"
+                    className={`condition-variant-option ${normalizeConditionVariant("new", false, adminTemplateConditionDraft.conditionVariant) === variant ? "selected" : ""}`.trim()}
+                    onClick={() => updateAdminTemplateConditionDraft({ conditionVariant: variant })}
+                  >
+                    <span>{getConditionVariantLabel(variant, conditionVariantLabelMap) || variant}</span>
+                    {getConditionVariantLabel(variant, conditionVariantLabelMap) && <small>{variant}</small>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {adminTemplateConditionDraft.buildType === "old" && (
+            <>
+              <div className="condition-static-field">
+                <p className="field-label">확장 여부</p>
+                <div className="segmented flush">
+                  <button
+                    type="button"
+                    className={!adminTemplateConditionDraft.hasExtension ? "selected" : ""}
+                    onClick={() => updateAdminTemplateConditionDraft({ hasExtension: false })}
+                  >
+                    확장 없음
+                  </button>
+                  <button
+                    type="button"
+                    className={adminTemplateConditionDraft.hasExtension ? "selected" : ""}
+                    onClick={() => updateAdminTemplateConditionDraft({ hasExtension: true })}
+                  >
+                    확장 있음
+                  </button>
+                </div>
+              </div>
+              {adminTemplateConditionDraft.hasExtension ? (
+                <div className="condition-static-field condition-static-wide">
+                  <div className="condition-variant-card-head">
+                    <p className="field-label">구형 세부 유형</p>
+                  </div>
+                  <div className="chips">
+                    {OLD_EXTENDED_VARIANTS.map((variant) => (
+                      <button
+                        key={variant}
+                        type="button"
+                        className={`condition-variant-option ${normalizeConditionVariant("old", true, adminTemplateConditionDraft.conditionVariant) === variant ? "selected" : ""}`.trim()}
+                        onClick={() => updateAdminTemplateConditionDraft({ conditionVariant: variant })}
+                      >
+                        <span>{getConditionVariantLabel(variant, conditionVariantLabelMap) || variant}</span>
+                        {getConditionVariantLabel(variant, conditionVariantLabelMap) && <small>{variant}</small>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="condition-static-field condition-static-wide">
+                  <div className="condition-static-note">
+                    확장 없음은 <strong>{formatConditionVariantLabel(OLD_NO_EXTENSION_VARIANT, conditionVariantLabelMap)}</strong> 기준으로 저장됩니다.
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {adminError && <div className="error-box admin-template-condition-drawer-error">{adminError}</div>}
+
+        <div className="estimate-condition-drawer__actions">
+          <Button
+            variant="primary"
+            disabled={adminLoading || adminSaving || !adminTemplateConditionDraftValue}
+            onClick={() => requestAdminCatalogLeave(() => createAdminTemplateFromDrawer())}
+          >
+            {adminSaving ? "만드는 중..." : "만들기"}
+          </Button>
+          <Button variant="secondary" disabled={adminLoading || adminSaving} onClick={closeAdminTemplateConditionDrawer}>
+            취소
+          </Button>
+        </div>
+      </aside>
+    );
+  }
+
   function renderAdminItemsWorkbench() {
     const item = selectedAdminTemplateItem;
 
     return renderAppShell(
-      <main className="admin-price-v2-page admin-items-v2-page">
-        {renderAdminItemsCategorySidebar()}
+      <main className={`admin-price-v2-page admin-items-v2-page ${adminTemplateConditionDrawerOpen ? "admin-items-v2-page--drawer-open" : ""}`.trim()}>
+        {renderAdminTemplateConditionSidebar()}
+        {renderAdminItemsCategoryStrip()}
         <section className="admin-price-v2-workspace admin-items-v2-workspace">
           <header className="admin-price-v2-header admin-items-v2-header">
             <div className="items-v2-titleline">
-              <h1>견적 템플릿 만들기</h1>
-              <span>{currentAdminConditionLabel || "조건 템플릿"}</span>
+              <h1>기본 견적 설정</h1>
+              <span>{currentAdminConditionLabel ? `현재 관리 중: ${currentAdminConditionLabel}` : "조건을 선택하거나 새 조건을 만드세요."}</span>
             </div>
             <div className="items-v2-header-actions">
               <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
@@ -9151,8 +9640,8 @@ export default function App() {
                 variant="secondary"
                 size="sm"
                 leftIcon={<RefreshCcw />}
-                disabled={adminLoading || adminSaving}
-                onClick={() => requestAdminCatalogLeave(() => returnToAdminConditionSelect())}
+                disabled={adminLoading || adminSaving || !currentAdminTemplateCondition}
+                onClick={() => requestAdminCatalogLeave(() => fetchAdminItems({ mode: "condition", condition: currentAdminTemplateCondition }))}
               >
                 되돌리기
               </Button>
@@ -9161,7 +9650,7 @@ export default function App() {
                 size="sm"
                 leftIcon={<Save />}
                 disabled={adminLoading || adminSaving || !canEditConditionQuantities}
-                onClick={() => saveAdminPrices({ target: "quantities" })}
+                onClick={() => saveAdminPrices({ target: "quantities", stayOnPage: true })}
               >
                 저장하기
               </Button>
@@ -9169,10 +9658,6 @@ export default function App() {
           </header>
 
           <div className="items-v2-toolbar admin-price-v2-toolbar admin-items-v2-toolbar">
-            <div className="items-v2-condition-summary admin-items-v2-condition">
-              <span>현재 조건</span>
-              <strong>{currentAdminConditionLabel || "조건 없음"}</strong>
-            </div>
             <label className="admin-search-field admin-price-v2-search">
               <Search size={17} />
               <input
@@ -9189,27 +9674,6 @@ export default function App() {
               />
               즐겨찾기만 보기
             </label>
-            {item && renderAdminBulkPanel(item)}
-            <Button
-              variant="secondary"
-              size="sm"
-              leftIcon={<Plus />}
-              disabled={adminLoading || adminSaving}
-              onClick={addAdminItem}
-            >
-              대분류 추가
-            </Button>
-            {item && (
-              <Button
-                variant="danger"
-                size="sm"
-                leftIcon={<Trash2 />}
-                disabled={adminLoading || adminSaving}
-                onClick={() => deleteAdminItem(item.id)}
-              >
-                대분류 삭제
-              </Button>
-            )}
           </div>
 
           {adminLoading && <div className="status-box">불러오는 중...</div>}
@@ -9226,12 +9690,13 @@ export default function App() {
           ) : (
             <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
               <EmptyState
-                title="표시할 대분류가 없습니다."
-                description="검색 조건을 바꾸거나 대분류를 추가하세요."
+                title={orderedAdminTemplates.length ? "대분류를 선택하세요." : "기본 견적 조건이 없습니다."}
+                description={orderedAdminTemplates.length ? "검색 조건을 바꾸거나 대분류를 선택하면 기본 수량과 인원 표가 표시됩니다." : "왼쪽 아래의 새 기본 견적 조건 만들기로 조건을 먼저 추가하세요."}
               />
             </section>
           )}
         </section>
+        {renderAdminTemplateConditionDrawer()}
       </main>,
       { className: "formate-app-shell--admin-items-v2" }
     );
@@ -12788,9 +13253,9 @@ export default function App() {
 
       {isCommonPriceAdminPage && adminVerified && renderAdminPricesWorkbench()}
 
-      {isConditionQuantityAdminPage && adminVerified && USE_ADMIN_ITEMS_SCREEN_V2 && showAdminConditionEditor && renderAdminItemsWorkbench()}
+      {isConditionQuantityAdminPage && adminVerified && USE_ADMIN_ITEMS_SCREEN_V2 && renderAdminItemsWorkbench()}
 
-      {isConditionQuantityAdminPage && adminVerified && (!USE_ADMIN_ITEMS_SCREEN_V2 || !showAdminConditionEditor) && (
+      {isConditionQuantityAdminPage && adminVerified && !USE_ADMIN_ITEMS_SCREEN_V2 && (
         <main className="panel-page admin-page">
           <div className="editor-header">
             <div>
@@ -22789,17 +23254,226 @@ const styles = `
   }
   .formate-app-shell--admin-items-v2 .formate-app-shell__main {
     padding: 0;
+    overflow-x: hidden;
   }
   .admin-items-v2-page,
   .admin-items-v2-workspace,
   .admin-items-v2-table-section {
     min-width: 0;
   }
+  .admin-items-v2-page {
+    grid-template-columns: minmax(240px, 256px) minmax(220px, 240px) minmax(0, 1fr);
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
   .admin-items-v2-sidebar {
-    width: var(--layout-local-sidebar);
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    transition: opacity 150ms ease, filter 150ms ease;
+  }
+  .admin-template-condition-sidebar .admin-price-v2-category-list {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: var(--space-0-5);
+    padding: var(--space-1);
+    overflow-y: auto;
+  }
+  .admin-template-condition-item {
+    flex: 0 0 auto;
+    grid-template-columns: 20px minmax(0, 1fr) 32px;
+    align-content: center;
+    min-height: 44px;
+    max-height: none;
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-button);
+    box-shadow: none;
+  }
+  .admin-template-condition-name span {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    line-height: var(--line-height-caption);
+  }
+  .admin-template-condition-delete {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-muted);
+    opacity: 0;
+    transition: opacity 150ms ease, background-color 150ms ease, color 150ms ease;
+  }
+  .admin-template-condition-delete:hover:not(:disabled),
+  .admin-template-condition-delete:focus-visible {
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+  }
+  .admin-template-condition-item:hover .admin-template-condition-delete,
+  .admin-template-condition-item.active .admin-template-condition-delete,
+  .admin-template-condition-delete:focus-visible {
+    opacity: 1;
+  }
+  .admin-template-condition-item.newly-added {
+    animation: admin-template-condition-highlight 1.4s ease;
+  }
+  .admin-template-condition-empty {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-panel);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .admin-template-condition-empty strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .admin-template-condition-sidebar-footer {
+    flex: 0 0 auto;
+    padding: var(--space-2);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .admin-template-condition-sidebar-footer .ui-button {
+    width: 100%;
+  }
+  .admin-items-v2-page--drawer-open .admin-template-condition-sidebar,
+  .admin-items-v2-page--drawer-open .admin-items-v2-category-panel,
+  .admin-items-v2-page--drawer-open .admin-items-v2-workspace {
+    opacity: 0.88;
+    filter: blur(1px) saturate(0.96);
+  }
+  .admin-template-condition-drawer {
+    position: fixed;
+    inset: 56px 0 0 auto;
+    width: min(420px, 100vw);
+    max-width: 420px;
+    height: calc(100dvh - 56px);
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: -12px 0 28px rgba(31, 41, 51, 0.08);
+  }
+  .admin-template-condition-drawer-error {
+    margin: var(--space-2);
+  }
+  .admin-items-v2-category-panel {
+    position: sticky;
+    top: 56px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 100%;
+    height: calc(100dvh - 56px);
+    max-height: calc(100dvh - 56px);
+    min-width: 0;
+    overflow: hidden;
+    padding: 0;
+    border-right: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-surface);
+    transition: opacity 150ms ease, filter 150ms ease;
+  }
+  .admin-items-v2-category-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .admin-items-v2-category-panel-head strong {
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-items-v2-category-panel-list {
+    display: grid;
+    gap: var(--space-1);
+    flex: 1 1 auto;
+    padding: var(--space-2);
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+  .admin-items-v2-category-chip {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  @keyframes admin-template-condition-highlight {
+    0% {
+      background: var(--color-primary-soft);
+      box-shadow: inset 3px 0 0 var(--color-primary);
+    }
+    100% {
+      background: transparent;
+      box-shadow: none;
+    }
   }
   .admin-items-v2-toolbar {
     align-items: center;
+    justify-content: flex-start;
+    margin: 0;
+  }
+  .admin-items-v2-toolbar .admin-price-v2-search {
+    flex: 0 1 320px;
+    max-width: 320px;
+  }
+  .admin-items-v2-toolbar .admin-price-v2-favorite {
+    flex: 0 0 auto;
+  }
+  .admin-items-v2-workspace {
+    gap: 0;
+    min-height: 100dvh;
+    padding: 0;
+    background: var(--color-bg);
+    overflow-x: hidden;
+  }
+  .admin-items-v2-header {
+    padding: 0 var(--space-2);
+    background: var(--color-bg);
+  }
+  .admin-items-v2-toolbar {
+    padding: var(--space-1-5) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+  .admin-items-v2-workspace > .status-box,
+  .admin-items-v2-workspace > .error-box {
+    margin: var(--space-2);
+  }
+  .admin-items-v2-table-section {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 100%;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-surface);
+    box-shadow: none;
+    overflow: hidden;
+  }
+  .admin-items-v2-table-section .admin-price-v2-table-scroll {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    border-radius: 0;
   }
   .admin-items-v2-condition {
     flex: 0 1 220px;
@@ -22812,13 +23486,13 @@ const styles = `
   .admin-items-v2-grid-list {
     display: block;
     width: 100%;
-    min-width: 720px;
+    min-width: 0;
     max-width: none;
     margin: 0;
     padding-left: 0;
     gap: 0;
-    --quantity-table-columns: 40px minmax(220px, 1fr) 120px 100px 100px 40px;
-    --quantity-table-flat-columns: minmax(220px, 1fr) 120px 100px 100px;
+    --quantity-table-columns: 48px minmax(220px, 1fr) minmax(140px, 180px) minmax(96px, 120px) minmax(96px, 120px) 64px;
+    --quantity-table-flat-columns: minmax(220px, 1fr) minmax(140px, 180px) minmax(96px, 120px) minmax(96px, 120px);
   }
   .admin-items-v2-grid-list.quantity-table-list,
   .admin-items-v2-grid-list.admin-subitem-list,
@@ -22921,7 +23595,7 @@ const styles = `
     box-shadow: none;
     outline: none;
   }
-  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row input[type="number"] {
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .items-v2-inline-input--number {
     text-align: right;
     font-variant-numeric: tabular-nums;
     font-weight: var(--font-weight-medium);
