@@ -21837,7 +21837,7 @@ const styles = `
     scrollbar-gutter: stable;
     border-right: 1px solid var(--color-border);
     background: var(--color-surface);
-    transition: opacity 150ms ease;
+    transition: opacity 150ms ease, filter 150ms ease;
   }
   .items-v2-workspace {
     display: flex;
@@ -21847,8 +21847,9 @@ const styles = `
     padding: 0 var(--space-page-x) 0;
     transition: opacity 150ms ease, filter 150ms ease;
   }
+  .items-v2-page--condition-drawer-open .items-v2-category-sidebar,
   .items-v2-page--condition-drawer-open .items-v2-workspace {
-    opacity: 0.92;
+    opacity: 0.88;
     filter: blur(1px) saturate(0.96);
   }
   .items-v2-header,
@@ -22181,7 +22182,7 @@ const styles = `
     padding: 0;
     border-left: 1px solid var(--color-border);
     background: var(--color-surface);
-    box-shadow: var(--shadow-popover);
+    box-shadow: -12px 0 28px rgba(31, 41, 51, 0.08);
     overflow: hidden;
   }
   .estimate-condition-drawer__header {
