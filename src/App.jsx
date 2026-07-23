@@ -4,7 +4,6 @@ import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import {
   ArrowLeft,
-  Archive,
   BookOpen,
   Building2,
   Calculator,
@@ -84,7 +83,7 @@ const APP_SHELL_NAV_ITEMS = [
   {
     key: "estimate-work",
     type: "section",
-    label: "견적 업무",
+    label: "업무홈",
     items: [
       { key: "condition", label: "새 견적서 작성", icon: <ClipboardList />, activeKeys: ["condition", "items"] },
       { key: "admin-estimates", label: "저장 견적 보기", icon: <FileText /> },
@@ -95,7 +94,6 @@ const APP_SHELL_NAV_ITEMS = [
     type: "section",
     label: "관리자 홈",
     items: [
-      { key: "admin", label: "관리자 홈", icon: <Settings /> },
       { key: "photo-management", label: "사진 자료실", icon: <Image /> },
       { key: "admin-prices", label: "단가표 관리", icon: <Calculator /> },
       { key: "admin-items", label: "기본 견적 설정", icon: <BookOpen />, activeKeys: ["admin-items", "admin-condition-labels"] },
@@ -114,7 +112,6 @@ const APP_SHELL_NAV_ITEMS = [
       },
     ],
   },
-  { key: "saved-estimates-bottom", target: "admin-estimates", label: "저장된 견적", icon: <Archive />, placement: "bottom" },
   { key: "help-support", label: "도움말 / 지원", icon: <HelpCircle />, placement: "bottom", disabled: true },
   { key: "logout", label: "로그아웃", icon: <LogOut />, placement: "bottom" },
 ];
