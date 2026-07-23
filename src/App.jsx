@@ -2678,6 +2678,7 @@ export default function App() {
   const pendingAdminLeaveActionRef = useRef(null);
   const adminItemsRef = useRef([]);
   const estimatePhotoRequestRef = useRef("");
+  const estimateBlankCatalogRequestRef = useRef(0);
   const pageRef = useRef("");
   const adminConditionStepRef = useRef("select");
   const currentAdminTemplateConditionRef = useRef(null);
@@ -2734,6 +2735,7 @@ export default function App() {
   const [estimateNotice, setEstimateNotice] = useState("");
   const [estimateDraftSource, setEstimateDraftSource] = useState("template");
   const [estimateConditionEditMode, setEstimateConditionEditMode] = useState(false);
+  const [estimateConditionDrawerOpen, setEstimateConditionDrawerOpen] = useState(false);
   const [selectedPhotoSubitemId, setSelectedPhotoSubitemId] = useState("");
   const [selectedPhotoSubitemName, setSelectedPhotoSubitemName] = useState("");
   const [estimateItemPhotos, setEstimateItemPhotos] = useState([]);
@@ -6413,12 +6415,28 @@ export default function App() {
     });
     if (loaded) {
       setEstimateConditionEditMode(false);
+      setEstimateConditionDrawerOpen(false);
+      setPage("items");
+    }
+  }
+
+  async function loadEstimateFromCondition({ forceBlank = false } = {}) {
+    if (!canGoNext()) return;
+    const loaded = await fetchEstimateCatalog(condition.size, condition, {
+      preserveDraft: estimateConditionEditMode,
+      forceBlank,
+    });
+    if (loaded) {
+      setEstimateConditionEditMode(false);
+      setEstimateConditionDrawerOpen(false);
       setPage("items");
     }
   }
 
   async function fetchEstimateCatalog(pyeong = condition.size, nextCondition = condition, options = {}) {
+    estimateBlankCatalogRequestRef.current += 1;
     const preserveDraft = Boolean(options.preserveDraft);
+    const forceBlank = Boolean(options.forceBlank);
     setEstimateLoading(true);
     setEstimateError("");
     setEstimateNotice("");
@@ -6455,7 +6473,7 @@ export default function App() {
       let templateValueRows = [];
       let templateFound = false;
       const templateCondition = getEstimateTemplateCondition(nextCondition);
-      if (templateCondition) {
+      if (templateCondition && !forceBlank) {
         const templateRow = await fetchTemplateRowByCondition(companyId, templateCondition);
 
         if (templateRow?.id) {
@@ -6475,6 +6493,8 @@ export default function App() {
         } else {
           setEstimateNotice("빈 견적서로 시작했습니다. 단가표 항목은 불러왔고, 수량과 인원은 직접 입력하세요.");
         }
+      } else if (forceBlank) {
+        setEstimateNotice("빈 견적서로 시작했습니다. 단가표 항목은 불러왔고, 수량과 인원은 직접 입력하세요.");
       }
 
       const catalog = normalizeAdminItems(itemRows, subitemRows, templateValueRows);
@@ -6495,6 +6515,43 @@ export default function App() {
       return false;
     } finally {
       setEstimateLoading(false);
+    }
+  }
+
+  async function preloadBlankEstimateCatalogForNewStart() {
+    const requestId = estimateBlankCatalogRequestRef.current + 1;
+    estimateBlankCatalogRequestRef.current = requestId;
+    setEstimateLoading(true);
+    setEstimateError("");
+    setEstimateNotice("");
+
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
+      }
+
+      const companyId = requireSelectedCompanyId();
+      const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
+      if (estimateBlankCatalogRequestRef.current !== requestId) return false;
+
+      const catalog = normalizeAdminItems(itemRows, subitemRows, []);
+      const nextItems = buildEstimateItemsFromTemplate(catalog, "", "empty");
+
+      setEstimateCatalog(catalog);
+      setItems(nextItems);
+      setActiveCategories([]);
+      setOpenCategory(catalog[0]?.id ?? "");
+      setEstimateDraftSource("blank");
+      return true;
+    } catch (error) {
+      if (estimateBlankCatalogRequestRef.current === requestId) {
+        setEstimateError(getFriendlyError(error, "단가표 항목을 불러오지 못했습니다. 조건을 선택하거나 다시 시도해 주세요."));
+      }
+      return false;
+    } finally {
+      if (estimateBlankCatalogRequestRef.current === requestId) {
+        setEstimateLoading(false);
+      }
     }
   }
 
@@ -7137,6 +7194,49 @@ export default function App() {
     setEstimateItemPhotos([]);
     setIsLoadingEstimateItemPhotos(false);
     setEstimateItemPhotosError("");
+    setEstimatePreviewType("general");
+  }
+
+  function resetEstimateDraftForNewStart() {
+    estimateBlankCatalogRequestRef.current += 1;
+    setStep(1);
+    setCondition({
+      size: "",
+      buildType: "",
+      powderRoom: false,
+      dressRoom: false,
+      expanded: false,
+      conditionVariant: "",
+      expansionSpaces: [],
+      occupancy: "",
+    });
+    setItems({});
+    setActiveCategories([]);
+    setOpenCategory("");
+    setCustomerName("");
+    setCustomerPhone("");
+    setAddress("");
+    setWorkDate("");
+    setEstimatePyeong("");
+    setEstimateAdjustments([]);
+    setSiteMemo("");
+    setEstimateVatStatus("부가세 별도");
+    setEstimateIssuedAt(getTodayDateInput());
+    setEstimateConditionVariantLabels({});
+    setConditionLabelEditOpen(false);
+    setConditionLabelDrafts({});
+    setEstimateCatalog([]);
+    setEstimateError("");
+    setEstimateNotice("");
+    setEstimateDraftSource("template");
+    setEstimateConditionEditMode(false);
+    estimatePhotoRequestRef.current = "";
+    setSelectedPhotoSubitemId("");
+    setSelectedPhotoSubitemName("");
+    setEstimateItemPhotos([]);
+    setIsLoadingEstimateItemPhotos(false);
+    setEstimateItemPhotosError("");
+    setPreviewBackPage("items");
     setEstimatePreviewType("general");
   }
 
@@ -9473,8 +9573,10 @@ export default function App() {
       return;
     }
     if (nextPage === "condition") {
-      setEstimateConditionEditMode(false);
-      setPage("condition");
+      resetEstimateDraftForNewStart();
+      setEstimateConditionDrawerOpen(true);
+      setPage("items");
+      preloadBlankEstimateCatalogForNewStart();
       return;
     }
     if (PROTECTED_ADMIN_PAGES.includes(nextPage)) {
@@ -9506,6 +9608,10 @@ export default function App() {
 
   function renderItemsScreenV2() {
     const currentRows = items[openCategory] ?? [];
+    const estimateConditionDisplay = conditionChips.length > 0 ? conditionChips.join(" · ") : "조건 미선택";
+    const estimateConditionBarDisplay = estimateConditionDrawerOpen ? "선택중" : estimateConditionDisplay;
+    const estimateConditionPanelStatus = estimateConditionDrawerOpen ? "선택중" : estimateConditionDisplay;
+    const hasEstimateCondition = canGoNext();
     const itemTableColumns = [
       { key: "selected", label: "", width: "32px" },
       { key: "material", label: "소재명" },
@@ -9696,8 +9802,224 @@ export default function App() {
       );
     };
 
+    const renderEstimateConditionDrawer = () => {
+      if (!estimateConditionDrawerOpen) return null;
+
+      return (
+        <>
+          <aside className="estimate-condition-drawer" aria-label="견적 조건 설정">
+            <div className="estimate-condition-drawer__header">
+              <div>
+                <span>견적 조건 설정</span>
+                <strong>{estimateConditionPanelStatus}</strong>
+              </div>
+              <Button variant="tertiary" size="sm" onClick={() => setEstimateConditionDrawerOpen(false)}>
+                닫기
+              </Button>
+            </div>
+
+            <div className="condition-static-grid estimate-condition-drawer__fields">
+              <div className="condition-static-field">
+                <p className="field-label">평수</p>
+                <div className="custom-select">
+                  <button
+                    type="button"
+                    className={`custom-select-trigger ${condition.size ? "has-value" : ""} ${pyeongDropdownOpen ? "open" : ""}`.trim()}
+                    onClick={() => setPyeongDropdownOpen((current) => !current)}
+                    aria-expanded={pyeongDropdownOpen}
+                  >
+                    <span>{condition.size ? `${condition.size}평` : "평수 선택"}</span>
+                    <span aria-hidden="true">⌄</span>
+                  </button>
+                  {pyeongDropdownOpen &&
+                    renderPyeongDropdownMenu(condition.size, (value) => {
+                      updateCondition({ size: value });
+                      setPyeongDropdownOpen(false);
+                    })}
+                </div>
+              </div>
+
+              <div className="condition-static-field">
+                <p className="field-label">주택 유형</p>
+                <div className="segmented flush">
+                  <button
+                    type="button"
+                    className={condition.buildType === "new" ? "selected" : ""}
+                    onClick={() =>
+                      updateCondition({
+                        buildType: "new",
+                        powderRoom: false,
+                        dressRoom: false,
+                        expanded: false,
+                        conditionVariant: "확장형1",
+                        expansionSpaces: [],
+                      })
+                    }
+                  >
+                    확장형
+                  </button>
+                  <button
+                    type="button"
+                    className={condition.buildType === "old" ? "selected" : ""}
+                    onClick={() =>
+                      updateCondition({
+                        buildType: "old",
+                        powderRoom: false,
+                        dressRoom: false,
+                        expanded: false,
+                        conditionVariant: OLD_NO_EXTENSION_VARIANT,
+                        expansionSpaces: [],
+                      })
+                    }
+                  >
+                    구형
+                  </button>
+                </div>
+              </div>
+
+              {condition.buildType === "new" && (
+                <div className="condition-static-field condition-static-wide">
+                  <div className="condition-variant-card-head">
+                    <p className="field-label">확장형 세부 유형</p>
+                    <button
+                      type="button"
+                      className="ghost condition-label-link"
+                      onClick={() => openEstimateConditionLabelEditor(EXTENDED_VARIANTS)}
+                    >
+                      이름 변경
+                    </button>
+                  </div>
+                  <div className="chips">
+                    {EXTENDED_VARIANTS.map((variant) => (
+                      <button
+                        key={variant}
+                        type="button"
+                        className={`condition-variant-option ${getConditionVariant(condition) === variant ? "selected" : ""}`.trim()}
+                        onClick={() => updateCondition({ conditionVariant: variant })}
+                      >
+                        <span>{getConditionVariantLabel(variant, estimateConditionVariantLabelMap) || variant}</span>
+                        {getConditionVariantLabel(variant, estimateConditionVariantLabelMap) && <small>{variant}</small>}
+                      </button>
+                    ))}
+                  </div>
+                  {renderEstimateConditionLabelEditor(EXTENDED_VARIANTS)}
+                </div>
+              )}
+
+              {condition.buildType === "old" && (
+                <>
+                  <div className="condition-static-field">
+                    <p className="field-label">확장 여부</p>
+                    <div className="segmented flush">
+                      <button
+                        type="button"
+                        className={!condition.expanded ? "selected" : ""}
+                        onClick={() =>
+                          updateCondition({
+                            expanded: false,
+                            conditionVariant: OLD_NO_EXTENSION_VARIANT,
+                            expansionSpaces: [],
+                          })
+                        }
+                      >
+                        확장 없음
+                      </button>
+                      <button
+                        type="button"
+                        className={condition.expanded ? "selected" : ""}
+                        onClick={() =>
+                          updateCondition({
+                            expanded: true,
+                            conditionVariant: OLD_EXTENDED_VARIANTS.includes(condition.conditionVariant)
+                              ? condition.conditionVariant
+                              : "구형1",
+                          })
+                        }
+                      >
+                        확장 있음
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="condition-static-field condition-static-wide">
+                    <div className="condition-variant-card-head">
+                      <p className="field-label">구형 세부 유형</p>
+                      <button
+                        type="button"
+                        className="ghost condition-label-link"
+                        onClick={() =>
+                          openEstimateConditionLabelEditor(
+                            condition.expanded ? OLD_EXTENDED_VARIANTS : [OLD_NO_EXTENSION_VARIANT]
+                          )
+                        }
+                      >
+                        이름 변경
+                      </button>
+                    </div>
+                    {condition.expanded ? (
+                      <div className="chips">
+                        {OLD_EXTENDED_VARIANTS.map((variant) => (
+                          <button
+                            key={variant}
+                            type="button"
+                            className={`condition-variant-option ${getConditionVariant(condition) === variant ? "selected" : ""}`.trim()}
+                            onClick={() => updateCondition({ conditionVariant: variant })}
+                          >
+                            <span>{getConditionVariantLabel(variant, estimateConditionVariantLabelMap) || variant}</span>
+                            {getConditionVariantLabel(variant, estimateConditionVariantLabelMap) && <small>{variant}</small>}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="condition-static-note">
+                        확장 없음은 <strong>{formatConditionVariantLabel(OLD_NO_EXTENSION_VARIANT, estimateConditionVariantLabelMap)}</strong> 기준으로 불러옵니다.
+                      </div>
+                    )}
+                    {renderEstimateConditionLabelEditor(
+                      condition.expanded ? OLD_EXTENDED_VARIANTS : [OLD_NO_EXTENSION_VARIANT]
+                    )}
+                  </div>
+                </>
+              )}
+
+              <div className="condition-static-field">
+                <p className="field-label">거주 상태</p>
+                <div className="segmented flush">
+                  <button
+                    type="button"
+                    className={condition.occupancy === "empty" ? "selected" : ""}
+                    onClick={() => updateCondition({ occupancy: "empty" })}
+                  >
+                    빈집
+                  </button>
+                  <button
+                    type="button"
+                    className={condition.occupancy === "occupied" ? "selected" : ""}
+                    onClick={() => updateCondition({ occupancy: "occupied" })}
+                  >
+                    살림집
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {estimateError && <div className="error-box">{estimateError}</div>}
+
+            <div className="estimate-condition-drawer__actions">
+              <Button variant="primary" disabled={!hasEstimateCondition || estimateLoading} onClick={() => loadEstimateFromCondition()}>
+                {estimateLoading ? "불러오는 중..." : "기본 견적 불러오기"}
+              </Button>
+              <Button variant="secondary" disabled={!hasEstimateCondition || estimateLoading} onClick={() => loadEstimateFromCondition({ forceBlank: true })}>
+                빈 견적으로 시작
+              </Button>
+            </div>
+          </aside>
+        </>
+      );
+    };
+
     return renderAppShell(
-      <main className="items-v2-page">
+      <main className={`items-v2-page ${estimateConditionDrawerOpen ? "items-v2-page--condition-drawer-open" : ""}`.trim()}>
         <CategorySidebar
           title="공사 항목"
           items={categoryItems}
@@ -9709,7 +10031,7 @@ export default function App() {
           <header className="items-v2-header">
             <div className="items-v2-titleline">
               <h1>견적서 작성</h1>
-              <span>{conditionSummary}</span>
+              <span>{estimateConditionDisplay}</span>
             </div>
             <div className="items-v2-header-actions">
               <Button
@@ -9717,23 +10039,10 @@ export default function App() {
                 size="sm"
                 onClick={() => {
                   setEstimateConditionEditMode(true);
-                  setPage("condition");
-                  setStep(1);
+                  setEstimateConditionDrawerOpen(true);
                 }}
               >
-                조건 다시 선택
-              </Button>
-              <Button
-                variant="tertiary"
-                size="sm"
-                leftIcon={<ArrowLeft />}
-                onClick={() => {
-                  setEstimateConditionEditMode(true);
-                  setPage("condition");
-                  setStep(3);
-                }}
-              >
-                이전
+                조건 변경
               </Button>
               <Button
                 variant="primary"
@@ -9761,7 +10070,17 @@ export default function App() {
           <div className="items-v2-toolbar">
             <div className="items-v2-condition-summary">
               <span>현재 조건</span>
-              <strong>{conditionSummary}</strong>
+              <strong>{estimateConditionBarDisplay}</strong>
+              <Button
+                variant="tertiary"
+                size="sm"
+                onClick={() => {
+                  setEstimateConditionEditMode(true);
+                  setEstimateConditionDrawerOpen(true);
+                }}
+              >
+                조건 변경
+              </Button>
             </div>
             <div className="items-v2-pyeong-controls">
               <label htmlFor="items-v2-estimate-pyeong">견적 기준 평수</label>
@@ -9812,8 +10131,9 @@ export default function App() {
               />
             ) : (
               <EmptyState
-                title={estimateCatalog.length ? "이 항목에 등록된 소재가 없습니다." : "등록된 시공 항목이 없습니다."}
-                description={estimateCatalog.length ? "관리자 페이지에서 소재를 추가하면 이 화면에서 견적에 포함할 수 있습니다." : "관리자 페이지에서 항목과 소재를 먼저 추가하세요."}
+                className="items-v2-table-empty"
+                title={estimateLoading ? "단가표 항목을 불러오는 중입니다." : estimateCatalog.length ? "이 항목에 등록된 소재가 없습니다." : "등록된 시공 항목이 없습니다."}
+                description={estimateLoading ? "잠시만 기다려 주세요." : estimateCatalog.length ? "관리자 페이지에서 소재를 추가하면 이 화면에서 견적에 포함할 수 있습니다." : "관리자 페이지에서 항목과 소재를 먼저 추가하세요."}
               />
             )}
           </section>
@@ -9837,6 +10157,7 @@ export default function App() {
             ]}
           />
         </section>
+        {renderEstimateConditionDrawer()}
       </main>,
       { className: "formate-app-shell--items-v2" }
     );
@@ -9978,17 +10299,11 @@ export default function App() {
     <div className={`app-shell ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""}`.trim()}>
       <style>{styles}</style>
 
-      <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""} ${page === "items" ? "with-estimate-condition" : ""}`.trim()}>
+      <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""}`.trim()}>
           <button className="global-brand" onClick={() => requestAdminCatalogLeave(resetFlow)} aria-label="FORMATE 홈으로 이동">
             <img src={logoUrl} alt="" />
             <strong>FORMATE</strong>
           </button>
-          {page === "items" && (
-            <div className="header-estimate-condition" aria-live="polite">
-              <span>견적 조건</span>
-              <strong>{conditionChips.length > 0 ? conditionChips.join(" · ") : "조건 미선택"}</strong>
-            </div>
-          )}
           {isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" && (
             <div className={`header-admin-condition ${canEditConditionQuantities ? "active" : ""}`.trim()} aria-live="polite">
               <span>현재 관리 중</span>
@@ -10006,23 +10321,10 @@ export default function App() {
               size="sm"
               onClick={() => {
                 setEstimateConditionEditMode(true);
-                setPage("condition");
-                setStep(1);
+                setEstimateConditionDrawerOpen(true);
               }}
             >
-              조건 다시 선택
-            </Button>
-            <Button
-              variant="tertiary"
-              size="sm"
-              leftIcon={<ArrowLeft />}
-              onClick={() => {
-                setEstimateConditionEditMode(true);
-                setPage("condition");
-                setStep(3);
-              }}
-            >
-              이전
+              조건 변경
             </Button>
             <Button
               variant="primary"
@@ -10373,8 +10675,10 @@ export default function App() {
               <button
                 className="home-action-row home-action-row--primary"
                 onClick={() => {
-                  setEstimateConditionEditMode(false);
-                  setPage("condition");
+                  resetEstimateDraftForNewStart();
+                  setEstimateConditionDrawerOpen(true);
+                  setPage("items");
+                  preloadBlankEstimateCatalogForNewStart();
                 }}
               >
                 <ClipboardList size={18} strokeWidth={1.5} />
@@ -21521,6 +21825,7 @@ const styles = `
     min-height: 100dvh;
     min-width: 0;
     background: var(--color-bg);
+    animation: none;
   }
   .items-v2-category-sidebar {
     position: sticky;
@@ -21532,6 +21837,7 @@ const styles = `
     scrollbar-gutter: stable;
     border-right: 1px solid var(--color-border);
     background: var(--color-surface);
+    transition: opacity 150ms ease;
   }
   .items-v2-workspace {
     display: flex;
@@ -21539,6 +21845,10 @@ const styles = `
     gap: var(--space-3);
     min-width: 0;
     padding: 0 var(--space-page-x) 0;
+    transition: opacity 150ms ease;
+  }
+  .items-v2-page--condition-drawer-open .items-v2-workspace {
+    opacity: 0.9;
   }
   .items-v2-header,
   .items-v2-toolbar,
@@ -21612,10 +21922,14 @@ const styles = `
   }
   .items-v2-condition-summary strong {
     min-width: 0;
+    max-width: min(52vw, 520px);
+    overflow: hidden;
     color: var(--color-text-primary);
     font-size: var(--font-size-body);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-body);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .items-v2-pyeong-controls {
     display: inline-flex;
@@ -21851,6 +22165,151 @@ const styles = `
   }
   .items-v2-money-field input:focus {
     outline: none;
+  }
+  .estimate-condition-drawer {
+    position: fixed;
+    top: 56px;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: min(420px, calc(100vw - 24px));
+    height: auto;
+    padding: 0;
+    border-left: 1px solid var(--color-border);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+    overflow: hidden;
+  }
+  .estimate-condition-drawer__header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: 64px;
+    padding: var(--space-1-5) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .estimate-condition-drawer__header div {
+    display: grid;
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+  .estimate-condition-drawer__header span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .estimate-condition-drawer__header strong {
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .estimate-condition-drawer__fields {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .estimate-condition-drawer__fields .condition-static-field,
+  .estimate-condition-drawer__fields .condition-static-wide {
+    display: grid;
+    grid-column: auto;
+    gap: var(--space-1);
+    min-height: 0;
+    padding: var(--space-2);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .estimate-condition-drawer__fields .field-label {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-body);
+  }
+  .estimate-condition-drawer__fields .custom-select-trigger,
+  .estimate-condition-drawer__fields .segmented button,
+  .estimate-condition-drawer__fields .condition-variant-option {
+    min-height: var(--button-height);
+    border-radius: var(--radius-button);
+    box-shadow: none;
+  }
+  .estimate-condition-drawer__fields .segmented {
+    gap: var(--space-1);
+  }
+  .estimate-condition-drawer__fields .segmented button {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+  .estimate-condition-drawer__fields .chips {
+    gap: var(--space-1);
+  }
+  .estimate-condition-drawer__fields .chips button.condition-variant-option {
+    padding: 0 var(--space-1-5);
+    border-color: var(--color-border);
+    background: var(--color-surface);
+  }
+  .estimate-condition-drawer__fields .chips button.condition-variant-option.selected,
+  .estimate-condition-drawer__fields .segmented button.selected,
+  .estimate-condition-drawer__fields .custom-select-trigger.has-value {
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+  .estimate-condition-drawer__fields .condition-variant-card-head {
+    align-items: center;
+    margin: 0;
+  }
+  .estimate-condition-drawer__fields .condition-static-note {
+    margin: 0;
+    padding: var(--space-1);
+    border-radius: var(--radius-button);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .estimate-condition-drawer__fields .custom-select-menu {
+    max-height: 320px;
+  }
+  .estimate-condition-drawer__actions {
+    flex: 0 0 auto;
+    display: grid;
+    gap: var(--space-1);
+    margin-top: 0;
+    padding: var(--space-1-5) var(--space-2);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .estimate-condition-drawer__actions .ui-button {
+    width: 100%;
+    min-height: var(--button-height);
+  }
+  .items-v2-empty-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+  .items-v2-table-empty {
+    min-height: 160px;
+    padding: var(--space-3);
   }
   .items-v2-site-memo {
     border: 1px solid var(--color-border);
