@@ -653,6 +653,7 @@
   line-height: var(--line-height-body);
   text-align: left;
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ui-category-sidebar__item:hover {
@@ -740,6 +741,7 @@
   height: var(--table-row-height);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .ui-table th,
@@ -754,7 +756,7 @@
 }
 
 .ui-table tbody tr:hover td {
-  background: var(--color-row-hover);
+  background: var(--color-row-alt);
 }
 
 .ui-table tbody tr.ui-table__row--selected td {
@@ -785,6 +787,7 @@
   color: inherit;
   font: inherit;
   text-align: inherit;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 
 .ui-table__input:focus {

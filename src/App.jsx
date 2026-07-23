@@ -16762,6 +16762,7 @@ const styles = `
     padding: 12px 14px;
     border-radius: var(--radius-button);
     font-weight: var(--font-weight-semibold);
+    animation: formate-feedback-in 0.18s ease both;
   }
   .status-box {
     border: 1px solid var(--border-subtle);
@@ -16776,11 +16777,22 @@ const styles = `
   .success-box {
     margin-bottom: var(--space-2);
     padding: 12px 14px;
-    border: 1px solid rgba(49, 124, 82, 0.22);
+    border: 1px solid var(--color-success-border);
     border-radius: var(--radius-button);
-    background: rgba(49, 124, 82, 0.08);
-    color: #317c52;
+    background: var(--color-success-bg);
+    color: var(--color-success);
     font-weight: var(--font-weight-semibold);
+    animation: formate-feedback-in 0.18s ease both;
+  }
+  @keyframes formate-feedback-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
   .success-box p,
   .error-box p {
@@ -17187,7 +17199,7 @@ const styles = `
   }
   .photo-subitem-row:hover {
     border-color: var(--color-border-strong);
-    background: var(--color-row-hover);
+    background: var(--color-row-alt);
   }
   .photo-subitem-name {
     display: grid;
@@ -18247,6 +18259,7 @@ const styles = `
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-bold);
     white-space: nowrap;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   }
   .autosave-pill.dirty,
   .autosave-pill.saving {
@@ -18257,6 +18270,7 @@ const styles = `
   .autosave-pill.saved {
     background: #ffffff;
     color: var(--text-secondary);
+    animation: formate-feedback-in 0.18s ease both;
   }
   .autosave-pill.error {
     border-color: var(--color-danger-border);
@@ -19337,7 +19351,7 @@ const styles = `
     background: #fdfefe;
   }
   .detail-estimate-document .detail-estimate-table tbody tr:hover td {
-    background: #f6f8fc;
+    background: var(--color-row-alt);
   }
   .detail-estimate-document .labor-detail-row td {
     color: var(--text-secondary);
@@ -20207,13 +20221,14 @@ const styles = `
     padding: 8px 10px;
   }
   .quantity-table-list .admin-value-row.condition-quantity-row:hover {
-    background: #fbfcff;
+    background: var(--color-row-alt);
   }
   .quantity-table-list .admin-value-row.condition-quantity-row input,
   .quantity-table-list .admin-value-row.condition-quantity-row select {
     min-height: 40px;
     padding: 8px 10px;
     font-size: 15px;
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   }
   .quantity-table-list .admin-value-row.condition-quantity-row label {
     gap: 0;
@@ -20223,13 +20238,14 @@ const styles = `
     border-color: var(--border-subtle);
     border-top: 0;
     border-bottom: 1px solid var(--border-subtle);
-    background: #ffffff;
+    background: var(--color-surface);
     align-items: center;
     column-gap: 6px;
     padding: 6px 8px;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
   }
   .price-table-list .admin-value-row.common-price-row:hover {
-    background: #fbfcff;
+    background: var(--color-row-alt);
   }
   .admin-value-row.newly-added {
     animation: admin-new-row-highlight 1.6s ease-out;
@@ -20249,6 +20265,7 @@ const styles = `
     min-height: 32px;
     padding: 5px 7px;
     font-size: 14px;
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   }
   .price-table-list .admin-value-row.common-price-row label {
     gap: 0;
@@ -20270,13 +20287,13 @@ const styles = `
   .quantity-table-list .admin-value-row.condition-quantity-row:nth-of-type(even),
   .detail-cost-list .detail-cost-row:nth-of-type(even),
   .detail-subitem-list button:nth-child(even) {
-    background: #fcfdff;
+    background: var(--color-row-alt);
   }
   .price-table-list .admin-value-row.common-price-row:hover,
   .quantity-table-list .admin-value-row.condition-quantity-row:hover,
   .detail-cost-row:hover,
   .detail-subitem-list button:hover {
-    background: #f8faff;
+    background: var(--color-row-alt);
   }
   .admin-price-table-header,
   .admin-quantity-table-header,
@@ -20306,7 +20323,7 @@ const styles = `
   .detail-cost-row select:focus {
     border-color: var(--brand-primary);
     background: var(--bg-surface);
-    box-shadow: var(--focus-ring);
+    box-shadow: none;
   }
   .price-table-list input::placeholder,
   .quantity-table-list input::placeholder,
@@ -20904,13 +20921,13 @@ const styles = `
   .selected-summary-row:nth-child(even),
   .adjustment-row:nth-child(even),
   .estimate-card:nth-child(even) {
-    background: #fcfdff;
+    background: var(--color-row-alt);
   }
   .ai-data-table tbody tr:hover td:not(.row-number-cell),
   .estimate-modal table tbody tr:hover td,
   .general-estimate-document .general-estimate-table tbody tr:hover td,
   .detail-estimate-document .detail-estimate-table tbody tr:hover td {
-    background: #f6f8fc;
+    background: var(--color-row-alt);
   }
   .number-text,
   .signed-total,
@@ -21108,7 +21125,7 @@ const styles = `
   }
   .home-recent-compact-row:hover,
   .home-recent-compact-row:focus-visible {
-    background: var(--color-row-hover);
+    background: var(--color-row-alt);
     outline: none;
   }
   .formate-app-shell--collapsed .condition-page {
@@ -21228,7 +21245,7 @@ const styles = `
   }
   .condition-page .custom-select-menu button:hover,
   .condition-page .custom-select-menu button:focus-visible {
-    background: var(--color-row-hover);
+    background: var(--color-row-alt);
     outline: none;
   }
   .condition-page .custom-select-menu .favorite-pyeong-toggle.active {
@@ -21912,6 +21929,7 @@ const styles = `
     text-align: left;
     font: inherit;
     cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   }
   .admin-price-v2-category-item:hover {
     background: var(--color-surface-subtle);
@@ -22157,6 +22175,7 @@ const styles = `
     border-bottom: 1px solid var(--color-border);
     border-radius: 0;
     background: var(--color-surface);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row.expanded {
     row-gap: var(--space-2);
@@ -22189,7 +22208,7 @@ const styles = `
     background: var(--color-row-alt);
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row:hover {
-    background: var(--color-row-hover);
+    background: var(--color-row-alt);
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row label {
     gap: 0;
@@ -22214,6 +22233,7 @@ const styles = `
     color: var(--color-text-primary);
     font-size: var(--font-size-table-cell);
     line-height: var(--line-height-table-cell);
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row input:focus,
   .admin-price-v2-grid-list .admin-value-row.common-price-row select:focus {
@@ -22361,6 +22381,7 @@ const styles = `
     border-bottom: 1px solid var(--color-border);
     border-radius: 0;
     background: var(--color-surface);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
   }
   .admin-items-v2-grid-list .admin-quantity-table-header > *,
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > * {
@@ -22386,7 +22407,7 @@ const styles = `
     background: var(--color-row-alt);
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row:hover {
-    background: var(--color-row-hover);
+    background: var(--color-row-alt);
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row label {
     gap: 0;
@@ -22411,6 +22432,7 @@ const styles = `
     color: var(--color-text-primary);
     font-size: var(--font-size-table-cell);
     line-height: var(--line-height-table-cell);
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row input:focus,
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row select:focus {
@@ -22477,7 +22499,7 @@ const styles = `
   }
   .saved-estimates-page .ui-table tbody tr:hover td,
   .saved-estimates-page .estimate-modal .ui-table tbody tr:hover td {
-    background: var(--color-row-hover);
+    background: var(--color-row-alt);
   }
   .saved-estimate-customer {
     display: block;
@@ -22660,7 +22682,7 @@ const styles = `
     background: var(--color-row-alt);
   }
   .pdf-capture-area .preview-table tbody tr:hover td {
-    background: var(--color-row-hover);
+    background: var(--color-row-alt);
   }
   .pdf-capture-area .preview-table td:has(.number-text),
   .pdf-capture-area .preview-table th:nth-child(n+3),
@@ -22738,7 +22760,11 @@ const styles = `
     .estimate-template-expand,
     .admin-item-card,
     .admin-value-row,
-    .drag-handle {
+    .drag-handle,
+    .status-box,
+    .success-box,
+    .autosave-pill,
+    .admin-price-v2-category-item {
       animation: none !important;
       transition: none !important;
     }
