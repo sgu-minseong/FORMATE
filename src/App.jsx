@@ -9223,7 +9223,7 @@ export default function App() {
             disabled={adminLoading || adminSaving}
             onClick={openAdminTemplateConditionDrawer}
           >
-            새 기본 견적 조건 만들기
+            새 조건 만들기
           </Button>
         </div>
       </aside>
@@ -9621,6 +9621,64 @@ export default function App() {
 
   function renderAdminItemsWorkbench() {
     const item = selectedAdminTemplateItem;
+    const showAdminItemsWorkbenchLoading = adminLoading && !adminConditionLoaded && !currentAdminTemplateId;
+
+    if (showAdminItemsWorkbenchLoading) {
+      return renderAppShell(
+        <main className="admin-price-v2-page admin-items-v2-page admin-items-v2-page--loading">
+          <aside className="admin-price-v2-sidebar admin-items-v2-sidebar admin-template-condition-sidebar" aria-label="기본 견적 조건 목록 로딩">
+            <div className="admin-price-v2-sidebar-header">
+              <span>기본 견적 조건</span>
+              <strong>불러오는 중</strong>
+            </div>
+            <div className="admin-price-v2-category-list admin-template-condition-list">
+              <div className="admin-items-v2-loading-line wide" />
+              <div className="admin-items-v2-loading-line" />
+              <div className="admin-items-v2-loading-line short" />
+            </div>
+            <div className="admin-template-condition-sidebar-footer">
+              <Button variant="secondary" size="sm" leftIcon={<Plus />} disabled>
+                새 조건 만들기
+              </Button>
+            </div>
+          </aside>
+          <aside className="admin-items-v2-category-panel" aria-label="대분류 목록 로딩">
+            <div className="admin-items-v2-category-panel-head">
+              <span>대분류</span>
+              <strong>불러오는 중</strong>
+            </div>
+            <div className="admin-items-v2-category-panel-list">
+              <div className="admin-items-v2-loading-line wide" />
+              <div className="admin-items-v2-loading-line" />
+              <div className="admin-items-v2-loading-line" />
+              <div className="admin-items-v2-loading-line short" />
+            </div>
+          </aside>
+          <section className="admin-price-v2-workspace admin-items-v2-workspace">
+            <header className="admin-price-v2-header admin-items-v2-header">
+              <div className="items-v2-titleline">
+                <h1>기본 견적 설정</h1>
+                <span>저장된 기본 견적 조건을 불러오는 중입니다.</span>
+              </div>
+            </header>
+            <div className="items-v2-toolbar admin-price-v2-toolbar admin-items-v2-toolbar">
+              <div className="admin-items-v2-loading-line toolbar" />
+            </div>
+            <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
+              <div className="admin-price-v2-table-scroll">
+                <div className="admin-items-v2-loading-table">
+                  <div className="admin-items-v2-loading-row" />
+                  <div className="admin-items-v2-loading-row" />
+                  <div className="admin-items-v2-loading-row" />
+                  <div className="admin-items-v2-loading-row" />
+                </div>
+              </div>
+            </section>
+          </section>
+        </main>,
+        { className: "formate-app-shell--admin-items-v2" }
+      );
+    }
 
     return renderAppShell(
       <main className={`admin-price-v2-page admin-items-v2-page ${adminTemplateConditionDrawerOpen ? "admin-items-v2-page--drawer-open" : ""}`.trim()}>
@@ -23253,26 +23311,41 @@ const styles = `
     border-bottom: 1px solid var(--color-border);
   }
   .formate-app-shell--admin-items-v2 .formate-app-shell__main {
+    height: calc(100dvh - 56px);
+    min-height: 0;
     padding: 0;
     overflow-x: hidden;
+    overflow-y: hidden;
   }
   .admin-items-v2-page,
   .admin-items-v2-workspace,
   .admin-items-v2-table-section {
     min-width: 0;
+    min-height: 0;
   }
   .admin-items-v2-page {
     grid-template-columns: minmax(240px, 256px) minmax(220px, 240px) minmax(0, 1fr);
     align-items: stretch;
     width: 100%;
     max-width: 100%;
-    overflow-x: hidden;
+    height: calc(100dvh - 56px);
+    max-height: calc(100dvh - 56px);
+    overflow: hidden;
   }
   .admin-items-v2-sidebar {
     width: 100%;
     display: flex;
     flex-direction: column;
     transition: opacity 150ms ease, filter 150ms ease;
+  }
+  .admin-template-condition-sidebar {
+    position: relative;
+    top: auto;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
+    background: var(--color-surface);
   }
   .admin-template-condition-sidebar .admin-price-v2-category-list {
     display: flex;
@@ -23372,14 +23445,15 @@ const styles = `
     margin: var(--space-2);
   }
   .admin-items-v2-category-panel {
-    position: sticky;
-    top: 56px;
+    position: relative;
+    top: auto;
     display: flex;
     flex-direction: column;
     gap: 0;
     width: 100%;
-    height: calc(100dvh - 56px);
-    max-height: calc(100dvh - 56px);
+    height: 100%;
+    min-height: 0;
+    max-height: none;
     min-width: 0;
     overflow: hidden;
     padding: 0;
@@ -23441,10 +23515,11 @@ const styles = `
   }
   .admin-items-v2-workspace {
     gap: 0;
-    min-height: 100dvh;
+    height: 100%;
+    min-height: 0;
     padding: 0;
     background: var(--color-bg);
-    overflow-x: hidden;
+    overflow: hidden;
   }
   .admin-items-v2-header {
     padding: 0 var(--space-2);
@@ -23463,17 +23538,49 @@ const styles = `
     flex: 1 1 auto;
     width: 100%;
     max-width: 100%;
+    min-height: 0;
     border: 0;
     border-radius: 0;
-    background: var(--color-surface);
+    background: var(--color-bg);
     box-shadow: none;
     overflow: hidden;
   }
   .admin-items-v2-table-section .admin-price-v2-table-scroll {
     width: 100%;
     max-width: 100%;
+    height: 100%;
+    background: transparent;
     overflow-x: hidden;
+    overflow-y: auto;
     border-radius: 0;
+  }
+  .admin-items-v2-loading-line {
+    width: 72%;
+    height: var(--button-height-sm);
+    border-radius: var(--radius-button);
+    background: var(--color-surface-subtle);
+  }
+  .admin-items-v2-loading-line.wide {
+    width: 100%;
+  }
+  .admin-items-v2-loading-line.short {
+    width: 56%;
+  }
+  .admin-items-v2-loading-line.toolbar {
+    width: min(360px, 100%);
+  }
+  .admin-items-v2-loading-table {
+    display: grid;
+    gap: 0;
+    width: 100%;
+  }
+  .admin-items-v2-loading-row {
+    height: var(--table-row-height);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .admin-items-v2-loading-row:nth-child(even) {
+    background: var(--color-row-alt);
   }
   .admin-items-v2-condition {
     flex: 0 1 220px;
@@ -23556,6 +23663,23 @@ const styles = `
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-danger-button {
     justify-content: center;
     padding: 0;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-danger-button {
+    justify-self: center;
+    width: var(--button-height-sm);
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    border: 0;
+    background: transparent;
+    color: var(--color-danger);
+    box-shadow: none;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-danger-button:hover:not(:disabled),
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-danger-button:focus-visible {
+    border: 0;
+    background: var(--color-danger-subtle);
+    color: var(--color-danger);
+    box-shadow: none;
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row:nth-of-type(even) {
     background: var(--color-row-alt);
