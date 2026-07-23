@@ -8782,20 +8782,24 @@ export default function App() {
   function renderAdminItemsQuantityCells(subitem) {
     return (
       <>
-        <label className="price-number-field price-sale-field">
+        <label className="admin-items-v2-number-cell">
           <span className="field-label">수량</span>
           <input
-            type="number"
-            min="0"
+            className="items-v2-inline-input items-v2-inline-input--number"
+            type="text"
+            inputMode="decimal"
+            placeholder="0"
             value={subitem.quantity ?? ""}
             onChange={(event) => updateLocalSubitemPrice(subitem.id, { quantity: event.target.value })}
           />
         </label>
-        <label>
+        <label className="admin-items-v2-number-cell">
           <span className="field-label">인원</span>
           <input
-            type="number"
-            min="0"
+            className="items-v2-inline-input items-v2-inline-input--number"
+            type="text"
+            inputMode="decimal"
+            placeholder="0"
             value={subitem.labor_count ?? ""}
             onChange={(event) => updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })}
           />
@@ -21681,6 +21685,10 @@ const styles = `
     font-variant-numeric: tabular-nums;
     font-weight: var(--font-weight-medium);
   }
+  .items-v2-inline-input::placeholder {
+    color: var(--color-text-muted);
+    opacity: 1;
+  }
   .items-v2-inline-input:focus,
   .items-v2-inline-select:focus {
     border-color: var(--color-primary);
@@ -22245,7 +22253,7 @@ const styles = `
     margin: 0;
     padding-left: 0;
     gap: 0;
-    --quantity-table-columns: 22px minmax(220px, 1fr) 120px 100px 100px 40px;
+    --quantity-table-columns: 40px minmax(220px, 1fr) 120px 100px 100px 40px;
     --quantity-table-flat-columns: minmax(220px, 1fr) 120px 100px 100px;
   }
   .admin-items-v2-grid-list.quantity-table-list,
@@ -22259,7 +22267,7 @@ const styles = `
     display: grid;
     grid-template-columns: var(--quantity-table-columns);
     align-items: center;
-    gap: var(--space-1);
+    gap: 0;
     width: 100%;
     min-width: 0;
     box-sizing: border-box;
@@ -22271,7 +22279,7 @@ const styles = `
   .admin-items-v2-grid-list .admin-quantity-table-header {
     min-height: var(--table-header-height);
     height: var(--table-header-height);
-    padding: 0 var(--space-table-cell-x);
+    padding: 0;
     border: 0;
     border-bottom: 1px solid var(--color-border);
     border-radius: 0;
@@ -22284,11 +22292,31 @@ const styles = `
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row {
     min-height: var(--table-row-height);
-    padding: 0 var(--space-table-cell-x);
+    padding: 0;
     border: 0;
     border-bottom: 1px solid var(--color-border);
     border-radius: 0;
     background: var(--color-surface);
+  }
+  .admin-items-v2-grid-list .admin-quantity-table-header > *,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > * {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 100%;
+    min-height: inherit;
+    padding: 0 var(--space-table-cell-x);
+    border-right: 1px solid var(--color-border);
+    box-sizing: border-box;
+  }
+  .admin-items-v2-grid-list .admin-quantity-table-header > *:last-child,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > *:last-child {
+    border-right: 0;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-drag-handle,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-danger-button {
+    justify-content: center;
+    padding: 0;
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row:nth-of-type(even) {
     background: var(--color-row-alt);
@@ -22298,6 +22326,10 @@ const styles = `
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row label {
     gap: 0;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .admin-items-v2-number-cell {
+    display: block;
+    min-width: 0;
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .field-label {
     display: none;
