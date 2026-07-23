@@ -81,6 +81,7 @@ const APP_SHELL_NAV_ITEMS = [
   { key: "admin", label: "관리자 홈", icon: <Settings /> },
 ];
 const USE_ITEMS_SCREEN_V2 = true;
+const USE_ADMIN_ITEMS_SCREEN_V2 = true;
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const UNIT_OPTIONS = ["평", "m²", "m", "개소", "식", "자당", "롤", "박스", "EA"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
@@ -3165,6 +3166,10 @@ export default function App() {
     isCommonPriceAdminPage
       ? filteredAdminItems.find((item) => item.id === selectedAdminCategoryId) ?? filteredAdminItems[0] ?? null
       : null;
+  const selectedAdminTemplateItem =
+    USE_ADMIN_ITEMS_SCREEN_V2 && canEditConditionQuantities
+      ? filteredAdminItems.find((item) => item.id === selectedAdminCategoryId) ?? filteredAdminItems[0] ?? null
+      : null;
 
   adminItemsRef.current = adminItems;
   pageRef.current = page;
@@ -3172,7 +3177,9 @@ export default function App() {
   currentAdminTemplateConditionRef.current = currentAdminTemplateCondition;
 
   useEffect(() => {
-    if (!isCommonPriceAdminPage) return;
+    const shouldSyncSelectedAdminCategory =
+      isCommonPriceAdminPage || (USE_ADMIN_ITEMS_SCREEN_V2 && canEditConditionQuantities);
+    if (!shouldSyncSelectedAdminCategory) return;
 
     const firstVisibleItemId = filteredAdminItems[0]?.id ?? "";
     if (!firstVisibleItemId) {
@@ -3184,7 +3191,7 @@ export default function App() {
     if (!selectedItemVisible) {
       setSelectedAdminCategoryId(firstVisibleItemId);
     }
-  }, [filteredAdminItems, isCommonPriceAdminPage, selectedAdminCategoryId]);
+  }, [canEditConditionQuantities, filteredAdminItems, isCommonPriceAdminPage, selectedAdminCategoryId]);
 
   useEffect(() => {
     let active = true;
@@ -8717,6 +8724,346 @@ export default function App() {
     );
   }
 
+  function renderAdminItemsCategorySidebar() {
+    return (
+      <aside className="admin-price-v2-sidebar admin-items-v2-sidebar" aria-label="견적 템플릿 대분류">
+        <div className="admin-price-v2-sidebar-header">
+          <span>대분류</span>
+          <strong>{filteredAdminItems.length}개</strong>
+        </div>
+        <div className="admin-price-v2-category-list">
+          {filteredAdminItems.map((item) => {
+            const active = selectedAdminTemplateItem?.id === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`admin-price-v2-category-item ${active ? "active" : ""} ${dragItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drop-target" : ""}`.trim()}
+                onClick={() => setSelectedAdminCategoryId(item.id)}
+                onDragOver={(event) => handleAdminItemDragOver(event, item.id)}
+                onDrop={() => reorderAdminItems(item.id)}
+                onDragEnd={clearAdminDragState}
+              >
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="대분류 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminItemDragStart(event, item.id)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <span className="admin-price-v2-category-name">
+                  {item.is_favorite && <Star size={14} fill="currentColor" />}
+                  <span>{item.name}</span>
+                </span>
+                <span className="admin-price-v2-category-count">{(item.subitems ?? []).length}개</span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
+  function renderAdminItemsHeaderV2(item, isFlooring = false) {
+    return (
+      <div className={`admin-quantity-table-header admin-items-v2-table-header ${item.item_type === "flat" ? "flat-quantity-table-header" : "standard-quantity-table-header"} ${isFlooring ? "flooring-quantity-table-header" : ""}`.trim()}>
+        {item.item_type !== "flat" && <span />}
+        <span>소재명</span>
+        <span>규격/두께</span>
+        <span>수량</span>
+        <span>인원</span>
+        {item.item_type !== "flat" && <span>삭제</span>}
+      </div>
+    );
+  }
+
+  function renderAdminItemsQuantityCells(subitem) {
+    return (
+      <>
+        <label className="price-number-field price-sale-field">
+          <span className="field-label">수량</span>
+          <input
+            type="number"
+            min="0"
+            value={subitem.quantity ?? ""}
+            onChange={(event) => updateLocalSubitemPrice(subitem.id, { quantity: event.target.value })}
+          />
+        </label>
+        <label>
+          <span className="field-label">인원</span>
+          <input
+            type="number"
+            min="0"
+            value={subitem.labor_count ?? ""}
+            onChange={(event) => updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })}
+          />
+        </label>
+      </>
+    );
+  }
+
+  function renderAdminItemsRows(item) {
+    const itemSubitems = getVisibleAdminSubitems(item);
+    if (isFlooringThicknessItem(item)) {
+      return (
+        <div className="quantity-table-list admin-items-v2-grid-list">
+          {renderAdminItemsHeaderV2(item, true)}
+          {getFlooringThicknessGroups(itemSubitems).map((group) => {
+            const optionEntries = getFlooringOptionEntries(group);
+            const optionIds = optionEntries.map((option) => option.id);
+            const activeThickness = getAdminFlooringActiveThickness(item.id, group);
+            const activeSubitem = group.options[activeThickness] ?? optionEntries[0];
+            if (!activeSubitem) return null;
+            return (
+              <div
+                key={group.baseName}
+                className={`admin-value-row flooring-value-row condition-quantity-row quantity-table-row ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                data-subitem-id={activeSubitem.id}
+                onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
+                onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
+                onDragEnd={clearAdminDragState}
+              >
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="소재 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, activeSubitem.id, group.baseName)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <label className="admin-material-name-field">
+                  <span className="field-label">소재명</span>
+                  <input
+                    value={group.baseName}
+                    placeholder={MATERIAL_NAME_PLACEHOLDER}
+                    onChange={(event) => updateLocalFlooringGroupBaseName(optionIds, event.target.value)}
+                    onBlur={(event) => renameAdminFlooringGroup(item.id, optionIds, event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span className="field-label">규격/두께</span>
+                  <select
+                    value={activeThickness}
+                    onChange={(event) => selectAdminFlooringThickness(item.id, group.baseName, event.target.value)}
+                  >
+                    {optionEntries.map((option) => option.thickness).map((thickness) => (
+                      <option key={thickness} value={thickness}>
+                        {formatFlooringThickness(thickness)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {renderAdminItemsQuantityCells(activeSubitem)}
+                <button
+                  className="danger-button admin-price-v2-danger-button"
+                  disabled={adminSaving}
+                  onClick={() => deleteAdminSubitem(activeSubitem.id)}
+                >
+                  <Trash2 size={18} strokeWidth={1.5} />
+                </button>
+              </div>
+            );
+          })}
+          {!itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
+          {item.item_type !== "flat" && (
+            <div className="admin-add-subitem-row admin-price-v2-add-row">
+              <span>{item.name}에 소재 추가</span>
+              <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+                <Plus size={18} /> 소재 추가
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} quantity-table-list admin-items-v2-grid-list`.trim()}>
+        {renderAdminItemsHeaderV2(item)}
+        {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
+          <div
+            key={subitem.id}
+            className={`admin-value-row condition-quantity-row quantity-table-row ${item.item_type !== "flat" ? "itemized-quantity-row" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+            data-subitem-id={subitem.id}
+            onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
+            onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
+            onDragEnd={clearAdminDragState}
+          >
+            {item.item_type === "flat" ? (
+              <strong className="flat-subitem-name">{item.name}</strong>
+            ) : (
+              <>
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="소재 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, subitem.id)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <label className="admin-material-name-field">
+                  <span className="field-label">소재명</span>
+                  <input
+                    value={subitem.name}
+                    placeholder={MATERIAL_NAME_PLACEHOLDER}
+                    onChange={(event) =>
+                      setAdminItems((current) =>
+                        current.map((entry) =>
+                          entry.id === item.id
+                            ? {
+                                ...entry,
+                                subitems: entry.subitems.map((entrySubitem) =>
+                                  entrySubitem.id === subitem.id
+                                    ? { ...entrySubitem, name: event.target.value }
+                                    : entrySubitem
+                                ),
+                              }
+                            : entry
+                        )
+                      )
+                    }
+                    onInput={() => markAdminCatalogDirty()}
+                    onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
+                  />
+                </label>
+              </>
+            )}
+            <span className="admin-items-v2-muted-cell">-</span>
+            {renderAdminItemsQuantityCells(subitem)}
+            {item.item_type !== "flat" && (
+              <button
+                className="danger-button admin-price-v2-danger-button"
+                disabled={adminSaving}
+                onClick={() => deleteAdminSubitem(subitem.id)}
+              >
+                <Trash2 size={18} strokeWidth={1.5} />
+              </button>
+            )}
+          </div>
+        ))}
+        {item.item_type !== "flat" && !itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
+        {item.item_type !== "flat" && (
+          <div className="admin-add-subitem-row admin-price-v2-add-row">
+            <span>{item.name}에 소재 추가</span>
+            <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+              <Plus size={18} /> 소재 추가
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderAdminItemsWorkbench() {
+    const item = selectedAdminTemplateItem;
+
+    return renderAppShell(
+      <main className="admin-price-v2-page admin-items-v2-page">
+        {renderAdminItemsCategorySidebar()}
+        <section className="admin-price-v2-workspace admin-items-v2-workspace">
+          <header className="admin-price-v2-header admin-items-v2-header">
+            <div className="items-v2-titleline">
+              <h1>견적 템플릿 만들기</h1>
+              <span>{currentAdminConditionLabel || "조건 템플릿"}</span>
+            </div>
+            <div className="items-v2-header-actions">
+              <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
+                {getAutoSaveStatusLabel()}
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<RefreshCcw />}
+                disabled={adminLoading || adminSaving}
+                onClick={() => requestAdminCatalogLeave(() => returnToAdminConditionSelect())}
+              >
+                되돌리기
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Save />}
+                disabled={adminLoading || adminSaving || !canEditConditionQuantities}
+                onClick={() => saveAdminPrices({ target: "quantities" })}
+              >
+                저장하기
+              </Button>
+            </div>
+          </header>
+
+          <div className="items-v2-toolbar admin-price-v2-toolbar admin-items-v2-toolbar">
+            <div className="items-v2-condition-summary admin-items-v2-condition">
+              <span>현재 조건</span>
+              <strong>{currentAdminConditionLabel || "조건 없음"}</strong>
+            </div>
+            <label className="admin-search-field admin-price-v2-search">
+              <Search size={17} />
+              <input
+                value={adminSearch}
+                onChange={(event) => setAdminSearch(event.target.value)}
+                placeholder="대분류 또는 소재 검색"
+              />
+            </label>
+            <label className="admin-favorite-filter admin-price-v2-favorite">
+              <input
+                type="checkbox"
+                checked={adminFavoriteOnly}
+                onChange={(event) => setAdminFavoriteOnly(event.target.checked)}
+              />
+              즐겨찾기만 보기
+            </label>
+            {item && renderAdminBulkPanel(item)}
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<Plus />}
+              disabled={adminLoading || adminSaving}
+              onClick={addAdminItem}
+            >
+              대분류 추가
+            </Button>
+            {item && (
+              <Button
+                variant="danger"
+                size="sm"
+                leftIcon={<Trash2 />}
+                disabled={adminLoading || adminSaving}
+                onClick={() => deleteAdminItem(item.id)}
+              >
+                대분류 삭제
+              </Button>
+            )}
+          </div>
+
+          {adminLoading && <div className="status-box">불러오는 중...</div>}
+          {adminSaving && <div className="status-box">저장 중...</div>}
+          {adminNotice && <div className="status-box">{adminNotice}</div>}
+          {adminError && <div className="error-box">{adminError}</div>}
+
+          {item ? (
+            <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
+              <div className="admin-price-v2-table-scroll">
+                {renderAdminItemsRows(item)}
+              </div>
+            </section>
+          ) : (
+            <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
+              <EmptyState
+                title="표시할 대분류가 없습니다."
+                description="검색 조건을 바꾸거나 대분류를 추가하세요."
+              />
+            </section>
+          )}
+        </section>
+      </main>,
+      { collapsed: true, className: "formate-app-shell--admin-items-v2" }
+    );
+  }
+
   async function saveAdminPrices(options = {}) {
     const {
       auto = false,
@@ -12057,7 +12404,9 @@ export default function App() {
 
       {isCommonPriceAdminPage && adminVerified && renderAdminPricesWorkbench()}
 
-      {isConditionQuantityAdminPage && adminVerified && (
+      {isConditionQuantityAdminPage && adminVerified && USE_ADMIN_ITEMS_SCREEN_V2 && showAdminConditionEditor && renderAdminItemsWorkbench()}
+
+      {isConditionQuantityAdminPage && adminVerified && (!USE_ADMIN_ITEMS_SCREEN_V2 || !showAdminConditionEditor) && (
         <main className="panel-page admin-page">
           <div className="editor-header">
             <div>
@@ -21865,6 +22214,124 @@ const styles = `
     margin: 0;
     padding: var(--space-3);
     border-bottom: 1px solid var(--color-border);
+  }
+  .formate-app-shell--admin-items-v2 .formate-app-shell__main {
+    padding: 0;
+  }
+  .admin-items-v2-page,
+  .admin-items-v2-workspace,
+  .admin-items-v2-table-section {
+    min-width: 0;
+  }
+  .admin-items-v2-sidebar {
+    width: var(--layout-local-sidebar);
+  }
+  .admin-items-v2-toolbar {
+    align-items: center;
+  }
+  .admin-items-v2-condition {
+    flex: 0 1 220px;
+  }
+  .admin-items-v2-condition strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .admin-items-v2-grid-list {
+    display: block;
+    width: 100%;
+    min-width: 720px;
+    max-width: none;
+    margin: 0;
+    padding-left: 0;
+    gap: 0;
+    --quantity-table-columns: 22px minmax(220px, 1fr) 120px 100px 100px 40px;
+    --quantity-table-flat-columns: minmax(220px, 1fr) 120px 100px 100px;
+  }
+  .admin-items-v2-grid-list.quantity-table-list,
+  .admin-items-v2-grid-list.admin-subitem-list,
+  .admin-items-v2-grid-list.admin-flat-list {
+    margin-top: 0;
+    padding-left: 0;
+  }
+  .admin-items-v2-grid-list .admin-quantity-table-header,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row {
+    display: grid;
+    grid-template-columns: var(--quantity-table-columns);
+    align-items: center;
+    gap: var(--space-1);
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .admin-items-v2-grid-list.admin-flat-list .admin-quantity-table-header,
+  .admin-items-v2-grid-list.admin-flat-list .admin-value-row.condition-quantity-row {
+    grid-template-columns: var(--quantity-table-flat-columns);
+  }
+  .admin-items-v2-grid-list .admin-quantity-table-header {
+    min-height: var(--table-header-height);
+    height: var(--table-header-height);
+    padding: 0 var(--space-table-cell-x);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-header);
+    letter-spacing: var(--letter-spacing-table-header);
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row {
+    min-height: var(--table-row-height);
+    padding: 0 var(--space-table-cell-x);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-surface);
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row:nth-of-type(even) {
+    background: var(--color-row-alt);
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row:hover {
+    background: var(--color-row-hover);
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row label {
+    gap: 0;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .field-label {
+    display: none;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row input,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row select {
+    width: 100%;
+    min-width: 0;
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    border: 1px solid transparent;
+    border-radius: 0;
+    padding: 0 var(--space-1);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row input:focus,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row select:focus {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    box-shadow: none;
+    outline: none;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row input[type="number"] {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-items-v2-muted-cell {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
   }
   .saved-estimates-page .estimate-list .ui-table-wrap,
   .saved-estimates-page .estimate-modal .ui-table-wrap {
