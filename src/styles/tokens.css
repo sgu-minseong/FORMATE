@@ -145,7 +145,7 @@
   --radius-badge: 999px;
   --radius-shell: 8px;
 
-  --layout-sidebar-expanded: 220px;
+  --layout-sidebar-expanded: 240px;
   --layout-sidebar-collapsed: 64px;
   --layout-local-sidebar: 240px;
   --table-row-height: 40px;
@@ -349,10 +349,6 @@
   background: var(--color-bg);
 }
 
-.formate-app-shell--collapsed {
-  grid-template-columns: var(--layout-sidebar-collapsed) minmax(0, 1fr);
-}
-
 .formate-app-shell--no-sidebar,
 .formate-app-shell--document {
   display: block;
@@ -364,30 +360,16 @@
   align-self: start;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1-5);
   height: calc(100dvh - 56px);
   max-height: calc(100dvh - 56px);
   overflow-y: auto;
   scrollbar-gutter: stable;
-  padding: var(--space-3) var(--space-2);
-  border-right: 1px solid var(--color-border);
-  background: var(--color-surface);
+  padding: var(--space-2) var(--space-1-5);
+  border-right: 1px solid var(--color-border-strong);
+  background: color-mix(in srgb, var(--color-header-bg) 70%, var(--color-border-strong));
 }
 
-.formate-app-shell__brand {
-  display: grid;
-  gap: var(--space-0-5);
-  padding: 0 var(--space-0-5) var(--space-1);
-  color: var(--color-text-primary);
-}
-
-.formate-app-shell__brand strong {
-  font-size: var(--font-size-section-title);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-section-title);
-}
-
-.formate-app-shell__brand span,
 .formate-app-shell__user {
   color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
@@ -396,57 +378,78 @@
 
 .formate-app-shell__nav {
   display: grid;
+  gap: var(--space-1-5);
+}
+
+.formate-app-shell__nav-section,
+.formate-app-shell__nav-subitems,
+.formate-app-shell__nav-bottom {
+  display: grid;
   gap: var(--space-1);
 }
 
-.formate-app-shell__nav-button {
-  width: 100%;
-  justify-content: flex-start;
+.formate-app-shell__nav-section-title {
+  padding: var(--space-0-5) var(--space-1) 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-caption);
 }
 
-.formate-app-shell__nav-button.ui-button--primary {
-  background: var(--color-surface-subtle);
+.formate-app-shell__nav-button {
+  position: relative;
+  width: 100%;
+  justify-content: flex-start;
+  border-left: 3px solid transparent;
+  color: var(--color-text-primary);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.formate-app-shell__nav-button--child {
+  padding-left: var(--space-2);
+}
+
+.formate-app-shell__nav-button--disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.formate-app-shell__nav-button.ui-button--primary,
+.formate-app-shell__nav-button--active {
+  background: var(--color-surface);
   border-color: transparent;
+  border-left-color: var(--color-primary);
   color: var(--color-primary);
   font-weight: var(--font-weight-medium);
 }
 
-.formate-app-shell__nav-button.ui-button--primary:hover,
 .formate-app-shell__nav-button.ui-button--tertiary:hover {
   background: var(--color-surface-subtle);
   text-decoration-color: transparent;
 }
 
-.formate-app-shell--collapsed .formate-app-shell__sidebar {
-  align-items: center;
-  padding: var(--space-3) var(--space-1);
+.formate-app-shell__nav-button.ui-button--primary:hover,
+.formate-app-shell__nav-button--active:hover {
+  background: var(--color-surface);
+  color: var(--color-primary-hover);
+  text-decoration-color: transparent;
 }
 
-.formate-app-shell--collapsed .formate-app-shell__brand {
-  justify-items: center;
-  padding-right: 0;
-  padding-left: 0;
-}
-
-.formate-app-shell--collapsed .formate-app-shell__brand span,
-.formate-app-shell--collapsed .formate-app-shell__nav-label,
-.formate-app-shell--collapsed .formate-app-shell__user {
-  display: none;
-}
-
-.formate-app-shell--collapsed .formate-app-shell__brand strong {
+.formate-app-shell__nav-description {
+  display: block;
+  margin: calc(var(--space-1) * -0.5) var(--space-1) 0 calc(var(--space-4) + var(--space-1));
+  color: var(--color-text-muted);
   font-size: var(--font-size-caption);
   line-height: var(--line-height-caption);
 }
 
-.formate-app-shell--collapsed .formate-app-shell__nav-button {
-  width: var(--button-height);
-  padding: 0;
-  justify-content: center;
+.formate-app-shell__nav-bottom {
+  margin-top: auto;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
 }
 
 .formate-app-shell__user {
-  margin-top: auto;
   padding-top: var(--space-2);
   border-top: 1px solid var(--color-border);
 }

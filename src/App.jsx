@@ -4,20 +4,26 @@ import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import {
   ArrowLeft,
+  Archive,
+  BookOpen,
   Building2,
+  Calculator,
   Check,
   ClipboardList,
   ChevronDown,
   ChevronRight,
   FileText,
+  HelpCircle,
   Home,
   Image,
+  LogOut,
   Plus,
   Printer,
   RefreshCcw,
   Save,
   Search,
   Settings,
+  Sparkles,
   Star,
   Trash2,
   Wrench,
@@ -75,10 +81,42 @@ const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
 const APP_SHELL_NAV_ITEMS = [
   { key: "landing", label: "홈", icon: <Home /> },
-  { key: "condition", label: "새 견적서 작성", icon: <ClipboardList /> },
-  { key: "admin-estimates", label: "저장 견적 보기", icon: <FileText /> },
-  { key: "photo-management", label: "사진 관리/확인", icon: <Image /> },
-  { key: "admin", label: "관리자 홈", icon: <Settings /> },
+  {
+    key: "estimate-work",
+    type: "section",
+    label: "견적 업무",
+    items: [
+      { key: "condition", label: "새 견적서 작성", icon: <ClipboardList />, activeKeys: ["condition", "items"] },
+      { key: "admin-estimates", label: "저장 견적 보기", icon: <FileText /> },
+    ],
+  },
+  {
+    key: "admin-work",
+    type: "section",
+    label: "관리자 홈",
+    items: [
+      { key: "admin", label: "관리자 홈", icon: <Settings /> },
+      { key: "photo-management", label: "사진 자료실", icon: <Image /> },
+      { key: "admin-prices", label: "단가표 관리", icon: <Calculator /> },
+      { key: "admin-items", label: "기본 견적 설정", icon: <BookOpen />, activeKeys: ["admin-items", "admin-condition-labels"] },
+      { key: "admin-detail-costs", label: "세부 비용 관리", icon: <Wrench /> },
+    ],
+  },
+  {
+    key: "ai-automation",
+    type: "section",
+    label: "AI 자동화",
+    items: [
+      {
+        key: "admin-ai-setup",
+        label: "엑셀 파일 불러오기",
+        icon: <Sparkles />,
+      },
+    ],
+  },
+  { key: "saved-estimates-bottom", target: "admin-estimates", label: "저장된 견적", icon: <Archive />, placement: "bottom" },
+  { key: "help-support", label: "도움말 / 지원", icon: <HelpCircle />, placement: "bottom", disabled: true },
+  { key: "logout", label: "로그아웃", icon: <LogOut />, placement: "bottom" },
 ];
 const USE_ITEMS_SCREEN_V2 = true;
 const USE_ADMIN_ITEMS_SCREEN_V2 = true;
@@ -8754,7 +8792,7 @@ export default function App() {
           )}
         </section>
       </main>,
-      { collapsed: true, className: "formate-app-shell--admin-price-v2" }
+      { className: "formate-app-shell--admin-price-v2" }
     );
   }
 
@@ -9098,7 +9136,7 @@ export default function App() {
           )}
         </section>
       </main>,
-      { collapsed: true, className: "formate-app-shell--admin-items-v2" }
+      { className: "formate-app-shell--admin-items-v2" }
     );
   }
 
@@ -9430,13 +9468,20 @@ export default function App() {
   }
 
   function handleAppShellNavigate(nextPage) {
+    if (nextPage === "logout") {
+      requestAdminCatalogLeave(handleChangeCompany);
+      return;
+    }
+    if (nextPage === "help-support") {
+      return;
+    }
     if (nextPage === "condition") {
       setEstimateConditionEditMode(false);
       setPage("condition");
       return;
     }
-    if (nextPage === "admin") {
-      openAdminGate("admin");
+    if (PROTECTED_ADMIN_PAGES.includes(nextPage)) {
+      openAdminGate(nextPage);
       return;
     }
     setPage(nextPage);
@@ -9445,7 +9490,7 @@ export default function App() {
   function renderAppShell(children, shellOptions = {}) {
     const providedShellClassName = shellOptions.className || "";
     const shellClassName = [
-      !shellOptions.collapsed && !providedShellClassName.includes("formate-app-shell--overview") && "formate-app-shell--overview",
+      !providedShellClassName.includes("formate-app-shell--overview") && "formate-app-shell--overview",
       providedShellClassName,
     ].filter(Boolean).join(" ");
 
@@ -9456,7 +9501,6 @@ export default function App() {
         companyName={selectedCompanyName}
         navItems={APP_SHELL_NAV_ITEMS}
         className={shellClassName}
-        collapsed={!!shellOptions.collapsed}
       >
         {children}
       </AppShell>
@@ -9797,7 +9841,7 @@ export default function App() {
           />
         </section>
       </main>,
-      { collapsed: true, className: "formate-app-shell--items-v2" }
+      { className: "formate-app-shell--items-v2" }
     );
   }
 
@@ -10457,7 +10501,7 @@ export default function App() {
         , { className: "formate-app-shell--overview" }
       )}
 
-      {page === "admin-ai-setup" && adminVerified && (
+      {page === "admin-ai-setup" && adminVerified && renderAppShell(
         <main className="panel-page admin-page ai-setup-page">
           <button className="ghost" onClick={() => setPage("admin")}>
             <ArrowLeft size={18} /> 관리자 홈으로 돌아가기
@@ -11715,7 +11759,8 @@ export default function App() {
               </section>
             )}
           </section>
-        </main>
+        </main>,
+        { className: "formate-app-shell--overview" }
       )}
 
       {page === "admin-condition-labels" && adminVerified && renderAppShell(
@@ -12088,7 +12133,7 @@ export default function App() {
             </div>
           </section>
         </main>
-      , { collapsed: true })}
+      )}
 
       {page === "items" && USE_ITEMS_SCREEN_V2 && renderItemsScreenV2()}
 
@@ -13594,7 +13639,7 @@ export default function App() {
             </section>
           </section>
         </main>
-      , { collapsed: true })}
+      )}
 
       {page === "admin-estimates" && renderAppShell(
         <main className="panel-page admin-page saved-estimates-page">
@@ -21026,9 +21071,6 @@ const styles = `
   .error-box {
     border-radius: 14px;
   }
-  .formate-app-shell--overview .formate-app-shell__brand {
-    display: none;
-  }
   .formate-app-shell--overview .formate-app-shell__sidebar {
     padding-top: var(--space-3);
   }
@@ -21087,14 +21129,6 @@ const styles = `
   .admin-action-row svg {
     color: var(--color-text-secondary);
   }
-  .formate-app-shell--collapsed .formate-app-shell__brand {
-    display: none;
-  }
-  .formate-app-shell--collapsed .formate-app-shell__nav-button svg {
-    width: 20px;
-    height: 20px;
-    stroke-width: 1.5;
-  }
   .home-action-row span,
   .admin-action-row span {
     display: grid;
@@ -21127,12 +21161,6 @@ const styles = `
   .home-recent-compact-row:focus-visible {
     background: var(--color-row-alt);
     outline: none;
-  }
-  .formate-app-shell--collapsed .condition-page {
-    width: 100%;
-    max-width: var(--viewport-preferred-width);
-    min-height: 100dvh;
-    padding: var(--space-page-y) var(--space-page-x);
   }
   .condition-page .condition-builder-panel {
     width: 100%;
@@ -21329,12 +21357,6 @@ const styles = `
     justify-content: flex-end;
     padding-top: var(--space-2);
     border-top: 1px solid var(--color-border);
-  }
-  .formate-app-shell--collapsed .detail-cost-page {
-    width: 100%;
-    max-width: var(--viewport-preferred-width);
-    min-height: 100dvh;
-    padding: var(--space-page-y) var(--space-page-x);
   }
   .detail-cost-page > .editor-header {
     min-height: 56px;
