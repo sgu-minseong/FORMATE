@@ -5177,9 +5177,16 @@ export default function App() {
                   <Button variant="secondary" size="sm" onClick={() => savePhotoCollectionName(collection.id)} disabled={photoSaving}>
                     저장
                   </Button>
-                  <Button variant="danger" size="sm" leftIcon={<Trash2 />} onClick={() => deletePhotoCollection(collection)} disabled={photoSaving}>
-                    삭제
-                  </Button>
+                  <button
+                    type="button"
+                    className="photo-collection-delete-button"
+                    onClick={() => deletePhotoCollection(collection)}
+                    disabled={photoSaving}
+                    aria-label="분류 삭제"
+                    title="분류 삭제"
+                  >
+                    <Trash2 size={18} strokeWidth={1.5} />
+                  </button>
                   {renderPhotoUploadButton(photoType, collection.id)}
                 </div>
                 {renderPhotoList(photoType, collection.id)}
@@ -12813,20 +12820,15 @@ export default function App() {
 
       {page === "photo-management" && renderAppShell(
         <main className="panel-page photo-management-page">
-          <section className="panel photo-management-panel">
+          <section className="photo-management-panel">
             <PageHeader
               eyebrow="사진 관리/확인"
               title="업체 사진 자료실"
               description="올공사, 부분공사, 세부항목 사진을 현재 업체 기준으로 관리합니다."
               actions={
-                <>
-                  <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
-                    뒤로가기
-                  </Button>
-                  <Button variant="secondary" leftIcon={<RefreshCcw />} onClick={fetchPhotoManagementData} disabled={photoLoading || photoSaving}>
-                    새로고침
-                  </Button>
-                </>
+                <Button variant="secondary" leftIcon={<RefreshCcw />} onClick={fetchPhotoManagementData} disabled={photoLoading || photoSaving}>
+                  새로고침
+                </Button>
               }
             />
 
@@ -17842,31 +17844,35 @@ const styles = `
   }
   .photo-management-panel {
     width: 100%;
-    padding: var(--space-card-padding);
-    border-color: var(--color-border);
-    border-radius: var(--radius-panel);
-    background: var(--color-surface);
+    display: grid;
+    gap: var(--space-3);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     box-shadow: none;
   }
   .photo-management-page .ui-page-header {
-    margin-bottom: var(--space-2);
+    margin-bottom: 0;
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
   }
   .photo-storage-note {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-1) var(--space-1-5);
-    margin: 0 0 var(--space-2);
-    padding: var(--space-1) var(--space-1-5);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-card);
-    background: var(--color-surface-subtle);
-    color: var(--color-text-secondary);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-text-muted);
     font-size: var(--font-size-caption);
     line-height: var(--line-height-caption);
   }
   .photo-storage-note svg {
-    color: var(--color-text-secondary);
+    color: var(--color-text-muted);
   }
   .photo-autosave-status {
     display: inline-flex;
@@ -17898,32 +17904,33 @@ const styles = `
   }
   .photo-tabs {
     display: inline-flex;
-    gap: var(--space-0-5);
-    margin-bottom: var(--space-2);
-    padding: var(--space-0-5);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-card);
-    background: var(--color-surface-subtle);
+    gap: var(--space-1);
+    margin-bottom: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
   }
   .photo-tabs button {
     min-height: var(--button-height-sm);
     padding: 0 var(--space-1-5);
-    border: 1px solid transparent;
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-button);
-    background: transparent;
+    background: var(--color-surface);
     color: var(--color-text-secondary);
-    font-size: var(--font-size-body);
+    font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-body);
   }
   .photo-tabs button:hover,
   .photo-tabs button:focus-visible {
-    background: var(--color-surface);
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
     color: var(--color-text-primary);
     outline: none;
   }
   .photo-tabs button.active {
-    border-color: var(--color-primary-border);
+    border-color: var(--color-primary);
     background: var(--color-primary-soft);
     color: var(--color-primary);
     box-shadow: none;
@@ -17932,14 +17939,15 @@ const styles = `
   .photo-collection-list,
   .photo-subitem-groups {
     display: grid;
-    gap: var(--space-section-gap);
+    gap: var(--space-3);
   }
   .photo-section-header {
     display: flex;
     justify-content: space-between;
     gap: var(--space-2);
-    align-items: flex-start;
-    padding-bottom: 0;
+    align-items: center;
+    padding-bottom: var(--space-1-5);
+    border-bottom: 1px solid var(--color-border);
   }
   .photo-section-header h3,
   .photo-subitem-group h3 {
@@ -17951,58 +17959,89 @@ const styles = `
   }
   .photo-collection-card,
   .photo-subitem-group {
-    padding: var(--space-card-padding);
+    overflow: hidden;
+    padding: 0;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
     background: var(--color-surface);
     box-shadow: none;
-    transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+    transition: border-color 150ms ease, background-color 150ms ease;
   }
   .photo-collection-card:hover,
   .photo-subitem-group:hover {
     border-color: var(--color-border-strong);
-    box-shadow: var(--shadow-hover);
+    box-shadow: none;
   }
   .photo-collection-title-row {
     display: grid;
-    grid-template-columns: minmax(180px, 1fr) auto auto auto;
+    grid-template-columns: minmax(180px, 1fr) auto 36px auto;
     gap: var(--space-1);
     align-items: center;
-    margin-bottom: var(--space-1-5);
+    margin-bottom: 0;
+    padding: var(--space-1-5);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface-subtle);
   }
   .photo-collection-title-row input {
     min-width: 0;
-    height: var(--button-height);
-    border: 1px solid var(--color-border-strong);
-    border-radius: var(--radius-button);
-    padding: 0 var(--space-input-x);
-    background: var(--color-surface);
+    height: var(--button-height-sm);
+    border: 1px solid transparent;
+    border-bottom-color: var(--color-border);
+    border-radius: 0;
+    padding: 0 var(--space-1);
+    background: transparent;
     color: var(--color-text-primary);
-    font-size: var(--font-size-body);
+    font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-body);
   }
+  .photo-collection-title-row input:hover {
+    border-bottom-color: var(--color-border-strong);
+  }
   .photo-collection-title-row input:focus {
-    border-color: var(--color-primary-border);
-    box-shadow: var(--focus-ring);
+    border-color: var(--color-primary);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    box-shadow: none;
     outline: none;
+  }
+  .photo-collection-delete-button {
+    width: var(--button-height-sm);
+    height: var(--button-height-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-danger);
+    cursor: pointer;
+  }
+  .photo-collection-delete-button:hover,
+  .photo-collection-delete-button:focus-visible {
+    background: var(--color-danger-bg);
+    outline: none;
+  }
+  .photo-collection-delete-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   .danger-text {
     color: var(--color-danger);
   }
   .photo-upload-button {
     position: relative;
-    min-height: var(--button-height);
+    min-height: var(--button-height-sm);
     display: inline-flex;
     justify-content: center;
     align-items: center;
     gap: var(--space-1);
-    padding: 0 var(--space-button-x);
+    padding: 0 var(--space-1-5);
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-button);
     background: var(--color-surface);
     color: var(--color-text-primary);
-    font-size: var(--font-size-body);
+    font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-body);
     cursor: pointer;
@@ -18011,10 +18050,10 @@ const styles = `
   }
   .photo-upload-button:hover,
   .photo-upload-button:focus-within {
-    border-color: var(--color-primary-border);
-    background: var(--color-primary-soft);
-    color: var(--color-primary);
-    box-shadow: var(--focus-ring);
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+    box-shadow: none;
     outline: none;
   }
   .photo-upload-button input {
@@ -18040,8 +18079,23 @@ const styles = `
     text-align: center;
   }
   .photo-empty-state {
-    min-height: 128px;
-    align-content: center;
+    min-height: 144px;
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    text-align: center;
+  }
+  .photo-tab-panel .compact-empty,
+  .photo-collection-card > .photo-empty-state {
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .photo-collection-card > .photo-thumb-grid,
+  .photo-collection-card > .photo-empty-state {
+    margin: var(--space-1-5);
   }
   .photo-thumb-grid {
     display: grid;
@@ -18158,11 +18212,11 @@ const styles = `
     align-items: center;
     justify-content: space-between;
     gap: var(--space-1);
-    padding: 0;
+    padding: 0 var(--space-1-5);
     background: transparent;
     color: var(--color-text-primary);
     text-align: left;
-    border-radius: var(--radius-button);
+    border-radius: 0;
   }
   .photo-subitem-group-toggle:hover,
   .photo-subitem-group-toggle:focus-visible {
@@ -18191,7 +18245,9 @@ const styles = `
     border-color: var(--color-primary-border);
   }
   .photo-subitem-group.expanded .photo-subitem-table {
-    margin-top: var(--space-1-5);
+    margin-top: 0;
+    padding: var(--space-1-5);
+    border-top: 1px solid var(--color-border);
   }
   .photo-subitem-header,
   .photo-subitem-row {
