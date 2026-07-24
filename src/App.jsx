@@ -114,7 +114,6 @@ const APP_SHELL_NAV_ITEMS = [
       { key: "admin-items", label: "견적 템플릿 만들기", icon: <BookOpen />, activeKeys: ["admin-items", "admin-condition-labels"] },
       { key: "admin-detail-costs", label: "세부 비용 관리", icon: <Wrench /> },
       { key: "admin-ai-setup", label: "AI 초기 세팅", icon: <Sparkles /> },
-      { key: "admin", label: "관리자 홈", icon: <Building2 /> },
     ],
   },
   { key: "help-support", label: "도움말 / 지원", icon: <HelpCircle />, placement: "bottom", disabled: true },
@@ -2746,6 +2745,7 @@ export default function App() {
   const autoSaveQueuedRef = useRef(false);
   const autoSaveTargetRef = useRef("");
   const pendingAdminLeaveActionRef = useRef(null);
+  const homeProfileMenuRef = useRef(null);
   const adminItemsRef = useRef([]);
   const estimatePhotoRequestRef = useRef("");
   const estimateBlankCatalogRequestRef = useRef(0);
@@ -2880,6 +2880,7 @@ export default function App() {
   const [estimates, setEstimates] = useState([]);
   const [estimateSearch, setEstimateSearch] = useState("");
   const [selectedEstimate, setSelectedEstimate] = useState(null);
+  const [homeProfileMenuOpen, setHomeProfileMenuOpen] = useState(false);
   const [pyeongDropdownOpen, setPyeongDropdownOpen] = useState(false);
   const [adminPyeongDropdownOpen, setAdminPyeongDropdownOpen] = useState(false);
   const [favoritePyeongs, setFavoritePyeongs] = useState(readFavoritePyeongs);
@@ -3545,6 +3546,19 @@ export default function App() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [estimateSearch, page, selectedCompanyId]);
+
+  useEffect(() => {
+    if (!homeProfileMenuOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (!homeProfileMenuRef.current?.contains(event.target)) {
+        setHomeProfileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [homeProfileMenuOpen]);
 
   useEffect(() => {
     window.localStorage.setItem(FAVORITE_PYEONG_STORAGE_KEY, JSON.stringify(favoritePyeongs));
@@ -11230,15 +11244,11 @@ export default function App() {
           <div className="home-workspace-toolbar" aria-label="홈 작업 도구">
             <div className="home-workspace-toolbar__nav" aria-hidden="true">
               <button type="button" className="home-toolbar-icon-button" tabIndex={-1}>
-                <ArrowLeft size={16} strokeWidth={1.5} />
+                <ArrowLeft size={18} strokeWidth={1.5} />
               </button>
               <button type="button" className="home-toolbar-icon-button" tabIndex={-1}>
-                <ChevronRight size={16} strokeWidth={1.5} />
+                <ChevronRight size={18} strokeWidth={1.5} />
               </button>
-            </div>
-            <div className="home-workspace-switcher" aria-label="워크스페이스">
-              <Building2 size={15} strokeWidth={1.5} aria-hidden="true" />
-              <span>{selectedCompanyName || "FORMATE"}</span>
             </div>
             <label className="home-workspace-search">
               <Search size={16} strokeWidth={1.5} aria-hidden="true" />
@@ -11250,9 +11260,39 @@ export default function App() {
               />
               <kbd>Ctrl K</kbd>
             </label>
-            <button type="button" className="home-toolbar-icon-button" aria-label="알림">
-              <Bell size={17} strokeWidth={1.5} />
-            </button>
+            <div className="home-workspace-actions">
+              <button type="button" className="home-toolbar-icon-button" aria-label="알림">
+                <Bell size={18} strokeWidth={1.5} />
+              </button>
+              <div className="home-profile-menu" ref={homeProfileMenuRef}>
+                <button
+                  type="button"
+                  className="home-toolbar-avatar"
+                  aria-label="프로필 메뉴"
+                  aria-haspopup="menu"
+                  aria-expanded={homeProfileMenuOpen}
+                  onClick={() => setHomeProfileMenuOpen((open) => !open)}
+                >
+                  {`${selectedCompanyName || "운"}`.trim().charAt(0) || "운"}
+                </button>
+                {homeProfileMenuOpen && (
+                  <div className="home-profile-dropdown" role="menu">
+                    <div className="home-profile-dropdown__meta">{selectedCompanyName || "운영자"}</div>
+                    <button
+                      type="button"
+                      className="home-profile-dropdown__item"
+                      role="menuitem"
+                      onClick={() => {
+                        setHomeProfileMenuOpen(false);
+                        requestAdminCatalogLeave(handleChangeCompany);
+                      }}
+                    >
+                      로그아웃
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           <section className="work-home-content">
@@ -24219,8 +24259,7 @@ const styles = `
     position: sticky;
     top: 0;
     z-index: 20;
-    display: grid;
-    grid-template-columns: auto auto minmax(280px, 576px) auto;
+    display: flex;
     align-items: center;
     gap: var(--space-1);
     min-height: 48px;
@@ -24229,15 +24268,19 @@ const styles = `
     background: var(--color-surface);
   }
   .home-workspace-toolbar__nav,
-  .home-workspace-switcher,
   .home-workspace-search,
-  .home-toolbar-actions {
+  .home-workspace-actions {
     display: inline-flex;
     align-items: center;
     min-width: 0;
   }
   .home-workspace-toolbar__nav {
     gap: var(--space-0-5);
+  }
+  .home-workspace-actions {
+    justify-content: flex-end;
+    gap: var(--space-1);
+    margin-left: auto;
   }
   .home-toolbar-icon-button {
     width: 32px;
@@ -24250,26 +24293,20 @@ const styles = `
     background: transparent;
     color: var(--color-text-secondary);
   }
+  .home-toolbar-icon-button svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+  }
   .home-toolbar-icon-button:hover,
   .home-toolbar-icon-button:focus-visible {
     background: var(--color-row-alt);
     color: var(--color-text-primary);
     outline: none;
   }
-  .home-workspace-switcher {
-    gap: var(--space-0-5);
-    max-width: 220px;
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-medium);
-    white-space: nowrap;
-  }
-  .home-workspace-switcher span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .home-workspace-search {
-    justify-self: stretch;
+    flex: 0 1 576px;
+    width: min(42vw, 576px);
     height: 32px;
     gap: var(--space-1);
     padding: 0 var(--space-1);
@@ -24300,6 +24337,85 @@ const styles = `
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-caption);
+  }
+  .home-profile-menu {
+    position: relative;
+    display: inline-flex;
+  }
+  .home-toolbar-avatar {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-primary-border);
+    border-radius: 999px;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-bold);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .home-toolbar-avatar:hover,
+  .home-toolbar-avatar:focus-visible {
+    border-color: var(--color-primary);
+    color: var(--color-primary-hover);
+    outline: none;
+  }
+  .home-profile-dropdown {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    right: 0;
+    z-index: 40;
+    width: 184px;
+    display: grid;
+    gap: var(--space-0-5);
+    padding: var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-hover);
+    animation: home-profile-dropdown-enter 0.15s ease both;
+  }
+  @keyframes home-profile-dropdown-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .home-profile-dropdown__meta {
+    overflow: hidden;
+    padding: 0 var(--space-1) var(--space-0-5);
+    color: var(--color-text-muted);
+    font-size: 12px;
+    line-height: var(--line-height-caption);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-profile-dropdown__item {
+    width: 100%;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    padding: 0 var(--space-1);
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: 14px;
+    font-weight: var(--font-weight-medium);
+    text-align: left;
+  }
+  .home-profile-dropdown__item:hover,
+  .home-profile-dropdown__item:focus-visible {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    outline: none;
   }
   .work-home-content {
     width: min(100%, 1480px);
@@ -24490,10 +24606,11 @@ const styles = `
   }
   @media (max-width: 1180px) {
     .home-workspace-toolbar {
-      grid-template-columns: auto minmax(180px, 1fr) auto;
+      gap: var(--space-1);
     }
-    .home-workspace-switcher {
-      display: none;
+    .home-workspace-search {
+      flex: 1 1 auto;
+      width: auto;
     }
     .home-placeholder-grid {
       grid-template-columns: 1fr;
