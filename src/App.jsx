@@ -1168,6 +1168,40 @@ function isLocalSubitemId(subitemId) {
   return `${subitemId ?? ""}`.startsWith("local-subitem-");
 }
 
+function hasMeaningfulAdminSubitemNumericValue(value) {
+  return hasNumericInput(value) && toNumberOrZero(value) !== 0;
+}
+
+function isEmptyLocalAdminSubitemPlaceholder(subitem) {
+  if (!isLocalSubitemId(subitem?.id)) return false;
+  const name = `${subitem?.name ?? ""}`.trim();
+  if (name && name !== MATERIAL_NAME_PLACEHOLDER) return false;
+
+  const numericFields = [
+    "cost_price",
+    "unit_price",
+    "labor_rate",
+    "labor_rate_empty",
+    "labor_rate_occupied",
+    "quantity",
+    "labor_count",
+  ];
+  if (numericFields.some((field) => hasMeaningfulAdminSubitemNumericValue(subitem?.[field]))) {
+    return false;
+  }
+
+  if (`${subitem?.selected_spec_option ?? ""}`.trim()) return false;
+  if (`${subitem?.spec_option_draft ?? ""}`.trim()) return false;
+  if (normalizeSpecOptions(subitem?.spec_options).length) return false;
+
+  const dirtyFields = new Set(Array.isArray(subitem?._dirtyFields) ? subitem._dirtyFields : []);
+  if (["unit", "cost_unit", "selected_spec_option", "spec_option_draft", "spec_options"].some((field) => dirtyFields.has(field))) {
+    return false;
+  }
+
+  return true;
+}
+
 function isFlooringThicknessItem(item) {
   return isFlooringCategoryName(item?.name);
 }
@@ -2728,6 +2762,7 @@ export default function App() {
   const pendingAdminLeaveActionRef = useRef(null);
   const homeProfileMenuRef = useRef(null);
   const adminItemsRef = useRef([]);
+  const adminPriceRowRefs = useRef(new Map());
   const estimatePhotoRequestRef = useRef("");
   const estimateBlankCatalogRequestRef = useRef(0);
   const pageRef = useRef("");
@@ -2837,6 +2872,7 @@ export default function App() {
   const [activeFlooringThicknessByGroup, setActiveFlooringThicknessByGroup] = useState({});
   const [activeSpecOptionsPopoverId, setActiveSpecOptionsPopoverId] = useState("");
   const [newlyAddedSubitemId, setNewlyAddedSubitemId] = useState("");
+  const [adminPriceValidationError, setAdminPriceValidationError] = useState(null);
   const [dragItemId, setDragItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
   const [dragSubitem, setDragSubitem] = useState(null);
@@ -3311,6 +3347,11 @@ export default function App() {
       setSelectedAdminCategoryId(firstVisibleItemId);
     }
   }, [canEditConditionQuantities, filteredAdminItems, isCommonPriceAdminPage, selectedAdminCategoryId]);
+
+  useEffect(() => {
+    if (!isCommonPriceAdminPage || !adminPriceValidationError?.subitemId) return;
+    scrollToAdminPriceRow(adminPriceValidationError.subitemId);
+  }, [adminPriceValidationError, adminFavoriteOnly, adminSearch, isCommonPriceAdminPage, selectedAdminCategoryId]);
 
   useEffect(() => {
     let active = true;
@@ -5728,6 +5769,7 @@ export default function App() {
   async function fetchAdminItems(options = {}) {
     setAdminLoading(true);
     setAdminError("");
+    setAdminPriceValidationError(null);
     try {
       if (!isSupabaseConfigured) {
         throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
@@ -6021,6 +6063,59 @@ export default function App() {
     setAutoSaveStatus("saved");
     setAutoSaveSavedAt(new Date().toISOString());
     setAutoSaveError("");
+    setAdminPriceValidationError(null);
+  }
+
+  function setAdminPriceRowRef(subitemId, node) {
+    if (!subitemId) return;
+    if (node) {
+      adminPriceRowRefs.current.set(subitemId, node);
+    } else {
+      adminPriceRowRefs.current.delete(subitemId);
+    }
+  }
+
+  function scrollToAdminPriceRow(subitemId) {
+    if (!subitemId) return;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        adminPriceRowRefs.current.get(subitemId)?.scrollIntoView({
+          block: "center",
+          behavior: "smooth",
+        });
+      });
+    });
+  }
+
+  function clearAdminPriceValidationErrorForSubitem(subitemId, nextName = "") {
+    if (!`${nextName ?? ""}`.trim()) return;
+    setAdminPriceValidationError((current) =>
+      current?.subitemId === subitemId ? null : current
+    );
+  }
+
+  function focusAdminPriceValidationRow(subitem, parent) {
+    if (!subitem?.id) return;
+    if (parent?.id) {
+      const parentVisible = filteredAdminItems.some((item) => item.id === parent.id);
+      if (!parentVisible) {
+        setAdminSearch("");
+        setAdminFavoriteOnly(false);
+      }
+      setSelectedAdminCategoryId(parent.id);
+      setExpandedAdminItemIds((current) => [...new Set([...current, parent.id])]);
+
+      if (isFlooringThicknessItem(parent)) {
+        const parsed = parseFlooringThicknessName(subitem.name);
+        const baseName = parsed?.baseName ?? subitem.name;
+        const thickness = parsed?.thickness ?? DEFAULT_FLOORING_SPEC;
+        setActiveFlooringThicknessByGroup((current) => ({
+          ...current,
+          [getAdminFlooringGroupKey(parent.id, baseName)]: thickness,
+        }));
+      }
+    }
+    scrollToAdminPriceRow(subitem.id);
   }
 
   function requestAdminCatalogLeave(action) {
@@ -6460,6 +6555,11 @@ export default function App() {
         }),
       }))
     );
+    if (`${nextBaseName ?? ""}`.trim()) {
+      setAdminPriceValidationError((current) =>
+        current && targetIds.has(current.subitemId) ? null : current
+      );
+    }
     markAdminCatalogDirty();
   }
 
@@ -7878,6 +7978,9 @@ export default function App() {
           subitems: item.subitems.filter((subitem) => subitem.id !== subitemId),
         }))
       );
+      setAdminPriceValidationError((current) =>
+        current?.subitemId === subitemId ? null : current
+      );
       markAdminCatalogDirty();
       return;
     }
@@ -8216,7 +8319,22 @@ export default function App() {
       current.map((item) => ({
         ...item,
         subitems: item.subitems.map((subitem) =>
-          subitem.id === subitemId ? { ...subitem, ...patch } : subitem
+          subitem.id === subitemId
+            ? {
+                ...subitem,
+                ...patch,
+                ...(isLocalSubitemId(subitem.id)
+                  ? {
+                      _dirtyFields: [
+                        ...new Set([
+                          ...(Array.isArray(subitem._dirtyFields) ? subitem._dirtyFields : []),
+                          ...Object.keys(patch),
+                        ]),
+                      ],
+                    }
+                  : {}),
+              }
+            : subitem
         ),
       }))
     );
@@ -8949,10 +9067,12 @@ export default function App() {
             const activeThickness = getAdminFlooringActiveThickness(item.id, group);
             const activeSubitem = group.options[activeThickness] ?? optionEntries[0];
             if (!activeSubitem) return null;
+            const hasValidationError = adminPriceValidationError?.subitemId === activeSubitem.id;
             return (
               <div
                 key={group.baseName}
-                className={`admin-value-row flooring-value-row common-price-row price-table-row admin-price-v2-grid ${activeSubitem.expanded ? "expanded" : ""} ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                ref={(node) => setAdminPriceRowRef(activeSubitem.id, node)}
+                className={`admin-value-row flooring-value-row common-price-row price-table-row admin-price-v2-grid ${activeSubitem.expanded ? "expanded" : ""} ${hasValidationError ? "admin-price-v2-row-error" : ""} ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
                 data-subitem-id={activeSubitem.id}
                 onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
                 onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
@@ -8967,14 +9087,20 @@ export default function App() {
                 >
                   ::
                 </span>
-                <label className="admin-material-name-field">
+                <label className={`admin-material-name-field ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
                   <span className="field-label">소재명</span>
                   <input
                     value={group.baseName}
                     placeholder={MATERIAL_NAME_PLACEHOLDER}
-                    onChange={(event) => updateLocalFlooringGroupBaseName(optionIds, event.target.value)}
+                    onChange={(event) => {
+                      updateLocalFlooringGroupBaseName(optionIds, event.target.value);
+                      clearAdminPriceValidationErrorForSubitem(activeSubitem.id, event.target.value);
+                    }}
                     onBlur={(event) => renameAdminFlooringGroup(item.id, optionIds, event.target.value)}
                   />
+                  {hasValidationError && (
+                    <span className="admin-price-validation-helper">{adminPriceValidationError.message}</span>
+                  )}
                 </label>
                 {renderAdminPricePrimarySubitemCells(activeSubitem)}
                 <button
@@ -9005,17 +9131,25 @@ export default function App() {
     return (
       <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} price-table-list admin-price-v2-grid-list`.trim()}>
         {renderAdminPriceHeaderV2(item)}
-        {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
+        {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => {
+          const hasValidationError = adminPriceValidationError?.subitemId === subitem.id;
+          return (
           <div
             key={subitem.id}
-            className={`admin-value-row common-price-row price-table-row admin-price-v2-grid ${subitem.expanded ? "expanded" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+            ref={(node) => setAdminPriceRowRef(subitem.id, node)}
+            className={`admin-value-row common-price-row price-table-row admin-price-v2-grid ${subitem.expanded ? "expanded" : ""} ${hasValidationError ? "admin-price-v2-row-error" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
             data-subitem-id={subitem.id}
             onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
             onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
             onDragEnd={clearAdminDragState}
           >
             {item.item_type === "flat" ? (
-              <strong className="flat-subitem-name">{item.name}</strong>
+              <strong className={`flat-subitem-name ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
+                {item.name}
+                {hasValidationError && (
+                  <span className="admin-price-validation-helper">{adminPriceValidationError.message}</span>
+                )}
+              </strong>
             ) : (
               <>
                 <span
@@ -9027,12 +9161,12 @@ export default function App() {
                 >
                   ::
                 </span>
-                <label className="admin-material-name-field">
+                <label className={`admin-material-name-field ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
                   <span className="field-label">소재명</span>
                   <input
                     value={subitem.name}
                     placeholder={MATERIAL_NAME_PLACEHOLDER}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setAdminItems((current) =>
                         current.map((entry) =>
                           entry.id === item.id
@@ -9046,11 +9180,15 @@ export default function App() {
                               }
                             : entry
                         )
-                      )
-                    }
+                      );
+                      clearAdminPriceValidationErrorForSubitem(subitem.id, event.target.value);
+                    }}
                     onInput={() => markAdminCatalogDirty()}
                     onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
                   />
+                  {hasValidationError && (
+                    <span className="admin-price-validation-helper">{adminPriceValidationError.message}</span>
+                  )}
                 </label>
               </>
             )}
@@ -9067,7 +9205,8 @@ export default function App() {
             {renderAdminPriceExpandButton(subitem)}
             {renderAdminPriceExpandedRow(subitem, item.item_type)}
           </div>
-        ))}
+          );
+        })}
         {item.item_type !== "flat" && !itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
         {item.item_type !== "flat" && (
           <div className="admin-add-subitem-row admin-price-v2-add-row">
@@ -9838,8 +9977,11 @@ export default function App() {
       const companyId = requireSelectedCompanyId();
       const snapshotItems = adminItemsRef.current;
       const adminSubitems = snapshotItems.flatMap((item) => item.subitems ?? []);
+      const persistableAdminSubitems = adminSubitems.filter(
+        (subitem) => !isEmptyLocalAdminSubitemPlaceholder(subitem)
+      );
       const isCommonPriceSave = saveTarget === "prices";
-      const invalidNameSubitem = adminSubitems.find((subitem) => {
+      const invalidNameSubitem = persistableAdminSubitems.find((subitem) => {
         const name = `${subitem.name ?? ""}`.trim();
         return !name || name === MATERIAL_NAME_PLACEHOLDER;
       });
@@ -9850,22 +9992,20 @@ export default function App() {
           item.subitems?.some((subitem) => subitem.id === invalidNameSubitem.id)
         );
         setAdminError(message);
-        if (parent?.id) {
-          setExpandedAdminItemIds((current) => [...new Set([...current, parent.id])]);
-        }
-        setNewlyAddedSubitemId(invalidNameSubitem.id);
-        window.requestAnimationFrame(() => {
-          document.querySelector(`[data-subitem-id="${invalidNameSubitem.id}"]`)?.scrollIntoView({
-            block: "nearest",
-            behavior: "smooth",
-          });
+        setAdminPriceValidationError({
+          subitemId: invalidNameSubitem.id,
+          itemId: parent?.id ?? "",
+          message,
         });
+        focusAdminPriceValidationRow(invalidNameSubitem, parent);
+        setNewlyAddedSubitemId(invalidNameSubitem.id);
         if (auto) {
           setAutoSaveStatus("error");
           setAutoSaveError(message);
         }
         return false;
       }
+      setAdminPriceValidationError(null);
 
       if (snapshotItems.length) {
         await Promise.all(
@@ -9887,8 +10027,8 @@ export default function App() {
         });
       }
 
-      const existingSubitems = adminSubitems.filter((subitem) => !isLocalSubitemId(subitem.id));
-      const localSubitems = adminSubitems.filter((subitem) => isLocalSubitemId(subitem.id));
+      const existingSubitems = persistableAdminSubitems.filter((subitem) => !isLocalSubitemId(subitem.id));
+      const localSubitems = persistableAdminSubitems.filter((subitem) => isLocalSubitemId(subitem.id));
       let persistedSubitems = existingSubitems;
 
       if (existingSubitems.length) {
@@ -23455,8 +23595,23 @@ const styles = `
   .admin-price-v2-grid-list .admin-value-row.common-price-row:hover {
     background: var(--color-row-alt);
   }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row.admin-price-v2-row-error {
+    min-height: 56px;
+    background: var(--color-danger-subtle);
+    box-shadow: inset 3px 0 0 var(--color-danger);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row.admin-price-v2-row-error:hover {
+    background: var(--color-danger-subtle);
+  }
   .admin-price-v2-grid-list .admin-value-row.common-price-row label {
     gap: 0;
+  }
+  .admin-price-v2-grid-list .admin-material-name-field--error {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: var(--space-1);
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row .field-label {
     display: none;
@@ -23486,6 +23641,17 @@ const styles = `
     background: var(--color-surface);
     box-shadow: none;
     outline: none;
+  }
+  .admin-price-v2-grid-list .admin-material-name-field--error input {
+    border-color: var(--color-danger-border);
+    background: var(--color-surface);
+  }
+  .admin-price-validation-helper {
+    display: block;
+    color: var(--color-danger);
+    font-size: var(--font-size-caption);
+    line-height: 1.2;
+    white-space: normal;
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row input[inputmode="numeric"],
   .admin-price-v2-grid-list .price-number-field input {
