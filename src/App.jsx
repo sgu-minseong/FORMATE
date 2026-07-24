@@ -4,27 +4,44 @@ import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import {
   ArrowLeft,
+  Bell,
+  BookOpen,
   Building2,
+  Calculator,
   Check,
   ClipboardList,
   ChevronDown,
   ChevronRight,
   FileText,
+  HelpCircle,
   Home,
   Image,
+  LogOut,
+  Mail,
+  MessageSquare,
   Plus,
   Printer,
   RefreshCcw,
   Save,
   Search,
-  Settings,
+  SlidersHorizontal,
+  Sparkles,
   Star,
   Trash2,
+  Users,
   Wrench,
 } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient";
 import PriceText from "./components/PriceText.jsx";
-import logoUrl from "./assets/logo.svg";
+import AppShell from "./components/layout/AppShell.jsx";
+import Button from "./components/ui/Button.jsx";
+import CategorySidebar from "./components/ui/CategorySidebar.jsx";
+import EmptyState from "./components/ui/EmptyState.jsx";
+import Input from "./components/ui/Input.jsx";
+import PageHeader from "./components/ui/PageHeader.jsx";
+import StickyTotalBar from "./components/ui/StickyTotalBar.jsx";
+import Table from "./components/ui/Table.jsx";
+import logoUrl from "./assets/formate-logo-icon.png";
 import { AI_MAPPING_GROUPS, AI_MAPPING_SELECT_OPTIONS, AI_ROW_TYPE_OPTIONS } from "./features/aiExcelImport/constants";
 import {
   getAiRowTypeLabel,
@@ -65,6 +82,45 @@ const COMPANY_STORAGE_KEYS = {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
+const APP_SHELL_NAV_ITEMS = [
+  { key: "landing", label: "홈", icon: <Home /> },
+  { key: "incoming-requests", label: "받은 요청", icon: <MessageSquare />, disabled: true },
+  {
+    key: "estimate-work",
+    type: "section",
+    label: "업무",
+    items: [
+      { key: "condition", label: "새 견적서 작성", icon: <ClipboardList />, activeKeys: ["condition", "items"] },
+      { key: "admin-estimates", label: "저장 견적 보기", icon: <FileText /> },
+      { key: "customers-sites", label: "고객·현장", icon: <Users />, disabled: true },
+    ],
+  },
+  {
+    key: "customer-care",
+    type: "section",
+    label: "고객관리",
+    items: [
+      { key: "after-service", label: "사후관리·A/S", icon: <SlidersHorizontal />, disabled: true },
+      { key: "message-history", label: "메시지 이력", icon: <Mail />, disabled: true },
+    ],
+  },
+  {
+    key: "admin-work",
+    type: "section",
+    label: "관리",
+    items: [
+      { key: "photo-management", label: "사진 관리/확인", icon: <Image /> },
+      { key: "admin-prices", label: "단가표 관리", icon: <Calculator /> },
+      { key: "admin-items", label: "견적 템플릿 만들기", icon: <BookOpen />, activeKeys: ["admin-items", "admin-condition-labels"] },
+      { key: "admin-detail-costs", label: "세부 비용 관리", icon: <Wrench /> },
+      { key: "admin-ai-setup", label: "AI 초기 세팅", icon: <Sparkles /> },
+    ],
+  },
+  { key: "help-support", label: "도움말 / 지원", icon: <HelpCircle />, placement: "bottom", disabled: true },
+  { key: "logout", label: "로그아웃", icon: <LogOut />, placement: "bottom" },
+];
+const USE_ITEMS_SCREEN_V2 = true;
+const USE_ADMIN_ITEMS_SCREEN_V2 = true;
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const UNIT_OPTIONS = ["평", "m²", "m", "개소", "식", "자당", "롤", "박스", "EA"];
 const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
@@ -78,8 +134,10 @@ const OLD_EXTENDED_VARIANTS = ["구형1", "구형2", "구형3", "구형4", "구�
 const OLD_NO_EXTENSION_VARIANT = "구형0";
 const CONDITION_VARIANT_KEYS = [...EXTENDED_VARIANTS, OLD_NO_EXTENSION_VARIANT, ...OLD_EXTENDED_VARIANTS];
 const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
+const ADMIN_TEMPLATE_ORDER_STORAGE_PREFIX = "formate.adminTemplateOrder";
 const ADMIN_AUTOSAVE_DELAY_MS = 1200;
 const PHOTO_STORAGE_BUCKET = "formate-photos";
+const PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS = 7200;
 const PHOTO_TYPES = {
   FULL_PROJECT: "full_project",
   PARTIAL_PROJECT: "partial_project",
@@ -328,53 +386,33 @@ async function fetchCompanyForAuthUser(userId) {
     throw new Error("로그인 세션이 올바르지 않습니다.");
   }
 
-  console.debug("[FORMATE auth] lookup company_members by user_id", { userId });
   const { data: membership, error: membershipError } = await supabase
     .from("company_members")
     .select("company_id, user_id, role")
     .eq("user_id", userId)
     .maybeSingle();
 
-  console.debug("[FORMATE auth] company_members lookup result", { userId, membership, membershipError });
   if (membershipError) {
-    console.error("[FORMATE auth] company_members lookup failed", { userId, membershipError });
+    console.error("[FORMATE auth] company_members lookup failed");
     throw membershipError;
   }
   if (!membership?.company_id || !isValidUuid(membership.company_id)) {
-    console.error("[FORMATE auth] no company_members row for auth user", { userId, membership });
+    console.error("[FORMATE auth] no company_members row for auth user");
     throw new Error("로그인된 계정에 연결된 업체가 없습니다.");
   }
 
-  console.debug("[FORMATE auth] lookup company by membership.company_id", {
-    userId,
-    companyId: membership.company_id,
-  });
   const { data: company, error: companyError } = await supabase
     .from("companies")
     .select("id, name, company_code")
     .eq("id", membership.company_id)
     .maybeSingle();
 
-  console.debug("[FORMATE auth] company lookup result", {
-    userId,
-    companyId: membership.company_id,
-    company,
-    companyError,
-  });
   if (companyError) {
-    console.error("[FORMATE auth] company lookup failed", {
-      userId,
-      companyId: membership.company_id,
-      companyError,
-    });
+    console.error("[FORMATE auth] company lookup failed");
     throw companyError;
   }
   if (!company?.id || !isValidUuid(company.id)) {
-    console.error("[FORMATE auth] invalid company row for auth user", {
-      userId,
-      companyId: membership.company_id,
-      company,
-    });
+    console.error("[FORMATE auth] invalid company row for auth user");
     throw new Error("업체 정보를 확인할 수 없습니다.");
   }
 
@@ -421,6 +459,38 @@ function readFavoritePyeongs() {
   } catch {
     return [];
   }
+}
+
+function createEmptyAdminTemplateConditionDraft() {
+  return {
+    pyeong: "",
+    buildType: "",
+    hasExtension: false,
+    conditionVariant: "",
+  };
+}
+
+function getAdminTemplateOrderStorageKey(companyId) {
+  return `${ADMIN_TEMPLATE_ORDER_STORAGE_PREFIX}.${companyId || "default"}`;
+}
+
+function readAdminTemplateOrder(companyId) {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(getAdminTemplateOrderStorageKey(companyId)) ?? "[]");
+    return Array.isArray(parsed) ? parsed.map((id) => `${id}`) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeAdminTemplateOrder(companyId, order) {
+  if (typeof window === "undefined" || !companyId) return;
+  window.localStorage.setItem(
+    getAdminTemplateOrderStorageKey(companyId),
+    JSON.stringify((order ?? []).map((id) => `${id}`))
+  );
 }
 
 const categories = [
@@ -780,6 +850,13 @@ function formatMoneyInputValue(value) {
   const formattedInteger = Number(integerValue).toLocaleString("ko-KR");
   if (!decimalParts.length) return formattedInteger;
   return `${formattedInteger}.${decimalParts.join("").slice(0, 2)}`;
+}
+
+function isEmptyOrZeroDisplayValue(value) {
+  const raw = stripNumberInputFormatting(value);
+  if (raw === "") return true;
+  const numericValue = Number(raw);
+  return Number.isFinite(numericValue) && numericValue === 0;
 }
 
 function getDefaultQuantityForUnit(unit, pyeong) {
@@ -1473,6 +1550,38 @@ function getSavedEstimateCustomerName(estimate) {
 
 function getSavedEstimateCustomerPhone(estimate) {
   return `${getEstimateItemsDataMeta(estimate?.items_data).customerPhone ?? ""}`.trim();
+}
+
+function getSavedEstimateDisplayDate(estimate) {
+  const rawDate = estimate?.created_at;
+  if (!rawDate) return "-";
+
+  const parsedDate = new Date(rawDate);
+  if (Number.isNaN(parsedDate.getTime())) return "-";
+
+  return parsedDate.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function HomePlaceholderWidget({ title }) {
+  // TODO: 이 위젯은 UI 껍데기만 존재합니다. "처리 필요"/"진행 중"
+  // 기능(고객 요청, 승인 상태 등)은 아직 설계/구현되지 않았습니다.
+  // 실제 상태값 스키마 설계 후 이 컴포넌트를 다시 작업해야 합니다.
+  return (
+    <section className="home-placeholder-widget" aria-label={title}>
+      <div className="home-section-head">
+        <h2>{title}</h2>
+        <span className="home-placeholder-badge">준비 중</span>
+      </div>
+      <div className="home-placeholder-empty">
+        <FileText size={18} strokeWidth={1.5} aria-hidden="true" />
+        <span>아직 연결된 데이터가 없습니다</span>
+      </div>
+    </section>
+  );
 }
 
 function isEstimateRowModified(row) {
@@ -2617,8 +2726,10 @@ export default function App() {
   const autoSaveQueuedRef = useRef(false);
   const autoSaveTargetRef = useRef("");
   const pendingAdminLeaveActionRef = useRef(null);
+  const homeProfileMenuRef = useRef(null);
   const adminItemsRef = useRef([]);
   const estimatePhotoRequestRef = useRef("");
+  const estimateBlankCatalogRequestRef = useRef(0);
   const pageRef = useRef("");
   const adminConditionStepRef = useRef("select");
   const currentAdminTemplateConditionRef = useRef(null);
@@ -2675,6 +2786,7 @@ export default function App() {
   const [estimateNotice, setEstimateNotice] = useState("");
   const [estimateDraftSource, setEstimateDraftSource] = useState("template");
   const [estimateConditionEditMode, setEstimateConditionEditMode] = useState(false);
+  const [estimateConditionDrawerOpen, setEstimateConditionDrawerOpen] = useState(false);
   const [selectedPhotoSubitemId, setSelectedPhotoSubitemId] = useState("");
   const [selectedPhotoSubitemName, setSelectedPhotoSubitemName] = useState("");
   const [estimateItemPhotos, setEstimateItemPhotos] = useState([]);
@@ -2700,6 +2812,7 @@ export default function App() {
   const [adminSearch, setAdminSearch] = useState("");
   const [adminFavoriteOnly, setAdminFavoriteOnly] = useState(false);
   const [expandedAdminItemIds, setExpandedAdminItemIds] = useState([]);
+  const [selectedAdminCategoryId, setSelectedAdminCategoryId] = useState("");
   const [selectedAdminPyeong, setSelectedAdminPyeong] = useState("");
   const [selectedAdminBuildType, setSelectedAdminBuildType] = useState("");
   const [selectedAdminHasExtension, setSelectedAdminHasExtension] = useState(false);
@@ -2712,6 +2825,12 @@ export default function App() {
   const [currentAdminTemplateId, setCurrentAdminTemplateId] = useState("");
   const [adminConditionLoaded, setAdminConditionLoaded] = useState(false);
   const [adminConditionStep, setAdminConditionStep] = useState("select");
+  const [adminTemplateOrder, setAdminTemplateOrder] = useState([]);
+  const [dragAdminTemplateId, setDragAdminTemplateId] = useState("");
+  const [dragOverAdminTemplateId, setDragOverAdminTemplateId] = useState("");
+  const [adminTemplateConditionDrawerOpen, setAdminTemplateConditionDrawerOpen] = useState(false);
+  const [adminTemplateConditionDraft, setAdminTemplateConditionDraft] = useState(createEmptyAdminTemplateConditionDraft);
+  const [newlyCreatedAdminTemplateKey, setNewlyCreatedAdminTemplateKey] = useState("");
   const [adminCommonPriceSavedAt, setAdminCommonPriceSavedAt] = useState("");
   const [conditionVariantLabels, setConditionVariantLabels] = useState(() => createConditionVariantLabelRows());
   const [adminBulkInputs, setAdminBulkInputs] = useState({});
@@ -2742,6 +2861,7 @@ export default function App() {
   const [estimates, setEstimates] = useState([]);
   const [estimateSearch, setEstimateSearch] = useState("");
   const [selectedEstimate, setSelectedEstimate] = useState(null);
+  const [homeProfileMenuOpen, setHomeProfileMenuOpen] = useState(false);
   const [pyeongDropdownOpen, setPyeongDropdownOpen] = useState(false);
   const [adminPyeongDropdownOpen, setAdminPyeongDropdownOpen] = useState(false);
   const [favoritePyeongs, setFavoritePyeongs] = useState(readFavoritePyeongs);
@@ -2887,6 +3007,12 @@ export default function App() {
       return groups;
     }, {});
   }, [selectedRows]);
+  const recentHomeEstimates = useMemo(() =>
+    [...estimates]
+      .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
+      .slice(0, 8),
+    [estimates]
+  );
   const currentCategory =
     estimateCatalog.find((category) => category.id === openCategory) ??
     categories.find((category) => category.id === openCategory);
@@ -3129,6 +3255,23 @@ export default function App() {
   const currentAdminConditionLabel = currentAdminTemplateCondition
     ? makeTemplateLabel(currentAdminTemplateCondition, conditionVariantLabelMap)
     : "";
+  const adminTemplateConditionDraftValue = adminTemplateConditionDraft.pyeong && adminTemplateConditionDraft.buildType
+    ? buildTemplateCondition({
+        pyeong: Number(adminTemplateConditionDraft.pyeong),
+        buildType: adminTemplateConditionDraft.buildType,
+        hasExtension: adminTemplateConditionDraft.buildType === "old" ? Boolean(adminTemplateConditionDraft.hasExtension) : false,
+        conditionVariant: adminTemplateConditionDraft.conditionVariant,
+      })
+    : null;
+  const orderedAdminTemplates = useMemo(() => {
+    const orderIndex = new Map(adminTemplateOrder.map((id, index) => [`${id}`, index]));
+    return [...adminTemplates].sort((a, b) => {
+      const aIndex = orderIndex.has(`${a.id}`) ? orderIndex.get(`${a.id}`) : Number.MAX_SAFE_INTEGER;
+      const bIndex = orderIndex.has(`${b.id}`) ? orderIndex.get(`${b.id}`) : Number.MAX_SAFE_INTEGER;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+      return adminTemplates.indexOf(a) - adminTemplates.indexOf(b);
+    });
+  }, [adminTemplateOrder, adminTemplates]);
   const canEditConditionQuantities = isConditionQuantityAdminPage && adminConditionLoaded && Boolean(currentAdminTemplateCondition);
   const canReorderAdminCatalog = isCommonPriceAdminPage || canEditConditionQuantities;
   const showAdminConditionSelect = isConditionQuantityAdminPage && adminConditionStep === "select";
@@ -3138,11 +3281,36 @@ export default function App() {
   const isAdminCatalogEditing = isCommonPriceAdminPage || showAdminConditionEditor;
   const hasUnsavedAdminCatalogChanges =
     isAdminCatalogEditing && ["dirty", "saving", "error"].includes(autoSaveStatus);
+  const selectedAdminPriceItem =
+    isCommonPriceAdminPage
+      ? filteredAdminItems.find((item) => item.id === selectedAdminCategoryId) ?? filteredAdminItems[0] ?? null
+      : null;
+  const selectedAdminTemplateItem =
+    USE_ADMIN_ITEMS_SCREEN_V2 && canEditConditionQuantities
+      ? filteredAdminItems.find((item) => item.id === selectedAdminCategoryId) ?? filteredAdminItems[0] ?? null
+      : null;
 
   adminItemsRef.current = adminItems;
   pageRef.current = page;
   adminConditionStepRef.current = adminConditionStep;
   currentAdminTemplateConditionRef.current = currentAdminTemplateCondition;
+
+  useEffect(() => {
+    const shouldSyncSelectedAdminCategory =
+      isCommonPriceAdminPage || (USE_ADMIN_ITEMS_SCREEN_V2 && canEditConditionQuantities);
+    if (!shouldSyncSelectedAdminCategory) return;
+
+    const firstVisibleItemId = filteredAdminItems[0]?.id ?? "";
+    if (!firstVisibleItemId) {
+      if (selectedAdminCategoryId) setSelectedAdminCategoryId("");
+      return;
+    }
+
+    const selectedItemVisible = filteredAdminItems.some((item) => item.id === selectedAdminCategoryId);
+    if (!selectedItemVisible) {
+      setSelectedAdminCategoryId(firstVisibleItemId);
+    }
+  }, [canEditConditionQuantities, filteredAdminItems, isCommonPriceAdminPage, selectedAdminCategoryId]);
 
   useEffect(() => {
     let active = true;
@@ -3171,11 +3339,11 @@ export default function App() {
           setCompanySession({ company: authenticatedCompany, checking: false });
         }
       } catch (error) {
-        console.error("[FORMATE company session]", error);
+        console.error("[FORMATE company session] restore failed");
         try {
           await supabase.auth.signOut();
         } catch (signOutError) {
-          console.error("[FORMATE auth sign out]", signOutError);
+          console.error("[FORMATE auth sign out] failed");
         }
         clearStoredCompany();
         clearAdminVerifiedCompany();
@@ -3195,6 +3363,10 @@ export default function App() {
   useEffect(() => {
     if (!selectedCompanyId) return;
     fetchConditionVariantLabels({ silent: true });
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    setAdminTemplateOrder(readAdminTemplateOrder(selectedCompanyId));
   }, [selectedCompanyId]);
 
   useEffect(() => {
@@ -3229,13 +3401,33 @@ export default function App() {
     if (page === "admin-detail-costs") {
       fetchDetailSubitems();
     }
-    if (page === "admin-estimates") {
+    if (page === "admin-estimates" || page === "landing") {
       fetchEstimates();
     }
     if (page === "photo-management") {
       fetchPhotoManagementData();
     }
   }, [page, selectedCompanyId]);
+
+  useEffect(() => {
+    if (!selectedCompanyId || page !== "admin-items" || !adminVerified || !USE_ADMIN_ITEMS_SCREEN_V2) return;
+    if (adminLoading || adminSaving || adminTemplateConditionDrawerOpen) return;
+    if (adminConditionStep === "edit" && adminConditionLoaded && currentAdminTemplateId) return;
+    const firstTemplate = orderedAdminTemplates[0];
+    if (!firstTemplate?.id) return;
+    loadAdminTemplate(firstTemplate);
+  }, [
+    adminConditionLoaded,
+    adminConditionStep,
+    adminLoading,
+    adminSaving,
+    adminTemplateConditionDrawerOpen,
+    adminVerified,
+    currentAdminTemplateId,
+    orderedAdminTemplates,
+    page,
+    selectedCompanyId,
+  ]);
 
   useEffect(() => {
     if (!selectedCompanyId || page !== "admin-ai-setup" || !adminVerified) return;
@@ -3337,6 +3529,19 @@ export default function App() {
   }, [estimateSearch, page, selectedCompanyId]);
 
   useEffect(() => {
+    if (!homeProfileMenuOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (!homeProfileMenuRef.current?.contains(event.target)) {
+        setHomeProfileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [homeProfileMenuOpen]);
+
+  useEffect(() => {
     window.localStorage.setItem(FAVORITE_PYEONG_STORAGE_KEY, JSON.stringify(favoritePyeongs));
   }, [favoritePyeongs]);
 
@@ -3403,7 +3608,6 @@ export default function App() {
     setLoginError("");
     try {
       const email = companyCodeToAuthEmail(companyCode);
-      console.debug("[FORMATE auth] signInWithPassword email", { email });
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -3415,7 +3619,6 @@ export default function App() {
       }
 
       const authUserId = data?.user?.id ?? data?.session?.user?.id ?? "";
-      console.debug("[FORMATE auth] signInWithPassword success", { authUserId, email });
       clearAdminVerifiedCompany();
       clearCompanyScopedState();
       await loadCurrentCompanyFromAuth(authUserId);
@@ -3423,7 +3626,7 @@ export default function App() {
       setLoginPassword("");
       setLoginError("");
     } catch (error) {
-      console.error("[FORMATE company login]", error);
+      console.error("[FORMATE company login] login failed");
       setLoginError("업체 코드 또는 비밀번호를 확인해주세요.");
     } finally {
       setLoginLoading(false);
@@ -3435,7 +3638,7 @@ export default function App() {
       try {
         await supabase.auth.signOut();
       } catch (error) {
-        console.error("[FORMATE auth sign out]", error);
+        console.error("[FORMATE auth sign out] failed");
       }
     }
 
@@ -3724,9 +3927,17 @@ export default function App() {
         });
       });
 
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error("AI 분석을 사용하려면 다시 로그인해 주세요.");
+      }
+
       const response = await fetch("/api/analyze-excel-import", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
         body: JSON.stringify({
           rows,
           currentMappings: aiSetupMappingAnalysis.mappings,
@@ -4497,10 +4708,33 @@ export default function App() {
     );
   }
 
-  function getPhotoPublicUrl(photo) {
-    if (!photo?.storage_path) return "";
-    const { data } = supabase.storage.from(PHOTO_STORAGE_BUCKET).getPublicUrl(photo.storage_path);
-    return data?.publicUrl ?? "";
+  function getPhotoImageUrl(photo) {
+    return photo?.signed_url || photo?.signedUrl || "";
+  }
+
+  async function attachSignedPhotoUrls(photoRows = []) {
+    const rows = Array.isArray(photoRows) ? photoRows : [];
+    const storagePaths = Array.from(new Set(rows.map((photo) => photo.storage_path).filter(Boolean)));
+    if (!storagePaths.length) return rows;
+
+    const { data, error } = await supabase.storage
+      .from(PHOTO_STORAGE_BUCKET)
+      .createSignedUrls(storagePaths, PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS);
+    if (error) {
+      console.error("[FORMATE photo signed urls]", error);
+      return rows.map((photo) => ({ ...photo, signed_url: "" }));
+    }
+
+    const signedUrlByPath = new Map(
+      (data ?? [])
+        .filter((entry) => entry?.path && entry?.signedUrl)
+        .map((entry) => [entry.path, entry.signedUrl])
+    );
+
+    return rows.map((photo) => ({
+      ...photo,
+      signed_url: signedUrlByPath.get(photo.storage_path) ?? "",
+    }));
   }
 
   function markPhotoAutoSaveSaving(message = "저장 중...") {
@@ -4572,6 +4806,7 @@ export default function App() {
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true });
       if (photoErrorResult) throw photoErrorResult;
+      const photoRowsWithSignedUrls = await attachSignedPhotoUrls(photoRows ?? []);
 
       const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
       const catalog = normalizeAdminItems(itemRows, subitemRows, []);
@@ -4579,7 +4814,7 @@ export default function App() {
       setPhotoCollectionDrafts(
         Object.fromEntries((nextCollectionRows.data ?? []).map((collection) => [collection.id, collection.name ?? ""]))
       );
-      setPhotos(photoRows ?? []);
+      setPhotos(photoRowsWithSignedUrls);
       setPhotoCatalog(catalog);
     } catch (error) {
       console.error("[FORMATE photo management fetch]", error);
@@ -4847,7 +5082,7 @@ export default function App() {
   function renderPhotoUploadButton(targetType, targetId, disabled = false) {
     return (
       <label className={`photo-upload-button ${disabled ? "disabled" : ""}`.trim()}>
-        <Plus size={15} />
+        <Plus size={18} strokeWidth={1.5} />
         <span>사진 추가</span>
         <input
           type="file"
@@ -4867,18 +5102,25 @@ export default function App() {
     const primaryPhoto = getPrimaryPhoto(targetPhotos);
 
     if (!targetPhotos.length) {
-      return <div className="photo-empty-inline">등록된 사진이 없습니다.</div>;
+      return (
+        <EmptyState
+          className="photo-empty-state"
+          icon={<Image size={24} strokeWidth={1.5} />}
+          title="등록된 사진 없음"
+          description="이 분류에 사용할 사진을 추가해 주세요."
+        />
+      );
     }
 
     return (
       <div className="photo-thumb-grid">
         {targetPhotos.map((photo, index) => {
-          const imageUrl = getPhotoPublicUrl(photo);
+          const imageUrl = getPhotoImageUrl(photo);
           const isPrimary = photo.id === primaryPhoto?.id;
           return (
             <article className={`photo-thumb-card ${isPrimary ? "primary" : ""}`.trim()} key={photo.id}>
               <div className="photo-thumb-image">
-                {imageUrl ? <img src={imageUrl} alt={photo.original_filename || "등록 사진"} /> : <Image size={24} />}
+                {imageUrl ? <img src={imageUrl} alt={photo.original_filename || "등록 사진"} /> : <Image size={24} strokeWidth={1.5} />}
                 {isPrimary && <span>대표</span>}
               </div>
               <div className="photo-thumb-meta">
@@ -4916,17 +5158,18 @@ export default function App() {
             <h3>{tabLabel} 분류</h3>
             <p className="muted">금액대 같은 분류명은 자유롭게 바꿀 수 있습니다.</p>
           </div>
-          <button type="button" className="secondary-button compact-button" onClick={() => addPhotoCollection(photoType)} disabled={photoSaving}>
-            <Plus size={16} /> 분류 추가
-          </button>
+          <Button variant="primary" leftIcon={<Plus />} onClick={() => addPhotoCollection(photoType)} disabled={photoSaving}>
+            분류 추가
+          </Button>
         </div>
 
         {collectionsForType.length === 0 ? (
-          <div className="empty-state compact-empty">
-            <Image size={34} />
-            <h3>분류가 없습니다</h3>
-            <p>분류를 추가한 뒤 사진을 업로드하세요.</p>
-          </div>
+          <EmptyState
+            className="compact-empty"
+            icon={<Image size={24} strokeWidth={1.5} />}
+            title="분류가 없습니다"
+            description="분류를 추가한 뒤 사진을 업로드하세요."
+          />
         ) : (
           <div className="photo-collection-list">
             {collectionsForType.map((collection) => (
@@ -4942,11 +5185,18 @@ export default function App() {
                     }
                     aria-label="사진 분류명"
                   />
-                  <button type="button" className="secondary-button compact-button" onClick={() => savePhotoCollectionName(collection.id)} disabled={photoSaving}>
+                  <Button variant="secondary" size="sm" onClick={() => savePhotoCollectionName(collection.id)} disabled={photoSaving}>
                     저장
-                  </button>
-                  <button type="button" className="ghost danger-text" onClick={() => deletePhotoCollection(collection)} disabled={photoSaving}>
-                    <Trash2 size={16} /> 삭제
+                  </Button>
+                  <button
+                    type="button"
+                    className="photo-collection-delete-button"
+                    onClick={() => deletePhotoCollection(collection)}
+                    disabled={photoSaving}
+                    aria-label="분류 삭제"
+                    title="분류 삭제"
+                  >
+                    <Trash2 size={18} strokeWidth={1.5} />
                   </button>
                   {renderPhotoUploadButton(photoType, collection.id)}
                 </div>
@@ -4978,11 +5228,12 @@ export default function App() {
         </div>
 
         {photoCatalog.length === 0 ? (
-          <div className="empty-state compact-empty">
-            <Image size={34} />
-            <h3>세부항목이 없습니다</h3>
-            <p>현재 업체의 단가표 세부항목을 먼저 준비해 주세요.</p>
-          </div>
+          <EmptyState
+            className="compact-empty"
+            icon={<Image size={24} strokeWidth={1.5} />}
+            title="세부항목이 없습니다"
+            description="현재 업체의 단가표 세부항목을 먼저 준비해 주세요."
+          />
         ) : (
           <div className="photo-subitem-groups">
             {photoCatalog.map((item) => (
@@ -4997,7 +5248,7 @@ export default function App() {
                     <strong>{item.name}</strong>
                     <em>{(item.subitems ?? []).length}개 세부항목</em>
                   </span>
-                  {expandedPhotoCategoryIds.includes(item.id) ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                  {expandedPhotoCategoryIds.includes(item.id) ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
                 </button>
 
                 {expandedPhotoCategoryIds.includes(item.id) && (
@@ -5966,6 +6217,141 @@ export default function App() {
     await openAdminConditionEditor(condition);
   }
 
+  function updateAdminTemplateConditionDraft(patch) {
+    setAdminTemplateConditionDraft((current) => {
+      const next = { ...current, ...patch };
+      if (Object.prototype.hasOwnProperty.call(patch, "buildType")) {
+        if (patch.buildType === "new") {
+          next.hasExtension = false;
+          next.conditionVariant = EXTENDED_VARIANTS[0] ?? "";
+        } else if (patch.buildType === "old") {
+          next.hasExtension = false;
+          next.conditionVariant = OLD_NO_EXTENSION_VARIANT;
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "hasExtension") && next.buildType === "old") {
+        next.conditionVariant = patch.hasExtension
+          ? OLD_EXTENDED_VARIANTS.includes(next.conditionVariant)
+            ? next.conditionVariant
+            : OLD_EXTENDED_VARIANTS[0] ?? ""
+          : OLD_NO_EXTENSION_VARIANT;
+      }
+      return next;
+    });
+    setAdminError("");
+  }
+
+  function openAdminTemplateConditionDrawer() {
+    setAdminTemplateConditionDraft(createEmptyAdminTemplateConditionDraft());
+    setAdminTemplateConditionDrawerOpen(true);
+    setAdminPyeongDropdownOpen(false);
+    setAdminError("");
+  }
+
+  function closeAdminTemplateConditionDrawer() {
+    setAdminTemplateConditionDrawerOpen(false);
+    setAdminPyeongDropdownOpen(false);
+    setAdminTemplateConditionDraft(createEmptyAdminTemplateConditionDraft());
+  }
+
+  function handleAdminTemplateDragStart(event, templateId) {
+    setDragAdminTemplateId(templateId);
+    setDragOverAdminTemplateId("");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", templateId);
+  }
+
+  function handleAdminTemplateDragOver(event, templateId) {
+    if (!dragAdminTemplateId || dragAdminTemplateId === templateId) return;
+    event.preventDefault();
+    setDragOverAdminTemplateId(templateId);
+  }
+
+  function clearAdminTemplateDragState() {
+    setDragAdminTemplateId("");
+    setDragOverAdminTemplateId("");
+  }
+
+  function reorderAdminTemplates(dropTemplateId) {
+    if (!dragAdminTemplateId || dragAdminTemplateId === dropTemplateId) {
+      clearAdminTemplateDragState();
+      return;
+    }
+    const orderedIds = orderedAdminTemplates.map((template) => template.id);
+    const fromIndex = orderedIds.indexOf(dragAdminTemplateId);
+    const toIndex = orderedIds.indexOf(dropTemplateId);
+    if (fromIndex < 0 || toIndex < 0) {
+      clearAdminTemplateDragState();
+      return;
+    }
+    const nextOrder = [...orderedIds];
+    const [movedId] = nextOrder.splice(fromIndex, 1);
+    nextOrder.splice(toIndex, 0, movedId);
+    setAdminTemplateOrder(nextOrder);
+    writeAdminTemplateOrder(selectedCompanyId, nextOrder);
+    clearAdminTemplateDragState();
+  }
+
+  async function createAdminTemplateFromDrawer() {
+    if (!adminTemplateConditionDraftValue) {
+      setAdminError("평수와 주택 조건을 선택해주세요.");
+      return;
+    }
+
+    const draftKey = getTemplateConditionKey(adminTemplateConditionDraftValue);
+    const existingTemplate = adminTemplates.find((template) => getTemplateConditionKey(template) === draftKey);
+    if (existingTemplate?.id) {
+      setNewlyCreatedAdminTemplateKey(draftKey);
+      window.setTimeout(() => setNewlyCreatedAdminTemplateKey(""), 1600);
+      closeAdminTemplateConditionDrawer();
+      await loadAdminTemplate(existingTemplate);
+      setAdminNotice("이미 존재하는 조건입니다. 기존 조건을 열었습니다.");
+      return;
+    }
+
+    setAdminSaving(true);
+    setAdminError("");
+    setAdminNotice("");
+    try {
+      const companyId = requireSelectedCompanyId();
+      let templateRow = await fetchTemplateRowByCondition(companyId, adminTemplateConditionDraftValue);
+      if (!templateRow?.id) {
+        const { data: insertedTemplate, error: insertTemplateError } = await supabase
+          .from("admin_condition_templates")
+          .insert({
+            company_id: companyId,
+            ...adminTemplateConditionDraftValue,
+          })
+          .select("*")
+          .single();
+        if (insertTemplateError) throw insertTemplateError;
+        templateRow = insertedTemplate;
+      }
+
+      if (templateRow?.id) {
+        const nextOrder = [...adminTemplateOrder.filter((id) => id !== templateRow.id), templateRow.id];
+        setAdminTemplateOrder(nextOrder);
+        writeAdminTemplateOrder(companyId, nextOrder);
+      }
+
+      setSelectedAdminPyeong(String(adminTemplateConditionDraftValue.pyeong));
+      setSelectedAdminBuildType(adminTemplateConditionDraft.buildType);
+      setSelectedAdminHasExtension(Boolean(adminTemplateConditionDraftValue.has_extension));
+      setSelectedAdminConditionVariant(adminTemplateConditionDraftValue.condition_variant);
+      setCurrentAdminTemplateId(templateRow?.id ?? "");
+      setNewlyCreatedAdminTemplateKey(getTemplateConditionKey(adminTemplateConditionDraftValue));
+      window.setTimeout(() => setNewlyCreatedAdminTemplateKey(""), 1600);
+      closeAdminTemplateConditionDrawer();
+      await fetchAdminTemplateList();
+      await openAdminConditionEditor(adminTemplateConditionDraftValue);
+      setAdminNotice("새 기본 견적 조건을 만들었습니다.");
+    } catch (error) {
+      setAdminError(getFriendlyError(error, "새 기본 견적 조건을 만들지 못했습니다. 다시 시도해주세요."));
+    } finally {
+      setAdminSaving(false);
+    }
+  }
+
   function hasCurrentCompanySubitem(subitemId) {
     return adminItems.some((item) =>
       item.subitems?.some((subitem) => subitem.id === subitemId)
@@ -6313,12 +6699,28 @@ export default function App() {
     });
     if (loaded) {
       setEstimateConditionEditMode(false);
+      setEstimateConditionDrawerOpen(false);
+      setPage("items");
+    }
+  }
+
+  async function loadEstimateFromCondition({ forceBlank = false } = {}) {
+    if (!canGoNext()) return;
+    const loaded = await fetchEstimateCatalog(condition.size, condition, {
+      preserveDraft: estimateConditionEditMode,
+      forceBlank,
+    });
+    if (loaded) {
+      setEstimateConditionEditMode(false);
+      setEstimateConditionDrawerOpen(false);
       setPage("items");
     }
   }
 
   async function fetchEstimateCatalog(pyeong = condition.size, nextCondition = condition, options = {}) {
+    estimateBlankCatalogRequestRef.current += 1;
     const preserveDraft = Boolean(options.preserveDraft);
+    const forceBlank = Boolean(options.forceBlank);
     setEstimateLoading(true);
     setEstimateError("");
     setEstimateNotice("");
@@ -6355,7 +6757,7 @@ export default function App() {
       let templateValueRows = [];
       let templateFound = false;
       const templateCondition = getEstimateTemplateCondition(nextCondition);
-      if (templateCondition) {
+      if (templateCondition && !forceBlank) {
         const templateRow = await fetchTemplateRowByCondition(companyId, templateCondition);
 
         if (templateRow?.id) {
@@ -6375,6 +6777,8 @@ export default function App() {
         } else {
           setEstimateNotice("빈 견적서로 시작했습니다. 단가표 항목은 불러왔고, 수량과 인원은 직접 입력하세요.");
         }
+      } else if (forceBlank) {
+        setEstimateNotice("빈 견적서로 시작했습니다. 단가표 항목은 불러왔고, 수량과 인원은 직접 입력하세요.");
       }
 
       const catalog = normalizeAdminItems(itemRows, subitemRows, templateValueRows);
@@ -6395,6 +6799,43 @@ export default function App() {
       return false;
     } finally {
       setEstimateLoading(false);
+    }
+  }
+
+  async function preloadBlankEstimateCatalogForNewStart() {
+    const requestId = estimateBlankCatalogRequestRef.current + 1;
+    estimateBlankCatalogRequestRef.current = requestId;
+    setEstimateLoading(true);
+    setEstimateError("");
+    setEstimateNotice("");
+
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
+      }
+
+      const companyId = requireSelectedCompanyId();
+      const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
+      if (estimateBlankCatalogRequestRef.current !== requestId) return false;
+
+      const catalog = normalizeAdminItems(itemRows, subitemRows, []);
+      const nextItems = buildEstimateItemsFromTemplate(catalog, "", "empty");
+
+      setEstimateCatalog(catalog);
+      setItems(nextItems);
+      setActiveCategories([]);
+      setOpenCategory(catalog[0]?.id ?? "");
+      setEstimateDraftSource("blank");
+      return true;
+    } catch (error) {
+      if (estimateBlankCatalogRequestRef.current === requestId) {
+        setEstimateError(getFriendlyError(error, "단가표 항목을 불러오지 못했습니다. 조건을 선택하거나 다시 시도해 주세요."));
+      }
+      return false;
+    } finally {
+      if (estimateBlankCatalogRequestRef.current === requestId) {
+        setEstimateLoading(false);
+      }
     }
   }
 
@@ -6489,8 +6930,9 @@ export default function App() {
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true });
       if (error) throw error;
+      const photosWithSignedUrls = await attachSignedPhotoUrls(data ?? []);
       if (estimatePhotoRequestRef.current === subitemId) {
-        setEstimateItemPhotos(sortPhotosWithPrimaryFirst(data ?? []));
+        setEstimateItemPhotos(sortPhotosWithPrimaryFirst(photosWithSignedUrls));
       }
     } catch (error) {
       console.error("[FORMATE estimate item photos]", error);
@@ -6539,7 +6981,7 @@ export default function App() {
         ) : (
           <div className="estimate-item-photo-grid">
             {estimateItemPhotos.map((photo, index) => {
-              const imageUrl = getPhotoPublicUrl(photo);
+              const imageUrl = getPhotoImageUrl(photo);
               const isPrimary = index === 0 && Boolean(photo.is_primary);
               return (
                 <figure className={isPrimary ? "primary" : ""} key={photo.id}>
@@ -6684,7 +7126,7 @@ export default function App() {
       <div className="customer-adjustment-preview">
         <h3>추가금/할인</h3>
         {cleanEstimateAdjustments.length ? (
-          <table>
+          <table className="preview-table customer-adjustment-table">
             <thead>
               <tr>
                 <th>항목</th>
@@ -6716,7 +7158,7 @@ export default function App() {
 
   function renderGeneralEstimateTable() {
     return (
-      <table className="general-estimate-table">
+      <table className="preview-table general-estimate-table">
         <thead>
           <tr>
             <th>시공항목</th>
@@ -6770,7 +7212,7 @@ export default function App() {
         {Object.entries(selectedRowsByCategory).map(([categoryName, rows]) => (
           <section className="detail-estimate-group" key={categoryName}>
             <h3>{categoryName}</h3>
-            <table className="detail-estimate-table">
+            <table className="preview-table detail-estimate-table">
               <thead>
                 <tr>
                   <th>소재/업체</th>
@@ -7037,6 +7479,49 @@ export default function App() {
     setEstimateItemPhotos([]);
     setIsLoadingEstimateItemPhotos(false);
     setEstimateItemPhotosError("");
+    setEstimatePreviewType("general");
+  }
+
+  function resetEstimateDraftForNewStart() {
+    estimateBlankCatalogRequestRef.current += 1;
+    setStep(1);
+    setCondition({
+      size: "",
+      buildType: "",
+      powderRoom: false,
+      dressRoom: false,
+      expanded: false,
+      conditionVariant: "",
+      expansionSpaces: [],
+      occupancy: "",
+    });
+    setItems({});
+    setActiveCategories([]);
+    setOpenCategory("");
+    setCustomerName("");
+    setCustomerPhone("");
+    setAddress("");
+    setWorkDate("");
+    setEstimatePyeong("");
+    setEstimateAdjustments([]);
+    setSiteMemo("");
+    setEstimateVatStatus("부가세 별도");
+    setEstimateIssuedAt(getTodayDateInput());
+    setEstimateConditionVariantLabels({});
+    setConditionLabelEditOpen(false);
+    setConditionLabelDrafts({});
+    setEstimateCatalog([]);
+    setEstimateError("");
+    setEstimateNotice("");
+    setEstimateDraftSource("template");
+    setEstimateConditionEditMode(false);
+    estimatePhotoRequestRef.current = "";
+    setSelectedPhotoSubitemId("");
+    setSelectedPhotoSubitemName("");
+    setEstimateItemPhotos([]);
+    setIsLoadingEstimateItemPhotos(false);
+    setEstimateItemPhotosError("");
+    setPreviewBackPage("items");
     setEstimatePreviewType("general");
   }
 
@@ -7917,13 +8402,25 @@ export default function App() {
     );
   }
 
-  function renderSpecOptionsControl(subitem, options = [], value = "", onChange) {
+  function renderSpecOptionsControl(subitem, options = [], value = "", onChange, optionsConfig = {}) {
+    const manageOptionValue = "__formate_spec_options_manage__";
+    const separatorOptionValue = "__formate_spec_options_separator__";
+    const manageInSelect = Boolean(optionsConfig.manageInSelect);
+    const handleChange = (event) => {
+      if (manageInSelect && event.target.value === manageOptionValue) {
+        event.preventDefault();
+        setActiveSpecOptionsPopoverId((current) => (current === subitem.id ? "" : subitem.id));
+        return;
+      }
+      onChange?.(event);
+    };
+
     return (
-      <div className="spec-options-control">
+      <div className={`spec-options-control ${manageInSelect ? "spec-options-control--select-manage" : ""}`.trim()}>
         <select
           className="spec-options-select"
           value={value}
-          onChange={onChange}
+          onChange={handleChange}
         >
           <option value="">선택</option>
           {options.map((option) => (
@@ -7931,7 +8428,14 @@ export default function App() {
               {formatSpecOptionLabel(option)}
             </option>
           ))}
+          {manageInSelect && (
+            <option value={separatorOptionValue} disabled>
+              -----
+            </option>
+          )}
+          {manageInSelect && <option value={manageOptionValue}>옵션 관리</option>}
         </select>
+        {!manageInSelect && (
         <button
           type="button"
           className="secondary-button compact-button spec-options-manage-button"
@@ -7943,6 +8447,7 @@ export default function App() {
         >
           관리
         </button>
+        )}
         {renderSpecOptionsPopover(subitem)}
       </div>
     );
@@ -8089,6 +8594,1229 @@ export default function App() {
           </button>
         </div>
       </div>
+    );
+  }
+
+  function renderAdminPriceCategorySidebar() {
+    return (
+      <aside className="admin-price-v2-sidebar" aria-label="단가표 대분류">
+        <div className="admin-price-v2-sidebar-header">
+          <span>대분류</span>
+          <strong>{filteredAdminItems.length}개</strong>
+        </div>
+        <div className="admin-price-v2-category-list">
+          {filteredAdminItems.map((item) => {
+            const active = selectedAdminPriceItem?.id === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`admin-price-v2-category-item ${active ? "active" : ""} ${dragItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drop-target" : ""}`.trim()}
+                onClick={() => setSelectedAdminCategoryId(item.id)}
+                onDragOver={(event) => handleAdminItemDragOver(event, item.id)}
+                onDrop={() => reorderAdminItems(item.id)}
+                onDragEnd={clearAdminDragState}
+              >
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="대분류 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminItemDragStart(event, item.id)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <span className="admin-price-v2-category-name">
+                  {item.is_favorite && <Star size={14} fill="currentColor" />}
+                  <span>{item.name}</span>
+                </span>
+                <span className="admin-price-v2-category-count">{(item.subitems ?? []).length}개</span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
+  function renderAdminPriceContext(item) {
+    if (!item) return null;
+    return (
+      <div className="admin-price-v2-context">
+        <div className="admin-price-v2-context-main">
+          <span className="admin-price-v2-context-label">선택 대분류</span>
+          <input
+            value={item.name}
+            aria-label="대분류명"
+            onChange={(event) =>
+              setAdminItems((current) =>
+                current.map((entry) =>
+                  entry.id === item.id ? { ...entry, name: event.target.value } : entry
+                )
+              )
+            }
+            onInput={() => markAdminCatalogDirty()}
+            onBlur={(event) => renameAdminItem(item.id, event.target.value)}
+          />
+          <span className="items-v2-badge items-v2-badge--muted">
+            {item.item_type === "flat" ? "단일 항목" : "소재형"}
+          </span>
+          <span className="items-v2-badge items-v2-badge--muted">{(item.subitems ?? []).length}개 소재</span>
+        </div>
+        <div className="admin-price-v2-context-actions">
+          <button
+            type="button"
+            className={`items-v2-icon-button ${item.is_favorite ? "active" : ""}`.trim()}
+            title="즐겨찾기"
+            disabled={adminSaving}
+            onClick={() => toggleAdminFavorite(item)}
+          >
+            <Star size={18} strokeWidth={1.5} fill={item.is_favorite ? "currentColor" : "none"} />
+          </button>
+          <button
+            type="button"
+            className="danger-button admin-price-v2-danger-button"
+            title="대분류 삭제"
+            disabled={adminSaving}
+            onClick={() => deleteAdminItem(item.id)}
+          >
+            <Trash2 size={18} strokeWidth={1.5} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderAdminPriceHeader(item, isFlooring = false) {
+    return (
+      <div className={`admin-price-table-header price-table-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"} ${isFlooring ? "flooring-price-table-header" : ""}`.trim()}>
+        {item.item_type !== "flat" && <span />}
+        <span>소재명</span>
+        <span>원가</span>
+        <span>원가 단위</span>
+        <span>규격/두께</span>
+        <span>단위</span>
+        <span>단가</span>
+        <span>인건비(빈집)</span>
+        <span>인건비(살림집)</span>
+        {item.item_type !== "flat" && <span>삭제</span>}
+      </div>
+    );
+  }
+
+  function renderAdminPriceSubitemCells(subitem) {
+    return (
+      <>
+        <label className="price-internal-field price-number-field">
+          <span className="field-label">원가</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(subitem.cost_price)}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, { cost_price: stripNumberInputFormatting(event.target.value) })
+            }
+          />
+        </label>
+        <label className="price-internal-field price-unit-field">
+          <span className="field-label">원가 단위</span>
+          <select
+            value={normalizeUnitOptionValue(subitem.cost_unit)}
+            onChange={(event) => updateLocalSubitemPrice(subitem.id, { cost_unit: normalizeUnitOptionValue(event.target.value) })}
+          >
+            <option value="">선택</option>
+            {getUnitSelectOptions(subitem.cost_unit).map((unit) => (
+              <option key={unit} value={unit}>
+                {unit}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="spec-options-field">
+          <span className="field-label">규격/두께</span>
+          {(() => {
+            const specOptions = getSpecSelectOptions(subitem);
+            const specValue = getSpecSelectValue(subitem, specOptions);
+            return renderSpecOptionsControl(subitem, specOptions, specValue, (event) =>
+              updateLocalSubitemDraft(subitem.id, { selected_spec_option: event.target.value })
+            );
+          })()}
+        </label>
+        <label className="price-unit-field">
+          <span className="field-label">단위</span>
+          <select
+            value={normalizeUnitOptionValue(subitem.unit)}
+            onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
+          >
+            {getUnitSelectOptions(subitem.unit).map((unit) => (
+              <option key={unit} value={unit}>
+                {unit}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="field-label">단가</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(subitem.unit_price)}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, { unit_price: stripNumberInputFormatting(event.target.value) })
+            }
+          />
+        </label>
+        <label className="price-number-field price-sale-field">
+          <span className="field-label">인건비(빈집)</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(getLaborRateEmptyValue(subitem))}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, {
+                labor_rate_empty: stripNumberInputFormatting(event.target.value),
+                labor_rate: stripNumberInputFormatting(event.target.value),
+              })
+            }
+          />
+        </label>
+        <label className="price-number-field price-sale-field">
+          <span className="field-label">인건비(살림집)</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(getLaborRateOccupiedValue(subitem))}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, { labor_rate_occupied: stripNumberInputFormatting(event.target.value) })
+            }
+          />
+        </label>
+      </>
+    );
+  }
+
+  function renderAdminPriceHeaderV2(item, isFlooring = false) {
+    return (
+      <div className={`admin-price-table-header admin-price-v2-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"} ${isFlooring ? "flooring-price-table-header" : ""}`.trim()}>
+        {item.item_type !== "flat" && <span />}
+        <span>소재명</span>
+        <span>규격/두께</span>
+        <span>단위</span>
+        <span>단가</span>
+        <span>인건비(빈집)</span>
+        <span>인건비(살림집)</span>
+        {item.item_type !== "flat" && <span>삭제</span>}
+        <span />
+      </div>
+    );
+  }
+
+  function renderAdminPricePrimarySubitemCells(subitem) {
+    return (
+      <>
+        <label className="spec-options-field">
+          <span className="field-label">규격/두께</span>
+          {(() => {
+            const specOptions = getSpecSelectOptions(subitem);
+            const specValue = getSpecSelectValue(subitem, specOptions);
+            return renderSpecOptionsControl(
+              subitem,
+              specOptions,
+              specValue,
+              (event) => updateLocalSubitemDraft(subitem.id, { selected_spec_option: event.target.value }),
+              { manageInSelect: true }
+            );
+          })()}
+        </label>
+        <label className="price-unit-field">
+          <span className="field-label">단위</span>
+          <select
+            value={normalizeUnitOptionValue(subitem.unit)}
+            onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
+          >
+            {getUnitSelectOptions(subitem.unit).map((unit) => (
+              <option key={unit} value={unit}>
+                {unit}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="field-label">단가</span>
+          <input
+            className={isEmptyOrZeroDisplayValue(subitem.unit_price) ? "items-v2-muted-value" : ""}
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(subitem.unit_price)}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, { unit_price: stripNumberInputFormatting(event.target.value) })
+            }
+          />
+        </label>
+        <label className="price-number-field price-sale-field">
+          <span className="field-label">인건비(빈집)</span>
+          <input
+            className={isEmptyOrZeroDisplayValue(getLaborRateEmptyValue(subitem)) ? "items-v2-muted-value" : ""}
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(getLaborRateEmptyValue(subitem))}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, {
+                labor_rate_empty: stripNumberInputFormatting(event.target.value),
+                labor_rate: stripNumberInputFormatting(event.target.value),
+              })
+            }
+          />
+        </label>
+        <label className="price-number-field price-sale-field">
+          <span className="field-label">인건비(살림집)</span>
+          <input
+            className={isEmptyOrZeroDisplayValue(getLaborRateOccupiedValue(subitem)) ? "items-v2-muted-value" : ""}
+            type="text"
+            inputMode="numeric"
+            value={formatMoneyInputValue(getLaborRateOccupiedValue(subitem))}
+            onChange={(event) =>
+              updateLocalSubitemPrice(subitem.id, { labor_rate_occupied: stripNumberInputFormatting(event.target.value) })
+            }
+          />
+        </label>
+      </>
+    );
+  }
+
+  function renderAdminPriceExpandButton(subitem) {
+    return (
+      <button
+        type="button"
+        className="items-v2-icon-button admin-price-v2-expand-button"
+        aria-label={subitem.expanded ? "원가 정보 닫기" : "원가 정보 열기"}
+        title={subitem.expanded ? "원가 정보 닫기" : "원가 정보 열기"}
+        onClick={() => updateLocalSubitemDraft(subitem.id, { expanded: !subitem.expanded })}
+      >
+        {subitem.expanded ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
+      </button>
+    );
+  }
+
+  function renderAdminPriceExpandedRow(subitem, itemType = "itemized") {
+    if (!subitem?.expanded) return null;
+    return (
+      <div className={`admin-price-v2-expanded-row ${itemType === "flat" ? "flat-price-table-header" : ""}`.trim()}>
+        <div className="items-v2-detail-panel admin-price-v2-detail-panel">
+          <label>
+            <span>원가</span>
+            <div className="items-v2-money-field">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={formatMoneyInputValue(subitem.cost_price)}
+                onChange={(event) =>
+                  updateLocalSubitemPrice(subitem.id, { cost_price: stripNumberInputFormatting(event.target.value) })
+                }
+              />
+              <em>원</em>
+            </div>
+          </label>
+          <label>
+            <span>원가 단위</span>
+            <select
+              className="items-v2-inline-select admin-price-v2-detail-select"
+              value={normalizeUnitOptionValue(subitem.cost_unit)}
+              onChange={(event) => updateLocalSubitemPrice(subitem.id, { cost_unit: normalizeUnitOptionValue(event.target.value) })}
+            >
+              <option value="">선택</option>
+              {getUnitSelectOptions(subitem.cost_unit).map((unit) => (
+                <option key={unit} value={unit}>
+                  {unit}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+    );
+  }
+
+  function renderAdminPriceRows(item) {
+    const itemSubitems = getVisibleAdminSubitems(item);
+    if (isFlooringThicknessItem(item)) {
+      return (
+        <div className="price-table-list admin-price-v2-grid-list">
+          {renderAdminPriceHeaderV2(item, true)}
+          {getFlooringThicknessGroups(itemSubitems).map((group) => {
+            const optionEntries = getFlooringOptionEntries(group);
+            const optionIds = optionEntries.map((option) => option.id);
+            const activeThickness = getAdminFlooringActiveThickness(item.id, group);
+            const activeSubitem = group.options[activeThickness] ?? optionEntries[0];
+            if (!activeSubitem) return null;
+            return (
+              <div
+                key={group.baseName}
+                className={`admin-value-row flooring-value-row common-price-row price-table-row admin-price-v2-grid ${activeSubitem.expanded ? "expanded" : ""} ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                data-subitem-id={activeSubitem.id}
+                onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
+                onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
+                onDragEnd={clearAdminDragState}
+              >
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="소재 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, activeSubitem.id, group.baseName)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <label className="admin-material-name-field">
+                  <span className="field-label">소재명</span>
+                  <input
+                    value={group.baseName}
+                    placeholder={MATERIAL_NAME_PLACEHOLDER}
+                    onChange={(event) => updateLocalFlooringGroupBaseName(optionIds, event.target.value)}
+                    onBlur={(event) => renameAdminFlooringGroup(item.id, optionIds, event.target.value)}
+                  />
+                </label>
+                {renderAdminPricePrimarySubitemCells(activeSubitem)}
+                <button
+                  className="danger-button admin-price-v2-danger-button"
+                  disabled={adminSaving}
+                  onClick={() => deleteAdminSubitem(activeSubitem.id)}
+                >
+                  <Trash2 size={18} strokeWidth={1.5} />
+                </button>
+                {renderAdminPriceExpandButton(activeSubitem)}
+                {renderAdminPriceExpandedRow(activeSubitem)}
+              </div>
+            );
+          })}
+          {!itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
+          {item.item_type !== "flat" && (
+            <div className="admin-add-subitem-row admin-price-v2-add-row">
+              <span>{item.name}에 소재 추가</span>
+              <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+                <Plus size={18} /> 소재 추가
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} price-table-list admin-price-v2-grid-list`.trim()}>
+        {renderAdminPriceHeaderV2(item)}
+        {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
+          <div
+            key={subitem.id}
+            className={`admin-value-row common-price-row price-table-row admin-price-v2-grid ${subitem.expanded ? "expanded" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+            data-subitem-id={subitem.id}
+            onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
+            onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
+            onDragEnd={clearAdminDragState}
+          >
+            {item.item_type === "flat" ? (
+              <strong className="flat-subitem-name">{item.name}</strong>
+            ) : (
+              <>
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="소재 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, subitem.id)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <label className="admin-material-name-field">
+                  <span className="field-label">소재명</span>
+                  <input
+                    value={subitem.name}
+                    placeholder={MATERIAL_NAME_PLACEHOLDER}
+                    onChange={(event) =>
+                      setAdminItems((current) =>
+                        current.map((entry) =>
+                          entry.id === item.id
+                            ? {
+                                ...entry,
+                                subitems: entry.subitems.map((entrySubitem) =>
+                                  entrySubitem.id === subitem.id
+                                    ? { ...entrySubitem, name: event.target.value }
+                                    : entrySubitem
+                                ),
+                              }
+                            : entry
+                        )
+                      )
+                    }
+                    onInput={() => markAdminCatalogDirty()}
+                    onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
+                  />
+                </label>
+              </>
+            )}
+            {renderAdminPricePrimarySubitemCells(subitem)}
+            {item.item_type !== "flat" && (
+              <button
+                className="danger-button admin-price-v2-danger-button"
+                disabled={adminSaving}
+                onClick={() => deleteAdminSubitem(subitem.id)}
+              >
+                <Trash2 size={18} strokeWidth={1.5} />
+              </button>
+            )}
+            {renderAdminPriceExpandButton(subitem)}
+            {renderAdminPriceExpandedRow(subitem, item.item_type)}
+          </div>
+        ))}
+        {item.item_type !== "flat" && !itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
+        {item.item_type !== "flat" && (
+          <div className="admin-add-subitem-row admin-price-v2-add-row">
+            <span>{item.name}에 소재 추가</span>
+            <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+              <Plus size={18} /> 소재 추가
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderAdminPricesWorkbench() {
+    const item = selectedAdminPriceItem;
+
+    return renderAppShell(
+      <main className="admin-price-v2-page">
+        {renderAdminPriceCategorySidebar()}
+        <section className="admin-price-v2-workspace">
+          <header className="admin-price-v2-header">
+            <div className="items-v2-titleline">
+              <h1>단가표 관리</h1>
+              <span>업체 공통 단가와 인건비 기준</span>
+            </div>
+            <div className="items-v2-header-actions">
+              <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
+                {getAutoSaveStatusLabel()}
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<RefreshCcw />}
+                disabled={adminLoading || adminSaving}
+                onClick={() => requestAdminCatalogLeave(() => fetchAdminItems({ mode: "prices" }))}
+              >
+                되돌리기
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Save />}
+                disabled={adminLoading || adminSaving}
+                onClick={() => saveAdminPrices({ target: "prices" })}
+              >
+                저장하기
+              </Button>
+            </div>
+          </header>
+
+          <div className="items-v2-toolbar admin-price-v2-toolbar">
+            <label className="admin-search-field admin-price-v2-search">
+              <Search size={17} />
+              <input
+                value={adminSearch}
+                onChange={(event) => setAdminSearch(event.target.value)}
+                placeholder="대분류 또는 소재 검색"
+              />
+            </label>
+            <label className="admin-favorite-filter admin-price-v2-favorite">
+              <input
+                type="checkbox"
+                checked={adminFavoriteOnly}
+                onChange={(event) => setAdminFavoriteOnly(event.target.checked)}
+              />
+              즐겨찾기만 보기
+            </label>
+          </div>
+
+          {adminLoading && <div className="status-box">불러오는 중...</div>}
+          {adminSaving && <div className="status-box">저장 중...</div>}
+          {adminNotice && <div className="status-box">{adminNotice}</div>}
+          {adminError && <div className="error-box">{adminError}</div>}
+
+          {item ? (
+            <section className="items-v2-table-section admin-price-v2-table-section">
+              <div className="admin-price-v2-table-scroll">
+                {renderAdminPriceRows(item)}
+              </div>
+            </section>
+          ) : (
+            <section className="items-v2-table-section admin-price-v2-table-section">
+              <div className="items-v2-section-header admin-price-v2-section-header">
+                <div>
+                  <h2>단가표</h2>
+                  <p>표시할 대분류가 없습니다.</p>
+                </div>
+              </div>
+              <EmptyState
+                title="표시할 대분류가 없습니다."
+                description="검색 조건을 바꾸거나 대분류를 추가하세요."
+              />
+            </section>
+          )}
+        </section>
+      </main>,
+      { className: "formate-app-shell--admin-price-v2" }
+    );
+  }
+
+  function renderAdminItemsCategorySidebar() {
+    return (
+      <aside className="admin-price-v2-sidebar admin-items-v2-sidebar" aria-label="견적 템플릿 대분류">
+        <div className="admin-price-v2-sidebar-header">
+          <span>대분류</span>
+          <strong>{filteredAdminItems.length}개</strong>
+        </div>
+        <div className="admin-price-v2-category-list">
+          {filteredAdminItems.map((item) => {
+            const active = selectedAdminTemplateItem?.id === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`admin-price-v2-category-item ${active ? "active" : ""} ${dragItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drop-target" : ""}`.trim()}
+                onClick={() => setSelectedAdminCategoryId(item.id)}
+                onDragOver={(event) => handleAdminItemDragOver(event, item.id)}
+                onDrop={() => reorderAdminItems(item.id)}
+                onDragEnd={clearAdminDragState}
+              >
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="대분류 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminItemDragStart(event, item.id)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <span className="admin-price-v2-category-name">
+                  {item.is_favorite && <Star size={14} fill="currentColor" />}
+                  <span>{item.name}</span>
+                </span>
+                <span className="admin-price-v2-category-count">{(item.subitems ?? []).length}개</span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
+  function renderAdminTemplateConditionSidebar() {
+    const currentConditionKey = currentAdminTemplateCondition ? getTemplateConditionKey(currentAdminTemplateCondition) : "";
+
+    return (
+      <aside className="admin-price-v2-sidebar admin-items-v2-sidebar admin-template-condition-sidebar" aria-label="기본 견적 조건 목록">
+        <div className="admin-price-v2-sidebar-header">
+          <span>기본 견적 조건</span>
+          <strong>총 {orderedAdminTemplates.length}개</strong>
+        </div>
+        <div className="admin-price-v2-category-list admin-template-condition-list">
+          {orderedAdminTemplates.map((template) => {
+            const templateKey = getTemplateConditionKey(template);
+            const active = currentAdminTemplateId === template.id || currentConditionKey === templateKey;
+            return (
+              <div
+                key={template.id}
+                className={`admin-price-v2-category-item admin-template-condition-item ${active ? "active" : ""} ${newlyCreatedAdminTemplateKey === templateKey ? "newly-added" : ""} ${dragAdminTemplateId === template.id ? "dragging" : ""} ${dragOverAdminTemplateId === template.id ? "drop-target" : ""}`.trim()}
+                role="button"
+                tabIndex={0}
+                onClick={() => requestAdminCatalogLeave(() => loadAdminTemplate(template))}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    requestAdminCatalogLeave(() => loadAdminTemplate(template));
+                  }
+                }}
+                onDragOver={(event) => handleAdminTemplateDragOver(event, template.id)}
+                onDrop={() => reorderAdminTemplates(template.id)}
+                onDragEnd={clearAdminTemplateDragState}
+              >
+                <span
+                  className="drag-handle admin-price-v2-drag-handle enabled"
+                  title="조건 순서 변경"
+                  draggable={!adminSaving}
+                  onClick={(event) => event.stopPropagation()}
+                  onDragStart={(event) => handleAdminTemplateDragStart(event, template.id)}
+                  onDragEnd={clearAdminTemplateDragState}
+                >
+                  ::
+                </span>
+                <span className="admin-price-v2-category-name admin-template-condition-name">
+                  <span>{makeTemplateLabel(template, conditionVariantLabelMap)}</span>
+                </span>
+                <button
+                  type="button"
+                  className="template-delete-button admin-template-condition-delete"
+                  disabled={adminLoading || adminSaving || templateDeleteLoading}
+                  aria-label={`${makeTemplateLabel(template, conditionVariantLabelMap)} 삭제`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openTemplateDeleteDialog(template);
+                  }}
+                >
+                  <Trash2 size={14} strokeWidth={1.5} />
+                </button>
+              </div>
+            );
+          })}
+          {!orderedAdminTemplates.length && (
+            <div className="admin-template-condition-empty">
+              <strong>저장된 조건이 없습니다.</strong>
+              <span>새 조건을 만들면 기본 수량과 인원을 입력할 수 있습니다.</span>
+            </div>
+          )}
+        </div>
+        <div className="admin-template-condition-sidebar-footer">
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<Plus />}
+            disabled={adminLoading || adminSaving}
+            onClick={openAdminTemplateConditionDrawer}
+          >
+            새 조건 만들기
+          </Button>
+        </div>
+      </aside>
+    );
+  }
+
+  function renderAdminItemsCategoryStrip() {
+    if (!canEditConditionQuantities) return null;
+
+    return (
+      <aside className="admin-items-v2-category-panel" aria-label="대분류 선택">
+        <div className="admin-items-v2-category-panel-head">
+          <span>대분류</span>
+          <strong>{filteredAdminItems.length}개</strong>
+        </div>
+        <div className="admin-items-v2-category-panel-list">
+          {filteredAdminItems.map((item) => {
+            const active = selectedAdminTemplateItem?.id === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`admin-price-v2-category-item admin-items-v2-category-chip ${active ? "active" : ""} ${dragItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drop-target" : ""}`.trim()}
+                onClick={() => setSelectedAdminCategoryId(item.id)}
+                onDragOver={(event) => handleAdminItemDragOver(event, item.id)}
+                onDrop={() => reorderAdminItems(item.id)}
+                onDragEnd={clearAdminDragState}
+              >
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="대분류 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminItemDragStart(event, item.id)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <span className="admin-price-v2-category-name">
+                  {item.is_favorite && <Star size={14} fill="currentColor" />}
+                  <span>{item.name}</span>
+                </span>
+                <span className="admin-price-v2-category-count">{(item.subitems ?? []).length}개</span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
+  function renderAdminItemsHeaderV2(item, isFlooring = false) {
+    return (
+      <div className={`admin-quantity-table-header admin-items-v2-table-header ${item.item_type === "flat" ? "flat-quantity-table-header" : "standard-quantity-table-header"} ${isFlooring ? "flooring-quantity-table-header" : ""}`.trim()}>
+        {item.item_type !== "flat" && <span />}
+        <span>소재명</span>
+        <span>규격/두께</span>
+        <span>수량</span>
+        <span>인원</span>
+        {item.item_type !== "flat" && <span>삭제</span>}
+      </div>
+    );
+  }
+
+  function renderAdminItemsQuantityCells(subitem) {
+    return (
+      <>
+        <label className="admin-items-v2-number-cell">
+          <span className="field-label">수량</span>
+          <input
+            className="items-v2-inline-input items-v2-inline-input--number"
+            type="text"
+            inputMode="decimal"
+            placeholder="0"
+            value={subitem.quantity ?? ""}
+            onChange={(event) => updateLocalSubitemPrice(subitem.id, { quantity: event.target.value })}
+          />
+        </label>
+        <label className="admin-items-v2-number-cell">
+          <span className="field-label">인원</span>
+          <input
+            className="items-v2-inline-input items-v2-inline-input--number"
+            type="text"
+            inputMode="decimal"
+            placeholder="0"
+            value={subitem.labor_count ?? ""}
+            onChange={(event) => updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })}
+          />
+        </label>
+      </>
+    );
+  }
+
+  function renderAdminItemsRows(item) {
+    const itemSubitems = getVisibleAdminSubitems(item);
+    if (isFlooringThicknessItem(item)) {
+      return (
+        <div className="quantity-table-list admin-items-v2-grid-list">
+          {renderAdminItemsHeaderV2(item, true)}
+          {getFlooringThicknessGroups(itemSubitems).map((group) => {
+            const optionEntries = getFlooringOptionEntries(group);
+            const optionIds = optionEntries.map((option) => option.id);
+            const activeThickness = getAdminFlooringActiveThickness(item.id, group);
+            const activeSubitem = group.options[activeThickness] ?? optionEntries[0];
+            if (!activeSubitem) return null;
+            return (
+              <div
+                key={group.baseName}
+                className={`admin-value-row flooring-value-row condition-quantity-row quantity-table-row ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                data-subitem-id={activeSubitem.id}
+                onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
+                onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
+                onDragEnd={clearAdminDragState}
+              >
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="소재 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, activeSubitem.id, group.baseName)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <label className="admin-material-name-field">
+                  <span className="field-label">소재명</span>
+                  <input
+                    value={group.baseName}
+                    placeholder={MATERIAL_NAME_PLACEHOLDER}
+                    onChange={(event) => updateLocalFlooringGroupBaseName(optionIds, event.target.value)}
+                    onBlur={(event) => renameAdminFlooringGroup(item.id, optionIds, event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span className="field-label">규격/두께</span>
+                  <select
+                    value={activeThickness}
+                    onChange={(event) => selectAdminFlooringThickness(item.id, group.baseName, event.target.value)}
+                  >
+                    {optionEntries.map((option) => option.thickness).map((thickness) => (
+                      <option key={thickness} value={thickness}>
+                        {formatFlooringThickness(thickness)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {renderAdminItemsQuantityCells(activeSubitem)}
+                <button
+                  className="danger-button admin-price-v2-danger-button"
+                  disabled={adminSaving}
+                  onClick={() => deleteAdminSubitem(activeSubitem.id)}
+                >
+                  <Trash2 size={18} strokeWidth={1.5} />
+                </button>
+              </div>
+            );
+          })}
+          {!itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
+          {item.item_type !== "flat" && (
+            <div className="admin-add-subitem-row admin-price-v2-add-row">
+              <span>{item.name}에 소재 추가</span>
+              <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+                <Plus size={18} /> 소재 추가
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} quantity-table-list admin-items-v2-grid-list`.trim()}>
+        {renderAdminItemsHeaderV2(item)}
+        {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
+          <div
+            key={subitem.id}
+            className={`admin-value-row condition-quantity-row quantity-table-row ${item.item_type !== "flat" ? "itemized-quantity-row" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+            data-subitem-id={subitem.id}
+            onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
+            onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
+            onDragEnd={clearAdminDragState}
+          >
+            {item.item_type === "flat" ? (
+              <strong className="flat-subitem-name">{item.name}</strong>
+            ) : (
+              <>
+                <span
+                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                  title="소재 순서 변경"
+                  draggable={canReorderAdminCatalog && !adminSaving}
+                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, subitem.id)}
+                  onDragEnd={clearAdminDragState}
+                >
+                  ::
+                </span>
+                <label className="admin-material-name-field">
+                  <span className="field-label">소재명</span>
+                  <input
+                    value={subitem.name}
+                    placeholder={MATERIAL_NAME_PLACEHOLDER}
+                    onChange={(event) =>
+                      setAdminItems((current) =>
+                        current.map((entry) =>
+                          entry.id === item.id
+                            ? {
+                                ...entry,
+                                subitems: entry.subitems.map((entrySubitem) =>
+                                  entrySubitem.id === subitem.id
+                                    ? { ...entrySubitem, name: event.target.value }
+                                    : entrySubitem
+                                ),
+                              }
+                            : entry
+                        )
+                      )
+                    }
+                    onInput={() => markAdminCatalogDirty()}
+                    onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
+                  />
+                </label>
+              </>
+            )}
+            <span className="admin-items-v2-muted-cell">-</span>
+            {renderAdminItemsQuantityCells(subitem)}
+            {item.item_type !== "flat" && (
+              <button
+                className="danger-button admin-price-v2-danger-button"
+                disabled={adminSaving}
+                onClick={() => deleteAdminSubitem(subitem.id)}
+              >
+                <Trash2 size={18} strokeWidth={1.5} />
+              </button>
+            )}
+          </div>
+        ))}
+        {item.item_type !== "flat" && !itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
+        {item.item_type !== "flat" && (
+          <div className="admin-add-subitem-row admin-price-v2-add-row">
+            <span>{item.name}에 소재 추가</span>
+            <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+              <Plus size={18} /> 소재 추가
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderAdminTemplateConditionDrawer() {
+    if (!adminTemplateConditionDrawerOpen) return null;
+    const draftConditionLabel = adminTemplateConditionDraftValue
+      ? makeTemplateLabel(adminTemplateConditionDraftValue, conditionVariantLabelMap)
+      : "선택중";
+
+    return (
+      <aside className="estimate-condition-drawer admin-template-condition-drawer" aria-label="기본 견적 조건 만들기">
+        <div className="estimate-condition-drawer__header">
+          <div>
+            <span>기본 견적 조건 만들기</span>
+            <strong>{draftConditionLabel}</strong>
+          </div>
+          <Button variant="tertiary" size="sm" onClick={closeAdminTemplateConditionDrawer}>
+            닫기
+          </Button>
+        </div>
+
+        <div className="condition-static-grid estimate-condition-drawer__fields">
+          <div className="condition-static-field">
+            <p className="field-label">평수</p>
+            <div className="custom-select admin-pyeong-select">
+              <button
+                type="button"
+                className={`custom-select-trigger ${adminTemplateConditionDraft.pyeong ? "has-value" : ""} ${adminPyeongDropdownOpen ? "open" : ""}`.trim()}
+                onClick={() => setAdminPyeongDropdownOpen((current) => !current)}
+                aria-expanded={adminPyeongDropdownOpen}
+              >
+                <span>{adminTemplateConditionDraft.pyeong ? `${adminTemplateConditionDraft.pyeong}평` : "평수 선택"}</span>
+                <span aria-hidden="true">⌄</span>
+              </button>
+              {adminPyeongDropdownOpen &&
+                renderPyeongDropdownMenu(adminTemplateConditionDraft.pyeong, (value) => {
+                  updateAdminTemplateConditionDraft({ pyeong: value });
+                  setAdminPyeongDropdownOpen(false);
+                })}
+            </div>
+          </div>
+
+          <div className="condition-static-field">
+            <p className="field-label">주택 유형</p>
+            <div className="segmented flush">
+              <button
+                type="button"
+                className={adminTemplateConditionDraft.buildType === "new" ? "selected" : ""}
+                onClick={() => updateAdminTemplateConditionDraft({ buildType: "new" })}
+              >
+                확장형
+              </button>
+              <button
+                type="button"
+                className={adminTemplateConditionDraft.buildType === "old" ? "selected" : ""}
+                onClick={() => updateAdminTemplateConditionDraft({ buildType: "old" })}
+              >
+                구형
+              </button>
+            </div>
+          </div>
+
+          {adminTemplateConditionDraft.buildType === "new" && (
+            <div className="condition-static-field condition-static-wide">
+              <div className="condition-variant-card-head">
+                <p className="field-label">확장형 세부 유형</p>
+              </div>
+              <div className="chips">
+                {EXTENDED_VARIANTS.map((variant) => (
+                  <button
+                    key={variant}
+                    type="button"
+                    className={`condition-variant-option ${normalizeConditionVariant("new", false, adminTemplateConditionDraft.conditionVariant) === variant ? "selected" : ""}`.trim()}
+                    onClick={() => updateAdminTemplateConditionDraft({ conditionVariant: variant })}
+                  >
+                    <span>{getConditionVariantLabel(variant, conditionVariantLabelMap) || variant}</span>
+                    {getConditionVariantLabel(variant, conditionVariantLabelMap) && <small>{variant}</small>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {adminTemplateConditionDraft.buildType === "old" && (
+            <>
+              <div className="condition-static-field">
+                <p className="field-label">확장 여부</p>
+                <div className="segmented flush">
+                  <button
+                    type="button"
+                    className={!adminTemplateConditionDraft.hasExtension ? "selected" : ""}
+                    onClick={() => updateAdminTemplateConditionDraft({ hasExtension: false })}
+                  >
+                    확장 없음
+                  </button>
+                  <button
+                    type="button"
+                    className={adminTemplateConditionDraft.hasExtension ? "selected" : ""}
+                    onClick={() => updateAdminTemplateConditionDraft({ hasExtension: true })}
+                  >
+                    확장 있음
+                  </button>
+                </div>
+              </div>
+              {adminTemplateConditionDraft.hasExtension ? (
+                <div className="condition-static-field condition-static-wide">
+                  <div className="condition-variant-card-head">
+                    <p className="field-label">구형 세부 유형</p>
+                  </div>
+                  <div className="chips">
+                    {OLD_EXTENDED_VARIANTS.map((variant) => (
+                      <button
+                        key={variant}
+                        type="button"
+                        className={`condition-variant-option ${normalizeConditionVariant("old", true, adminTemplateConditionDraft.conditionVariant) === variant ? "selected" : ""}`.trim()}
+                        onClick={() => updateAdminTemplateConditionDraft({ conditionVariant: variant })}
+                      >
+                        <span>{getConditionVariantLabel(variant, conditionVariantLabelMap) || variant}</span>
+                        {getConditionVariantLabel(variant, conditionVariantLabelMap) && <small>{variant}</small>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="condition-static-field condition-static-wide">
+                  <div className="condition-static-note">
+                    확장 없음은 <strong>{formatConditionVariantLabel(OLD_NO_EXTENSION_VARIANT, conditionVariantLabelMap)}</strong> 기준으로 저장됩니다.
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {adminError && <div className="error-box admin-template-condition-drawer-error">{adminError}</div>}
+
+        <div className="estimate-condition-drawer__actions">
+          <Button
+            variant="primary"
+            disabled={adminLoading || adminSaving || !adminTemplateConditionDraftValue}
+            onClick={() => requestAdminCatalogLeave(() => createAdminTemplateFromDrawer())}
+          >
+            {adminSaving ? "만드는 중..." : "만들기"}
+          </Button>
+          <Button variant="secondary" disabled={adminLoading || adminSaving} onClick={closeAdminTemplateConditionDrawer}>
+            취소
+          </Button>
+        </div>
+      </aside>
+    );
+  }
+
+  function renderAdminItemsWorkbench() {
+    const item = selectedAdminTemplateItem;
+    const showAdminItemsWorkbenchLoading = adminLoading && !adminConditionLoaded && !currentAdminTemplateId;
+
+    if (showAdminItemsWorkbenchLoading) {
+      return renderAppShell(
+        <main className="admin-price-v2-page admin-items-v2-page admin-items-v2-page--loading">
+          <aside className="admin-price-v2-sidebar admin-items-v2-sidebar admin-template-condition-sidebar" aria-label="기본 견적 조건 목록 로딩">
+            <div className="admin-price-v2-sidebar-header">
+              <span>기본 견적 조건</span>
+              <strong>불러오는 중</strong>
+            </div>
+            <div className="admin-price-v2-category-list admin-template-condition-list">
+              <div className="admin-items-v2-loading-line wide" />
+              <div className="admin-items-v2-loading-line" />
+              <div className="admin-items-v2-loading-line short" />
+            </div>
+            <div className="admin-template-condition-sidebar-footer">
+              <Button variant="secondary" size="sm" leftIcon={<Plus />} disabled>
+                새 조건 만들기
+              </Button>
+            </div>
+          </aside>
+          <aside className="admin-items-v2-category-panel" aria-label="대분류 목록 로딩">
+            <div className="admin-items-v2-category-panel-head">
+              <span>대분류</span>
+              <strong>불러오는 중</strong>
+            </div>
+            <div className="admin-items-v2-category-panel-list">
+              <div className="admin-items-v2-loading-line wide" />
+              <div className="admin-items-v2-loading-line" />
+              <div className="admin-items-v2-loading-line" />
+              <div className="admin-items-v2-loading-line short" />
+            </div>
+          </aside>
+          <section className="admin-price-v2-workspace admin-items-v2-workspace">
+            <header className="admin-price-v2-header admin-items-v2-header">
+              <div className="items-v2-titleline">
+                <h1>기본 견적 설정</h1>
+                <span>저장된 기본 견적 조건을 불러오는 중입니다.</span>
+              </div>
+            </header>
+            <div className="items-v2-toolbar admin-price-v2-toolbar admin-items-v2-toolbar">
+              <div className="admin-items-v2-loading-line toolbar" />
+            </div>
+            <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
+              <div className="admin-price-v2-table-scroll">
+                <div className="admin-items-v2-loading-table">
+                  <div className="admin-items-v2-loading-row" />
+                  <div className="admin-items-v2-loading-row" />
+                  <div className="admin-items-v2-loading-row" />
+                  <div className="admin-items-v2-loading-row" />
+                </div>
+              </div>
+            </section>
+          </section>
+        </main>,
+        { className: "formate-app-shell--admin-items-v2" }
+      );
+    }
+
+    return renderAppShell(
+      <main className={`admin-price-v2-page admin-items-v2-page ${adminTemplateConditionDrawerOpen ? "admin-items-v2-page--drawer-open" : ""}`.trim()}>
+        {renderAdminTemplateConditionSidebar()}
+        {renderAdminItemsCategoryStrip()}
+        <section className="admin-price-v2-workspace admin-items-v2-workspace">
+          <header className="admin-price-v2-header admin-items-v2-header">
+            <div className="items-v2-titleline">
+              <h1>기본 견적 설정</h1>
+              <span>{currentAdminConditionLabel ? `현재 관리 중: ${currentAdminConditionLabel}` : "조건을 선택하거나 새 조건을 만드세요."}</span>
+            </div>
+            <div className="items-v2-header-actions">
+              <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
+                {getAutoSaveStatusLabel()}
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<RefreshCcw />}
+                disabled={adminLoading || adminSaving || !currentAdminTemplateCondition}
+                onClick={() => requestAdminCatalogLeave(() => fetchAdminItems({ mode: "condition", condition: currentAdminTemplateCondition }))}
+              >
+                되돌리기
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Save />}
+                disabled={adminLoading || adminSaving || !canEditConditionQuantities}
+                onClick={() => saveAdminPrices({ target: "quantities", stayOnPage: true })}
+              >
+                저장하기
+              </Button>
+            </div>
+          </header>
+
+          <div className="items-v2-toolbar admin-price-v2-toolbar admin-items-v2-toolbar">
+            <label className="admin-search-field admin-price-v2-search">
+              <Search size={17} />
+              <input
+                value={adminSearch}
+                onChange={(event) => setAdminSearch(event.target.value)}
+                placeholder="대분류 또는 소재 검색"
+              />
+            </label>
+            <label className="admin-favorite-filter admin-price-v2-favorite">
+              <input
+                type="checkbox"
+                checked={adminFavoriteOnly}
+                onChange={(event) => setAdminFavoriteOnly(event.target.checked)}
+              />
+              즐겨찾기만 보기
+            </label>
+          </div>
+
+          {adminLoading && <div className="status-box">불러오는 중...</div>}
+          {adminSaving && <div className="status-box">저장 중...</div>}
+          {adminNotice && <div className="status-box">{adminNotice}</div>}
+          {adminError && <div className="error-box">{adminError}</div>}
+
+          {item ? (
+            <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
+              <div className="admin-price-v2-table-scroll">
+                {renderAdminItemsRows(item)}
+              </div>
+            </section>
+          ) : (
+            <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
+              <EmptyState
+                title={orderedAdminTemplates.length ? "대분류를 선택하세요." : "기본 견적 조건이 없습니다."}
+                description={orderedAdminTemplates.length ? "검색 조건을 바꾸거나 대분류를 선택하면 기본 수량과 인원 표가 표시됩니다." : "왼쪽 아래의 새 기본 견적 조건 만들기로 조건을 먼저 추가하세요."}
+              />
+            </section>
+          )}
+        </section>
+        {renderAdminTemplateConditionDrawer()}
+      </main>,
+      { className: "formate-app-shell--admin-items-v2" }
     );
   }
 
@@ -8419,6 +10147,606 @@ export default function App() {
     }
   }
 
+  function handleAppShellNavigate(nextPage) {
+    if (nextPage === "logout") {
+      requestAdminCatalogLeave(handleChangeCompany);
+      return;
+    }
+    if (nextPage === "help-support") {
+      return;
+    }
+    if (nextPage === "condition") {
+      resetEstimateDraftForNewStart();
+      setEstimateConditionDrawerOpen(true);
+      setPage("items");
+      preloadBlankEstimateCatalogForNewStart();
+      return;
+    }
+    if (PROTECTED_ADMIN_PAGES.includes(nextPage)) {
+      openAdminGate(nextPage);
+      return;
+    }
+    setPage(nextPage);
+  }
+
+  function renderAppShell(children, shellOptions = {}) {
+    const providedShellClassName = shellOptions.className || "";
+    const shellClassName = [
+      !providedShellClassName.includes("formate-app-shell--overview") && "formate-app-shell--overview",
+      providedShellClassName,
+    ].filter(Boolean).join(" ");
+
+    return (
+      <AppShell
+        currentPage={page}
+        onNavigate={handleAppShellNavigate}
+        companyName={selectedCompanyName}
+        navItems={APP_SHELL_NAV_ITEMS}
+        className={shellClassName}
+        workspaceHeader={shellOptions.workspaceHeader}
+      >
+        {children}
+      </AppShell>
+    );
+  }
+
+  function renderItemsScreenV2() {
+    const currentRows = items[openCategory] ?? [];
+    const estimateConditionDisplay = conditionChips.length > 0 ? conditionChips.join(" · ") : "조건 미선택";
+    const estimateConditionBarDisplay = estimateConditionDrawerOpen ? "선택중" : estimateConditionDisplay;
+    const estimateConditionPanelStatus = estimateConditionDrawerOpen ? "선택중" : estimateConditionDisplay;
+    const hasEstimateCondition = canGoNext();
+    const itemTableColumns = [
+      { key: "selected", label: "", width: "32px" },
+      { key: "material", label: "소재명" },
+      { key: "spec", label: "규격", width: "120px" },
+      { key: "quantity", label: "수량", align: "right", width: "100px" },
+      { key: "unit", label: "단위", width: "60px" },
+      { key: "totalAmount", label: "합계", align: "right", width: "140px" },
+      { key: "photos", label: "사진", width: "56px" },
+      { key: "expanded", label: "", width: "48px" },
+    ];
+    const categoryItems = estimateCatalog.map((category) => ({
+      id: category.id,
+      label: category.name,
+      count: (items[category.id] ?? []).length,
+      active: openCategory === category.id,
+    }));
+
+    const renderItemCell = ({ row, column, rowIndex }) => {
+      const rowLabel = row.itemType === "flat" ? row.itemName : row.material;
+
+      if (column.key === "selected") {
+        return (
+          <label className="items-v2-check-cell" aria-label={`${rowLabel} 견적 포함`}>
+            <input
+              type="checkbox"
+              checked={Boolean(row.selected)}
+              onChange={(event) => updateItem(openCategory, rowIndex, { selected: event.target.checked })}
+            />
+          </label>
+        );
+      }
+
+      if (column.key === "material") {
+        return (
+          <div className="items-v2-material-cell">
+            <strong>{rowLabel}</strong>
+            <span>
+              {isEstimateRowModified(row) && <em className="items-v2-badge items-v2-badge--muted">수정됨</em>}
+              {row.selected && <em className="items-v2-badge items-v2-badge--selected">포함</em>}
+              {!row.hasTemplateValue && <em className="items-v2-badge items-v2-badge--warning">미입력</em>}
+            </span>
+          </div>
+        );
+      }
+
+      if (column.key === "spec") {
+        const choices = getEstimateRowSpecChoices(row);
+
+        return choices.length ? (
+          <select
+            className="items-v2-inline-select"
+            value={getEstimateRowSpecChoiceValue(row)}
+            onChange={(event) => updateItem(openCategory, rowIndex, getEstimateRowSpecPatchFromChoice(event.target.value))}
+          >
+            {choices.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className={getEstimateRowSpecLabel(row) ? "" : "items-v2-muted-value"}>
+            {getEstimateRowSpecLabel(row) || "규격 없음"}
+          </span>
+        );
+      }
+
+      if (column.key === "quantity") {
+        return (
+          <input
+            className="items-v2-inline-input items-v2-inline-input--number"
+            type="text"
+            inputMode="decimal"
+            aria-label={`${rowLabel} 수량`}
+            value={row.quantity ?? ""}
+            onChange={(event) => updateItem(openCategory, rowIndex, { quantity: event.target.value })}
+          />
+        );
+      }
+
+      if (column.key === "unit") {
+        return <span className={row.unit ? "" : "items-v2-muted-value"}>{row.unit || "-"}</span>;
+      }
+
+      if (column.key === "totalAmount") {
+        return <PriceText value={row.totalAmount} size="sm" />;
+      }
+
+      if (column.key === "photos") {
+        return (
+          <button
+            type="button"
+            className={`items-v2-icon-button ${selectedPhotoSubitemId === row.subitemId ? "active" : ""}`.trim()}
+            aria-label={`${rowLabel} 사진보기`}
+            title="사진보기"
+            onClick={() => handleOpenItemPhotos(row)}
+          >
+            <Image size={18} strokeWidth={1.5} />
+          </button>
+        );
+      }
+
+      if (column.key === "expanded") {
+        return (
+          <button
+            type="button"
+            className="items-v2-icon-button"
+            aria-label={`${rowLabel} 세부 수정 ${row.expanded ? "닫기" : "열기"}`}
+            title={row.expanded ? "세부 수정 닫기" : "세부 수정 열기"}
+            onClick={() => updateItem(openCategory, rowIndex, { expanded: !row.expanded })}
+          >
+            {row.expanded ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
+          </button>
+        );
+      }
+
+      return row[column.key] ?? "";
+    };
+
+    const renderItemExpandedRow = ({ row, rowIndex }) => {
+      const photoPanel = renderEstimateItemPhotoPanel(row);
+      if (!row.expanded && !photoPanel) return null;
+
+      return (
+        <div className="items-v2-expanded-stack">
+          {photoPanel}
+          {row.expanded && (
+            <div className="items-v2-detail-panel">
+              {!row.hasTemplateValue && (
+                <p className="items-v2-detail-note">
+                  아직 이 조건의 수량/인원 기준이 없습니다. 이번 견적에서 직접 입력해 사용할 수 있습니다.
+                </p>
+              )}
+              <label>
+                <span>단가</span>
+                <div className="items-v2-money-field">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formatMoneyInputValue(row.unitPrice)}
+                    onChange={(event) =>
+                      updateItem(openCategory, rowIndex, { unitPrice: stripNumberInputFormatting(event.target.value) })
+                    }
+                  />
+                  <em>원</em>
+                </div>
+              </label>
+              <label>
+                <span>인원</span>
+                <div className="items-v2-money-field">
+                  <input
+                    type="number"
+                    min="0"
+                    value={row.laborCount ?? ""}
+                    onChange={(event) => updateItem(openCategory, rowIndex, { laborCount: event.target.value })}
+                  />
+                  <em>명</em>
+                </div>
+              </label>
+              <label>
+                <span>인건비</span>
+                <div className="items-v2-money-field">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formatMoneyInputValue(row.laborRate)}
+                    onChange={(event) =>
+                      updateItem(openCategory, rowIndex, { laborRate: stripNumberInputFormatting(event.target.value) })
+                    }
+                  />
+                  <em>원</em>
+                </div>
+              </label>
+              <label>
+                <span>업체/브랜드</span>
+                <div className="items-v2-money-field items-v2-brand-field">
+                  <input
+                    type="text"
+                    value={row.contractor ?? ""}
+                    placeholder="업체명 또는 브랜드"
+                    onChange={(event) => updateItem(openCategory, rowIndex, { contractor: event.target.value })}
+                  />
+                </div>
+              </label>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const renderEstimateConditionDrawer = () => {
+      if (!estimateConditionDrawerOpen) return null;
+
+      return (
+        <>
+          <aside className="estimate-condition-drawer" aria-label="견적 조건 설정">
+            <div className="estimate-condition-drawer__header">
+              <div>
+                <span>견적 조건 설정</span>
+                <strong>{estimateConditionPanelStatus}</strong>
+              </div>
+              <Button variant="tertiary" size="sm" onClick={() => setEstimateConditionDrawerOpen(false)}>
+                닫기
+              </Button>
+            </div>
+
+            <div className="condition-static-grid estimate-condition-drawer__fields">
+              <div className="condition-static-field">
+                <p className="field-label">평수</p>
+                <div className="custom-select">
+                  <button
+                    type="button"
+                    className={`custom-select-trigger ${condition.size ? "has-value" : ""} ${pyeongDropdownOpen ? "open" : ""}`.trim()}
+                    onClick={() => setPyeongDropdownOpen((current) => !current)}
+                    aria-expanded={pyeongDropdownOpen}
+                  >
+                    <span>{condition.size ? `${condition.size}평` : "평수 선택"}</span>
+                    <span aria-hidden="true">⌄</span>
+                  </button>
+                  {pyeongDropdownOpen &&
+                    renderPyeongDropdownMenu(condition.size, (value) => {
+                      updateCondition({ size: value });
+                      setPyeongDropdownOpen(false);
+                    })}
+                </div>
+              </div>
+
+              <div className="condition-static-field">
+                <p className="field-label">주택 유형</p>
+                <div className="segmented flush">
+                  <button
+                    type="button"
+                    className={condition.buildType === "new" ? "selected" : ""}
+                    onClick={() =>
+                      updateCondition({
+                        buildType: "new",
+                        powderRoom: false,
+                        dressRoom: false,
+                        expanded: false,
+                        conditionVariant: "확장형1",
+                        expansionSpaces: [],
+                      })
+                    }
+                  >
+                    확장형
+                  </button>
+                  <button
+                    type="button"
+                    className={condition.buildType === "old" ? "selected" : ""}
+                    onClick={() =>
+                      updateCondition({
+                        buildType: "old",
+                        powderRoom: false,
+                        dressRoom: false,
+                        expanded: false,
+                        conditionVariant: OLD_NO_EXTENSION_VARIANT,
+                        expansionSpaces: [],
+                      })
+                    }
+                  >
+                    구형
+                  </button>
+                </div>
+              </div>
+
+              {condition.buildType === "new" && (
+                <div className="condition-static-field condition-static-wide">
+                  <div className="condition-variant-card-head">
+                    <p className="field-label">확장형 세부 유형</p>
+                    <button
+                      type="button"
+                      className="ghost condition-label-link"
+                      onClick={() => openEstimateConditionLabelEditor(EXTENDED_VARIANTS)}
+                    >
+                      이름 변경
+                    </button>
+                  </div>
+                  <div className="chips">
+                    {EXTENDED_VARIANTS.map((variant) => (
+                      <button
+                        key={variant}
+                        type="button"
+                        className={`condition-variant-option ${getConditionVariant(condition) === variant ? "selected" : ""}`.trim()}
+                        onClick={() => updateCondition({ conditionVariant: variant })}
+                      >
+                        <span>{getConditionVariantLabel(variant, estimateConditionVariantLabelMap) || variant}</span>
+                        {getConditionVariantLabel(variant, estimateConditionVariantLabelMap) && <small>{variant}</small>}
+                      </button>
+                    ))}
+                  </div>
+                  {renderEstimateConditionLabelEditor(EXTENDED_VARIANTS)}
+                </div>
+              )}
+
+              {condition.buildType === "old" && (
+                <>
+                  <div className="condition-static-field">
+                    <p className="field-label">확장 여부</p>
+                    <div className="segmented flush">
+                      <button
+                        type="button"
+                        className={!condition.expanded ? "selected" : ""}
+                        onClick={() =>
+                          updateCondition({
+                            expanded: false,
+                            conditionVariant: OLD_NO_EXTENSION_VARIANT,
+                            expansionSpaces: [],
+                          })
+                        }
+                      >
+                        확장 없음
+                      </button>
+                      <button
+                        type="button"
+                        className={condition.expanded ? "selected" : ""}
+                        onClick={() =>
+                          updateCondition({
+                            expanded: true,
+                            conditionVariant: OLD_EXTENDED_VARIANTS.includes(condition.conditionVariant)
+                              ? condition.conditionVariant
+                              : "구형1",
+                          })
+                        }
+                      >
+                        확장 있음
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="condition-static-field condition-static-wide">
+                    <div className="condition-variant-card-head">
+                      <p className="field-label">구형 세부 유형</p>
+                      <button
+                        type="button"
+                        className="ghost condition-label-link"
+                        onClick={() =>
+                          openEstimateConditionLabelEditor(
+                            condition.expanded ? OLD_EXTENDED_VARIANTS : [OLD_NO_EXTENSION_VARIANT]
+                          )
+                        }
+                      >
+                        이름 변경
+                      </button>
+                    </div>
+                    {condition.expanded ? (
+                      <div className="chips">
+                        {OLD_EXTENDED_VARIANTS.map((variant) => (
+                          <button
+                            key={variant}
+                            type="button"
+                            className={`condition-variant-option ${getConditionVariant(condition) === variant ? "selected" : ""}`.trim()}
+                            onClick={() => updateCondition({ conditionVariant: variant })}
+                          >
+                            <span>{getConditionVariantLabel(variant, estimateConditionVariantLabelMap) || variant}</span>
+                            {getConditionVariantLabel(variant, estimateConditionVariantLabelMap) && <small>{variant}</small>}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="condition-static-note">
+                        확장 없음은 <strong>{formatConditionVariantLabel(OLD_NO_EXTENSION_VARIANT, estimateConditionVariantLabelMap)}</strong> 기준으로 불러옵니다.
+                      </div>
+                    )}
+                    {renderEstimateConditionLabelEditor(
+                      condition.expanded ? OLD_EXTENDED_VARIANTS : [OLD_NO_EXTENSION_VARIANT]
+                    )}
+                  </div>
+                </>
+              )}
+
+              <div className="condition-static-field">
+                <p className="field-label">거주 상태</p>
+                <div className="segmented flush">
+                  <button
+                    type="button"
+                    className={condition.occupancy === "empty" ? "selected" : ""}
+                    onClick={() => updateCondition({ occupancy: "empty" })}
+                  >
+                    빈집
+                  </button>
+                  <button
+                    type="button"
+                    className={condition.occupancy === "occupied" ? "selected" : ""}
+                    onClick={() => updateCondition({ occupancy: "occupied" })}
+                  >
+                    살림집
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {estimateError && <div className="error-box">{estimateError}</div>}
+
+            <div className="estimate-condition-drawer__actions">
+              <Button variant="primary" disabled={!hasEstimateCondition || estimateLoading} onClick={() => loadEstimateFromCondition()}>
+                {estimateLoading ? "불러오는 중..." : "기본 견적 불러오기"}
+              </Button>
+              <Button variant="secondary" disabled={!hasEstimateCondition || estimateLoading} onClick={() => loadEstimateFromCondition({ forceBlank: true })}>
+                빈 견적으로 시작
+              </Button>
+            </div>
+          </aside>
+        </>
+      );
+    };
+
+    return renderAppShell(
+      <main className={`items-v2-page ${estimateConditionDrawerOpen ? "items-v2-page--condition-drawer-open" : ""}`.trim()}>
+        <CategorySidebar
+          title="공사 항목"
+          items={categoryItems}
+          onSelect={(categoryId) => toggleCategory(categoryId)}
+          className="items-v2-category-sidebar"
+          aria-label="견적 공사 항목"
+        />
+        <section className="items-v2-workspace">
+          <header className="items-v2-header">
+            <div className="items-v2-titleline">
+              <h1>견적서 작성</h1>
+              <span>{estimateConditionDisplay}</span>
+            </div>
+            <div className="items-v2-header-actions">
+              <Button
+                variant="tertiary"
+                size="sm"
+                onClick={() => {
+                  setEstimateConditionEditMode(true);
+                  setEstimateConditionDrawerOpen(true);
+                }}
+              >
+                조건 변경
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setPreviewBackPage("items");
+                  setEstimatePreviewType("general");
+                  setPage("preview");
+                }}
+              >
+                일반 견적서 확인
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setPreviewBackPage("items");
+                  setEstimatePreviewType("detail");
+                  setPage("preview");
+                }}
+              >
+                세부 견적서 확인
+              </Button>
+            </div>
+          </header>
+
+          <div className="items-v2-toolbar">
+            <div className="items-v2-condition-summary">
+              <span>현재 조건</span>
+              <strong>{estimateConditionBarDisplay}</strong>
+              <Button
+                variant="tertiary"
+                size="sm"
+                onClick={() => {
+                  setEstimateConditionEditMode(true);
+                  setEstimateConditionDrawerOpen(true);
+                }}
+              >
+                조건 변경
+              </Button>
+            </div>
+            <div className="items-v2-pyeong-controls">
+              <label htmlFor="items-v2-estimate-pyeong">견적 기준 평수</label>
+              <div>
+                <input
+                  id="items-v2-estimate-pyeong"
+                  type="number"
+                  min="1"
+                  max="90"
+                  value={estimatePyeong}
+                  onChange={(event) => setEstimatePyeong(event.target.value)}
+                />
+                <span>평</span>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!estimatePyeong}
+                onClick={applyEstimatePyeongToPyeongUnits}
+              >
+                평 단위 수량에 적용
+              </Button>
+            </div>
+          </div>
+
+          {estimateLoading && <div className="status-box">시공 항목을 불러오는 중...</div>}
+          {estimateNotice && <div className="status-box">{estimateNotice}</div>}
+          {estimateError && <div className="error-box">{estimateError}</div>}
+
+          <section className="items-v2-table-section">
+            <div className="items-v2-section-header">
+              <div>
+                <h2>{currentCategory?.name || "공사 항목"} 견적 내역</h2>
+                <p>{condition.size ? `${condition.size}평 템플릿` : "견적 템플릿"}</p>
+              </div>
+              <span>{currentRows.length}개 항목</span>
+            </div>
+            {openCategory && currentRows.length ? (
+              <Table
+                columns={itemTableColumns}
+                rows={currentRows}
+                renderCell={renderItemCell}
+                renderExpandedRow={renderItemExpandedRow}
+                zebra
+                rowHeight={40}
+                emptyAsZeroMuted
+                className="items-v2-table"
+              />
+            ) : (
+              <EmptyState
+                className="items-v2-table-empty"
+                title={estimateLoading ? "단가표 항목을 불러오는 중입니다." : estimateCatalog.length ? "이 항목에 등록된 소재가 없습니다." : "등록된 시공 항목이 없습니다."}
+                description={estimateLoading ? "잠시만 기다려 주세요." : estimateCatalog.length ? "관리자 페이지에서 소재를 추가하면 이 화면에서 견적에 포함할 수 있습니다." : "관리자 페이지에서 항목과 소재를 먼저 추가하세요."}
+              />
+            )}
+          </section>
+
+          <details className="items-v2-site-memo">
+            <summary>현장 메모</summary>
+            <textarea
+              value={siteMemo}
+              onChange={(event) => setSiteMemo(event.target.value)}
+              placeholder="고객에게 보여주지 않을 내부 메모를 적어두세요."
+            />
+          </details>
+
+          <StickyTotalBar
+            className="items-v2-total-bar"
+            label={`${selectedRows.length}개 선택`}
+            amounts={[
+              { label: "선택 항목 합계", value: `${selectedItemsTotal.toLocaleString("ko-KR")}원` },
+              { label: "추가금/할인", value: `${adjustmentTotal >= 0 ? "+" : "-"}${Math.abs(adjustmentTotal).toLocaleString("ko-KR")}원` },
+              { label: "최종 견적 금액", value: `${total.toLocaleString("ko-KR")}원` },
+            ]}
+          />
+        </section>
+        {renderEstimateConditionDrawer()}
+      </main>,
+      { className: "formate-app-shell--items-v2" }
+    );
+  }
+
   if (companySession.checking) {
     return (
       <div className="app-shell login-shell">
@@ -8460,29 +10788,25 @@ export default function App() {
               <p className="login-helper">업체 코드와 비밀번호만 입력하면 바로 사용할 수 있습니다.</p>
             </div>
             <form className="login-form" onSubmit={handleCompanyLogin}>
-              <label>
-                업체 코드
-                <input
-                  value={loginCode}
-                  onChange={(event) => setLoginCode(event.target.value)}
-                  autoComplete="username"
-                  placeholder="예: 삼풍"
-                />
-              </label>
-              <label>
-                비밀번호
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={(event) => setLoginPassword(event.target.value)}
-                  autoComplete="current-password"
-                  placeholder="비밀번호"
-                />
-              </label>
+              <Input
+                label="업체 코드"
+                value={loginCode}
+                onChange={(event) => setLoginCode(event.target.value)}
+                autoComplete="username"
+                placeholder="예: 삼풍"
+              />
+              <Input
+                label="비밀번호"
+                type="password"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                autoComplete="current-password"
+                placeholder="비밀번호"
+              />
               {loginError && <div className="error-box">{loginError}</div>}
-              <button className="primary-button" type="submit" disabled={loginLoading}>
+              <Button variant="primary" type="submit" disabled={loginLoading}>
                 {loginLoading ? "확인 중..." : "FORMATE 시작하기"}
-              </button>
+              </Button>
             </form>
           </section>
         ) : (
@@ -8556,20 +10880,15 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""} ${page === "landing" ? "home-workspace-shell" : ""}`.trim()}>
       <style>{styles}</style>
 
-      <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""} ${page === "items" ? "with-estimate-condition" : ""}`.trim()}>
+      {page !== "landing" && (
+      <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""}`.trim()}>
           <button className="global-brand" onClick={() => requestAdminCatalogLeave(resetFlow)} aria-label="FORMATE 홈으로 이동">
             <img src={logoUrl} alt="" />
             <strong>FORMATE</strong>
           </button>
-          {page === "items" && (
-            <div className="header-estimate-condition" aria-live="polite">
-              <span>견적 조건</span>
-              <strong>{conditionChips.length > 0 ? conditionChips.join(" · ") : "조건 미선택"}</strong>
-            </div>
-          )}
           {isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" && (
             <div className={`header-admin-condition ${canEditConditionQuantities ? "active" : ""}`.trim()} aria-live="polite">
               <span>현재 관리 중</span>
@@ -8580,6 +10899,40 @@ export default function App() {
               </strong>
             </div>
           )}
+          {page === "items" && USE_ITEMS_SCREEN_V2 ? (
+          <div className="header-estimate-actions">
+            <Button
+              variant="tertiary"
+              size="sm"
+              onClick={() => {
+                setEstimateConditionEditMode(true);
+                setEstimateConditionDrawerOpen(true);
+              }}
+            >
+              조건 변경
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setPreviewBackPage("items");
+                setEstimatePreviewType("general");
+                setPage("preview");
+              }}
+            >
+              일반 견적서 확인
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setPreviewBackPage("items");
+                setEstimatePreviewType("detail");
+                setPage("preview");
+              }}
+            >
+              세부 견적서 확인
+            </Button>
+          </div>
+          ) : (
           <div className="company-session">
             <span className="session-status-dot">로그인됨</span>
             <span>{selectedCompanyName}님 반갑습니다.</span>
@@ -8587,7 +10940,9 @@ export default function App() {
               로그아웃
             </button>
           </div>
+          )}
       </header>
+      )}
 
       {adminVerifyOpen && (
         <div className="modal-backdrop" onClick={closeAdminGate}>
@@ -8893,71 +11248,226 @@ export default function App() {
         </div>
       )}
 
-      {page === "landing" && (
-        <main className="landing work-home">
-          <section className="landing-actions">
-            <div className="section-heading work-home-heading">
-              <h1>{selectedCompanyName}</h1>
-            </div>
-            <div className="primary-action-grid">
-              <button
-                className="menu-card feature-card"
-                onClick={() => {
-                  setEstimateConditionEditMode(false);
-                  setPage("condition");
-                }}
-              >
-                <ClipboardList />
-                <span>견적서 작성하기</span>
-                <p>저장된 템플릿에서 빠르게 시작하거나 빈 견적서로 직접 작성합니다.</p>
+      {page === "landing" && renderAppShell(
+        <main className="landing work-home work-home-flat">
+          <div className="home-workspace-toolbar" aria-label="홈 작업 도구">
+            <div className="home-workspace-toolbar__nav" aria-hidden="true">
+              <button type="button" className="home-toolbar-icon-button" tabIndex={-1}>
+                <ArrowLeft size={18} strokeWidth={1.5} />
               </button>
-              <button className="menu-card feature-card" onClick={() => openAdminGate("admin")}>
-                <Settings />
-                <span>템플릿 만들기</span>
-                <p>단가표와 자주 쓰는 견적 템플릿을 미리 만들어둡니다.</p>
+              <button type="button" className="home-toolbar-icon-button" tabIndex={-1}>
+                <ChevronRight size={18} strokeWidth={1.5} />
               </button>
             </div>
-            <div className="secondary-action-grid">
-              <button className="menu-card support-card" onClick={() => setPage("photo-management")}>
-                <Image />
-                <span>사진 관리/확인</span>
-                <p>올공사, 부분공사, 세부항목 사진을 업체별로 관리합니다.</p>
+            <label className="home-workspace-search">
+              <Search size={16} strokeWidth={1.5} aria-hidden="true" />
+              <input
+                type="search"
+                readOnly
+                placeholder="고객, 현장 주소, 견적번호 검색"
+                aria-label="고객, 현장 주소, 견적번호 검색"
+              />
+              <kbd>Ctrl K</kbd>
+            </label>
+            <div className="home-workspace-actions">
+              <button type="button" className="home-toolbar-icon-button" aria-label="알림">
+                <Bell size={18} strokeWidth={1.5} />
               </button>
-              <button className="menu-card support-card" onClick={() => setPage("admin-estimates")}>
-                <Wrench />
-                <span>저장 견적 보기</span>
-                <p>이전에 만든 견적을 찾고 다시 엽니다.</p>
-              </button>
+              <div className="home-profile-menu" ref={homeProfileMenuRef}>
+                <button
+                  type="button"
+                  className="home-toolbar-avatar"
+                  aria-label="프로필 메뉴"
+                  aria-haspopup="menu"
+                  aria-expanded={homeProfileMenuOpen}
+                  onClick={() => setHomeProfileMenuOpen((open) => !open)}
+                >
+                  {`${selectedCompanyName || "운"}`.trim().charAt(0) || "운"}
+                </button>
+                {homeProfileMenuOpen && (
+                  <div className="home-profile-dropdown" role="menu">
+                    <div className="home-profile-dropdown__meta">{selectedCompanyName || "운영자"}</div>
+                    <button
+                      type="button"
+                      className="home-profile-dropdown__item"
+                      role="menuitem"
+                      onClick={() => {
+                        setHomeProfileMenuOpen(false);
+                        requestAdminCatalogLeave(handleChangeCompany);
+                      }}
+                    >
+                      로그아웃
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
+          </div>
+
+          <section className="work-home-content">
+            <PageHeader
+              title="홈"
+              description="오늘 처리할 견적과 고객 업무를 확인하세요."
+              className="work-home-heading"
+              actions={
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus />}
+                  onClick={() => {
+                    resetEstimateDraftForNewStart();
+                    setEstimateConditionDrawerOpen(true);
+                    setPage("items");
+                    preloadBlankEstimateCatalogForNewStart();
+                  }}
+                >
+                  새 견적서 작성
+                </Button>
+              }
+            />
+
+            <div className="home-placeholder-grid">
+              <HomePlaceholderWidget title="처리 필요" />
+              <HomePlaceholderWidget title="진행 중" />
+            </div>
+
+            <section className="home-recent-estimates" aria-labelledby="home-recent-estimates-title">
+              <div className="home-section-head">
+                <h2 id="home-recent-estimates-title">최근 견적</h2>
+                <button type="button" className="home-text-link" onClick={() => setPage("admin-estimates")}>
+                  전체 보기
+                </button>
+              </div>
+              {recentHomeEstimates.length > 0 ? (
+                <div className="home-estimate-table" role="table" aria-label="최근 견적">
+                  <div className="home-estimate-table__header" role="row">
+                    <span role="columnheader">고객·현장</span>
+                    <span role="columnheader">작성일</span>
+                    <span role="columnheader" className="home-number-cell">금액</span>
+                    <span role="columnheader" className="home-action-cell">다음 행동</span>
+                  </div>
+                  {recentHomeEstimates.map((estimate) => {
+                    const customerName = getSavedEstimateCustomerName(estimate);
+                    const primaryText = customerName || estimate.address || "고객·현장 미입력";
+                    const secondaryText = customerName ? estimate.address || "주소 미입력" : "고객명 미입력";
+
+                    return (
+                      <div className="home-estimate-table__row" role="row" key={estimate.id}>
+                        <span className="home-estimate-customer" role="cell">
+                          <strong>{primaryText}</strong>
+                          <em>{secondaryText}</em>
+                        </span>
+                        <span role="cell">{getSavedEstimateDisplayDate(estimate)}</span>
+                        <span role="cell" className="home-number-cell">
+                          <PriceText value={estimate.total_amount || 0} size="sm" />
+                        </span>
+                        <span role="cell" className="home-action-cell">
+                          <button type="button" className="home-text-action" onClick={() => setSelectedEstimate(estimate)}>
+                            보기
+                          </button>
+                          <button
+                            type="button"
+                            className="home-text-action"
+                            onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
+                          >
+                            이어서 작성
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState
+                  title="최근 저장 견적이 없습니다."
+                  description="새 견적서를 작성하면 이곳에 표시됩니다."
+                  className="home-empty-state"
+                />
+              )}
+            </section>
           </section>
+
+          {selectedEstimate && (
+            <div className="modal-backdrop" onClick={() => setSelectedEstimate(null)}>
+              <section className="estimate-modal home-estimate-modal" onClick={(event) => event.stopPropagation()}>
+                <div className="editor-header">
+                  <div>
+                    <span>저장 견적</span>
+                    <h3>{getSavedEstimateCustomerName(selectedEstimate) || selectedEstimate.address || "견적서"}</h3>
+                  </div>
+                  <Button variant="tertiary" onClick={() => setSelectedEstimate(null)}>
+                    닫기
+                  </Button>
+                </div>
+                <div className="home-estimate-modal-summary">
+                  <span>
+                    <strong>작성일</strong>
+                    {getSavedEstimateDisplayDate(selectedEstimate)}
+                  </span>
+                  <span>
+                    <strong>현장</strong>
+                    {selectedEstimate.address || "주소 미입력"}
+                  </span>
+                  <span>
+                    <strong>금액</strong>
+                    <PriceText value={selectedEstimate.total_amount || 0} size="sm" />
+                  </span>
+                </div>
+                <div className="modal-actions">
+                  <Button variant="secondary" onClick={() => loadSavedEstimateDraft(selectedEstimate, { destination: "preview" })}>
+                    견적서 보기
+                  </Button>
+                  <Button variant="primary" onClick={() => loadSavedEstimateDraft(selectedEstimate, { copy: true, destination: "items" })}>
+                    이어서 작성
+                  </Button>
+                </div>
+              </section>
+            </div>
+          )}
         </main>
+        , {
+          className: "formate-app-shell--overview formate-app-shell--home-workspace",
+          workspaceHeader: (
+            <div className="home-sidebar-workspace">
+              <img src={logoUrl} alt="" />
+              <span>
+                <strong>FORMATE</strong>
+                <em>운영 워크스페이스</em>
+              </span>
+              <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" />
+            </div>
+          ),
+        }
       )}
 
-      {page === "admin" && adminVerified && (
-        <main className="panel-page">
-          <button className="ghost" onClick={() => setPage("landing")}>
-            <ArrowLeft size={18} /> 돌아가기
-          </button>
-          <section className="panel">
-            <p className="eyebrow dark">템플릿 만들기</p>
-            <h2>템플릿 만들기</h2>
-            <p className="muted">
-              고객에게 보여주는 견적서가 아니라, 우리 업체 내부 템플릿입니다.
-            </p>
-            <div className="admin-menu">
+      {page === "admin" && adminVerified && renderAppShell(
+        <main className="panel-page admin-home-page">
+          <section className="admin-home-section">
+            <PageHeader
+              eyebrow="관리자 홈"
+              title="템플릿 만들기"
+              description="고객에게 보여주는 견적서가 아니라, 우리 업체 내부 템플릿입니다."
+              actions={
+                <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
+                  돌아가기
+                </Button>
+              }
+            />
+            <div className="admin-action-list">
               <button
-                className="menu-card"
+                className="admin-action-row"
                 onClick={() => {
                   setPage("admin-prices");
                   fetchAdminItems({ mode: "prices" });
                 }}
               >
-                <ClipboardList />
-                <span>1. 단가표 관리</span>
-                <p>자주 쓰는 기본 단가와 인건비를 저장해두세요. 견적서 작성 중에도 금액은 수정할 수 있습니다.</p>
+                <ClipboardList size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>1. 단가표 관리</strong>
+                  <em>자주 쓰는 기본 단가와 인건비를 저장해두세요. 견적서 작성 중에도 금액은 수정할 수 있습니다.</em>
+                </span>
               </button>
               <button
-                className="menu-card"
+                className="admin-action-row"
                 onClick={() => {
                   setPage("admin-items");
                   setAdminConditionStep("select");
@@ -8965,26 +11475,33 @@ export default function App() {
                   fetchAdminItems({ mode: "condition", condition: null });
                 }}
               >
-                <ClipboardList />
-                <span>2. 견적 템플릿 만들기</span>
-                <p>자주 쓰는 견적 템플릿을 만들어두세요. 기본 수량과 기본 인원을 저장할 수 있습니다.</p>
+                <ClipboardList size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>2. 견적 템플릿 만들기</strong>
+                  <em>자주 쓰는 견적 템플릿을 만들어두세요. 기본 수량과 기본 인원을 저장할 수 있습니다.</em>
+                </span>
               </button>
-              <button className="menu-card" onClick={() => setPage("admin-detail-costs")}>
-                <FileText />
-                <span>3. 세부 비용 관리</span>
-                <p>철거, 폐기물, 운반비처럼 견적서에 추가할 수 있는 비용을 관리합니다.</p>
+              <button className="admin-action-row" onClick={() => setPage("admin-detail-costs")}>
+                <FileText size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>3. 세부 비용 관리</strong>
+                  <em>철거, 폐기물, 운반비처럼 견적서에 추가할 수 있는 비용을 관리합니다.</em>
+                </span>
               </button>
-              <button className="menu-card" onClick={() => setPage("admin-ai-setup")}>
-                <Image />
-                <span>4. AI 초기 세팅</span>
-                <p>기존에 사용하던 엑셀 견적서를 업로드하면 항목과 금액을 분석해 단가표와 템플릿 초안을 만들 수 있습니다.</p>
+              <button className="admin-action-row" onClick={() => setPage("admin-ai-setup")}>
+                <Image size={18} strokeWidth={1.5} />
+                <span>
+                  <strong>4. AI 초기 세팅</strong>
+                  <em>기존에 사용하던 엑셀 견적서를 업로드하면 항목과 금액을 분석해 단가표와 템플릿 초안을 만들 수 있습니다.</em>
+                </span>
               </button>
             </div>
           </section>
         </main>
+        , { className: "formate-app-shell--overview" }
       )}
 
-      {page === "admin-ai-setup" && adminVerified && (
+      {page === "admin-ai-setup" && adminVerified && renderAppShell(
         <main className="panel-page admin-page ai-setup-page">
           <button className="ghost" onClick={() => setPage("admin")}>
             <ArrowLeft size={18} /> 관리자 홈으로 돌아가기
@@ -10242,38 +12759,41 @@ export default function App() {
               </section>
             )}
           </section>
-        </main>
+        </main>,
+        { className: "formate-app-shell--overview" }
       )}
 
-      {page === "admin-condition-labels" && adminVerified && (
+      {page === "admin-condition-labels" && adminVerified && renderAppShell(
         <main className="panel-page admin-page">
           <div className="editor-header">
             <div>
-              <button className="ghost" onClick={() => setPage("admin-items")}>
-                <ArrowLeft size={18} /> 견적 템플릿 만들기
-              </button>
+              <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("admin-items")}>
+                견적 템플릿 만들기
+              </Button>
               <h2>확장형/구형 설명 관리</h2>
               <p className="muted caption">
                 조건 key는 확장형1, 구형2처럼 유지하고, 업체 내부에서 이해하기 쉬운 설명만 표시용으로 저장합니다.
               </p>
             </div>
             <div className="admin-actions">
-              <button
+              <Button
                 type="button"
-                className="secondary-button"
+                variant="secondary"
+                leftIcon={<RefreshCcw />}
                 disabled={adminLoading || adminSaving}
                 onClick={() => fetchConditionVariantLabels()}
               >
-                <RefreshCcw size={18} /> 되돌리기
-              </button>
-              <button
+                되돌리기
+              </Button>
+              <Button
                 type="button"
-                className="primary-button"
+                variant="primary"
+                leftIcon={<Save />}
                 disabled={adminLoading || adminSaving}
                 onClick={saveConditionVariantLabels}
               >
-                <Save size={18} /> 저장
-              </button>
+                저장
+              </Button>
             </div>
           </div>
 
@@ -10291,22 +12811,18 @@ export default function App() {
               {conditionVariantLabels.map((row) => (
                 <div className="condition-label-row" key={row.variant_key}>
                   <strong>{row.variant_key}</strong>
-                  <label>
-                    표시 이름
-                    <input
-                      value={row.label}
-                      onChange={(event) => updateConditionVariantLabel(row.variant_key, { label: event.target.value })}
-                      placeholder={row.variant_key === OLD_NO_EXTENSION_VARIANT ? "예: 확장 없음" : "예: 거실 + 주방 확장"}
-                    />
-                  </label>
-                  <label>
-                    상세 설명
-                    <input
-                      value={row.description}
-                      onChange={(event) => updateConditionVariantLabel(row.variant_key, { description: event.target.value })}
-                      placeholder="선택 기준이나 내부 메모"
-                    />
-                  </label>
+                  <Input
+                    label="표시 이름"
+                    value={row.label}
+                    onChange={(event) => updateConditionVariantLabel(row.variant_key, { label: event.target.value })}
+                    placeholder={row.variant_key === OLD_NO_EXTENSION_VARIANT ? "예: 확장 없음" : "예: 거실 + 주방 확장"}
+                  />
+                  <Input
+                    label="상세 설명"
+                    value={row.description}
+                    onChange={(event) => updateConditionVariantLabel(row.variant_key, { description: event.target.value })}
+                    placeholder="선택 기준이나 내부 메모"
+                  />
                 </div>
               ))}
             </div>
@@ -10314,24 +12830,19 @@ export default function App() {
         </main>
       )}
 
-      {page === "photo-management" && (
+      {page === "photo-management" && renderAppShell(
         <main className="panel-page photo-management-page">
-          <button className="ghost" onClick={() => setPage("landing")}>
-            <ArrowLeft size={18} /> 뒤로가기
-          </button>
-          <section className="panel photo-management-panel">
-            <div className="editor-header">
-              <div>
-                <p className="eyebrow dark">사진 관리/확인</p>
-                <h2>업체 사진 자료실</h2>
-                <p className="muted">
-                  사진은 현재 선택된 업체 기준으로 분리 저장됩니다. 견적서 작성 화면의 사진보기 연결은 다음 단계에서 진행합니다.
-                </p>
-              </div>
-              <button type="button" className="secondary-button compact-button" onClick={fetchPhotoManagementData} disabled={photoLoading || photoSaving}>
-                <RefreshCcw size={16} /> 새로고침
-              </button>
-            </div>
+          <section className="photo-management-panel">
+            <PageHeader
+              eyebrow="사진 관리/확인"
+              title="업체 사진 자료실"
+              description="올공사, 부분공사, 세부항목 사진을 현재 업체 기준으로 관리합니다."
+              actions={
+                <Button variant="secondary" leftIcon={<RefreshCcw />} onClick={fetchPhotoManagementData} disabled={photoLoading || photoSaving}>
+                  새로고침
+                </Button>
+              }
+            />
 
             <div className="photo-storage-note">
               <Image size={18} />
@@ -10379,20 +12890,22 @@ export default function App() {
         </main>
       )}
 
-      {page === "ready" && (
+      {page === "ready" && renderAppShell(
         <main className="simple-page">
-          <button className="ghost" onClick={() => setPage("landing")}>
-            <ArrowLeft size={18} /> 돌아가기
-          </button>
-          <div className="empty-state">
-            <Building2 size={42} />
-            <h2>준비 중입니다</h2>
-            <p>현재 프로토타입에서는 신규 견적서 입력 흐름만 확인할 수 있습니다.</p>
-          </div>
+          <EmptyState
+            icon={<Building2 size={24} strokeWidth={1.5} />}
+            title="준비 중입니다"
+            description="현재 프로토타입에서는 신규 견적서 입력 흐름만 확인할 수 있습니다."
+            action={
+              <Button variant="secondary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
+                홈으로 돌아가기
+              </Button>
+            }
+          />
         </main>
       )}
 
-      {page === "condition" && (
+      {page === "condition" && renderAppShell(
         <main className="panel-page condition-page">
           <section className="panel condition-builder-panel">
             <div className="editor-header condition-builder-header">
@@ -10403,12 +12916,12 @@ export default function App() {
                   템플릿으로 불러온 항목과 수량은 작성 중 현장에 맞게 수정할 수 있습니다.
                 </p>
               </div>
-              <button className="ghost" onClick={resetFlow}>
-                <ArrowLeft size={18} /> 이전
-              </button>
+              <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={resetFlow}>
+                이전
+              </Button>
             </div>
 
-            <div className={`estimate-current-condition ${canGoNext() ? "active" : ""}`.trim()}>
+            <div className={`estimate-current-condition ${conditionChips.length > 0 ? "has-value" : ""} ${canGoNext() ? "active" : ""}`.trim()}>
               <span>선택한 템플릿</span>
               <strong>
                 {conditionChips.length > 0 ? conditionChips.join(" · ") : "시작할 템플릿을 선택하세요."}
@@ -10424,7 +12937,7 @@ export default function App() {
                 <div className="custom-select">
                   <button
                     type="button"
-                    className={`custom-select-trigger ${pyeongDropdownOpen ? "open" : ""}`.trim()}
+                    className={`custom-select-trigger ${condition.size ? "has-value" : ""} ${pyeongDropdownOpen ? "open" : ""}`.trim()}
                     onClick={() => setPyeongDropdownOpen((current) => !current)}
                     aria-expanded={pyeongDropdownOpen}
                   >
@@ -10605,20 +13118,22 @@ export default function App() {
             {estimateError && <div className="error-box">{estimateError}</div>}
 
             <div className="condition-start-row">
-              <button className="primary-button" disabled={!canGoNext() || estimateLoading} onClick={() => goNext()}>
+              <Button variant="primary" disabled={!canGoNext() || estimateLoading} onClick={() => goNext()}>
                 {estimateLoading
                   ? "템플릿 불러오는 중..."
                   : estimateConditionEditMode
                     ? "수정한 조건으로 돌아가기"
                     : "견적서 작성 시작"}
-              </button>
+              </Button>
             </div>
           </section>
         </main>
       )}
 
-      {page === "items" && (
-        <main className="workspace">
+      {page === "items" && USE_ITEMS_SCREEN_V2 && renderItemsScreenV2()}
+
+      {page === "items" && !USE_ITEMS_SCREEN_V2 && (
+        <main className="workspace estimate-workspace">
           <section className="category-column">
             <div className="category-title-row">
               <div>
@@ -10892,6 +13407,7 @@ export default function App() {
               )}
             </div>
 
+            <div className="estimate-side-stack">
             <div className="selected-item-summary">
               <div className="selected-summary-header">
                 <h3>선택한 항목</h3>
@@ -10959,11 +13475,16 @@ export default function App() {
                 <PriceText value={total} size="lg" />
               </div>
             </div>
+            </div>
           </section>
         </main>
       )}
 
-      {(isCommonPriceAdminPage || isConditionQuantityAdminPage) && adminVerified && (
+      {isCommonPriceAdminPage && adminVerified && renderAdminPricesWorkbench()}
+
+      {isConditionQuantityAdminPage && adminVerified && USE_ADMIN_ITEMS_SCREEN_V2 && renderAdminItemsWorkbench()}
+
+      {isConditionQuantityAdminPage && adminVerified && !USE_ADMIN_ITEMS_SCREEN_V2 && (
         <main className="panel-page admin-page">
           <div className="editor-header">
             <div>
@@ -11875,27 +14396,28 @@ export default function App() {
         </main>
       )}
 
-      {page === "admin-detail-costs" && adminVerified && (
-        <main className="panel-page admin-page">
+      {page === "admin-detail-costs" && adminVerified && renderAppShell(
+        <main className="panel-page admin-page detail-cost-page">
           <div className="editor-header">
             <div>
-              <button className="ghost" onClick={() => setPage("admin")}>
-                <ArrowLeft size={18} /> 관리자 홈
-              </button>
+              <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("admin")}>
+                관리자 홈
+              </Button>
               <h2>세부견적 관리</h2>
               <p className="muted caption">고객용 견적서에는 표시하지 않는 내부 비용입니다.</p>
             </div>
             <div className="admin-actions">
-              <button
-                className="secondary-button"
+              <Button
+                variant="secondary"
+                leftIcon={<RefreshCcw />}
                 disabled={adminLoading || adminSaving}
                 onClick={() => {
                   fetchDetailSubitems();
                   if (selectedDetailSubitemId) fetchDetailCosts(selectedDetailSubitemId);
                 }}
               >
-                <RefreshCcw size={18} /> 되돌리기
-              </button>
+                되돌리기
+              </Button>
             </div>
           </div>
 
@@ -11904,50 +14426,28 @@ export default function App() {
           {adminError && <div className="error-box">{adminError}</div>}
 
           <section className="detail-cost-layout">
-            <aside className="detail-subitem-panel">
-              <h3>대분류/소재 선택</h3>
-              <p className="muted caption">대분류를 펼친 뒤 세부 비용을 연결할 소재를 선택합니다.</p>
-
-              <div className="detail-group-list">
-                {detailSubitemGroups.map((group) => {
-                  const groupExpanded = expandedDetailItemIds.includes(group.id);
-                  return (
-                    <section className={`detail-group ${groupExpanded ? "expanded" : ""}`.trim()} key={group.id}>
-                      <button
-                        type="button"
-                        className="detail-group-toggle"
-                        onClick={() => toggleDetailItemExpanded(group.id)}
-                        aria-expanded={groupExpanded}
-                      >
-                        <span>
-                          <strong>{group.name}</strong>
-                          <em>{group.subitems.length}개 소재</em>
-                        </span>
-                        {groupExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                      </button>
-
-                      {groupExpanded && (
-                        <div className="detail-subitem-list">
-                          {group.subitems.map((subitem) => (
-                            <button
-                              key={subitem.id}
-                              className={selectedDetailSubitemId === subitem.id ? "selected" : ""}
-                              onClick={() => setSelectedDetailSubitemId(subitem.id)}
-                            >
-                              <strong>{subitem.name}</strong>
-                              <span>{subitem.unit || "단위 미지정"}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </section>
-                  );
-                })}
-                {!adminLoading && !detailSubitems.length && (
-                  <p className="muted">등록된 소재가 없습니다. 먼저 `시공항목 수정`에서 소재를 추가하세요.</p>
+            <div className="detail-cost-sidebar">
+              <CategorySidebar
+                title="대분류/소재"
+                aria-label="세부견적 소재 선택"
+                items={detailSubitemGroups.flatMap((group) =>
+                  group.subitems.map((subitem) => ({
+                    id: subitem.id,
+                    label: `${group.name} · ${subitem.name}`,
+                    active: selectedDetailSubitemId === subitem.id,
+                  }))
                 )}
-              </div>
-            </aside>
+                onSelect={(subitemId) => setSelectedDetailSubitemId(subitemId)}
+              />
+              <p className="muted caption detail-cost-sidebar-hint">소재를 선택하면 오른쪽에서 내부 비용을 관리합니다.</p>
+                {!adminLoading && !detailSubitems.length && (
+                <EmptyState
+                  className="detail-cost-empty"
+                  title="등록된 소재가 없습니다."
+                  description="먼저 시공항목 수정에서 소재를 추가하세요."
+                />
+                )}
+            </div>
 
             <section className="detail-cost-panel">
               <div className="detail-cost-title">
@@ -11962,13 +14462,13 @@ export default function App() {
               </div>
 
               <div className="detail-add-row">
-                <input
+                <Input
                   value={newDetailCost.name}
                   onChange={(event) => setNewDetailCost((current) => ({ ...current, name: event.target.value }))}
                   placeholder="항목명 예: 풀, 아크졸, 부직포"
                   disabled={!selectedDetailSubitemId}
                 />
-                <input
+                <Input
                   type="text"
                   inputMode="numeric"
                   value={formatMoneyInputValue(newDetailCost.cost)}
@@ -11986,13 +14486,14 @@ export default function App() {
                   <option value="basic">기본에 포함</option>
                   <option value="full">전체에만 포함</option>
                 </select>
-                <button
-                  className="primary-button"
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus />}
                   disabled={!selectedDetailSubitemId || adminSaving || !newDetailCost.name.trim()}
                   onClick={addDetailCost}
                 >
-                  <Plus size={18} /> 추가
-                </button>
+                  추가
+                </Button>
               </div>
 
               <div className="detail-bulk-panel">
@@ -12002,7 +14503,7 @@ export default function App() {
                 </div>
                 <label>
                   단가
-                  <input
+                  <Input
                     type="text"
                     inputMode="numeric"
                     value={formatMoneyInputValue(detailCostBulkInput.cost)}
@@ -12012,79 +14513,122 @@ export default function App() {
                   />
                 </label>
                 <div className="detail-bulk-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
+                  <Button
+                    variant="secondary"
                     disabled={!selectedDetailSubitemId || adminSaving}
                     onClick={() => applyDetailCostBulkInput("empty")}
                   >
                     빈/0 단가에 적용
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost danger-text-button"
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
                     disabled={!selectedDetailSubitemId || adminSaving}
                     onClick={() => applyDetailCostBulkInput("overwrite")}
                   >
                     전체 단가 덮어쓰기
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               <div className="detail-cost-list">
                 {detailCosts.length > 0 && (
-                  <div className="detail-cost-header">
-                    <span>비용명/부자재명</span>
-                    <span>단가</span>
-                    <span>구분</span>
-                    <span>삭제</span>
-                  </div>
+                  <Table
+                    className="detail-cost-table"
+                    columns={[
+                      { key: "name", label: "비용명/부자재명", width: "36%" },
+                      { key: "cost", label: "단가", align: "right", width: "20%" },
+                      { key: "categoryType", label: "구분", width: "30%" },
+                      { key: "actions", label: "삭제", align: "right", width: "14%" },
+                    ]}
+                    rows={detailCosts.map((cost) => ({
+                      id: cost.id,
+                      detailCost: cost,
+                      name: cost.name,
+                      cost: cost.cost,
+                      categoryType: cost.category_type,
+                    }))}
+                    emptyAsZeroMuted
+                    renderCell={({ row, column }) => {
+                      const cost = row.detailCost;
+
+                      if (column.key === "name") {
+                        return (
+                          <input
+                            className="detail-cost-table-input"
+                            value={cost.name}
+                            onChange={(event) => updateLocalDetailCost(cost.id, { name: event.target.value })}
+                            onBlur={(event) => updateDetailCost(cost.id, { name: event.target.value })}
+                          />
+                        );
+                      }
+
+                      if (column.key === "cost") {
+                        return (
+                          <input
+                            className="detail-cost-table-input numeric"
+                            type="text"
+                            inputMode="numeric"
+                            value={formatMoneyInputValue(cost.cost)}
+                            onChange={(event) => updateLocalDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
+                            onBlur={(event) => updateDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
+                          />
+                        );
+                      }
+
+                      if (column.key === "categoryType") {
+                        return (
+                          <div className="detail-type-toggle">
+                            <label className={cost.category_type === "basic" ? "selected" : ""}>
+                              <input
+                                type="radio"
+                                name={`detail-type-${cost.id}`}
+                                checked={cost.category_type === "basic"}
+                                onChange={() => updateDetailCost(cost.id, { category_type: "basic" })}
+                              />
+                              기본에 포함
+                            </label>
+                            <label className={cost.category_type === "full" ? "selected" : ""}>
+                              <input
+                                type="radio"
+                                name={`detail-type-${cost.id}`}
+                                checked={cost.category_type === "full"}
+                                onChange={() => updateDetailCost(cost.id, { category_type: "full" })}
+                              />
+                              전체에만 포함
+                            </label>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          leftIcon={<Trash2 />}
+                          disabled={adminSaving}
+                          onClick={() => deleteDetailCost(cost.id)}
+                        >
+                          삭제
+                        </Button>
+                      );
+                    }}
+                  />
                 )}
-                {detailCosts.map((cost) => (
-                  <div key={cost.id} className="detail-cost-row">
-                    <input
-                      value={cost.name}
-                      onChange={(event) => updateLocalDetailCost(cost.id, { name: event.target.value })}
-                      onBlur={(event) => updateDetailCost(cost.id, { name: event.target.value })}
-                    />
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={formatMoneyInputValue(cost.cost)}
-                      onChange={(event) => updateLocalDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
-                      onBlur={(event) => updateDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
-                    />
-                    <div className="detail-type-toggle">
-                      <label className={cost.category_type === "basic" ? "selected" : ""}>
-                        <input
-                          type="radio"
-                          name={`detail-type-${cost.id}`}
-                          checked={cost.category_type === "basic"}
-                          onChange={() => updateDetailCost(cost.id, { category_type: "basic" })}
-                        />
-                        기본에 포함
-                      </label>
-                      <label className={cost.category_type === "full" ? "selected" : ""}>
-                        <input
-                          type="radio"
-                          name={`detail-type-${cost.id}`}
-                          checked={cost.category_type === "full"}
-                          onChange={() => updateDetailCost(cost.id, { category_type: "full" })}
-                        />
-                        전체에만 포함
-                      </label>
-                    </div>
-                    <button className="danger-button" disabled={adminSaving} onClick={() => deleteDetailCost(cost.id)}>
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                ))}
 
                 {!adminLoading && selectedDetailSubitemId && !detailCosts.length && (
-                  <p className="muted">이 소재에 등록된 부자재 및 기타 비용이 없습니다.</p>
+                  <EmptyState
+                    className="detail-cost-empty"
+                    title="등록된 내부 비용이 없습니다."
+                    description="상단 입력 영역에서 부자재나 기타 비용을 추가하세요."
+                  />
                 )}
                 {!selectedDetailSubitemId && (
-                  <p className="muted">왼쪽에서 소재를 선택하면 세부견적 항목을 관리할 수 있습니다.</p>
+                  <EmptyState
+                    className="detail-cost-empty"
+                    title="소재를 선택하세요."
+                    description="왼쪽에서 소재를 선택하면 세부견적 항목을 관리할 수 있습니다."
+                  />
                 )}
               </div>
             </section>
@@ -12092,32 +14636,33 @@ export default function App() {
         </main>
       )}
 
-      {page === "admin-estimates" && (
-        <main className="panel-page admin-page">
+      {page === "admin-estimates" && renderAppShell(
+        <main className="panel-page admin-page saved-estimates-page">
           <div className="editor-header">
             <div>
-              <button className="ghost" onClick={() => setPage("landing")}>
-                <ArrowLeft size={18} /> 홈으로
-              </button>
+              <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
+                홈으로
+              </Button>
               <h2>저장한 견적</h2>
               <p className="muted caption">고객명이나 주소로 찾고 다시 열 수 있습니다.</p>
             </div>
             <div className="admin-actions">
-              <button className="secondary-button" disabled={adminLoading} onClick={() => fetchEstimates()}>
-                <RefreshCcw size={18} /> 새로고침
-              </button>
+              <Button variant="secondary" leftIcon={<RefreshCcw />} disabled={adminLoading} onClick={() => fetchEstimates()}>
+                새로고침
+              </Button>
             </div>
           </div>
 
           <section className="estimate-search-panel">
             <label>
-              고객명 또는 주소 검색
-              <input
+              <span>고객명 또는 주소 검색</span>
+              <Input
                 value={estimateSearch}
                 onChange={(event) => setEstimateSearch(event.target.value)}
                 placeholder="예: 홍길동, 아파트, 빌라, 101동"
               />
             </label>
+            <span className="estimate-result-count">{estimates.length}건</span>
           </section>
 
           {adminLoading && <div className="status-box">불러오는 중...</div>}
@@ -12125,45 +14670,74 @@ export default function App() {
 
           <section className="estimate-list">
             {!adminLoading && !estimates.length && (
-              <div className="panel">
+              <div className="estimate-empty-state">
                 <p className="muted">
                   조회된 견적서가 없습니다. 신규 견적서를 저장하면 이곳에 자동으로 쌓입니다.
                 </p>
               </div>
             )}
 
-            {estimates.map((estimate) => (
-              <article key={estimate.id} className="estimate-card">
-                <div>
-                  <strong>{getSavedEstimateCustomerName(estimate) || "고객명 미입력"}</strong>
-                  <p>현장 주소 {estimate.address || "주소 미입력"}</p>
-                  <p>
-                    작성일 {estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-"} ·
-                    시공 예정일 {estimate.construction_date || "-"}
-                  </p>
-                </div>
-                <div className="estimate-amount">
-                  <PriceText value={estimate.total_amount || 0} size="lg" />
-                </div>
-                <div className="estimate-card-actions">
-                  <button className="secondary-button" onClick={() => setSelectedEstimate(estimate)}>
-                    상세 보기
-                  </button>
-                  <button
-                    className="secondary-button"
-                    onClick={() => loadSavedEstimateDraft(estimate, { destination: "preview" })}
-                  >
-                    보기
-                  </button>
-                  <button
-                    className="secondary-button"
-                    onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
-                  >
-                    복사해서 견적서 작성
-                  </button>
-                </div>
-              </article>
-            ))}
+            {!!estimates.length && (
+              <Table
+                className="saved-estimates-table"
+                columns={[
+                  { key: "customer", label: "고객명", width: "18%" },
+                  { key: "address", label: "현장 주소", width: "30%" },
+                  { key: "createdAt", label: "작성일", width: "13%" },
+                  { key: "constructionDate", label: "시공 예정일", width: "13%" },
+                  { key: "amount", label: "총액", align: "right", width: "12%" },
+                  { key: "actions", label: "작업", align: "right", width: "14%" },
+                ]}
+                rows={estimates.map((estimate) => ({
+                  id: estimate.id,
+                  estimate,
+                  customer: getSavedEstimateCustomerName(estimate) || "고객명 미입력",
+                  address: estimate.address || "주소 미입력",
+                  createdAt: estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-",
+                  constructionDate: estimate.construction_date || "-",
+                  amount: estimate.total_amount || 0,
+                }))}
+                renderCell={({ row, column, value }) => {
+                  if (column.key === "customer") {
+                    return <strong className="saved-estimate-customer">{value}</strong>;
+                  }
+
+                  if (column.key === "address") {
+                    return <span className={row.estimate.address ? "saved-estimate-address" : "saved-estimate-muted"}>{value}</span>;
+                  }
+
+                  if (column.key === "amount") {
+                    return <PriceText value={value} size="sm" />;
+                  }
+
+                  if (column.key === "actions") {
+                    return (
+                      <div className="saved-estimate-table-actions">
+                        <Button variant="secondary" size="sm" onClick={() => setSelectedEstimate(row.estimate)}>
+                          보기
+                        </Button>
+                        <Button
+                          variant="tertiary"
+                          size="sm"
+                          onClick={() => loadSavedEstimateDraft(row.estimate, { destination: "preview" })}
+                        >
+                          견적서 확인
+                        </Button>
+                        <Button
+                          variant="tertiary"
+                          size="sm"
+                          onClick={() => loadSavedEstimateDraft(row.estimate, { copy: true, destination: "items" })}
+                        >
+                          복사
+                        </Button>
+                      </div>
+                    );
+                  }
+
+                  return <span className={value === "-" ? "saved-estimate-muted" : ""}>{value}</span>;
+                }}
+              />
+            )}
           </section>
 
           {selectedEstimate && (
@@ -12184,57 +14758,73 @@ export default function App() {
                       <p className="muted caption">{selectedEstimate.condition_snapshot.summary}</p>
                     )}
                   </div>
-                  <button className="ghost" onClick={() => setSelectedEstimate(null)}>
+                  <Button variant="tertiary" onClick={() => setSelectedEstimate(null)}>
                     닫기
-                  </button>
+                  </Button>
                 </div>
 
                 <div className="estimate-card-actions modal-actions">
-                  <button
-                    className="secondary-button"
+                  <Button
+                    variant="tertiary"
                     onClick={() => loadSavedEstimateDraft(selectedEstimate, { destination: "preview" })}
                   >
-                    보기
-                  </button>
-                  <button
-                    className="secondary-button"
+                    다시 열기
+                  </Button>
+                  <Button
+                    variant="tertiary"
                     onClick={() => loadSavedEstimateDraft(selectedEstimate, { copy: true, destination: "items" })}
                   >
                     복사해서 견적서 작성
-                  </button>
+                  </Button>
                 </div>
 
-                <table>
-                  <thead>
-                    <tr>
-                      <th>시공 항목</th>
-                      <th>소재/내용</th>
-                      <th>수량</th>
-                      <th>인원</th>
-                      <th>가격</th>
-                      <th>인건비</th>
-                      <th>합계</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedEstimateItems.map((item, index) => (
-                      <tr key={`${item.categoryName ?? item.category ?? "item"}-${index}`}>
-                        <td>{item.categoryName ?? item.category ?? item.itemName ?? "-"}</td>
-                        <td>{item.material ?? item.name ?? item.description ?? "-"}</td>
-                        <td><PriceText value={item.quantity ?? 0} unit={item.unit ?? ""} size="sm" /></td>
-                        <td><PriceText value={item.laborCount ?? item.labor_count ?? 0} unit="명" size="sm" /></td>
-                        <td><PriceText value={item.productAmount ?? item.price ?? item.amount ?? 0} size="sm" /></td>
-                        <td><PriceText value={item.laborAmount ?? 0} size="sm" /></td>
-                        <td><PriceText value={item.totalAmount ?? item.price ?? item.amount ?? 0} size="sm" /></td>
-                      </tr>
-                    ))}
-                    {!selectedEstimateItems.length && (
-                      <tr>
-                        <td colSpan="7">저장된 항목 데이터가 없습니다.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                {selectedEstimateItems.length ? (
+                  <Table
+                    className="saved-estimate-detail-table"
+                    columns={[
+                      { key: "category", label: "시공 항목", width: "18%" },
+                      { key: "material", label: "소재/내용", width: "28%" },
+                      { key: "quantity", label: "수량", align: "right", width: "10%" },
+                      { key: "laborCount", label: "인원", align: "right", width: "8%" },
+                      { key: "productAmount", label: "가격", align: "right", width: "12%" },
+                      { key: "laborAmount", label: "인건비", align: "right", width: "12%" },
+                      { key: "totalAmount", label: "합계", align: "right", width: "12%" },
+                    ]}
+                    rows={selectedEstimateItems.map((item, index) => ({
+                      id: `${item.categoryName ?? item.category ?? "item"}-${index}`,
+                      item,
+                      category: item.categoryName ?? item.category ?? item.itemName ?? "-",
+                      material: item.material ?? item.name ?? item.description ?? "-",
+                      quantity: item.quantity ?? 0,
+                      laborCount: item.laborCount ?? item.labor_count ?? 0,
+                      productAmount: item.productAmount ?? item.price ?? item.amount ?? 0,
+                      laborAmount: item.laborAmount ?? 0,
+                      totalAmount: item.totalAmount ?? item.price ?? item.amount ?? 0,
+                    }))}
+                    emptyAsZeroMuted
+                    renderCell={({ row, column, value }) => {
+                      if (column.key === "quantity") {
+                        return <PriceText value={value} unit={row.item.unit ?? ""} size="sm" />;
+                      }
+
+                      if (column.key === "laborCount") {
+                        return <PriceText value={value} unit="명" size="sm" />;
+                      }
+
+                      if (column.align === "right") {
+                        return <PriceText value={value} size="sm" />;
+                      }
+
+                      return <span className={value === "-" ? "saved-estimate-muted" : ""}>{value}</span>;
+                    }}
+                  />
+                ) : (
+                  <EmptyState
+                    className="saved-estimate-modal-empty"
+                    title="저장된 항목 데이터가 없습니다."
+                    description="이 견적서에 저장된 시공 항목 정보를 찾지 못했습니다."
+                  />
+                )}
 
                 {(selectedEstimateAdjustments.length > 0 || selectedEstimateSiteMemo) && (
                   <div className="saved-estimate-extra">
@@ -12269,8 +14859,8 @@ export default function App() {
       )}
 
       {page === "preview" && (
-        <main className="panel-page">
-          <section className="panel wide">
+        <main className={`panel-page ${estimatePreviewType === "general" ? "general-preview-page" : "detail-preview-page"}`.trim()}>
+          <section className={`panel wide ${estimatePreviewType === "general" ? "general-preview-panel" : "detail-preview-panel"}`.trim()}>
             <div className="editor-header">
               <div>
                 <h2>{estimatePreviewType === "detail" ? "세부 견적서 확인" : "일반 견적서 확인"}</h2>
@@ -12278,20 +14868,20 @@ export default function App() {
               <div className="estimate-header-actions">
                 <button
                   type="button"
-                  className={estimatePreviewType === "general" ? "primary-button" : "secondary-button"}
+                  className={`secondary-button preview-type-button ${estimatePreviewType === "general" ? "active" : ""}`.trim()}
                   onClick={() => setEstimatePreviewType("general")}
                 >
                   일반 견적서
                 </button>
                 <button
                   type="button"
-                  className={estimatePreviewType === "detail" ? "primary-button" : "secondary-button"}
+                  className={`secondary-button preview-type-button ${estimatePreviewType === "detail" ? "active" : ""}`.trim()}
                   onClick={() => setEstimatePreviewType("detail")}
                 >
                   세부 견적서
                 </button>
-                <button className="ghost" onClick={() => setPage(previewBackPage === "admin-estimates" ? "admin-estimates" : "items")}>
-                  <ArrowLeft size={18} /> {previewBackPage === "admin-estimates" ? "저장 견적 보기" : "항목 수정"}
+                <button className="secondary-button" onClick={() => setPage(previewBackPage === "admin-estimates" ? "admin-estimates" : "items")}>
+                  <ArrowLeft size={18} /> {previewBackPage === "admin-estimates" ? "저장 견적 보기" : "견적 재생성"}
                 </button>
               </div>
             </div>
@@ -12300,7 +14890,10 @@ export default function App() {
             {estimateError && <div className="error-box">{estimateError}</div>}
             {estimateSaving && <div className="status-box">저장 중...</div>}
 
-            <div className="pdf-capture-area" ref={previewPdfRef}>
+            <div
+              className={`pdf-capture-area ${estimatePreviewType === "general" ? "general-estimate-document" : "detail-estimate-document"}`.trim()}
+              ref={previewPdfRef}
+            >
               <div className="pdf-title-row">
                 <div>
                   <p className="eyebrow dark">FORMATE 인테리어 견적서</p>
@@ -12434,14 +15027,14 @@ export default function App() {
 
             <div className="actions">
               <button
-                className="primary-button"
+                className="secondary-button"
                 disabled={estimateSaving}
                 onClick={saveEstimateToSupabase}
               >
                 <Save size={18} /> 견적 저장
               </button>
               <button
-                className="secondary-button"
+                className="primary-button"
                 onClick={downloadEstimatePdf}
               >
                 <Printer size={18} /> PDF 받기
@@ -12476,9 +15069,14 @@ const styles = `
     background: var(--bg-base);
     font-size: var(--font-size-body);
     font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-body);
+    letter-spacing: var(--letter-spacing-normal);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
   }
   button, input, select, textarea {
     font: inherit;
+    letter-spacing: var(--letter-spacing-normal);
   }
   button {
     cursor: pointer;
@@ -12491,7 +15089,10 @@ const styles = `
   }
   .app-shell {
     min-height: 100vh;
-    padding-top: 70px;
+    padding-top: 56px;
+  }
+  .app-shell.items-v2-shell {
+    padding-top: 56px;
   }
   .app-shell svg {
     stroke-width: 1.75;
@@ -12561,8 +15162,8 @@ const styles = `
     color: var(--text-primary);
   }
   .login-brand img {
-    width: 34px;
-    height: 34px;
+    width: 38px;
+    height: 38px;
     display: block;
   }
   .login-brand strong {
@@ -12632,7 +15233,7 @@ const styles = `
     left: 0;
     right: 0;
     z-index: 80;
-    height: 64px;
+    height: 56px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -12652,12 +15253,12 @@ const styles = `
     text-align: left;
   }
   .global-brand img {
-    width: 34px;
-    height: 34px;
+    width: 27px;
+    height: 27px;
     display: block;
   }
   .global-brand strong {
-    font-size: var(--font-size-title-sm);
+    font-size: var(--font-size-section-title);
     letter-spacing: 0;
   }
   .global-header.with-admin-condition,
@@ -12667,13 +15268,15 @@ const styles = `
   }
   .header-admin-condition,
   .header-estimate-condition {
-    display: grid;
-    justify-items: center;
-    gap: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
     min-width: 0;
     max-width: min(54vw, 620px);
     justify-self: center;
-    padding: 6px 14px;
+    min-height: 32px;
+    padding: 0 var(--space-1-5);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     background: var(--bg-subtle);
@@ -12683,14 +15286,14 @@ const styles = `
   .header-admin-condition.active,
   .header-estimate-condition {
     border-color: var(--brand-primary);
-    background: rgba(244, 246, 255, 0.98);
+    background: var(--bg-surface);
     color: var(--text-primary);
   }
   .header-admin-condition span,
   .header-estimate-condition span {
-    font-size: 11px;
+    font-size: var(--font-size-caption);
     font-weight: var(--font-weight-semibold);
-    line-height: 1.1;
+    line-height: var(--line-height-caption);
   }
   .header-admin-condition strong,
   .header-estimate-condition strong {
@@ -12699,8 +15302,8 @@ const styles = `
     overflow: hidden;
     color: inherit;
     font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-bold);
-    line-height: 1.25;
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -12792,8 +15395,8 @@ const styles = `
     font-weight: var(--font-weight-bold);
   }
   .hero-brand img {
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     display: block;
   }
   .hero-brand strong {
@@ -13032,6 +15635,83 @@ const styles = `
     background: var(--brand-primary-subtle);
     color: var(--brand-primary);
     font-size: var(--font-size-body-sm);
+  }
+  .home-primary-card {
+    border-color: var(--brand-primary);
+    background: #fbfcff;
+  }
+  .home-primary-card svg {
+    color: var(--brand-primary);
+  }
+  .home-recent-compact {
+    display: grid;
+    gap: var(--space-1);
+    padding: 14px 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+    box-shadow: var(--shadow-sm);
+  }
+  .home-recent-compact-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .home-recent-compact-head strong {
+    font-size: var(--font-size-body-sm);
+  }
+  .home-recent-compact-list {
+    display: grid;
+    gap: 6px;
+  }
+  .home-recent-compact-row {
+    display: grid;
+    grid-template-columns: minmax(100px, 0.8fr) minmax(160px, 1fr) 112px;
+    gap: var(--space-1);
+    align-items: center;
+    min-height: 38px;
+    padding: 7px 9px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    background: var(--bg-muted);
+    color: var(--text-primary);
+    text-align: left;
+  }
+  .home-recent-compact-row:hover,
+  .home-recent-compact-row:focus-visible {
+    border-color: var(--brand-accent-line);
+    background: var(--bg-surface);
+    outline: none;
+  }
+  .home-recent-compact-row span,
+  .home-recent-compact-row em {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .header-estimate-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+    justify-self: end;
+    min-width: 0;
+  }
+  .header-estimate-actions .ui-button {
+    height: var(--button-height);
+  }
+  .home-recent-compact-row span {
+    font-weight: var(--font-weight-semibold);
+  }
+  .home-recent-compact-row em {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+  }
+  .home-recent-compact-row .number-text {
+    justify-self: end;
   }
   .support-card {
     min-height: 116px;
@@ -13526,12 +16206,15 @@ const styles = `
   }
   .ai-setup-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
+    min-height: 56px;
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--color-border);
   }
   .ai-setup-header h2 {
-    margin-bottom: 8px;
+    margin-bottom: 0;
   }
   .ai-setup-header .muted {
     max-width: 780px;
@@ -15119,6 +17802,7 @@ const styles = `
     padding: 12px 14px;
     border-radius: var(--radius-button);
     font-weight: var(--font-weight-semibold);
+    animation: formate-feedback-in 0.18s ease both;
   }
   .status-box {
     border: 1px solid var(--border-subtle);
@@ -15133,11 +17817,22 @@ const styles = `
   .success-box {
     margin-bottom: var(--space-2);
     padding: 12px 14px;
-    border: 1px solid rgba(49, 124, 82, 0.22);
+    border: 1px solid var(--color-success-border);
     border-radius: var(--radius-button);
-    background: rgba(49, 124, 82, 0.08);
-    color: #317c52;
+    background: var(--color-success-bg);
+    color: var(--color-success);
     font-weight: var(--font-weight-semibold);
+    animation: formate-feedback-in 0.18s ease both;
+  }
+  @keyframes formate-feedback-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
   .success-box p,
   .error-box p {
@@ -15160,46 +17855,60 @@ const styles = `
     font-size: var(--font-size-body-sm);
   }
   .photo-management-panel {
-    width: min(1180px, 100%);
+    width: 100%;
+    display: grid;
+    gap: var(--space-3);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .photo-management-page .ui-page-header {
+    margin-bottom: 0;
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
   }
   .photo-storage-note {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 14px;
-    margin: 0 0 var(--space-2);
-    padding: 10px 12px;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    background: var(--bg-subtle);
-    color: var(--text-secondary);
-    font-size: var(--font-size-body-sm);
+    gap: var(--space-1) var(--space-1-5);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
   }
   .photo-storage-note svg {
-    color: var(--brand-primary);
+    color: var(--color-text-muted);
   }
   .photo-autosave-status {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-1);
     margin-bottom: var(--space-2);
-    padding: 8px 11px;
-    border: 1px solid var(--border-subtle);
+    padding: var(--space-1) var(--space-1-5);
+    border: 1px solid var(--color-info-border);
     border-radius: var(--radius-button);
-    background: var(--bg-subtle);
-    color: var(--text-secondary);
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-semibold);
+    background: var(--color-info-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
   }
   .photo-autosave-status span {
-    color: var(--brand-primary);
+    color: var(--color-info);
   }
   .photo-autosave-status.saving span {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
   }
   .photo-autosave-status.error {
     border-color: var(--color-danger-border);
-    background: var(--color-danger-subtle);
+    background: var(--color-danger-bg);
     color: var(--color-danger);
   }
   .photo-autosave-status.error span {
@@ -15207,89 +17916,157 @@ const styles = `
   }
   .photo-tabs {
     display: inline-flex;
-    gap: 6px;
-    margin-bottom: var(--space-2);
-    padding: 5px;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    background: var(--bg-subtle);
+    gap: var(--space-1);
+    margin-bottom: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
   }
   .photo-tabs button {
-    min-height: 34px;
-    padding: 7px 13px;
-    border: 1px solid transparent;
+    min-height: var(--button-height-sm);
+    padding: 0 var(--space-1-5);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-button);
-    background: transparent;
-    color: var(--text-secondary);
-    font-weight: var(--font-weight-semibold);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
+  }
+  .photo-tabs button:hover,
+  .photo-tabs button:focus-visible {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+    outline: none;
   }
   .photo-tabs button.active {
-    border-color: var(--brand-accent-line);
-    background: var(--bg-surface);
-    color: var(--brand-primary);
-    box-shadow: var(--shadow-sm);
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    box-shadow: none;
   }
   .photo-tab-panel,
   .photo-collection-list,
   .photo-subitem-groups {
     display: grid;
-    gap: var(--space-2);
+    gap: var(--space-3);
   }
   .photo-section-header {
     display: flex;
     justify-content: space-between;
     gap: var(--space-2);
-    align-items: flex-start;
+    align-items: center;
+    padding-bottom: var(--space-1-5);
+    border-bottom: 1px solid var(--color-border);
   }
   .photo-section-header h3,
   .photo-subitem-group h3 {
-    margin: 0 0 5px;
-    font-size: var(--font-size-title-sm);
+    margin: 0 0 var(--space-0-5);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
   }
   .photo-collection-card,
   .photo-subitem-group {
-    padding: var(--space-2);
-    border: 1px solid var(--border-default);
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
-    background: var(--bg-surface);
-    box-shadow: var(--shadow-sm);
+    background: var(--color-surface);
+    box-shadow: none;
+    transition: border-color 150ms ease, background-color 150ms ease;
+  }
+  .photo-collection-card:hover,
+  .photo-subitem-group:hover {
+    border-color: var(--color-border-strong);
+    box-shadow: none;
   }
   .photo-collection-title-row {
     display: grid;
-    grid-template-columns: minmax(180px, 1fr) auto auto auto;
-    gap: 8px;
+    grid-template-columns: minmax(180px, 1fr) auto 36px auto;
+    gap: var(--space-1);
     align-items: center;
-    margin-bottom: var(--space-1);
+    margin-bottom: 0;
+    padding: var(--space-1-5);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface-subtle);
   }
   .photo-collection-title-row input {
     min-width: 0;
-    height: 38px;
-    border: 1px solid var(--border-default);
+    height: var(--button-height-sm);
+    border: 1px solid transparent;
+    border-bottom-color: var(--color-border);
+    border-radius: 0;
+    padding: 0 var(--space-1);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
+  }
+  .photo-collection-title-row input:hover {
+    border-bottom-color: var(--color-border-strong);
+  }
+  .photo-collection-title-row input:focus {
+    border-color: var(--color-primary);
     border-radius: var(--radius-button);
-    padding: 0 11px;
-    background: var(--bg-surface);
-    color: var(--text-primary);
-    font-weight: var(--font-weight-semibold);
+    background: var(--color-surface);
+    box-shadow: none;
+    outline: none;
+  }
+  .photo-collection-delete-button {
+    width: var(--button-height-sm);
+    height: var(--button-height-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-danger);
+    cursor: pointer;
+  }
+  .photo-collection-delete-button:hover,
+  .photo-collection-delete-button:focus-visible {
+    background: var(--color-danger-bg);
+    outline: none;
+  }
+  .photo-collection-delete-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   .danger-text {
     color: var(--color-danger);
   }
   .photo-upload-button {
     position: relative;
-    min-height: 36px;
+    min-height: var(--button-height-sm);
     display: inline-flex;
     justify-content: center;
     align-items: center;
-    gap: 6px;
-    padding: 8px 11px;
-    border: 1px solid var(--brand-accent-line);
+    gap: var(--space-1);
+    padding: 0 var(--space-1-5);
+    border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-button);
-    background: var(--brand-primary-subtle);
-    color: var(--brand-primary);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
     font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
     cursor: pointer;
     white-space: nowrap;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  }
+  .photo-upload-button:hover,
+  .photo-upload-button:focus-within {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+    box-shadow: none;
+    outline: none;
   }
   .photo-upload-button input {
     position: absolute;
@@ -15311,29 +18088,55 @@ const styles = `
     background: var(--bg-subtle);
     color: var(--text-secondary);
     font-size: var(--font-size-body-sm);
+    text-align: center;
+  }
+  .photo-empty-state {
+    min-height: 144px;
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    text-align: center;
+  }
+  .photo-tab-panel .compact-empty,
+  .photo-collection-card > .photo-empty-state {
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .photo-collection-card > .photo-thumb-grid,
+  .photo-collection-card > .photo-empty-state {
+    margin: var(--space-1-5);
   }
   .photo-thumb-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 10px;
+    gap: var(--space-1);
   }
   .photo-thumb-card {
     min-width: 0;
     overflow: hidden;
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
-    background: var(--bg-surface);
+    background: var(--color-surface);
+    transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+  }
+  .photo-thumb-card:hover {
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-hover);
   }
   .photo-thumb-card.primary {
-    border-color: var(--brand-primary);
+    border-color: var(--color-success-border);
+    background: var(--color-success-bg);
   }
   .photo-thumb-image {
     position: relative;
     aspect-ratio: 4 / 3;
     display: grid;
     place-items: center;
-    background: var(--bg-subtle);
-    color: var(--text-tertiary);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-muted);
   }
   .photo-thumb-image img {
     width: 100%;
@@ -15343,135 +18146,191 @@ const styles = `
   }
   .photo-thumb-image span {
     position: absolute;
-    top: 7px;
-    left: 7px;
-    padding: 4px 7px;
-    border-radius: var(--radius-button);
-    background: var(--brand-primary);
-    color: white;
+    top: var(--space-1);
+    left: var(--space-1);
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-success-border);
+    border-radius: var(--radius-badge);
+    background: var(--color-success-bg);
+    color: var(--color-success);
     font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-bold);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
   }
   .photo-thumb-meta {
     display: grid;
-    gap: 7px;
-    padding: 8px;
+    gap: var(--space-1);
+    padding: var(--space-1);
   }
   .photo-thumb-meta p {
     margin: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
   }
   .photo-thumb-actions {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
+    gap: var(--space-0-5);
   }
   .photo-thumb-actions button {
-    min-height: 28px;
-    border: 1px solid var(--border-subtle);
+    min-height: var(--button-height-sm);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-button);
-    background: var(--bg-surface);
-    color: var(--text-secondary);
-    font-size: 11px;
-    font-weight: var(--font-weight-semibold);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
+  }
+  .photo-thumb-actions button:hover:not(:disabled),
+  .photo-thumb-actions button:focus-visible {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+    outline: none;
+  }
+  .photo-thumb-actions button:disabled {
+    opacity: 0.44;
   }
   .photo-thumb-actions button.danger {
     color: var(--color-danger);
   }
+  .photo-thumb-actions button.danger:hover:not(:disabled),
+  .photo-thumb-actions button.danger:focus-visible {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-bg);
+    color: var(--color-danger);
+  }
   .compact-empty {
-    min-height: 160px;
+    min-height: 132px;
+    margin-top: 0;
+    padding: var(--space-3);
   }
   .photo-subitem-table {
     display: grid;
-    gap: 8px;
+    gap: var(--space-1);
   }
   .photo-subitem-group-toggle {
     width: 100%;
-    min-height: 44px;
+    min-height: var(--table-row-height);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-1);
-    padding: 0;
+    padding: 0 var(--space-1-5);
     background: transparent;
-    color: var(--text-primary);
+    color: var(--color-text-primary);
     text-align: left;
+    border-radius: 0;
+  }
+  .photo-subitem-group-toggle:hover,
+  .photo-subitem-group-toggle:focus-visible {
+    color: var(--color-primary);
+    outline: none;
   }
   .photo-subitem-group-toggle span {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--space-1);
     min-width: 0;
   }
   .photo-subitem-group-toggle strong {
-    font-size: var(--font-size-title-sm);
+    font-size: var(--font-size-section-title);
+    line-height: var(--line-height-section-title);
   }
   .photo-subitem-group-toggle em {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
     font-style: normal;
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
   }
   .photo-subitem-group.expanded {
-    border-color: var(--brand-accent-line);
+    border-color: var(--color-primary-border);
   }
   .photo-subitem-group.expanded .photo-subitem-table {
-    margin-top: var(--space-1);
+    margin-top: 0;
+    padding: var(--space-1-5);
+    border-top: 1px solid var(--color-border);
   }
   .photo-subitem-header,
   .photo-subitem-row {
     display: grid;
     grid-template-columns: minmax(180px, 0.8fr) minmax(280px, 1.6fr) 130px;
-    gap: 8px;
+    gap: var(--space-1);
     align-items: start;
   }
   .photo-subitem-header {
-    color: var(--text-secondary);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-bold);
+    min-height: var(--table-header-height);
+    align-items: center;
+    padding: 0 var(--space-table-cell-x);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-header);
+    letter-spacing: var(--letter-spacing-table-header);
   }
   .photo-subitem-row {
-    padding: 10px;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    background: var(--bg-subtle);
+    padding: var(--space-1-5);
+    border: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-surface);
+    transition: border-color 150ms ease, background-color 150ms ease;
+  }
+  .photo-subitem-row:nth-child(even) {
+    background: var(--color-row-alt);
+  }
+  .photo-subitem-row:hover {
+    border-color: var(--color-border-strong);
+    background: var(--color-row-alt);
   }
   .photo-subitem-name {
     display: grid;
-    gap: 5px;
+    gap: var(--space-0-5);
     min-width: 0;
   }
   .photo-subitem-name strong {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--text-primary);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-cell);
   }
   .photo-subitem-name span,
   .photo-subitem-upload p,
   .photo-count-line {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
   }
   .photo-subitem-manage {
     display: grid;
-    gap: 8px;
+    gap: var(--space-1);
     min-width: 0;
   }
   .photo-count-line {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    font-weight: var(--font-weight-semibold);
+    gap: var(--space-1);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
   }
   .photo-subitem-upload {
     display: grid;
-    gap: 6px;
+    gap: var(--space-label-gap);
     justify-items: start;
   }
   .photo-subitem-upload p {
@@ -16073,57 +18932,108 @@ const styles = `
     min-height: 14px;
   }
   .estimate-search-panel {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) auto;
+    gap: var(--space-1);
+    align-items: end;
     margin-bottom: var(--space-2);
     padding: var(--space-2);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
-    background: var(--bg-surface);
-    box-shadow: var(--shadow-sm);
+    background: var(--color-surface);
+    box-shadow: none;
   }
   .estimate-search-panel label {
     display: grid;
-    gap: var(--space-1);
-    font-weight: var(--font-weight-semibold);
+    gap: var(--space-label-gap);
+    font-weight: var(--font-weight-medium);
+  }
+  .estimate-search-panel label span,
+  .estimate-result-count {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
+  }
+  .estimate-result-count {
+    min-height: var(--button-height);
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    white-space: nowrap;
   }
   .estimate-list {
     display: grid;
-    gap: var(--space-1);
+    gap: var(--space-2);
+    background: transparent;
+    box-shadow: none;
   }
   .estimate-card {
     display: grid;
-    grid-template-columns: minmax(220px, 1fr) 180px auto;
-    gap: var(--space-2);
+    grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.75fr) 150px auto;
+    gap: var(--space-1);
     align-items: center;
-    padding: var(--space-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-surface);
-    box-shadow: var(--shadow-sm);
-    transition: border-color 150ms ease, box-shadow 150ms ease;
+    box-shadow: none;
+    transition: background-color 150ms ease;
+  }
+  .estimate-card:last-child {
+    border-bottom: 0;
   }
   .estimate-card:hover {
-    border-color: var(--border-default);
-    box-shadow: var(--shadow-md);
+    background: var(--bg-muted);
   }
   .estimate-card strong {
     display: block;
-    margin-bottom: 6px;
-    font-size: var(--font-size-title-sm);
+    margin-bottom: 4px;
+    font-size: var(--font-size-body);
   }
   .estimate-card p {
     margin: 0;
     color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .estimate-card-main,
+  .estimate-card-meta {
+    min-width: 0;
+  }
+  .estimate-card-meta {
+    display: grid;
+    gap: 4px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
   }
   .estimate-amount {
-    font-size: 28px;
+    font-size: var(--font-size-title-sm);
     font-weight: var(--font-weight-bold);
     text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .estimate-card-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-1);
+    gap: 6px;
     justify-content: flex-end;
+  }
+  .estimate-card-actions .secondary-button,
+  .estimate-card-actions .ghost {
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: var(--font-size-caption);
+  }
+  .estimate-empty-state {
+    padding: var(--space-3);
+    text-align: center;
+    background: var(--color-surface);
+  }
+  .estimate-empty-state p {
+    margin: 0;
   }
   .modal-actions {
     justify-content: flex-start;
@@ -16411,8 +19321,11 @@ const styles = `
     display: flex;
     justify-content: space-between;
     gap: var(--space-2);
-    align-items: flex-start;
-    margin-bottom: var(--space-3);
+    align-items: center;
+    min-height: 56px;
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--border-subtle);
   }
   .admin-last-updated-pill {
     width: fit-content;
@@ -16440,6 +19353,7 @@ const styles = `
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-bold);
     white-space: nowrap;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   }
   .autosave-pill.dirty,
   .autosave-pill.saving {
@@ -16450,6 +19364,7 @@ const styles = `
   .autosave-pill.saved {
     background: #ffffff;
     color: var(--text-secondary);
+    animation: formate-feedback-in 0.18s ease both;
   }
   .autosave-pill.error {
     border-color: var(--color-danger-border);
@@ -17242,6 +20157,331 @@ const styles = `
     border-radius: var(--radius-card);
     background: var(--bg-surface);
   }
+  .general-preview-page {
+    background: #f3f5f8;
+  }
+  .general-preview-panel {
+    width: min(1040px, 100%);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .general-preview-panel > .editor-header {
+    margin-bottom: var(--space-2);
+    padding: 14px 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: var(--shadow-sm);
+  }
+  .general-preview-panel > .editor-header h2 {
+    margin: 0;
+    font-size: var(--font-size-title-md);
+  }
+  .general-preview-panel .estimate-header-actions .primary-button,
+  .general-preview-panel .estimate-header-actions .secondary-button,
+  .general-preview-panel .estimate-header-actions .ghost,
+  .general-preview-panel .actions .primary-button,
+  .general-preview-panel .actions .secondary-button {
+    min-height: 38px;
+    padding: 0 12px;
+  }
+  .general-preview-panel .actions {
+    justify-content: flex-end;
+    margin-top: var(--space-2);
+  }
+  .general-estimate-document {
+    width: min(920px, 100%);
+    margin: 0 auto;
+    padding: 38px 42px;
+    border: 1px solid #d9dee8;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 18px 56px rgba(23, 32, 51, 0.1);
+  }
+  .general-estimate-document .pdf-title-row {
+    margin-bottom: 18px;
+    padding-bottom: 18px;
+    border-bottom: 2px solid var(--text-primary);
+  }
+  .general-estimate-document .pdf-title-row h3 {
+    font-size: 28px;
+    letter-spacing: 0;
+  }
+  .general-estimate-document .pdf-title-row .number-text {
+    font-size: 30px;
+    color: var(--brand-primary);
+  }
+  .general-estimate-document .estimate-meta-grid {
+    grid-template-columns: minmax(130px, 1.1fr) minmax(160px, 1.3fr) repeat(3, minmax(110px, 1fr));
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .general-estimate-document .estimate-meta-grid div,
+  .general-estimate-document .estimate-pyeong-preview div,
+  .general-estimate-document .compact-key,
+  .general-estimate-document .estimate-note-box,
+  .general-estimate-document .preview-site-memo,
+  .general-estimate-document .estimate-adjustment-panel {
+    border-color: #e2e7ef;
+    background: #f8fafc;
+    box-shadow: none;
+  }
+  .general-estimate-document .estimate-meta-grid strong {
+    font-size: var(--font-size-body);
+  }
+  .general-estimate-document .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+    padding: 14px;
+    border: 1px solid #e2e7ef;
+    border-radius: 12px;
+    background: #fbfcfe;
+  }
+  .general-estimate-document .form-grid label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .general-estimate-document .form-grid input,
+  .general-estimate-document .form-grid select,
+  .general-estimate-document .preview-site-memo textarea {
+    border-color: #dce3ee;
+    background: #ffffff;
+  }
+  .general-estimate-document .compact-key,
+  .general-estimate-document .estimate-pyeong-preview,
+  .general-estimate-document .estimate-adjustment-panel,
+  .general-estimate-document .preview-site-memo,
+  .general-estimate-document .estimate-note-box {
+    margin-top: 14px;
+  }
+  .general-estimate-document .general-estimate-table {
+    margin-top: 18px;
+    overflow: hidden;
+    border: 1px solid #dfe5ee;
+    border-radius: 10px;
+  }
+  .general-estimate-document .general-estimate-table th,
+  .general-estimate-document .general-estimate-table td {
+    padding: 13px 14px;
+    border-color: #e4e9f1;
+  }
+  .general-estimate-document .general-estimate-table th {
+    background: #f4f6fa;
+    color: var(--text-secondary);
+  }
+  .general-estimate-document .general-estimate-table th:nth-child(3),
+  .general-estimate-document .general-estimate-table th:nth-child(4),
+  .general-estimate-document .general-estimate-table td:nth-child(3),
+  .general-estimate-document .general-estimate-table td:nth-child(4),
+  .general-estimate-document .general-estimate-table tfoot td:not(:first-child) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .general-estimate-document .general-estimate-table tbody tr:nth-child(even) td {
+    background: #fbfcfe;
+  }
+  .general-estimate-document .general-estimate-table tfoot td {
+    background: #f8fafc;
+    font-weight: var(--font-weight-bold);
+  }
+  .general-estimate-document .general-estimate-table tfoot tr:last-child td {
+    border-top: 2px solid var(--brand-primary);
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+    font-size: var(--font-size-body);
+  }
+  .general-estimate-document .tax-note,
+  .general-estimate-document .estimate-note-box p,
+  .general-estimate-document .preview-site-memo label,
+  .general-estimate-document .estimate-number-footer {
+    color: var(--text-secondary);
+  }
+  .general-estimate-document .estimate-note-box strong,
+  .general-estimate-document .customer-adjustment-preview h3,
+  .general-estimate-document .estimate-adjustment-panel h3 {
+    font-size: var(--font-size-title-sm);
+  }
+  .general-preview-panel svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+  }
+  .detail-preview-page {
+    background: #f4f6f9;
+  }
+  .detail-preview-panel {
+    width: min(1180px, 100%);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .detail-preview-panel > .editor-header {
+    margin-bottom: var(--space-2);
+    padding: 14px 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: var(--shadow-sm);
+  }
+  .detail-preview-panel > .editor-header h2 {
+    margin: 0;
+    font-size: var(--font-size-title-md);
+  }
+  .detail-preview-panel .estimate-header-actions .primary-button,
+  .detail-preview-panel .estimate-header-actions .secondary-button,
+  .detail-preview-panel .estimate-header-actions .ghost,
+  .detail-preview-panel .actions .primary-button,
+  .detail-preview-panel .actions .secondary-button {
+    min-height: 38px;
+    padding: 0 12px;
+  }
+  .detail-preview-panel .actions {
+    justify-content: flex-end;
+    margin-top: var(--space-2);
+  }
+  .detail-estimate-document {
+    width: min(1100px, 100%);
+    margin: 0 auto;
+    padding: 34px 36px;
+    border: 1px solid #d8dee8;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 18px 56px rgba(23, 32, 51, 0.1);
+  }
+  .detail-estimate-document .pdf-title-row {
+    margin-bottom: 18px;
+    padding-bottom: 18px;
+    border-bottom: 2px solid var(--brand-primary);
+  }
+  .detail-estimate-document .pdf-title-row h3 {
+    font-size: 27px;
+    letter-spacing: 0;
+  }
+  .detail-estimate-document .pdf-title-row .number-text {
+    font-size: 29px;
+    color: var(--brand-primary);
+  }
+  .detail-estimate-document .estimate-meta-grid {
+    grid-template-columns: minmax(130px, 1fr) minmax(160px, 1.25fr) repeat(3, minmax(110px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .detail-estimate-document .estimate-meta-grid div,
+  .detail-estimate-document .estimate-pyeong-preview div,
+  .detail-estimate-document .compact-key,
+  .detail-estimate-document .customer-adjustment-preview,
+  .detail-estimate-document .estimate-note-box,
+  .detail-estimate-document .preview-site-memo {
+    border-color: #e1e7f0;
+    background: #f8fafc;
+    box-shadow: none;
+  }
+  .detail-estimate-document .form-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 12px;
+    border: 1px solid #e1e7f0;
+    border-radius: 12px;
+    background: #fbfcfe;
+  }
+  .detail-estimate-document .form-grid label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .detail-estimate-document .form-grid input,
+  .detail-estimate-document .form-grid select,
+  .detail-estimate-document .preview-site-memo textarea {
+    border-color: #dce3ee;
+    background: #ffffff;
+  }
+  .detail-estimate-document .detail-estimate-groups {
+    gap: 14px;
+    margin-top: 18px;
+  }
+  .detail-estimate-document .detail-estimate-group {
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid #dfe5ee;
+    border-radius: 12px;
+    background: #fbfcfe;
+  }
+  .detail-estimate-document .detail-estimate-group h3 {
+    display: flex;
+    align-items: center;
+    min-height: 30px;
+    margin: 0;
+    padding: 0 2px;
+    color: var(--brand-primary);
+    font-size: var(--font-size-title-sm);
+  }
+  .detail-estimate-document .detail-estimate-table {
+    overflow: hidden;
+    border: 1px solid #e1e7f0;
+    border-radius: 10px;
+  }
+  .detail-estimate-document .detail-estimate-table th,
+  .detail-estimate-document .detail-estimate-table td {
+    padding: 11px 12px;
+    border-color: #e5eaf2;
+    vertical-align: middle;
+  }
+  .detail-estimate-document .detail-estimate-table th {
+    background: #f2f5fa;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .detail-estimate-document .detail-estimate-table th:nth-child(n+3),
+  .detail-estimate-document .detail-estimate-table td:nth-child(n+3) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .detail-estimate-document .detail-estimate-table tbody tr:nth-child(4n+3) td,
+  .detail-estimate-document .detail-estimate-table tbody tr:nth-child(4n+4) td {
+    background: #fdfefe;
+  }
+  .detail-estimate-document .detail-estimate-table tbody tr:hover td {
+    background: var(--color-row-alt);
+  }
+  .detail-estimate-document .labor-detail-row td {
+    color: var(--text-secondary);
+    background: #f8fafc;
+  }
+  .detail-estimate-document .labor-detail-row td:nth-child(1),
+  .detail-estimate-document .detail-estimate-table td:empty {
+    color: var(--text-tertiary);
+  }
+  .detail-estimate-document .customer-adjustment-preview,
+  .detail-estimate-document .preview-site-memo,
+  .detail-estimate-document .estimate-note-box,
+  .detail-estimate-document .estimate-pyeong-preview,
+  .detail-estimate-document .compact-key {
+    margin-top: 14px;
+  }
+  .detail-estimate-document .customer-adjustment-preview h3,
+  .detail-estimate-document .estimate-note-box strong {
+    font-size: var(--font-size-title-sm);
+  }
+  .detail-estimate-document .customer-adjustment-preview table th:nth-child(3),
+  .detail-estimate-document .customer-adjustment-preview table td:nth-child(3) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .detail-estimate-document .tax-note,
+  .detail-estimate-document .estimate-note-box p,
+  .detail-estimate-document .preview-site-memo label,
+  .detail-estimate-document .estimate-number-footer {
+    color: var(--text-secondary);
+  }
+  .detail-preview-panel svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+  }
   .pdf-title-row {
     display: flex;
     justify-content: space-between;
@@ -17491,30 +20731,28 @@ const styles = `
     }
     .global-header.with-admin-condition,
     .global-header.with-estimate-condition {
-      height: auto;
-      min-height: 64px;
-      grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-areas:
-        "brand company"
-        "condition condition";
-      gap: 6px var(--space-1);
-      padding-top: 8px;
-      padding-bottom: 8px;
+      height: 56px;
+      min-height: 56px;
+      grid-template-columns: minmax(120px, 1fr) minmax(180px, auto) minmax(120px, 1fr);
+      grid-template-areas: "brand condition company";
+      gap: var(--space-1);
+      padding-top: 0;
+      padding-bottom: 0;
     }
     .global-header.with-admin-condition .global-brand,
     .global-header.with-estimate-condition .global-brand {
       grid-area: brand;
     }
     .global-header.with-admin-condition .company-session,
-    .global-header.with-estimate-condition .company-session {
+    .global-header.with-estimate-condition .company-session,
+    .global-header.with-estimate-condition .header-estimate-actions {
       grid-area: company;
     }
     .global-header.with-admin-condition .header-admin-condition,
     .global-header.with-estimate-condition .header-estimate-condition {
       grid-area: condition;
-      width: 100%;
       max-width: none;
-      padding: 5px 10px;
+      padding: 0 var(--space-1);
     }
     .global-header.with-admin-condition .header-admin-condition strong,
     .global-header.with-estimate-condition .header-estimate-condition strong {
@@ -17522,7 +20760,7 @@ const styles = `
     }
     .global-header.with-admin-condition ~ .admin-page,
     .global-header.with-estimate-condition ~ .workspace {
-      margin-top: 42px;
+      margin-top: 0;
     }
     .company-session {
       gap: 6px;
@@ -17573,9 +20811,16 @@ const styles = `
     .estimate-amount {
       text-align: left;
     }
+    .saved-estimates-page .estimate-amount {
+      text-align: right;
+    }
     .estimate-card-actions {
       justify-content: stretch;
       flex-direction: column;
+    }
+    .saved-estimates-page .estimate-card-actions {
+      flex-direction: row;
+      justify-content: flex-end;
     }
     .estimate-header-actions,
     .estimate-header-actions .primary-button,
@@ -17612,31 +20857,48 @@ const styles = `
     }
   }
 
-  /* taste redesign layer: trust-first B2B tool, low cognitive load, one clear next action */
+  /* FORMATE v8.1 design layer */
   :root {
-    --bg-base: #f6f7fb;
-    --bg-surface: #ffffff;
-    --bg-subtle: #f2f5fa;
-    --bg-surface-overlay: rgba(255, 255, 255, 0.94);
-    --text-primary: #172033;
-    --text-secondary: #5f6d82;
-    --text-tertiary: #8a95a8;
-    --brand-primary: #24304f;
-    --brand-primary-hover: #17213a;
-    --brand-primary-subtle: #eef3ff;
-    --brand-accent-line: #aeb9dd;
-    --border-default: #d6deea;
-    --border-subtle: #e6ebf2;
-    --radius-card: 16px;
-    --radius-button: 12px;
-    --shadow-sm: 0 10px 30px rgba(23, 32, 51, 0.06);
-    --shadow-md: 0 22px 54px rgba(23, 32, 51, 0.12);
-    --focus-ring: 0 0 0 4px rgba(36, 48, 79, 0.14);
+    --color-bg: #F6F4EF;
+    --color-surface: #FFFFFF;
+    --color-surface-subtle: #FBFAF7;
+    --color-border: #E2DED6;
+    --color-border-strong: #CFC8BC;
+    --color-text-primary: #1F2933;
+    --color-text-secondary: #667085;
+    --color-text-muted: #98A2B3;
+    --color-primary: #0F766E;
+    --color-primary-hover: #115E59;
+    --color-primary-soft: #F0FDFA;
+    --color-primary-border: #99F6E4;
+    --color-header-bg: #F3F1EC;
+    --color-row-alt: #FBFAF7;
+    --color-row-hover: #F1EFE8;
+    --color-cell-focus: #F0FDFA;
+    --color-danger: #DC2626;
+    --color-danger-bg: #FEF2F2;
+    --color-danger-border: #FECACA;
+    --bg-base: var(--color-bg);
+    --bg-surface: var(--color-surface);
+    --bg-subtle: var(--color-surface-subtle);
+    --bg-surface-overlay: rgba(255, 255, 255, 0.96);
+    --text-primary: var(--color-text-primary);
+    --text-secondary: var(--color-text-secondary);
+    --text-tertiary: var(--color-text-muted);
+    --brand-primary: var(--color-primary);
+    --brand-primary-hover: var(--color-primary-hover);
+    --brand-primary-subtle: var(--color-primary-soft);
+    --brand-accent-line: var(--color-primary-border);
+    --border-default: var(--color-border);
+    --border-subtle: var(--color-border);
+    --radius-card: 8px;
+    --radius-button: 6px;
+    --shadow-sm: none;
+    --shadow-md: none;
+    --focus-ring: 0 0 0 1px var(--color-primary-border);
   }
   body {
-    background:
-      radial-gradient(circle at 18% 0%, rgba(238, 243, 255, 0.9), transparent 30%),
-      var(--bg-base);
+    background: var(--bg-base);
   }
   button {
     transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
@@ -17645,14 +20907,17 @@ const styles = `
     transform: translateY(1px);
   }
   .app-shell {
-    padding-top: 72px;
+    padding-top: 56px;
+  }
+  .app-shell.items-v2-shell {
+    padding-top: 56px;
   }
   .global-header {
-    height: 72px;
-    padding: 0 clamp(16px, 3vw, 36px);
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    height: 56px;
+    padding: 0 var(--space-3);
+    background: var(--bg-surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
   .global-brand strong,
   .hero-brand strong,
@@ -17660,13 +20925,15 @@ const styles = `
     letter-spacing: -0.01em;
   }
   .company-session {
-    padding: 6px 8px;
+    min-height: var(--button-height);
+    padding: 0 var(--space-1);
     border: 1px solid var(--border-subtle);
-    border-radius: 999px;
+    border-radius: var(--radius-button);
     background: var(--bg-surface);
   }
   .company-switch-button {
-    border-radius: 999px;
+    min-height: var(--button-height-sm);
+    border-radius: var(--radius-button);
   }
   .login-shell {
     padding: 24px;
@@ -18048,13 +21315,14 @@ const styles = `
     padding: 8px 10px;
   }
   .quantity-table-list .admin-value-row.condition-quantity-row:hover {
-    background: #fbfcff;
+    background: var(--color-row-alt);
   }
   .quantity-table-list .admin-value-row.condition-quantity-row input,
   .quantity-table-list .admin-value-row.condition-quantity-row select {
     min-height: 40px;
     padding: 8px 10px;
     font-size: 15px;
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   }
   .quantity-table-list .admin-value-row.condition-quantity-row label {
     gap: 0;
@@ -18064,13 +21332,14 @@ const styles = `
     border-color: var(--border-subtle);
     border-top: 0;
     border-bottom: 1px solid var(--border-subtle);
-    background: #ffffff;
+    background: var(--color-surface);
     align-items: center;
     column-gap: 6px;
     padding: 6px 8px;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
   }
   .price-table-list .admin-value-row.common-price-row:hover {
-    background: #fbfcff;
+    background: var(--color-row-alt);
   }
   .admin-value-row.newly-added {
     animation: admin-new-row-highlight 1.6s ease-out;
@@ -18090,14 +21359,108 @@ const styles = `
     min-height: 32px;
     padding: 5px 7px;
     font-size: 14px;
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   }
   .price-table-list .admin-value-row.common-price-row label {
     gap: 0;
   }
   .price-table-list .admin-value-row.common-price-row input[inputmode="numeric"],
+  .quantity-table-list .admin-value-row.condition-quantity-row input[type="number"],
+  .detail-cost-row input[inputmode="numeric"],
+  .detail-bulk-panel input[inputmode="numeric"],
   .price-number-field input {
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+  .price-table-list .admin-value-row.common-price-row,
+  .quantity-table-list .admin-value-row.condition-quantity-row,
+  .detail-cost-row {
+    min-height: 46px;
+  }
+  .price-table-list .admin-value-row.common-price-row:nth-of-type(even),
+  .quantity-table-list .admin-value-row.condition-quantity-row:nth-of-type(even),
+  .detail-cost-list .detail-cost-row:nth-of-type(even),
+  .detail-subitem-list button:nth-child(even) {
+    background: var(--color-row-alt);
+  }
+  .price-table-list .admin-value-row.common-price-row:hover,
+  .quantity-table-list .admin-value-row.condition-quantity-row:hover,
+  .detail-cost-row:hover,
+  .detail-subitem-list button:hover {
+    background: var(--color-row-alt);
+  }
+  .admin-price-table-header,
+  .admin-quantity-table-header,
+  .detail-cost-header {
+    border-color: var(--border-subtle);
+    background: #f8f9fb;
+    color: var(--text-secondary);
+    letter-spacing: 0;
+  }
+  .price-table-list .admin-bulk-panel,
+  .quantity-table-list .admin-bulk-panel,
+  .detail-bulk-panel {
+    border-color: var(--border-subtle);
+    background: #fbfcfe;
+    box-shadow: none;
+  }
+  .price-table-list .admin-bulk-panel strong,
+  .quantity-table-list .admin-bulk-panel strong,
+  .detail-bulk-panel strong {
+    color: var(--text-primary);
+  }
+  .price-table-list .admin-value-row.common-price-row input:focus,
+  .price-table-list .admin-value-row.common-price-row select:focus,
+  .quantity-table-list .admin-value-row.condition-quantity-row input:focus,
+  .quantity-table-list .admin-value-row.condition-quantity-row select:focus,
+  .detail-cost-row input:focus,
+  .detail-cost-row select:focus {
+    border-color: var(--brand-primary);
+    background: var(--bg-surface);
+    box-shadow: none;
+  }
+  .price-table-list input::placeholder,
+  .quantity-table-list input::placeholder,
+  .detail-cost-layout input::placeholder,
+  .detail-cost-layout textarea::placeholder,
+  .admin-readonly-material span,
+  .detail-subitem-list span,
+  .detail-cost-list .muted {
+    color: var(--text-tertiary);
+  }
+  .price-table-list .admin-value-row.common-price-row input[inputmode="numeric"],
+  .quantity-table-list .admin-value-row.condition-quantity-row input[type="number"],
+  .detail-cost-row input[inputmode="numeric"],
+  .detail-bulk-panel input[inputmode="numeric"] {
+    font-variant-numeric: tabular-nums;
+  }
+  .admin-item-card svg,
+  .admin-tool-panel svg,
+  .admin-edit-panel svg,
+  .template-list-panel svg,
+  .detail-cost-layout svg,
+  .admin-condition-title svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+  }
+  .admin-item-card .danger-button,
+  .detail-cost-layout .danger-button {
+    width: 36px;
+    min-height: 36px;
+  }
+  .admin-item-card .danger-button:hover,
+  .admin-item-card .danger-button:focus-visible,
+  .detail-cost-layout .danger-button:hover,
+  .detail-cost-layout .danger-button:focus-visible {
+    background: var(--color-danger-subtle);
+    outline: none;
+  }
+  .admin-item-card:hover,
+  .admin-item-card:focus-within,
+  .detail-group:hover,
+  .detail-group:focus-within {
+    border-color: var(--brand-accent-line);
   }
   .price-unit-field select {
     text-align: center;
@@ -18345,9 +21708,3017 @@ const styles = `
   .estimate-card-actions .primary-button {
     min-height: 42px;
   }
+  .estimate-workspace {
+    grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+    align-items: start;
+    width: min(1440px, 100%);
+    max-width: 1440px;
+    gap: 20px;
+    padding: 24px;
+  }
+  .estimate-workspace .category-column,
+  .estimate-workspace .editor {
+    min-width: 0;
+    border-color: var(--border-subtle);
+    box-shadow: var(--shadow-sm);
+  }
+  .estimate-workspace .category-column {
+    position: sticky;
+    top: 88px;
+    max-height: calc(100dvh - 112px);
+    overflow: auto;
+    padding: 18px;
+  }
+  .estimate-workspace .editor {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+  }
+  .estimate-workspace .category-title-row,
+  .estimate-workspace .editor-header {
+    margin-bottom: 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .estimate-workspace .estimate-header-actions {
+    gap: 6px;
+  }
+  .estimate-workspace .estimate-header-actions .primary-button,
+  .estimate-workspace .estimate-header-actions .secondary-button {
+    min-width: 116px;
+    min-height: 38px;
+    padding: 0 11px;
+  }
+  .estimate-workspace .estimate-pyeong-panel,
+  .estimate-workspace .selected-item-summary,
+  .estimate-workspace .site-memo-panel {
+    margin-top: 0;
+    background: #fbfcfe;
+    box-shadow: none;
+  }
+  .estimate-workspace .category-grid {
+    margin: 12px 0;
+    gap: 8px;
+  }
+  .estimate-workspace .category-card {
+    min-height: 50px;
+  }
+  .estimate-workspace .total-box {
+    margin-top: 12px;
+    border-color: var(--brand-accent-line);
+    background: var(--brand-primary-subtle);
+  }
+  .estimate-workspace .material-list {
+    gap: 8px;
+    padding: 10px;
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: 18px;
+    background: #fbfcfe;
+  }
+  .estimate-workspace .estimate-row-header,
+  .estimate-workspace .estimate-template-row {
+    min-width: 704px;
+  }
+  .estimate-workspace .estimate-template-row {
+    box-shadow: none;
+  }
+  .estimate-workspace .estimate-template-row:hover {
+    border-color: var(--brand-accent-line);
+    background: #ffffff;
+  }
+  .estimate-workspace .estimate-side-stack {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+    align-items: start;
+    gap: 12px;
+  }
+  .estimate-workspace .selected-item-summary,
+  .estimate-workspace .site-memo-panel,
+  .estimate-workspace .estimate-editor-total {
+    border-radius: 18px;
+  }
+  .estimate-workspace .selected-summary-row {
+    background: #ffffff;
+  }
+  .estimate-workspace .site-memo-panel textarea {
+    min-height: 108px;
+  }
+  .estimate-workspace .estimate-editor-total {
+    grid-column: 1 / -1;
+    bottom: 16px;
+    z-index: 8;
+    margin-top: 0;
+    border-color: var(--brand-accent-line);
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -12px 34px rgba(23, 32, 51, 0.08);
+  }
+  .estimate-workspace svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+  }
+  /* 7-8 final visual polish: hierarchy, state, type, and numeric consistency. */
+  .primary-button,
+  .secondary-button,
+  .ghost {
+    min-height: 40px;
+    border-radius: var(--radius-button);
+    padding: 0 14px;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1;
+    box-shadow: none;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  }
+  .primary-button {
+    border: 1px solid var(--brand-primary);
+    background: var(--brand-primary);
+    color: var(--text-inverse);
+  }
+  .primary-button:hover:not(:disabled) {
+    border-color: var(--brand-primary-hover);
+    background: var(--brand-primary-hover);
+    box-shadow: none;
+    transform: none;
+  }
+  .secondary-button {
+    border: 1px solid var(--border-default);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+  }
+  .secondary-button:hover:not(:disabled) {
+    border-color: var(--brand-accent-line);
+    background: var(--bg-muted);
+  }
+  .ghost {
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+  }
+  .ghost:hover:not(:disabled) {
+    background: var(--bg-subtle);
+    color: var(--text-primary);
+  }
+  .primary-button:focus-visible,
+  .secondary-button:focus-visible,
+  .ghost:focus-visible,
+  .icon-button:focus-visible,
+  .danger-button:focus-visible,
+  .template-delete-button:focus-visible,
+  .selected-summary-remove:focus-visible,
+  .estimate-photo-button:focus-visible,
+  .estimate-expand-toggle:focus-visible,
+  .preview-top button:focus-visible,
+  .photo-tabs button:focus-visible,
+  .segmented button:focus-visible,
+  .chips button:focus-visible {
+    outline: none;
+    border-color: var(--brand-primary);
+    box-shadow: var(--focus-ring);
+  }
+  .danger-button,
+  .template-delete-button,
+  .photo-thumb-actions button.danger {
+    border-color: var(--color-danger-border);
+    background: var(--bg-surface);
+    color: var(--color-danger);
+    box-shadow: none;
+  }
+  .danger-button:hover:not(:disabled),
+  .danger-button:focus-visible,
+  .template-delete-button:hover:not(:disabled),
+  .template-delete-button:focus-visible,
+  .danger-text-button:hover:not(:disabled),
+  .danger-text:hover:not(:disabled) {
+    border-color: rgba(194, 46, 46, 0.34);
+    background: var(--color-danger-subtle);
+    color: var(--color-danger);
+  }
+  .preview-type-button.active {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
+  }
+  .panel h2,
+  .category-column h2,
+  .editor h2,
+  .editor-header h2,
+  .ui-page-header h1,
+  .admin-verify-modal h2,
+  .estimate-modal h3 {
+    font-size: var(--font-size-title-md);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-heading);
+    letter-spacing: var(--letter-spacing-tight);
+  }
+  .section-heading h2,
+  .selected-summary-header h3,
+  .customer-adjustment-preview h3,
+  .estimate-adjustment-panel h3,
+  .saved-estimate-extra h4,
+  .detail-estimate-group h3,
+  .admin-condition-title strong,
+  .template-list-panel strong,
+  .admin-edit-title strong,
+  .admin-catalog-actions strong,
+  .admin-empty-edit-notice strong,
+  .condition-label-guide strong,
+  .admin-add-subitem-row strong {
+    font-size: 15px;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-compact);
+    letter-spacing: var(--letter-spacing-normal);
+  }
+  .muted,
+  .caption,
+  .ui-page-header__description,
+  .estimate-meta-grid span,
+  .estimate-pyeong-preview span,
+  .admin-condition-title span,
+  .template-list-panel span,
+  .admin-edit-title span,
+  .admin-catalog-actions span,
+  .admin-add-subitem-row span,
+  .tax-note,
+  .estimate-number-footer {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-copy);
+  }
+  p,
+  label,
+  th,
+  td,
+  .status-box,
+  .error-box,
+  .info-box,
+  .success-box {
+    line-height: var(--line-height-copy);
+  }
+  select,
+  input,
+  textarea,
+  .custom-select-trigger,
+  .admin-search-field,
+  .estimate-pyeong-input {
+    border-radius: var(--radius-button);
+  }
+  select:focus,
+  input:focus,
+  textarea:focus,
+  .custom-select-trigger:focus-visible,
+  .custom-select-trigger.open,
+  .admin-search-field:focus-within,
+  .estimate-pyeong-input:focus-within {
+    border-color: var(--brand-primary);
+    background: var(--bg-surface);
+    box-shadow: var(--focus-ring);
+    outline: none;
+  }
+  .empty-state,
+  .estimate-empty-state,
+  .admin-empty-edit-notice,
+  .ai-empty-sheet,
+  .compact-empty {
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-card);
+    background: var(--bg-muted);
+    box-shadow: none;
+    color: var(--text-secondary);
+  }
+  .estimate-empty-state {
+    padding: var(--space-4);
+  }
+  .photo-empty-inline,
+  .selected-summary-empty,
+  .ai-plan-empty,
+  .spec-options-popover-empty,
+  .ai-mapping-empty,
+  .estimate-row-spec-cell.empty,
+  .admin-readonly-material span,
+  td:empty {
+    color: var(--text-tertiary);
+  }
+  .category-card:hover,
+  .template-list-row:hover,
+  .selected-summary-row:hover,
+  .adjustment-row:hover,
+  .estimate-template-row:hover,
+  .admin-value-row:hover,
+  .admin-item-card:hover,
+  .estimate-card:hover {
+    background: #f8faff;
+  }
+  .ai-data-table tbody tr:nth-child(even) td:not(.row-number-cell),
+  .estimate-modal table tbody tr:nth-child(even) td,
+  .selected-summary-row:nth-child(even),
+  .adjustment-row:nth-child(even),
+  .estimate-card:nth-child(even) {
+    background: var(--color-row-alt);
+  }
+  .ai-data-table tbody tr:hover td:not(.row-number-cell),
+  .estimate-modal table tbody tr:hover td,
+  .general-estimate-document .general-estimate-table tbody tr:hover td,
+  .detail-estimate-document .detail-estimate-table tbody tr:hover td {
+    background: var(--color-row-alt);
+  }
+  .number-text,
+  .signed-total,
+  .estimate-amount,
+  .estimate-row-total-cell,
+  .estimate-template-total,
+  .estimate-editor-total .final-total,
+  .preview-total strong,
+  input[type="number"],
+  input[inputmode="numeric"] {
+    font-family: var(--font-number);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: var(--letter-spacing-normal);
+  }
+  input[type="number"],
+  input[inputmode="numeric"],
+  .price-number-field input,
+  .estimate-row-quantity-cell input,
+  .estimate-amount,
+  .estimate-row-total-cell,
+  .estimate-template-total,
+  .estimate-editor-total .final-total {
+    text-align: right;
+  }
+  td .number-text,
+  th .number-text {
+    justify-content: flex-end;
+  }
+  .estimate-modal table td:has(.number-text),
+  .estimate-modal table th:nth-child(n+3),
+  .pdf-capture-area table td:has(.number-text),
+  .pdf-capture-area table th:nth-child(n+3),
+  .ai-data-table .row-number-cell {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .pdf-capture-area {
+    font-family: var(--font-sans);
+    line-height: 1.48;
+    letter-spacing: var(--letter-spacing-normal);
+  }
+  .pdf-capture-area h3 {
+    line-height: 1.28;
+    letter-spacing: var(--letter-spacing-tight);
+  }
+  .pdf-capture-area th,
+  .pdf-capture-area td {
+    line-height: 1.42;
+  }
+  button svg,
+  .compact-button svg,
+  .icon-button svg,
+  .danger-button svg,
+  .admin-tool-panel svg,
+  .admin-edit-panel svg,
+  .template-list-panel svg,
+  .detail-cost-layout svg,
+  .photo-storage-note svg,
+  .estimate-workspace svg,
+  .general-preview-panel svg,
+  .detail-preview-panel svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+    flex: 0 0 auto;
+  }
+  .empty-state > svg,
+  .compact-empty > svg,
+  .ui-empty-state__icon svg {
+    width: 24px;
+    height: 24px;
+    stroke-width: 1.5;
+  }
+  .panel,
+  .category-column,
+  .editor,
+  .selected-item-summary,
+  .site-memo-panel,
+  .estimate-adjustment-panel,
+  .estimate-editor-total,
+  .estimate-card,
+  .estimate-modal,
+  .pdf-capture-area,
+  .admin-pyeong-panel,
+  .template-list-panel,
+  .admin-edit-panel,
+  .admin-tool-panel,
+  .admin-catalog-actions,
+  .estimate-selected-condition-panel,
+  .estimate-pyeong-panel,
+  .total-box {
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-sm);
+  }
   .status-box,
   .error-box {
     border-radius: 14px;
+  }
+  .formate-app-shell--overview .formate-app-shell__sidebar {
+    padding-top: var(--space-3);
+  }
+  .work-home,
+  .admin-home-page {
+    padding-top: var(--space-3);
+    padding-bottom: var(--space-4);
+  }
+  .work-home .landing-actions,
+  .admin-home-section {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .work-home-heading {
+    margin-bottom: 0;
+  }
+  .home-action-list,
+  .admin-action-list {
+    display: grid;
+    gap: var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    padding: var(--space-1);
+    box-shadow: none;
+  }
+  .home-action-row,
+  .admin-action-row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-1-5);
+    border: 1px solid transparent;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-primary);
+    padding: var(--space-2);
+    text-align: left;
+    cursor: pointer;
+  }
+  .home-action-row:hover,
+  .home-action-row:focus-visible,
+  .admin-action-row:hover,
+  .admin-action-row:focus-visible {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    box-shadow: var(--shadow-hover);
+    outline: none;
+  }
+  .home-action-row--primary {
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
+  }
+  .home-action-row svg,
+  .admin-action-row svg {
+    color: var(--color-text-secondary);
+  }
+  .home-action-row span,
+  .admin-action-row span {
+    display: grid;
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+  .home-action-row strong,
+  .admin-action-row strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .home-action-row em,
+  .admin-action-row em {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-caption);
+  }
+  .home-recent-compact {
+    margin-top: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .home-recent-compact-row:hover,
+  .home-recent-compact-row:focus-visible {
+    background: var(--color-row-alt);
+    outline: none;
+  }
+  .condition-page .condition-builder-panel {
+    width: 100%;
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-panel);
+    background: var(--color-surface);
+    box-shadow: none;
+    gap: var(--space-section-gap);
+  }
+  .condition-page .condition-builder-header {
+    align-items: flex-start;
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .condition-page .condition-builder-header h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-work-title);
+  }
+  .condition-page .condition-builder-header .muted {
+    max-width: 760px;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .estimate-current-condition {
+    gap: var(--space-0-5);
+    padding: var(--space-card-padding);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-subtle);
+    box-shadow: none;
+  }
+  .condition-page .estimate-current-condition.active {
+    border-color: var(--color-primary);
+    background: var(--color-surface-subtle);
+    box-shadow: none;
+  }
+  .condition-page .estimate-current-condition span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .estimate-current-condition strong {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+    letter-spacing: var(--letter-spacing-normal);
+  }
+  .condition-page .estimate-current-condition.has-value strong {
+    color: var(--color-text-primary);
+  }
+  .condition-page .estimate-current-condition p {
+    display: block;
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .condition-static-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .condition-page .condition-static-field,
+  .condition-page .condition-static-wide {
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+    gap: var(--space-1);
+  }
+  .condition-page .condition-static-wide {
+    grid-column: 1 / -1;
+  }
+  .condition-page .field-label,
+  .condition-page .condition-static-wide .field-label {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .custom-select {
+    max-width: none;
+  }
+  .condition-page .custom-select-menu {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+  }
+  .condition-page .custom-select-section p {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .pyeong-option-row.selected {
+    background: var(--color-surface-subtle);
+  }
+  .condition-page .pyeong-option-row.selected .pyeong-option-main {
+    color: var(--color-primary);
+  }
+  .condition-page .custom-select-menu button:hover,
+  .condition-page .custom-select-menu button:focus-visible {
+    background: var(--color-row-alt);
+    outline: none;
+  }
+  .condition-page .custom-select-menu .favorite-pyeong-toggle.active {
+    color: var(--color-primary);
+  }
+  .condition-page .custom-select-trigger,
+  .condition-page .segmented button,
+  .condition-page .chips button {
+    min-height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
+    box-shadow: none;
+  }
+  .condition-page .custom-select-trigger:hover,
+  .condition-page .custom-select-trigger:focus-visible,
+  .condition-page .custom-select-trigger.open,
+  .condition-page .segmented button:hover,
+  .condition-page .segmented button:focus-visible,
+  .condition-page .chips button:hover,
+  .condition-page .chips button:focus-visible {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    box-shadow: var(--focus-ring);
+    outline: none;
+  }
+  .condition-page .segmented button.selected,
+  .condition-page .chips button.selected {
+    border-color: var(--color-primary);
+    background: var(--color-surface-subtle);
+    color: var(--color-primary);
+    box-shadow: none;
+  }
+  .condition-page .custom-select-trigger.has-value {
+    border-color: var(--color-primary);
+    background: var(--color-surface-subtle);
+    color: var(--color-primary);
+  }
+  .condition-page .chips {
+    gap: var(--space-1);
+  }
+  .condition-page .chips button.condition-variant-option {
+    min-height: var(--button-height);
+    padding: var(--space-1) var(--space-1-5);
+    border-radius: var(--radius-button);
+    justify-items: start;
+    text-align: left;
+  }
+  .condition-page .condition-variant-option small {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .condition-variant-option.selected small {
+    color: var(--color-primary);
+  }
+  .condition-page .condition-static-note {
+    min-height: var(--button-height);
+    padding: var(--space-1) var(--space-1-5);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-button);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .condition-page .condition-static-note strong {
+    color: var(--color-text-primary);
+  }
+  .condition-page .condition-label-link {
+    min-height: var(--button-height-sm);
+    color: var(--color-text-secondary);
+  }
+  .condition-page .condition-start-row {
+    justify-content: flex-end;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
+  }
+  .detail-cost-page > .editor-header {
+    min-height: 56px;
+    margin-bottom: var(--space-2);
+    padding: 0 0 var(--space-1);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .detail-cost-page > .editor-header h2 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-work-title);
+  }
+  .detail-cost-page .detail-cost-layout {
+    display: grid;
+    grid-template-columns: var(--layout-local-sidebar) minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: start;
+  }
+  .detail-cost-sidebar {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .detail-cost-sidebar .ui-category-sidebar {
+    width: var(--layout-local-sidebar);
+    min-height: 560px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .detail-cost-sidebar .ui-category-sidebar__list {
+    max-height: calc(100dvh - 220px);
+    overflow: auto;
+  }
+  .detail-cost-sidebar-hint {
+    margin: 0;
+    padding: 0 var(--space-1);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .detail-cost-page .detail-cost-panel {
+    min-width: 0;
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .detail-cost-page .detail-cost-title {
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .detail-cost-page .detail-cost-title h3 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .detail-cost-page .detail-cost-title > span {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-badge);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+  }
+  .detail-cost-page .detail-add-row {
+    grid-template-columns: minmax(260px, 1fr) 140px 160px auto;
+    gap: var(--space-1);
+    margin: var(--space-2) 0;
+  }
+  .detail-cost-page .detail-add-row select {
+    height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+  }
+  .detail-cost-page .detail-bulk-panel {
+    grid-template-columns: minmax(280px, 1fr) 160px auto;
+    gap: var(--space-1);
+    margin-bottom: var(--space-2);
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-subtle);
+    box-shadow: none;
+  }
+  .detail-cost-page .detail-bulk-panel strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .detail-cost-page .detail-bulk-panel span,
+  .detail-cost-page .detail-bulk-panel label {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .detail-cost-page .detail-bulk-actions {
+    gap: var(--space-1);
+  }
+  .detail-cost-page .detail-cost-list {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .detail-cost-page .detail-cost-table {
+    table-layout: fixed;
+  }
+  .detail-cost-page .detail-cost-table-input {
+    width: 100%;
+    height: 32px;
+    border: 1px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .detail-cost-page .detail-cost-table-input.numeric {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .detail-cost-page .detail-cost-table-input:focus {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    box-shadow: none;
+    outline: none;
+  }
+  .detail-cost-page .detail-type-toggle {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+  .detail-cost-page .detail-type-toggle label {
+    min-height: var(--button-height-sm);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+  }
+  .detail-cost-page .detail-type-toggle label.selected {
+    border-color: var(--color-primary);
+    background: var(--color-surface-subtle);
+    color: var(--color-primary);
+  }
+  .detail-cost-page .detail-cost-empty {
+    margin-top: 0;
+  }
+  .formate-app-shell--items-v2 .formate-app-shell__main {
+    padding: 0;
+  }
+  .items-v2-page {
+    display: grid;
+    grid-template-columns: var(--layout-local-sidebar) minmax(0, 1fr);
+    min-height: 100dvh;
+    min-width: 0;
+    background: var(--color-bg);
+    animation: none;
+  }
+  .items-v2-category-sidebar {
+    position: sticky;
+    top: 56px;
+    width: var(--layout-local-sidebar);
+    height: calc(100dvh - 56px);
+    max-height: calc(100dvh - 56px);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
+    transition: opacity 150ms ease, filter 150ms ease;
+  }
+  .items-v2-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+    padding: 0 var(--space-page-x) 0;
+    transition: opacity 150ms ease, filter 150ms ease;
+  }
+  .items-v2-page--condition-drawer-open .items-v2-category-sidebar,
+  .items-v2-page--condition-drawer-open .items-v2-workspace {
+    opacity: 0.88;
+    filter: blur(1px) saturate(0.96);
+  }
+  .items-v2-header,
+  .items-v2-toolbar,
+  .items-v2-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .items-v2-header {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    min-height: 56px;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+  .items-v2-shell .items-v2-header {
+    display: none;
+  }
+  .items-v2-titleline {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .items-v2-header h1 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-work-title);
+  }
+  .items-v2-titleline span,
+  .items-v2-section-header p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .items-v2-titleline span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .items-v2-header-actions,
+  .items-v2-total-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-wrap: nowrap;
+  }
+  .items-v2-toolbar {
+    padding: var(--space-toolbar-y) var(--space-toolbar-x);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .items-v2-condition-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .items-v2-condition-summary span,
+  .items-v2-pyeong-controls label,
+  .items-v2-section-header span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .items-v2-condition-summary strong {
+    min-width: 0;
+    max-width: min(52vw, 520px);
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .items-v2-pyeong-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .items-v2-pyeong-controls > div {
+    display: inline-flex;
+    align-items: center;
+    width: 120px;
+    height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  .items-v2-pyeong-controls input {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0 var(--space-input-x);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .items-v2-pyeong-controls input:focus {
+    outline: none;
+  }
+  .items-v2-pyeong-controls > div:focus-within {
+    border-color: var(--color-primary);
+    box-shadow: var(--focus-ring);
+  }
+  .items-v2-pyeong-controls span {
+    padding-right: var(--space-input-x);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .items-v2-table-section {
+    min-width: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-table);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  .items-v2-section-header {
+    padding: var(--space-card-padding);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .items-v2-section-header h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .items-v2-table-section .ui-table-wrap {
+    border: 0;
+    border-radius: 0;
+  }
+  .items-v2-table-section .ui-table {
+    table-layout: fixed;
+  }
+  .items-v2-table-section .ui-table th,
+  .items-v2-table-section .ui-table td {
+    white-space: nowrap;
+  }
+  .items-v2-check-cell,
+  .items-v2-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .items-v2-check-cell input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-primary);
+  }
+  .items-v2-material-cell {
+    display: grid;
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+  .items-v2-material-cell strong {
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-cell);
+    text-overflow: ellipsis;
+  }
+  .items-v2-material-cell span {
+    display: inline-flex;
+    gap: var(--space-0-5);
+    min-height: 0;
+  }
+  .items-v2-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-badge);
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-table-header);
+    font-style: normal;
+    font-weight: var(--font-weight-medium);
+    line-height: 22px;
+  }
+  .items-v2-badge--muted {
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+  }
+  .items-v2-badge--selected {
+    border-color: var(--color-primary-border);
+    background: var(--color-surface);
+    color: var(--color-primary);
+  }
+  .items-v2-badge--warning {
+    border-color: var(--color-warning-border);
+    background: var(--color-surface-subtle);
+    color: var(--color-warning);
+  }
+  .items-v2-inline-input,
+  .items-v2-inline-select {
+    width: 100%;
+    height: var(--button-height-sm);
+    border: 1px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .items-v2-inline-input--number {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
+  }
+  .items-v2-inline-input::placeholder {
+    color: var(--color-text-muted);
+    opacity: 1;
+  }
+  .items-v2-inline-input:focus,
+  .items-v2-inline-select:focus {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    outline: none;
+  }
+  .items-v2-muted-value {
+    color: var(--color-text-muted);
+  }
+  .items-v2-icon-button {
+    width: var(--button-height-sm);
+    height: var(--button-height-sm);
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+  .items-v2-icon-button:hover,
+  .items-v2-icon-button.active {
+    background: var(--color-surface-subtle);
+    color: var(--color-primary);
+  }
+  .items-v2-table-section .ui-table__expanded-row td {
+    height: auto;
+    padding: 0;
+    background: var(--color-surface-subtle) !important;
+  }
+  .items-v2-expanded-stack {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-card-padding);
+  }
+  .items-v2-detail-panel {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-2);
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .items-v2-detail-note {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .items-v2-detail-panel label {
+    display: grid;
+    gap: var(--space-label-gap);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .items-v2-money-field {
+    display: flex;
+    align-items: center;
+    height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  .items-v2-money-field input {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0 var(--space-input-x);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .items-v2-brand-field input {
+    text-align: left;
+    font-variant-numeric: normal;
+  }
+  .items-v2-money-field em {
+    padding-right: var(--space-input-x);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+  }
+  .items-v2-money-field:focus-within {
+    border-color: var(--color-primary);
+    box-shadow: var(--focus-ring);
+  }
+  .items-v2-money-field input:focus {
+    outline: none;
+  }
+  .estimate-condition-drawer {
+    position: fixed;
+    top: 56px;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: min(420px, calc(100vw - 24px));
+    height: auto;
+    padding: 0;
+    border-left: 1px solid var(--color-border);
+    background: var(--color-surface);
+    box-shadow: -12px 0 28px rgba(31, 41, 51, 0.08);
+    overflow: hidden;
+  }
+  .estimate-condition-drawer__header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: 64px;
+    padding: var(--space-1-5) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .estimate-condition-drawer__header div {
+    display: grid;
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+  .estimate-condition-drawer__header span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .estimate-condition-drawer__header strong {
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .estimate-condition-drawer__fields {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .estimate-condition-drawer__fields .condition-static-field,
+  .estimate-condition-drawer__fields .condition-static-wide {
+    display: grid;
+    grid-column: auto;
+    gap: var(--space-1);
+    min-height: 0;
+    padding: var(--space-2);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .estimate-condition-drawer__fields .field-label {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-body);
+  }
+  .estimate-condition-drawer__fields .custom-select-trigger,
+  .estimate-condition-drawer__fields .segmented button,
+  .estimate-condition-drawer__fields .condition-variant-option {
+    min-height: var(--button-height);
+    border-radius: var(--radius-button);
+    box-shadow: none;
+  }
+  .estimate-condition-drawer__fields .segmented {
+    gap: var(--space-1);
+  }
+  .estimate-condition-drawer__fields .segmented button {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+  .estimate-condition-drawer__fields .chips {
+    gap: var(--space-1);
+  }
+  .estimate-condition-drawer__fields .chips button.condition-variant-option {
+    padding: 0 var(--space-1-5);
+    border-color: var(--color-border);
+    background: var(--color-surface);
+  }
+  .estimate-condition-drawer__fields .chips button.condition-variant-option.selected,
+  .estimate-condition-drawer__fields .segmented button.selected,
+  .estimate-condition-drawer__fields .custom-select-trigger.has-value {
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+  .estimate-condition-drawer__fields .condition-variant-card-head {
+    align-items: center;
+    margin: 0;
+  }
+  .estimate-condition-drawer__fields .condition-static-note {
+    margin: 0;
+    padding: var(--space-1);
+    border-radius: var(--radius-button);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .estimate-condition-drawer__fields .custom-select-menu {
+    max-height: 320px;
+  }
+  .estimate-condition-drawer__actions {
+    flex: 0 0 auto;
+    display: grid;
+    gap: var(--space-1);
+    margin-top: 0;
+    padding: var(--space-1-5) var(--space-2);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .estimate-condition-drawer__actions .ui-button {
+    width: 100%;
+    min-height: var(--button-height);
+  }
+  .items-v2-empty-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+  .items-v2-table-empty {
+    min-height: 160px;
+    padding: var(--space-3);
+  }
+  .items-v2-site-memo {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .items-v2-site-memo summary {
+    cursor: pointer;
+    padding: var(--space-toolbar-y) var(--space-toolbar-x);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
+  }
+  .items-v2-site-memo textarea {
+    width: calc(100% - var(--space-4));
+    min-height: 96px;
+    margin: 0 var(--space-2) var(--space-2);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    padding: var(--space-1);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-body);
+    resize: vertical;
+  }
+  .items-v2-site-memo textarea:focus {
+    border-color: var(--color-primary);
+    box-shadow: var(--focus-ring);
+    outline: none;
+  }
+  .items-v2-total-bar {
+    margin-right: calc(var(--space-page-x) * -1);
+    margin-left: calc(var(--space-page-x) * -1);
+  }
+  .items-v2-total-bar .ui-sticky-total-bar__amount-value {
+    white-space: nowrap;
+  }
+  .formate-app-shell--admin-price-v2 .formate-app-shell__main {
+    padding: 0;
+  }
+  .admin-price-v2-page {
+    display: grid;
+    grid-template-columns: var(--layout-local-sidebar) minmax(0, 1fr);
+    min-height: 100dvh;
+    min-width: 0;
+    background: var(--color-bg);
+  }
+  .admin-price-v2-sidebar {
+    position: sticky;
+    top: 56px;
+    width: var(--layout-local-sidebar);
+    height: calc(100dvh - 56px);
+    max-height: calc(100dvh - 56px);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .admin-price-v2-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .admin-price-v2-sidebar-header strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-price-v2-category-list {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2);
+  }
+  .admin-price-v2-category-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 36px;
+    width: 100%;
+    padding: 0 var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-primary);
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .admin-price-v2-category-item:hover {
+    background: var(--color-surface-subtle);
+  }
+  .admin-price-v2-category-item.active {
+    background: var(--color-primary-soft);
+    box-shadow: inset 3px 0 0 var(--color-primary);
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-price-v2-category-item.drop-target {
+    border-color: var(--color-primary-border);
+  }
+  .admin-price-v2-drag-handle {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    line-height: 1;
+    cursor: grab;
+  }
+  .admin-price-v2-category-name {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .admin-price-v2-category-name span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .admin-price-v2-category-name svg {
+    flex: 0 0 auto;
+    color: var(--color-text-secondary);
+  }
+  .admin-price-v2-category-count {
+    min-width: 34px;
+    height: 22px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-badge);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: 20px;
+    text-align: center;
+  }
+  .admin-price-v2-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-width: 0;
+    padding: 0;
+    background: var(--color-bg);
+    overflow: hidden;
+  }
+  .admin-price-v2-header {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: 56px;
+    padding: 0 var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+  .admin-price-v2-header h1 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-work-title);
+  }
+  .admin-price-v2-toolbar {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: var(--space-1-5) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+    overflow: visible;
+  }
+  .admin-price-v2-search {
+    flex: 0 1 320px;
+    min-width: 180px;
+    max-width: 320px;
+    min-height: var(--button-height-sm);
+  }
+  .admin-price-v2-search input {
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-table-cell);
+  }
+  .admin-price-v2-favorite {
+    flex: 0 0 auto;
+    min-height: var(--button-height-sm);
+    white-space: nowrap;
+  }
+  .admin-price-v2-toolbar > .admin-bulk-panel {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .admin-price-v2-toolbar .admin-bulk-title {
+    display: none;
+  }
+  .admin-price-v2-toolbar .admin-bulk-panel label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+    white-space: nowrap;
+  }
+  .admin-price-v2-toolbar .admin-bulk-panel input {
+    width: 72px;
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-table-cell);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .admin-price-v2-toolbar .admin-bulk-actions {
+    display: inline-flex;
+  }
+  .admin-price-v2-toolbar .secondary-button,
+  .admin-price-v2-toolbar .ui-button {
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+  }
+  .admin-price-v2-table-section {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-bg);
+    box-shadow: none;
+    overflow: hidden;
+  }
+  .admin-price-v2-section-header {
+    min-height: 56px;
+  }
+  .admin-price-v2-context {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: 44px;
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .admin-price-v2-context-main,
+  .admin-price-v2-context-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .admin-price-v2-context-label {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+    white-space: nowrap;
+  }
+  .admin-price-v2-context input {
+    width: 220px;
+    height: var(--button-height-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-input);
+    padding: 0 var(--space-1);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-price-v2-context input:focus {
+    border-color: var(--color-primary);
+    outline: none;
+  }
+  .admin-price-v2-table-scroll {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-gutter: stable;
+  }
+  .admin-price-v2-grid-list {
+    display: block;
+    width: 100%;
+    min-width: 980px;
+    max-width: none;
+    margin: 0;
+    padding-left: 0;
+    gap: 0;
+    --price-table-columns: 40px minmax(160px, 1fr) 110px 80px 110px 110px 110px 60px 40px;
+    --price-table-flat-columns: minmax(160px, 1fr) 110px 80px 110px 110px 110px 40px;
+  }
+  .admin-price-v2-grid-list.price-table-list,
+  .admin-price-v2-grid-list.admin-subitem-list,
+  .admin-price-v2-grid-list.admin-flat-list {
+    margin-top: 0;
+    padding-left: 0;
+  }
+  .admin-price-v2-grid-list .admin-price-table-header.admin-price-v2-grid,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row.admin-price-v2-grid {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: var(--price-table-columns);
+    gap: 0;
+  }
+  .admin-price-v2-grid-list.admin-flat-list .admin-price-table-header.admin-price-v2-grid,
+  .admin-price-v2-grid-list.admin-flat-list .admin-value-row.common-price-row.admin-price-v2-grid {
+    grid-template-columns: var(--price-table-flat-columns);
+  }
+  .admin-price-v2-grid-list .admin-price-table-header {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: var(--table-header-height);
+    height: var(--table-header-height);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-header);
+    letter-spacing: var(--letter-spacing-table-header);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: var(--table-row-height);
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-surface);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row.expanded {
+    row-gap: var(--space-2);
+    padding-top: var(--space-1);
+    padding-bottom: var(--space-1);
+  }
+  .admin-price-v2-grid-list .admin-price-table-header > *,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row > *:not(.admin-price-v2-expanded-row) {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 100%;
+    min-height: inherit;
+    padding: 0 var(--space-table-cell-x);
+    border-right: 1px solid var(--color-border);
+    box-sizing: border-box;
+    white-space: nowrap;
+  }
+  .admin-price-v2-grid-list .admin-price-table-header > *:last-child,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row > *:not(.admin-price-v2-expanded-row):last-of-type {
+    border-right: 0;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row > .admin-price-v2-drag-handle,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row > .admin-price-v2-danger-button,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row > .admin-price-v2-expand-button {
+    justify-content: center;
+    padding: 0;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row:nth-of-type(even) {
+    background: var(--color-row-alt);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row:hover {
+    background: var(--color-row-alt);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row label {
+    gap: 0;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row .field-label {
+    display: none;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row input,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row select,
+  .admin-price-v2-grid-list .spec-options-control {
+    width: 100%;
+    min-width: 0;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row input,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row select {
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    border: 1px solid transparent;
+    border-radius: 0;
+    padding: 0 var(--space-1);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row input:focus,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row select:focus {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    box-shadow: none;
+    outline: none;
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row input[inputmode="numeric"],
+  .admin-price-v2-grid-list .price-number-field input {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-price-v2-grid-list .admin-value-row.common-price-row input.items-v2-muted-value {
+    color: var(--color-text-muted);
+  }
+  .admin-price-v2-grid-list .spec-options-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 48px;
+    gap: var(--space-1);
+  }
+  .admin-price-v2-grid-list .spec-options-control--select-manage {
+    display: block;
+  }
+  .admin-price-v2-grid-list .spec-options-manage-button {
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-caption);
+  }
+  .admin-price-v2-danger-button {
+    width: var(--button-height-sm);
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    border: 0;
+    background: transparent;
+    color: var(--color-danger);
+    box-shadow: none;
+    padding: 0;
+  }
+  .admin-price-v2-danger-button:hover:not(:disabled),
+  .admin-price-v2-danger-button:focus-visible {
+    border: 0;
+    background: var(--color-danger-subtle);
+    color: var(--color-danger);
+    box-shadow: none;
+    outline: none;
+  }
+  .admin-price-v2-expand-button {
+    justify-self: center;
+  }
+  .admin-price-v2-expanded-row {
+    grid-column: 1 / -1;
+    padding: 0 0 var(--space-1);
+  }
+  .admin-price-v2-detail-panel {
+    grid-template-columns: repeat(2, minmax(0, 180px));
+    align-items: end;
+    padding: var(--space-2);
+    background: var(--color-surface-subtle);
+  }
+  .admin-price-v2-detail-select {
+    height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    padding: 0 var(--space-input-x);
+    background: var(--color-surface);
+  }
+  .admin-price-v2-add-row {
+    min-height: 44px;
+    border-radius: 0;
+    border-top: 0;
+    background: var(--color-surface);
+  }
+  .admin-price-v2-add-row span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .admin-price-v2-empty {
+    margin: 0;
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .formate-app-shell--admin-items-v2 .formate-app-shell__main {
+    height: calc(100dvh - 56px);
+    min-height: 0;
+    padding: 0;
+    overflow-x: hidden;
+    overflow-y: hidden;
+  }
+  .admin-items-v2-page,
+  .admin-items-v2-workspace,
+  .admin-items-v2-table-section {
+    min-width: 0;
+    min-height: 0;
+  }
+  .admin-items-v2-page {
+    grid-template-columns: minmax(240px, 256px) minmax(220px, 240px) minmax(0, 1fr);
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    height: calc(100dvh - 56px);
+    max-height: calc(100dvh - 56px);
+    overflow: hidden;
+  }
+  .admin-items-v2-sidebar {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    transition: opacity 150ms ease, filter 150ms ease;
+  }
+  .admin-template-condition-sidebar {
+    position: relative;
+    top: auto;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
+    background: var(--color-surface);
+  }
+  .admin-template-condition-sidebar .admin-price-v2-category-list {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: var(--space-0-5);
+    padding: var(--space-1);
+    overflow-y: auto;
+  }
+  .admin-template-condition-item {
+    flex: 0 0 auto;
+    grid-template-columns: 20px minmax(0, 1fr) 32px;
+    align-content: center;
+    min-height: 44px;
+    max-height: none;
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-button);
+    box-shadow: none;
+  }
+  .admin-template-condition-name span {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    line-height: var(--line-height-caption);
+  }
+  .admin-template-condition-delete {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-muted);
+    opacity: 0;
+    transition: opacity 150ms ease, background-color 150ms ease, color 150ms ease;
+  }
+  .admin-template-condition-delete:hover:not(:disabled),
+  .admin-template-condition-delete:focus-visible {
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+  }
+  .admin-template-condition-item:hover .admin-template-condition-delete,
+  .admin-template-condition-item.active .admin-template-condition-delete,
+  .admin-template-condition-delete:focus-visible {
+    opacity: 1;
+  }
+  .admin-template-condition-item.newly-added {
+    animation: admin-template-condition-highlight 1.4s ease;
+  }
+  .admin-template-condition-empty {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-panel);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .admin-template-condition-empty strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body-sm);
+  }
+  .admin-template-condition-sidebar-footer {
+    flex: 0 0 auto;
+    padding: var(--space-2);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .admin-template-condition-sidebar-footer .ui-button {
+    width: 100%;
+  }
+  .admin-items-v2-page--drawer-open .admin-template-condition-sidebar,
+  .admin-items-v2-page--drawer-open .admin-items-v2-category-panel,
+  .admin-items-v2-page--drawer-open .admin-items-v2-workspace {
+    opacity: 0.88;
+    filter: blur(1px) saturate(0.96);
+  }
+  .admin-template-condition-drawer {
+    position: fixed;
+    inset: 56px 0 0 auto;
+    width: min(420px, 100vw);
+    max-width: 420px;
+    height: calc(100dvh - 56px);
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: -12px 0 28px rgba(31, 41, 51, 0.08);
+  }
+  .admin-template-condition-drawer-error {
+    margin: var(--space-2);
+  }
+  .admin-items-v2-category-panel {
+    position: relative;
+    top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0;
+    border-right: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-surface);
+    transition: opacity 150ms ease, filter 150ms ease;
+  }
+  .admin-items-v2-category-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .admin-items-v2-category-panel-head strong {
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-items-v2-category-panel-list {
+    display: grid;
+    gap: var(--space-1);
+    flex: 1 1 auto;
+    padding: var(--space-2);
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+  .admin-items-v2-category-chip {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  @keyframes admin-template-condition-highlight {
+    0% {
+      background: var(--color-primary-soft);
+      box-shadow: inset 3px 0 0 var(--color-primary);
+    }
+    100% {
+      background: transparent;
+      box-shadow: none;
+    }
+  }
+  .admin-items-v2-toolbar {
+    align-items: center;
+    justify-content: flex-start;
+    margin: 0;
+  }
+  .admin-items-v2-toolbar .admin-price-v2-search {
+    flex: 0 1 320px;
+    max-width: 320px;
+  }
+  .admin-items-v2-toolbar .admin-price-v2-favorite {
+    flex: 0 0 auto;
+  }
+  .admin-items-v2-workspace {
+    gap: 0;
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    background: var(--color-bg);
+    overflow: hidden;
+  }
+  .admin-items-v2-header {
+    padding: 0 var(--space-2);
+    background: var(--color-bg);
+  }
+  .admin-items-v2-toolbar {
+    padding: var(--space-1-5) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+  .admin-items-v2-workspace > .status-box,
+  .admin-items-v2-workspace > .error-box {
+    margin: var(--space-2);
+  }
+  .admin-items-v2-table-section {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 100%;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-bg);
+    box-shadow: none;
+    overflow: hidden;
+  }
+  .admin-items-v2-table-section .admin-price-v2-table-scroll {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    background: transparent;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-radius: 0;
+  }
+  .admin-items-v2-loading-line {
+    width: 72%;
+    height: var(--button-height-sm);
+    border-radius: var(--radius-button);
+    background: var(--color-surface-subtle);
+  }
+  .admin-items-v2-loading-line.wide {
+    width: 100%;
+  }
+  .admin-items-v2-loading-line.short {
+    width: 56%;
+  }
+  .admin-items-v2-loading-line.toolbar {
+    width: min(360px, 100%);
+  }
+  .admin-items-v2-loading-table {
+    display: grid;
+    gap: 0;
+    width: 100%;
+  }
+  .admin-items-v2-loading-row {
+    height: var(--table-row-height);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .admin-items-v2-loading-row:nth-child(even) {
+    background: var(--color-row-alt);
+  }
+  .admin-items-v2-condition {
+    flex: 0 1 220px;
+  }
+  .admin-items-v2-condition strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .admin-items-v2-grid-list {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    margin: 0;
+    padding-left: 0;
+    gap: 0;
+    --quantity-table-columns: 48px minmax(220px, 1fr) minmax(140px, 180px) minmax(96px, 120px) minmax(96px, 120px) 64px;
+    --quantity-table-flat-columns: minmax(220px, 1fr) minmax(140px, 180px) minmax(96px, 120px) minmax(96px, 120px);
+  }
+  .admin-items-v2-grid-list.quantity-table-list,
+  .admin-items-v2-grid-list.admin-subitem-list,
+  .admin-items-v2-grid-list.admin-flat-list {
+    margin-top: 0;
+    padding-left: 0;
+  }
+  .admin-items-v2-grid-list .admin-quantity-table-header,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row {
+    display: grid;
+    grid-template-columns: var(--quantity-table-columns);
+    align-items: center;
+    gap: 0;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .admin-items-v2-grid-list.admin-flat-list .admin-quantity-table-header,
+  .admin-items-v2-grid-list.admin-flat-list .admin-value-row.condition-quantity-row {
+    grid-template-columns: var(--quantity-table-flat-columns);
+  }
+  .admin-items-v2-grid-list .admin-quantity-table-header {
+    min-height: var(--table-header-height);
+    height: var(--table-header-height);
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-header);
+    letter-spacing: var(--letter-spacing-table-header);
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row {
+    min-height: var(--table-row-height);
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-surface);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .admin-items-v2-grid-list .admin-quantity-table-header > *,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > * {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 100%;
+    min-height: inherit;
+    padding: 0 var(--space-table-cell-x);
+    border-right: 1px solid var(--color-border);
+    box-sizing: border-box;
+  }
+  .admin-items-v2-grid-list .admin-quantity-table-header > *:last-child,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > *:last-child {
+    border-right: 0;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-drag-handle,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-danger-button {
+    justify-content: center;
+    padding: 0;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-danger-button {
+    justify-self: center;
+    width: var(--button-height-sm);
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    border: 0;
+    background: transparent;
+    color: var(--color-danger);
+    box-shadow: none;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-danger-button:hover:not(:disabled),
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-danger-button:focus-visible {
+    border: 0;
+    background: var(--color-danger-subtle);
+    color: var(--color-danger);
+    box-shadow: none;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row:nth-of-type(even) {
+    background: var(--color-row-alt);
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row:hover {
+    background: var(--color-row-alt);
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row label {
+    gap: 0;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .admin-items-v2-number-cell {
+    display: block;
+    min-width: 0;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .field-label {
+    display: none;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row input,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row select {
+    width: 100%;
+    min-width: 0;
+    height: var(--button-height-sm);
+    min-height: var(--button-height-sm);
+    border: 1px solid transparent;
+    border-radius: 0;
+    padding: 0 var(--space-1);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row input:focus,
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row select:focus {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    box-shadow: none;
+    outline: none;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .items-v2-inline-input--number {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
+  }
+  .admin-items-v2-muted-cell {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .saved-estimates-page .estimate-list .ui-table-wrap,
+  .saved-estimates-page .estimate-modal .ui-table-wrap {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-table);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .saved-estimates-page .estimate-list .ui-table-scroll,
+  .saved-estimates-page .estimate-modal .ui-table-scroll {
+    overflow: auto;
+  }
+  .saved-estimates-page .ui-table {
+    width: 100%;
+    border-collapse: collapse;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .saved-estimates-page .ui-table th,
+  .saved-estimates-page .ui-table td {
+    height: var(--table-row-height);
+    padding: 0 var(--space-table-cell-x);
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    text-align: left;
+    vertical-align: middle;
+  }
+  .saved-estimates-page .ui-table th {
+    height: var(--table-header-height);
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-header);
+    letter-spacing: var(--letter-spacing-table-header);
+  }
+  .saved-estimates-page .ui-table .ui-table__cell--right,
+  .saved-estimates-page .ui-table th.ui-table__cell--right,
+  .saved-estimates-page .ui-table td.ui-table__cell--right {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .saved-estimates-page .ui-table--zebra tbody tr:nth-child(even) td,
+  .saved-estimates-page .estimate-modal .ui-table--zebra tbody tr:nth-child(even) td {
+    background: var(--color-row-alt);
+  }
+  .saved-estimates-page .ui-table tbody tr:hover td,
+  .saved-estimates-page .estimate-modal .ui-table tbody tr:hover td {
+    background: var(--color-row-alt);
+  }
+  .saved-estimate-customer {
+    display: block;
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-cell);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .saved-estimate-address,
+  .saved-estimate-muted {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .saved-estimate-address {
+    color: var(--color-text-primary);
+  }
+  .saved-estimate-muted {
+    color: var(--color-text-muted);
+  }
+  .saved-estimate-table-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: var(--space-0-5);
+    justify-content: flex-end;
+    white-space: nowrap;
+  }
+  .saved-estimate-table-actions .ui-button {
+    min-width: 0;
+  }
+  .saved-estimates-page .modal-actions {
+    display: flex;
+    gap: var(--space-1);
+    justify-content: flex-start;
+    margin-bottom: var(--space-2);
+  }
+  .saved-estimates-page .estimate-modal {
+    width: min(960px, 100%);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+  }
+  .saved-estimate-detail-table td:nth-child(2) {
+    min-width: 220px;
+  }
+  .saved-estimate-modal-empty {
+    margin-top: var(--space-2);
+  }
+  .general-preview-page,
+  .detail-preview-page {
+    background: var(--color-bg);
+  }
+  .general-preview-panel,
+  .detail-preview-panel {
+    width: min(var(--viewport-preferred-width), 100%);
+  }
+  .general-preview-panel > .editor-header,
+  .detail-preview-panel > .editor-header {
+    margin-bottom: var(--space-2);
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .general-preview-panel > .editor-header h2,
+  .detail-preview-panel > .editor-header h2 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-work-title);
+  }
+  .general-estimate-document,
+  .detail-estimate-document {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .general-estimate-document .pdf-title-row,
+  .detail-estimate-document .pdf-title-row {
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border-strong);
+  }
+  .general-estimate-document .pdf-title-row h3,
+  .detail-estimate-document .pdf-title-row h3 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-page-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-page-title);
+    letter-spacing: var(--letter-spacing-normal);
+  }
+  .general-estimate-document .pdf-title-row .number-text,
+  .detail-estimate-document .pdf-title-row .number-text {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-work-title);
+    font-weight: var(--font-weight-semibold);
+  }
+  .pdf-capture-area .estimate-meta-grid {
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .general-estimate-document .estimate-meta-grid div,
+  .detail-estimate-document .estimate-meta-grid div,
+  .general-estimate-document .estimate-pyeong-preview div,
+  .detail-estimate-document .estimate-pyeong-preview div,
+  .general-estimate-document .compact-key,
+  .detail-estimate-document .compact-key,
+  .general-estimate-document .estimate-note-box,
+  .detail-estimate-document .estimate-note-box,
+  .general-estimate-document .preview-site-memo,
+  .detail-estimate-document .preview-site-memo,
+  .general-estimate-document .estimate-adjustment-panel,
+  .detail-estimate-document .customer-adjustment-preview {
+    border-color: var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-subtle);
+    box-shadow: none;
+  }
+  .general-estimate-document .form-grid,
+  .detail-estimate-document .form-grid {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-subtle);
+  }
+  .general-estimate-document .form-grid input,
+  .general-estimate-document .form-grid select,
+  .detail-estimate-document .form-grid input,
+  .detail-estimate-document .form-grid select,
+  .general-estimate-document .preview-site-memo textarea,
+  .detail-estimate-document .preview-site-memo textarea {
+    border-color: var(--color-border-strong);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+  }
+  .pdf-capture-area .preview-table {
+    width: 100%;
+    margin-top: var(--space-3);
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-table);
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .pdf-capture-area .preview-table th,
+  .pdf-capture-area .preview-table td {
+    height: var(--table-row-height);
+    padding: 0 var(--space-table-cell-x);
+    border: 0;
+    border-right: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+    text-align: left;
+    vertical-align: middle;
+  }
+  .pdf-capture-area .preview-table th:last-child,
+  .pdf-capture-area .preview-table td:last-child {
+    border-right: 0;
+  }
+  .pdf-capture-area .preview-table th {
+    height: var(--table-header-height);
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-table-header);
+    letter-spacing: var(--letter-spacing-table-header);
+  }
+  .pdf-capture-area .preview-table tbody tr:nth-child(even) td {
+    background: var(--color-row-alt);
+  }
+  .pdf-capture-area .preview-table tbody tr:hover td {
+    background: var(--color-row-alt);
+  }
+  .pdf-capture-area .preview-table td:has(.number-text),
+  .pdf-capture-area .preview-table th:nth-child(n+3),
+  .pdf-capture-area .preview-table td:nth-child(n+3) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .pdf-capture-area .preview-table .number-text {
+    justify-content: flex-end;
+    font-variant-numeric: tabular-nums;
+  }
+  .pdf-capture-area .general-estimate-table tfoot td {
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-medium);
+  }
+  .pdf-capture-area .general-estimate-table tfoot tr:last-child td {
+    border-top: 1px solid var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+  }
+  .pdf-capture-area .detail-estimate-group {
+    padding: var(--space-card-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: none;
+  }
+  .pdf-capture-area .detail-estimate-group h3 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .pdf-capture-area .labor-detail-row td {
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+  }
+  .pdf-capture-area .preview-table td:empty,
+  .pdf-capture-area .labor-detail-row td:first-child {
+    color: var(--color-text-muted);
+  }
+  .general-preview-panel .actions .primary-button,
+  .detail-preview-panel .actions .primary-button {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--text-inverse);
+  }
+  .general-preview-panel .actions .secondary-button,
+  .detail-preview-panel .actions .secondary-button {
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+  }
+  .formate-app-shell__workspace-header {
+    flex: 0 0 auto;
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .formate-app-shell__nav-section-title {
+    color: var(--color-text-muted);
+    font-size: 12px;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-caption);
+    text-transform: uppercase;
+  }
+  .formate-app-shell--home-workspace {
+    min-height: 100dvh;
+  }
+  .app-shell.home-workspace-shell {
+    padding-top: 0;
+  }
+  .formate-app-shell--home-workspace .formate-app-shell__sidebar {
+    top: 0;
+    height: 100dvh;
+    max-height: 100dvh;
+    padding-top: var(--space-2);
+  }
+  .formate-app-shell--home-workspace .formate-app-shell__main {
+    padding: 0;
+    background: var(--color-surface);
+  }
+  .home-sidebar-workspace {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 44px;
+    color: var(--color-text-primary);
+  }
+  .home-sidebar-workspace img {
+    width: 32px;
+    height: 32px;
+    display: block;
+  }
+  .home-sidebar-workspace span {
+    display: grid;
+    gap: 0;
+    min-width: 0;
+  }
+  .home-sidebar-workspace strong {
+    overflow: hidden;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-bold);
+    line-height: var(--line-height-body-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-sidebar-workspace em {
+    overflow: hidden;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+    line-height: var(--line-height-caption);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .work-home-flat {
+    width: 100%;
+    max-width: none;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 0;
+    background: var(--color-surface);
+  }
+  .home-workspace-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 48px;
+    padding: 0 var(--space-page-x);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .home-workspace-toolbar__nav,
+  .home-workspace-search,
+  .home-workspace-actions {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .home-workspace-toolbar__nav {
+    gap: var(--space-0-5);
+  }
+  .home-workspace-actions {
+    justify-content: flex-end;
+    gap: var(--space-1);
+    margin-left: auto;
+  }
+  .home-toolbar-icon-button {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-secondary);
+  }
+  .home-toolbar-icon-button svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+  }
+  .home-toolbar-icon-button:hover,
+  .home-toolbar-icon-button:focus-visible {
+    background: var(--color-row-alt);
+    color: var(--color-text-primary);
+    outline: none;
+  }
+  .home-workspace-search {
+    flex: 0 1 576px;
+    width: min(42vw, 576px);
+    height: 32px;
+    gap: var(--space-1);
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-muted);
+  }
+  .home-workspace-search input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    outline: none;
+  }
+  .home-workspace-search input::placeholder {
+    color: var(--color-text-secondary);
+  }
+  .home-workspace-search kbd {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
+  }
+  .home-profile-menu {
+    position: relative;
+    display: inline-flex;
+  }
+  .home-toolbar-avatar {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-primary-border);
+    border-radius: 999px;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-bold);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .home-toolbar-avatar:hover,
+  .home-toolbar-avatar:focus-visible {
+    border-color: var(--color-primary);
+    color: var(--color-primary-hover);
+    outline: none;
+  }
+  .home-profile-dropdown {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    right: 0;
+    z-index: 40;
+    width: 184px;
+    display: grid;
+    gap: var(--space-0-5);
+    padding: var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-hover);
+    animation: home-profile-dropdown-enter 0.15s ease both;
+  }
+  @keyframes home-profile-dropdown-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .home-profile-dropdown__meta {
+    overflow: hidden;
+    padding: 0 var(--space-1) var(--space-0-5);
+    color: var(--color-text-muted);
+    font-size: 12px;
+    line-height: var(--line-height-caption);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-profile-dropdown__item {
+    width: 100%;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    padding: 0 var(--space-1);
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: 14px;
+    font-weight: var(--font-weight-medium);
+    text-align: left;
+  }
+  .home-profile-dropdown__item:hover,
+  .home-profile-dropdown__item:focus-visible {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    outline: none;
+  }
+  .work-home-content {
+    width: min(100%, 1480px);
+    margin: 0 auto;
+    padding: 40px var(--space-page-x) 64px;
+  }
+  .work-home-flat .work-home-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .work-home-flat .work-home-heading h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.2;
+  }
+  .work-home-flat .work-home-heading p {
+    margin-top: var(--space-0-5);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+  }
+  .home-placeholder-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+  .home-placeholder-widget {
+    min-height: 152px;
+    padding: var(--space-2);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .home-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    min-height: 36px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .home-section-head h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .home-placeholder-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+  }
+  .home-placeholder-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    min-height: 96px;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-body-sm);
+  }
+  .home-recent-estimates {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .home-text-link,
+  .home-text-action {
+    border: 0;
+    background: transparent;
+    color: var(--color-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+  }
+  .home-text-link:hover,
+  .home-text-link:focus-visible,
+  .home-text-action:hover,
+  .home-text-action:focus-visible {
+    color: var(--color-primary-hover);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    outline: none;
+  }
+  .home-estimate-table {
+    display: grid;
+    min-width: 0;
+  }
+  .home-estimate-table__header,
+  .home-estimate-table__row {
+    display: grid;
+    grid-template-columns: minmax(260px, 1.4fr) 148px minmax(120px, 0.55fr) 180px;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .home-estimate-table__header {
+    min-height: var(--table-header-height);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+  }
+  .home-estimate-table__row {
+    min-height: 52px;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+  }
+  .home-estimate-table__row:hover {
+    background: var(--color-row-alt);
+  }
+  .home-estimate-customer {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .home-estimate-customer strong,
+  .home-estimate-customer em {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-estimate-customer strong {
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+  .home-estimate-customer em {
+    color: var(--color-text-muted);
+    font-style: normal;
+    font-size: var(--font-size-caption);
+  }
+  .home-number-cell {
+    justify-self: end;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .home-number-cell .number-text {
+    justify-content: flex-end;
+  }
+  .home-action-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+  }
+  .home-empty-state {
+    min-height: 136px;
+    padding: var(--space-2);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-card);
+    background: transparent;
+  }
+  .home-empty-state h2 {
+    font-size: var(--font-size-section-title);
+  }
+  .home-estimate-modal {
+    max-width: 560px;
+  }
+  .home-estimate-modal-summary {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .home-estimate-modal-summary span {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: var(--space-1);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+  }
+  .home-estimate-modal-summary strong {
+    color: var(--color-text-muted);
+    font-weight: var(--font-weight-medium);
+  }
+  @media (max-width: 1180px) {
+    .home-workspace-toolbar {
+      gap: var(--space-1);
+    }
+    .home-workspace-search {
+      flex: 1 1 auto;
+      width: auto;
+    }
+    .home-placeholder-grid {
+      grid-template-columns: 1fr;
+    }
+    .home-estimate-table__header,
+    .home-estimate-table__row {
+      grid-template-columns: minmax(220px, 1fr) 124px 112px 150px;
+    }
+  }
+  @media (max-width: 1180px) {
+    .estimate-workspace {
+      grid-template-columns: 280px minmax(0, 1fr);
+      padding: 18px;
+    }
+    .estimate-workspace .category-column {
+      position: static;
+      max-height: none;
+    }
+    .estimate-workspace .estimate-side-stack {
+      grid-template-columns: 1fr;
+    }
   }
   @media (prefers-reduced-motion: reduce) {
     main,
@@ -18357,7 +24728,11 @@ const styles = `
     .estimate-template-expand,
     .admin-item-card,
     .admin-value-row,
-    .drag-handle {
+    .drag-handle,
+    .status-box,
+    .success-box,
+    .autosave-pill,
+    .admin-price-v2-category-item {
       animation: none !important;
       transition: none !important;
     }
@@ -18368,12 +24743,15 @@ const styles = `
   }
   @media (max-width: 840px) {
     .app-shell {
-      padding-top: 86px;
+      padding-top: 56px;
+    }
+    .app-shell.items-v2-shell {
+      padding-top: 56px;
     }
     .global-header {
-      min-height: 86px;
-      height: auto;
-      flex-wrap: wrap;
+      min-height: 56px;
+      height: 56px;
+      flex-wrap: nowrap;
       align-content: center;
     }
     .primary-action-grid,

@@ -1,6 +1,10 @@
+const { createClient } = require("@supabase/supabase-js");
+
 const OPENAI_MODEL = "gpt-5-mini";
 const MAX_SPLIT_ROWS_PER_PARENT = 8;
 const MIN_LINK_EXISTING_CONFIDENCE = 0.72;
+const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
+const MAX_ANALYSIS_ROWS = 50;
 
 const ALLOWED_ROW_TYPES = new Set([
   "work_item",
@@ -130,18 +134,74 @@ function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function createHttpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function getBearerToken(request) {
+  const authorization = request.headers?.authorization || request.headers?.Authorization || "";
+  const match = String(authorization).match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || "";
+}
+
+async function verifySupabaseUser(request) {
+  const accessToken = getBearerToken(request);
+  if (!accessToken) {
+    throw createHttpError(401, "인증이 필요합니다.");
+  }
+
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw createHttpError(500, "Supabase 서버 환경변수가 설정되어 있지 않습니다.");
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+  const { data, error } = await supabase.auth.getUser(accessToken);
+  if (error || !data?.user?.id) {
+    throw createHttpError(401, "인증이 필요합니다.");
+  }
+
+  return data.user;
+}
+
 async function readJsonBody(request) {
-  if (request.body && typeof request.body === "object") return request.body;
-  if (typeof request.body === "string") return JSON.parse(request.body || "{}");
+  if (request.body && typeof request.body === "object") {
+    const bodySize = Buffer.byteLength(JSON.stringify(request.body), "utf8");
+    if (bodySize > MAX_REQUEST_BODY_BYTES) {
+      throw createHttpError(413, "요청 본문이 너무 큽니다.");
+    }
+    return request.body;
+  }
+  if (typeof request.body === "string") {
+    if (Buffer.byteLength(request.body, "utf8") > MAX_REQUEST_BODY_BYTES) {
+      throw createHttpError(413, "요청 본문이 너무 큽니다.");
+    }
+    return JSON.parse(request.body || "{}");
+  }
 
   const chunks = [];
-  for await (const chunk of request) chunks.push(chunk);
+  let totalBytes = 0;
+  for await (const chunk of request) {
+    totalBytes += chunk.length;
+    if (totalBytes > MAX_REQUEST_BODY_BYTES) {
+      throw createHttpError(413, "요청 본문이 너무 큽니다.");
+    }
+    chunks.push(chunk);
+  }
   const rawBody = Buffer.concat(chunks).toString("utf8");
   return rawBody ? JSON.parse(rawBody) : {};
 }
 
 function compactRows(rows) {
-  return (Array.isArray(rows) ? rows : []).slice(0, 50).map((row) => ({
+  return (Array.isArray(rows) ? rows : []).slice(0, MAX_ANALYSIS_ROWS).map((row) => ({
     rowIndex: Number(row.rowIndex),
     category: row.category ?? "",
     item_name: row.item_name ?? "",
@@ -385,6 +445,13 @@ module.exports = async function handler(request, response) {
     return;
   }
 
+  try {
+    await verifySupabaseUser(request);
+  } catch (error) {
+    sendJson(response, error.statusCode || 401, { error: error.message || "인증이 필요합니다." });
+    return;
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     sendJson(response, 500, { error: "OPENAI_API_KEY 서버 환경변수가 설정되어 있지 않습니다." });
@@ -533,6 +600,6 @@ module.exports = async function handler(request, response) {
     });
   } catch (error) {
     console.error("[FORMATE AI analyze excel import]", error);
-    sendJson(response, 500, { error: error?.message || "AI 매칭 추천 중 문제가 발생했습니다." });
+    sendJson(response, error?.statusCode || 500, { error: error?.message || "AI 매칭 추천 중 문제가 발생했습니다." });
   }
 };
