@@ -49,6 +49,7 @@ export default function AppShell({
   hideSidebar = false,
   documentMode = false,
   className = "",
+  workspaceHeader = null,
 }) {
   const isDocumentMode = documentMode || variant === "document";
 
@@ -122,6 +123,11 @@ export default function AppShell({
     >
       {!hideSidebar && (
         <aside className="formate-app-shell__sidebar">
+          {workspaceHeader && (
+            <div className="formate-app-shell__workspace-header">
+              {workspaceHeader}
+            </div>
+          )}
           <nav className="formate-app-shell__nav" aria-label="주요 화면">
             {mainNavItems.map(renderNavSection)}
           </nav>

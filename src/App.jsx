@@ -4,6 +4,7 @@ import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import {
   ArrowLeft,
+  Bell,
   BookOpen,
   Building2,
   Calculator,
@@ -16,15 +17,18 @@ import {
   Home,
   Image,
   LogOut,
+  Mail,
+  MessageSquare,
   Plus,
   Printer,
   RefreshCcw,
   Save,
   Search,
-  Settings,
+  SlidersHorizontal,
   Sparkles,
   Star,
   Trash2,
+  Users,
   Wrench,
 } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient";
@@ -80,36 +84,37 @@ const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
 const APP_SHELL_NAV_ITEMS = [
   { key: "landing", label: "홈", icon: <Home /> },
+  { key: "incoming-requests", label: "받은 요청", icon: <MessageSquare />, disabled: true },
   {
     key: "estimate-work",
     type: "section",
-    label: "업무홈",
+    label: "업무",
     items: [
       { key: "condition", label: "새 견적서 작성", icon: <ClipboardList />, activeKeys: ["condition", "items"] },
       { key: "admin-estimates", label: "저장 견적 보기", icon: <FileText /> },
+      { key: "customers-sites", label: "고객·현장", icon: <Users />, disabled: true },
+    ],
+  },
+  {
+    key: "customer-care",
+    type: "section",
+    label: "고객관리",
+    items: [
+      { key: "after-service", label: "사후관리·A/S", icon: <SlidersHorizontal />, disabled: true },
+      { key: "message-history", label: "메시지 이력", icon: <Mail />, disabled: true },
     ],
   },
   {
     key: "admin-work",
     type: "section",
-    label: "관리자 홈",
+    label: "관리",
     items: [
-      { key: "photo-management", label: "사진 자료실", icon: <Image /> },
+      { key: "photo-management", label: "사진 관리/확인", icon: <Image /> },
       { key: "admin-prices", label: "단가표 관리", icon: <Calculator /> },
-      { key: "admin-items", label: "기본 견적 설정", icon: <BookOpen />, activeKeys: ["admin-items", "admin-condition-labels"] },
+      { key: "admin-items", label: "견적 템플릿 만들기", icon: <BookOpen />, activeKeys: ["admin-items", "admin-condition-labels"] },
       { key: "admin-detail-costs", label: "세부 비용 관리", icon: <Wrench /> },
-    ],
-  },
-  {
-    key: "ai-automation",
-    type: "section",
-    label: "AI 자동화",
-    items: [
-      {
-        key: "admin-ai-setup",
-        label: "엑셀 파일 불러오기",
-        icon: <Sparkles />,
-      },
+      { key: "admin-ai-setup", label: "AI 초기 세팅", icon: <Sparkles /> },
+      { key: "admin", label: "관리자 홈", icon: <Building2 /> },
     ],
   },
   { key: "help-support", label: "도움말 / 지원", icon: <HelpCircle />, placement: "bottom", disabled: true },
@@ -1567,6 +1572,38 @@ function getSavedEstimateCustomerPhone(estimate) {
   return `${getEstimateItemsDataMeta(estimate?.items_data).customerPhone ?? ""}`.trim();
 }
 
+function getSavedEstimateDisplayDate(estimate) {
+  const rawDate = estimate?.created_at;
+  if (!rawDate) return "-";
+
+  const parsedDate = new Date(rawDate);
+  if (Number.isNaN(parsedDate.getTime())) return "-";
+
+  return parsedDate.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function HomePlaceholderWidget({ title }) {
+  // TODO: 이 위젯은 UI 껍데기만 존재합니다. "처리 필요"/"진행 중"
+  // 기능(고객 요청, 승인 상태 등)은 아직 설계/구현되지 않았습니다.
+  // 실제 상태값 스키마 설계 후 이 컴포넌트를 다시 작업해야 합니다.
+  return (
+    <section className="home-placeholder-widget" aria-label={title}>
+      <div className="home-section-head">
+        <h2>{title}</h2>
+        <span className="home-placeholder-badge">준비 중</span>
+      </div>
+      <div className="home-placeholder-empty">
+        <FileText size={18} strokeWidth={1.5} aria-hidden="true" />
+        <span>아직 연결된 데이터가 없습니다</span>
+      </div>
+    </section>
+  );
+}
+
 function isEstimateRowModified(row) {
   if (!row) return false;
   return (
@@ -2991,7 +3028,7 @@ export default function App() {
   const recentHomeEstimates = useMemo(() =>
     [...estimates]
       .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
-      .slice(0, 3),
+      .slice(0, 8),
     [estimates]
   );
   const currentCategory =
@@ -3382,7 +3419,7 @@ export default function App() {
     if (page === "admin-detail-costs") {
       fetchDetailSubitems();
     }
-    if (page === "admin-estimates") {
+    if (page === "admin-estimates" || page === "landing") {
       fetchEstimates();
     }
     if (page === "photo-management") {
@@ -10123,6 +10160,7 @@ export default function App() {
         companyName={selectedCompanyName}
         navItems={APP_SHELL_NAV_ITEMS}
         className={shellClassName}
+        workspaceHeader={shellOptions.workspaceHeader}
       >
         {children}
       </AppShell>
@@ -10819,9 +10857,10 @@ export default function App() {
   }
 
   return (
-    <div className={`app-shell ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""}`.trim()}>
+    <div className={`app-shell ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""} ${page === "landing" ? "home-workspace-shell" : ""}`.trim()}>
       <style>{styles}</style>
 
+      {page !== "landing" && (
       <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""}`.trim()}>
           <button className="global-brand" onClick={() => requestAdminCatalogLeave(resetFlow)} aria-label="FORMATE 홈으로 이동">
             <img src={logoUrl} alt="" />
@@ -10880,6 +10919,7 @@ export default function App() {
           </div>
           )}
       </header>
+      )}
 
       {adminVerifyOpen && (
         <div className="modal-backdrop" onClick={closeAdminGate}>
@@ -11186,81 +11226,168 @@ export default function App() {
       )}
 
       {page === "landing" && renderAppShell(
-        <main className="landing work-home">
-          <section className="landing-actions">
-            <PageHeader
-              eyebrow="운영 홈"
-              title={selectedCompanyName}
-              description="새 견적을 시작하거나 최근 저장 견적과 관리 메뉴로 바로 이동합니다."
-              className="work-home-heading"
-            />
-            <div className="home-action-list">
-              <button
-                className="home-action-row home-action-row--primary"
-                onClick={() => {
-                  resetEstimateDraftForNewStart();
-                  setEstimateConditionDrawerOpen(true);
-                  setPage("items");
-                  preloadBlankEstimateCatalogForNewStart();
-                }}
-              >
-                <ClipboardList size={18} strokeWidth={1.5} />
-                <span>
-                  <strong>새 견적서 작성</strong>
-                  <em>저장된 템플릿에서 빠르게 시작하거나 빈 견적서로 직접 작성합니다.</em>
-                </span>
+        <main className="landing work-home work-home-flat">
+          <div className="home-workspace-toolbar" aria-label="홈 작업 도구">
+            <div className="home-workspace-toolbar__nav" aria-hidden="true">
+              <button type="button" className="home-toolbar-icon-button" tabIndex={-1}>
+                <ArrowLeft size={16} strokeWidth={1.5} />
               </button>
-              <button className="home-action-row" onClick={() => openAdminGate("admin")}>
-                <Settings size={18} strokeWidth={1.5} />
-                <span>
-                  <strong>관리자 홈</strong>
-                  <em>단가표와 자주 쓰는 견적 템플릿을 미리 만들어둡니다.</em>
-                </span>
-              </button>
-              <button className="home-action-row" onClick={() => setPage("photo-management")}>
-                <Image size={18} strokeWidth={1.5} />
-                <span>
-                  <strong>사진 관리/확인</strong>
-                  <em>올공사, 부분공사, 세부항목 사진을 업체별로 관리합니다.</em>
-                </span>
-              </button>
-              <button className="home-action-row" onClick={() => setPage("admin-estimates")}>
-                <Wrench size={18} strokeWidth={1.5} />
-                <span>
-                  <strong>저장 견적 보기</strong>
-                  <em>이전에 만든 견적을 찾고 다시 엽니다.</em>
-                </span>
+              <button type="button" className="home-toolbar-icon-button" tabIndex={-1}>
+                <ChevronRight size={16} strokeWidth={1.5} />
               </button>
             </div>
-            <section className="home-recent-compact">
-              <div className="home-recent-compact-head">
-                <strong>최근 저장 견적</strong>
-                <button type="button" className="ghost" onClick={() => setPage("admin-estimates")}>
+            <div className="home-workspace-switcher" aria-label="워크스페이스">
+              <Building2 size={15} strokeWidth={1.5} aria-hidden="true" />
+              <span>{selectedCompanyName || "FORMATE"}</span>
+            </div>
+            <label className="home-workspace-search">
+              <Search size={16} strokeWidth={1.5} aria-hidden="true" />
+              <input
+                type="search"
+                readOnly
+                placeholder="고객, 현장 주소, 견적번호 검색"
+                aria-label="고객, 현장 주소, 견적번호 검색"
+              />
+              <kbd>Ctrl K</kbd>
+            </label>
+            <button type="button" className="home-toolbar-icon-button" aria-label="알림">
+              <Bell size={17} strokeWidth={1.5} />
+            </button>
+          </div>
+
+          <section className="work-home-content">
+            <PageHeader
+              title="홈"
+              description="오늘 처리할 견적과 고객 업무를 확인하세요."
+              className="work-home-heading"
+              actions={
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus />}
+                  onClick={() => {
+                    resetEstimateDraftForNewStart();
+                    setEstimateConditionDrawerOpen(true);
+                    setPage("items");
+                    preloadBlankEstimateCatalogForNewStart();
+                  }}
+                >
+                  새 견적서 작성
+                </Button>
+              }
+            />
+
+            <div className="home-placeholder-grid">
+              <HomePlaceholderWidget title="처리 필요" />
+              <HomePlaceholderWidget title="진행 중" />
+            </div>
+
+            <section className="home-recent-estimates" aria-labelledby="home-recent-estimates-title">
+              <div className="home-section-head">
+                <h2 id="home-recent-estimates-title">최근 견적</h2>
+                <button type="button" className="home-text-link" onClick={() => setPage("admin-estimates")}>
                   전체 보기
                 </button>
               </div>
               {recentHomeEstimates.length > 0 ? (
-                <div className="home-recent-compact-list">
-                  {recentHomeEstimates.map((estimate) => (
-                    <button
-                      type="button"
-                      key={estimate.id}
-                      className="home-recent-compact-row"
-                      onClick={() => loadSavedEstimateDraft(estimate, { destination: "preview" })}
-                    >
-                      <span>{getSavedEstimateCustomerName(estimate) || "고객명 미입력"}</span>
-                      <em>{estimate.address || "주소 미입력"}</em>
-                      <PriceText value={estimate.total_amount || 0} size="sm" />
-                    </button>
-                  ))}
+                <div className="home-estimate-table" role="table" aria-label="최근 견적">
+                  <div className="home-estimate-table__header" role="row">
+                    <span role="columnheader">고객·현장</span>
+                    <span role="columnheader">작성일</span>
+                    <span role="columnheader" className="home-number-cell">금액</span>
+                    <span role="columnheader" className="home-action-cell">다음 행동</span>
+                  </div>
+                  {recentHomeEstimates.map((estimate) => {
+                    const customerName = getSavedEstimateCustomerName(estimate);
+                    const primaryText = customerName || estimate.address || "고객·현장 미입력";
+                    const secondaryText = customerName ? estimate.address || "주소 미입력" : "고객명 미입력";
+
+                    return (
+                      <div className="home-estimate-table__row" role="row" key={estimate.id}>
+                        <span className="home-estimate-customer" role="cell">
+                          <strong>{primaryText}</strong>
+                          <em>{secondaryText}</em>
+                        </span>
+                        <span role="cell">{getSavedEstimateDisplayDate(estimate)}</span>
+                        <span role="cell" className="home-number-cell">
+                          <PriceText value={estimate.total_amount || 0} size="sm" />
+                        </span>
+                        <span role="cell" className="home-action-cell">
+                          <button type="button" className="home-text-action" onClick={() => setSelectedEstimate(estimate)}>
+                            보기
+                          </button>
+                          <button
+                            type="button"
+                            className="home-text-action"
+                            onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
+                          >
+                            이어서 작성
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                <p className="muted caption">최근 저장 견적이 없습니다.</p>
+                <EmptyState
+                  title="최근 저장 견적이 없습니다."
+                  description="새 견적서를 작성하면 이곳에 표시됩니다."
+                  className="home-empty-state"
+                />
               )}
             </section>
           </section>
+
+          {selectedEstimate && (
+            <div className="modal-backdrop" onClick={() => setSelectedEstimate(null)}>
+              <section className="estimate-modal home-estimate-modal" onClick={(event) => event.stopPropagation()}>
+                <div className="editor-header">
+                  <div>
+                    <span>저장 견적</span>
+                    <h3>{getSavedEstimateCustomerName(selectedEstimate) || selectedEstimate.address || "견적서"}</h3>
+                  </div>
+                  <Button variant="tertiary" onClick={() => setSelectedEstimate(null)}>
+                    닫기
+                  </Button>
+                </div>
+                <div className="home-estimate-modal-summary">
+                  <span>
+                    <strong>작성일</strong>
+                    {getSavedEstimateDisplayDate(selectedEstimate)}
+                  </span>
+                  <span>
+                    <strong>현장</strong>
+                    {selectedEstimate.address || "주소 미입력"}
+                  </span>
+                  <span>
+                    <strong>금액</strong>
+                    <PriceText value={selectedEstimate.total_amount || 0} size="sm" />
+                  </span>
+                </div>
+                <div className="modal-actions">
+                  <Button variant="secondary" onClick={() => loadSavedEstimateDraft(selectedEstimate, { destination: "preview" })}>
+                    견적서 보기
+                  </Button>
+                  <Button variant="primary" onClick={() => loadSavedEstimateDraft(selectedEstimate, { copy: true, destination: "items" })}>
+                    이어서 작성
+                  </Button>
+                </div>
+              </section>
+            </div>
+          )}
         </main>
-        , { className: "formate-app-shell--overview" }
+        , {
+          className: "formate-app-shell--overview formate-app-shell--home-workspace",
+          workspaceHeader: (
+            <div className="home-sidebar-workspace">
+              <img src={logoUrl} alt="" />
+              <span>
+                <strong>FORMATE</strong>
+                <em>운영 워크스페이스</em>
+              </span>
+              <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" />
+            </div>
+          ),
+        }
       )}
 
       {page === "admin" && adminVerified && renderAppShell(
@@ -24016,6 +24143,365 @@ const styles = `
     border: 1px solid var(--color-border-strong);
     background: var(--color-surface);
     color: var(--color-text-primary);
+  }
+  .formate-app-shell__workspace-header {
+    flex: 0 0 auto;
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .formate-app-shell__nav-section-title {
+    color: var(--color-text-muted);
+    font-size: 12px;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-caption);
+    text-transform: uppercase;
+  }
+  .formate-app-shell--home-workspace {
+    min-height: 100dvh;
+  }
+  .app-shell.home-workspace-shell {
+    padding-top: 0;
+  }
+  .formate-app-shell--home-workspace .formate-app-shell__sidebar {
+    top: 0;
+    height: 100dvh;
+    max-height: 100dvh;
+    padding-top: var(--space-2);
+  }
+  .formate-app-shell--home-workspace .formate-app-shell__main {
+    padding: 0;
+    background: var(--color-surface);
+  }
+  .home-sidebar-workspace {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 44px;
+    color: var(--color-text-primary);
+  }
+  .home-sidebar-workspace img {
+    width: 32px;
+    height: 32px;
+    display: block;
+  }
+  .home-sidebar-workspace span {
+    display: grid;
+    gap: 0;
+    min-width: 0;
+  }
+  .home-sidebar-workspace strong {
+    overflow: hidden;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-bold);
+    line-height: var(--line-height-body-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-sidebar-workspace em {
+    overflow: hidden;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+    line-height: var(--line-height-caption);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .work-home-flat {
+    width: 100%;
+    max-width: none;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 0;
+    background: var(--color-surface);
+  }
+  .home-workspace-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: auto auto minmax(280px, 576px) auto;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 48px;
+    padding: 0 var(--space-page-x);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .home-workspace-toolbar__nav,
+  .home-workspace-switcher,
+  .home-workspace-search,
+  .home-toolbar-actions {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .home-workspace-toolbar__nav {
+    gap: var(--space-0-5);
+  }
+  .home-toolbar-icon-button {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-secondary);
+  }
+  .home-toolbar-icon-button:hover,
+  .home-toolbar-icon-button:focus-visible {
+    background: var(--color-row-alt);
+    color: var(--color-text-primary);
+    outline: none;
+  }
+  .home-workspace-switcher {
+    gap: var(--space-0-5);
+    max-width: 220px;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+  }
+  .home-workspace-switcher span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .home-workspace-search {
+    justify-self: stretch;
+    height: 32px;
+    gap: var(--space-1);
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-muted);
+  }
+  .home-workspace-search input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    outline: none;
+  }
+  .home-workspace-search input::placeholder {
+    color: var(--color-text-secondary);
+  }
+  .home-workspace-search kbd {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-caption);
+  }
+  .work-home-content {
+    width: min(100%, 1480px);
+    margin: 0 auto;
+    padding: 40px var(--space-page-x) 64px;
+  }
+  .work-home-flat .work-home-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .work-home-flat .work-home-heading h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.2;
+  }
+  .work-home-flat .work-home-heading p {
+    margin-top: var(--space-0-5);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+  }
+  .home-placeholder-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+  .home-placeholder-widget {
+    min-height: 152px;
+    padding: var(--space-2);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+  }
+  .home-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    min-height: 36px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .home-section-head h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+  }
+  .home-placeholder-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+  }
+  .home-placeholder-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    min-height: 96px;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-body-sm);
+  }
+  .home-recent-estimates {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .home-text-link,
+  .home-text-action {
+    border: 0;
+    background: transparent;
+    color: var(--color-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+  }
+  .home-text-link:hover,
+  .home-text-link:focus-visible,
+  .home-text-action:hover,
+  .home-text-action:focus-visible {
+    color: var(--color-primary-hover);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    outline: none;
+  }
+  .home-estimate-table {
+    display: grid;
+    min-width: 0;
+  }
+  .home-estimate-table__header,
+  .home-estimate-table__row {
+    display: grid;
+    grid-template-columns: minmax(260px, 1.4fr) 148px minmax(120px, 0.55fr) 180px;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .home-estimate-table__header {
+    min-height: var(--table-header-height);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+  }
+  .home-estimate-table__row {
+    min-height: 52px;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+  }
+  .home-estimate-table__row:hover {
+    background: var(--color-row-alt);
+  }
+  .home-estimate-customer {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .home-estimate-customer strong,
+  .home-estimate-customer em {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-estimate-customer strong {
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+  .home-estimate-customer em {
+    color: var(--color-text-muted);
+    font-style: normal;
+    font-size: var(--font-size-caption);
+  }
+  .home-number-cell {
+    justify-self: end;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .home-number-cell .number-text {
+    justify-content: flex-end;
+  }
+  .home-action-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+  }
+  .home-empty-state {
+    min-height: 136px;
+    padding: var(--space-2);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-card);
+    background: transparent;
+  }
+  .home-empty-state h2 {
+    font-size: var(--font-size-section-title);
+  }
+  .home-estimate-modal {
+    max-width: 560px;
+  }
+  .home-estimate-modal-summary {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .home-estimate-modal-summary span {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: var(--space-1);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+  }
+  .home-estimate-modal-summary strong {
+    color: var(--color-text-muted);
+    font-weight: var(--font-weight-medium);
+  }
+  @media (max-width: 1180px) {
+    .home-workspace-toolbar {
+      grid-template-columns: auto minmax(180px, 1fr) auto;
+    }
+    .home-workspace-switcher {
+      display: none;
+    }
+    .home-placeholder-grid {
+      grid-template-columns: 1fr;
+    }
+    .home-estimate-table__header,
+    .home-estimate-table__row {
+      grid-template-columns: minmax(220px, 1fr) 124px 112px 150px;
+    }
   }
   @media (max-width: 1180px) {
     .estimate-workspace {
