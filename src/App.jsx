@@ -137,6 +137,7 @@ const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
 const ADMIN_TEMPLATE_ORDER_STORAGE_PREFIX = "formate.adminTemplateOrder";
 const ADMIN_AUTOSAVE_DELAY_MS = 1200;
 const PHOTO_STORAGE_BUCKET = "formate-photos";
+const PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS = 7200;
 const PHOTO_TYPES = {
   FULL_PROJECT: "full_project",
   PARTIAL_PROJECT: "partial_project",
@@ -4707,10 +4708,33 @@ export default function App() {
     );
   }
 
-  function getPhotoPublicUrl(photo) {
-    if (!photo?.storage_path) return "";
-    const { data } = supabase.storage.from(PHOTO_STORAGE_BUCKET).getPublicUrl(photo.storage_path);
-    return data?.publicUrl ?? "";
+  function getPhotoImageUrl(photo) {
+    return photo?.signed_url || photo?.signedUrl || "";
+  }
+
+  async function attachSignedPhotoUrls(photoRows = []) {
+    const rows = Array.isArray(photoRows) ? photoRows : [];
+    const storagePaths = Array.from(new Set(rows.map((photo) => photo.storage_path).filter(Boolean)));
+    if (!storagePaths.length) return rows;
+
+    const { data, error } = await supabase.storage
+      .from(PHOTO_STORAGE_BUCKET)
+      .createSignedUrls(storagePaths, PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS);
+    if (error) {
+      console.error("[FORMATE photo signed urls]", error);
+      return rows.map((photo) => ({ ...photo, signed_url: "" }));
+    }
+
+    const signedUrlByPath = new Map(
+      (data ?? [])
+        .filter((entry) => entry?.path && entry?.signedUrl)
+        .map((entry) => [entry.path, entry.signedUrl])
+    );
+
+    return rows.map((photo) => ({
+      ...photo,
+      signed_url: signedUrlByPath.get(photo.storage_path) ?? "",
+    }));
   }
 
   function markPhotoAutoSaveSaving(message = "저장 중...") {
@@ -4782,6 +4806,7 @@ export default function App() {
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true });
       if (photoErrorResult) throw photoErrorResult;
+      const photoRowsWithSignedUrls = await attachSignedPhotoUrls(photoRows ?? []);
 
       const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
       const catalog = normalizeAdminItems(itemRows, subitemRows, []);
@@ -4789,7 +4814,7 @@ export default function App() {
       setPhotoCollectionDrafts(
         Object.fromEntries((nextCollectionRows.data ?? []).map((collection) => [collection.id, collection.name ?? ""]))
       );
-      setPhotos(photoRows ?? []);
+      setPhotos(photoRowsWithSignedUrls);
       setPhotoCatalog(catalog);
     } catch (error) {
       console.error("[FORMATE photo management fetch]", error);
@@ -5090,7 +5115,7 @@ export default function App() {
     return (
       <div className="photo-thumb-grid">
         {targetPhotos.map((photo, index) => {
-          const imageUrl = getPhotoPublicUrl(photo);
+          const imageUrl = getPhotoImageUrl(photo);
           const isPrimary = photo.id === primaryPhoto?.id;
           return (
             <article className={`photo-thumb-card ${isPrimary ? "primary" : ""}`.trim()} key={photo.id}>
@@ -6905,8 +6930,9 @@ export default function App() {
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true });
       if (error) throw error;
+      const photosWithSignedUrls = await attachSignedPhotoUrls(data ?? []);
       if (estimatePhotoRequestRef.current === subitemId) {
-        setEstimateItemPhotos(sortPhotosWithPrimaryFirst(data ?? []));
+        setEstimateItemPhotos(sortPhotosWithPrimaryFirst(photosWithSignedUrls));
       }
     } catch (error) {
       console.error("[FORMATE estimate item photos]", error);
@@ -6955,7 +6981,7 @@ export default function App() {
         ) : (
           <div className="estimate-item-photo-grid">
             {estimateItemPhotos.map((photo, index) => {
-              const imageUrl = getPhotoPublicUrl(photo);
+              const imageUrl = getPhotoImageUrl(photo);
               const isPrimary = index === 0 && Boolean(photo.is_primary);
               return (
                 <figure className={isPrimary ? "primary" : ""} key={photo.id}>

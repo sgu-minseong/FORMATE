@@ -69,17 +69,64 @@ before update on public.photos
 for each row
 execute function public.formate_set_updated_at();
 
-alter table public.photo_collections disable row level security;
-alter table public.photos disable row level security;
+revoke all on public.photo_collections from anon;
+revoke all on public.photos from anon;
 
-grant all on public.photo_collections to anon, authenticated;
-grant all on public.photos to anon, authenticated;
+grant select, insert, update, delete on public.photo_collections to authenticated;
+grant select, insert, update, delete on public.photos to authenticated;
+
+drop policy if exists "members can manage own photo collections" on public.photo_collections;
+create policy "members can manage own photo collections"
+on public.photo_collections
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from public.company_members cm
+    where cm.company_id = photo_collections.company_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.company_members cm
+    where cm.company_id = photo_collections.company_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can manage own photos" on public.photos;
+create policy "members can manage own photos"
+on public.photos
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from public.company_members cm
+    where cm.company_id = photos.company_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.company_members cm
+    where cm.company_id = photos.company_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+alter table public.photo_collections enable row level security;
+alter table public.photos enable row level security;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'formate-photos',
   'formate-photos',
-  true,
+  false,
   10485760,
   array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 )
@@ -89,52 +136,105 @@ set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
--- Storage policies are intentionally broad to match the current prototype auth/RLS model.
--- Before production, replace these with company-aware authenticated policies.
+drop policy if exists formate_photos_public_read on storage.objects;
+drop policy if exists formate_photos_insert on storage.objects;
+drop policy if exists formate_photos_update on storage.objects;
+drop policy if exists formate_photos_delete on storage.objects;
+drop policy if exists formate_photos_company_read on storage.objects;
+drop policy if exists formate_photos_company_insert on storage.objects;
+drop policy if exists formate_photos_company_update on storage.objects;
+drop policy if exists formate_photos_company_delete on storage.objects;
+
+-- Storage object paths must start with the company id:
+-- {company_id}/{target_type}/{target_id}/{photo_id}.{extension}
 do $$
 begin
   if not exists (
     select 1 from pg_policies
     where schemaname = 'storage'
       and tablename = 'objects'
-      and policyname = 'formate_photos_public_read'
+      and policyname = 'formate_photos_company_read'
   ) then
-    create policy formate_photos_public_read
+    create policy formate_photos_company_read
       on storage.objects for select
-      using (bucket_id = 'formate-photos');
+      to authenticated
+      using (
+        bucket_id = 'formate-photos'
+        and exists (
+          select 1
+          from public.company_members cm
+          where cm.company_id::text = split_part(storage.objects.name, '/', 1)
+            and cm.user_id = auth.uid()
+        )
+      );
   end if;
 
   if not exists (
     select 1 from pg_policies
     where schemaname = 'storage'
       and tablename = 'objects'
-      and policyname = 'formate_photos_insert'
+      and policyname = 'formate_photos_company_insert'
   ) then
-    create policy formate_photos_insert
+    create policy formate_photos_company_insert
       on storage.objects for insert
-      with check (bucket_id = 'formate-photos');
+      to authenticated
+      with check (
+        bucket_id = 'formate-photos'
+        and exists (
+          select 1
+          from public.company_members cm
+          where cm.company_id::text = split_part(storage.objects.name, '/', 1)
+            and cm.user_id = auth.uid()
+        )
+      );
   end if;
 
   if not exists (
     select 1 from pg_policies
     where schemaname = 'storage'
       and tablename = 'objects'
-      and policyname = 'formate_photos_update'
+      and policyname = 'formate_photos_company_update'
   ) then
-    create policy formate_photos_update
+    create policy formate_photos_company_update
       on storage.objects for update
-      using (bucket_id = 'formate-photos')
-      with check (bucket_id = 'formate-photos');
+      to authenticated
+      using (
+        bucket_id = 'formate-photos'
+        and exists (
+          select 1
+          from public.company_members cm
+          where cm.company_id::text = split_part(storage.objects.name, '/', 1)
+            and cm.user_id = auth.uid()
+        )
+      )
+      with check (
+        bucket_id = 'formate-photos'
+        and exists (
+          select 1
+          from public.company_members cm
+          where cm.company_id::text = split_part(storage.objects.name, '/', 1)
+            and cm.user_id = auth.uid()
+        )
+      );
   end if;
 
   if not exists (
     select 1 from pg_policies
     where schemaname = 'storage'
       and tablename = 'objects'
-      and policyname = 'formate_photos_delete'
+      and policyname = 'formate_photos_company_delete'
   ) then
-    create policy formate_photos_delete
+    create policy formate_photos_company_delete
       on storage.objects for delete
-      using (bucket_id = 'formate-photos');
+      to authenticated
+      using (
+        bucket_id = 'formate-photos'
+        and exists (
+          select 1
+          from public.company_members cm
+          where cm.company_id::text = split_part(storage.objects.name, '/', 1)
+            and cm.user_id = auth.uid()
+        )
+      );
   end if;
 end $$;
