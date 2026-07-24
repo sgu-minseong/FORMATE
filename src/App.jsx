@@ -9116,16 +9116,6 @@ export default function App() {
               />
               즐겨찾기만 보기
             </label>
-            {item && renderAdminBulkPanel(item)}
-            <Button
-              variant="secondary"
-              size="sm"
-              leftIcon={<Plus />}
-              disabled={adminLoading || adminSaving}
-              onClick={addAdminItem}
-            >
-              대분류 추가
-            </Button>
           </div>
 
           {adminLoading && <div className="status-box">불러오는 중...</div>}
@@ -23149,9 +23139,11 @@ const styles = `
   .admin-price-v2-workspace {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
+    gap: 0;
     min-width: 0;
-    padding: 0 var(--space-page-x) var(--space-3);
+    padding: 0;
+    background: var(--color-bg);
+    overflow: hidden;
   }
   .admin-price-v2-header {
     position: sticky;
@@ -23162,6 +23154,7 @@ const styles = `
     justify-content: space-between;
     gap: var(--space-2);
     min-height: 56px;
+    padding: 0 var(--space-2);
     border-bottom: 1px solid var(--color-border);
     background: var(--color-bg);
   }
@@ -23176,15 +23169,18 @@ const styles = `
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: var(--space-2);
     min-width: 0;
+    padding: var(--space-1-5) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
     overflow: visible;
   }
   .admin-price-v2-search {
-    flex: 1 1 180px;
-    min-width: 160px;
-    max-width: 240px;
+    flex: 0 1 320px;
+    min-width: 180px;
+    max-width: 320px;
     min-height: var(--button-height-sm);
   }
   .admin-price-v2-search input {
@@ -23241,9 +23237,16 @@ const styles = `
     min-height: var(--button-height-sm);
   }
   .admin-price-v2-table-section {
+    flex: 1 1 auto;
     min-width: 0;
     width: 100%;
+    max-width: 100%;
+    min-height: 0;
     padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-bg);
+    box-shadow: none;
     overflow: hidden;
   }
   .admin-price-v2-section-header {
@@ -23289,6 +23292,8 @@ const styles = `
   }
   .admin-price-v2-table-scroll {
     width: 100%;
+    max-width: 100%;
+    height: 100%;
     margin: 0;
     overflow-x: auto;
     overflow-y: visible;
@@ -23311,14 +23316,16 @@ const styles = `
     margin-top: 0;
     padding-left: 0;
   }
-  .admin-price-v2-grid-list .admin-price-v2-grid {
+  .admin-price-v2-grid-list .admin-price-table-header.admin-price-v2-grid,
+  .admin-price-v2-grid-list .admin-value-row.common-price-row.admin-price-v2-grid {
     display: grid;
     width: 100%;
     min-width: 0;
     grid-template-columns: var(--price-table-columns);
     gap: 0;
   }
-  .admin-price-v2-grid-list.admin-flat-list .admin-price-v2-grid {
+  .admin-price-v2-grid-list.admin-flat-list .admin-price-table-header.admin-price-v2-grid,
+  .admin-price-v2-grid-list.admin-flat-list .admin-value-row.common-price-row.admin-price-v2-grid {
     grid-template-columns: var(--price-table-flat-columns);
   }
   .admin-price-v2-grid-list .admin-price-table-header {
@@ -23439,7 +23446,19 @@ const styles = `
     width: var(--button-height-sm);
     height: var(--button-height-sm);
     min-height: var(--button-height-sm);
+    border: 0;
+    background: transparent;
+    color: var(--color-danger);
+    box-shadow: none;
     padding: 0;
+  }
+  .admin-price-v2-danger-button:hover:not(:disabled),
+  .admin-price-v2-danger-button:focus-visible {
+    border: 0;
+    background: var(--color-danger-subtle);
+    color: var(--color-danger);
+    box-shadow: none;
+    outline: none;
   }
   .admin-price-v2-expand-button {
     justify-self: center;
