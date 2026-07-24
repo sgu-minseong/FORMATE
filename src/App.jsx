@@ -385,53 +385,33 @@ async function fetchCompanyForAuthUser(userId) {
     throw new Error("로그인 세션이 올바르지 않습니다.");
   }
 
-  console.debug("[FORMATE auth] lookup company_members by user_id", { userId });
   const { data: membership, error: membershipError } = await supabase
     .from("company_members")
     .select("company_id, user_id, role")
     .eq("user_id", userId)
     .maybeSingle();
 
-  console.debug("[FORMATE auth] company_members lookup result", { userId, membership, membershipError });
   if (membershipError) {
-    console.error("[FORMATE auth] company_members lookup failed", { userId, membershipError });
+    console.error("[FORMATE auth] company_members lookup failed");
     throw membershipError;
   }
   if (!membership?.company_id || !isValidUuid(membership.company_id)) {
-    console.error("[FORMATE auth] no company_members row for auth user", { userId, membership });
+    console.error("[FORMATE auth] no company_members row for auth user");
     throw new Error("로그인된 계정에 연결된 업체가 없습니다.");
   }
 
-  console.debug("[FORMATE auth] lookup company by membership.company_id", {
-    userId,
-    companyId: membership.company_id,
-  });
   const { data: company, error: companyError } = await supabase
     .from("companies")
     .select("id, name, company_code")
     .eq("id", membership.company_id)
     .maybeSingle();
 
-  console.debug("[FORMATE auth] company lookup result", {
-    userId,
-    companyId: membership.company_id,
-    company,
-    companyError,
-  });
   if (companyError) {
-    console.error("[FORMATE auth] company lookup failed", {
-      userId,
-      companyId: membership.company_id,
-      companyError,
-    });
+    console.error("[FORMATE auth] company lookup failed");
     throw companyError;
   }
   if (!company?.id || !isValidUuid(company.id)) {
-    console.error("[FORMATE auth] invalid company row for auth user", {
-      userId,
-      companyId: membership.company_id,
-      company,
-    });
+    console.error("[FORMATE auth] invalid company row for auth user");
     throw new Error("업체 정보를 확인할 수 없습니다.");
   }
 
@@ -3358,11 +3338,11 @@ export default function App() {
           setCompanySession({ company: authenticatedCompany, checking: false });
         }
       } catch (error) {
-        console.error("[FORMATE company session]", error);
+        console.error("[FORMATE company session] restore failed");
         try {
           await supabase.auth.signOut();
         } catch (signOutError) {
-          console.error("[FORMATE auth sign out]", signOutError);
+          console.error("[FORMATE auth sign out] failed");
         }
         clearStoredCompany();
         clearAdminVerifiedCompany();
@@ -3627,7 +3607,6 @@ export default function App() {
     setLoginError("");
     try {
       const email = companyCodeToAuthEmail(companyCode);
-      console.debug("[FORMATE auth] signInWithPassword email", { email });
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -3639,7 +3618,6 @@ export default function App() {
       }
 
       const authUserId = data?.user?.id ?? data?.session?.user?.id ?? "";
-      console.debug("[FORMATE auth] signInWithPassword success", { authUserId, email });
       clearAdminVerifiedCompany();
       clearCompanyScopedState();
       await loadCurrentCompanyFromAuth(authUserId);
@@ -3647,7 +3625,7 @@ export default function App() {
       setLoginPassword("");
       setLoginError("");
     } catch (error) {
-      console.error("[FORMATE company login]", error);
+      console.error("[FORMATE company login] login failed");
       setLoginError("업체 코드 또는 비밀번호를 확인해주세요.");
     } finally {
       setLoginLoading(false);
@@ -3659,7 +3637,7 @@ export default function App() {
       try {
         await supabase.auth.signOut();
       } catch (error) {
-        console.error("[FORMATE auth sign out]", error);
+        console.error("[FORMATE auth sign out] failed");
       }
     }
 
@@ -3948,9 +3926,17 @@ export default function App() {
         });
       });
 
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error("AI 분석을 사용하려면 다시 로그인해 주세요.");
+      }
+
       const response = await fetch("/api/analyze-excel-import", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
         body: JSON.stringify({
           rows,
           currentMappings: aiSetupMappingAnalysis.mappings,
