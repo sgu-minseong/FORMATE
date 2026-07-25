@@ -123,6 +123,7 @@ create table if not exists admin_condition_template_values (
   option_value text not null default '',
   quantity numeric,
   labor_count numeric,
+  construction_days integer not null default 0,
   unit_price numeric not null default 0,
   labor_rate numeric not null default 0,
   created_at timestamptz not null default now(),
@@ -333,6 +334,9 @@ alter table admin_condition_template_values
 
 alter table admin_condition_template_values
   add column if not exists labor_count numeric;
+
+alter table admin_condition_template_values
+  add column if not exists construction_days integer not null default 0;
 
 alter table admin_condition_template_values
   add column if not exists unit_price numeric not null default 0;

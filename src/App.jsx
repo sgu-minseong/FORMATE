@@ -626,6 +626,7 @@ function normalizeAdminItems(itemsRows, subitemRows, templateValueRows = []) {
             selected_spec_option: "",
             quantity: templateValue?.quantity ?? "",
             labor_count: templateValue?.labor_count ?? "",
+            construction_days: toConstructionDays(templateValue?.construction_days) || "",
             template_value_id: templateValue?.id ?? null,
           };
         }),
@@ -1147,10 +1148,16 @@ function hasTemplateValue(row) {
   return hasNumericInput(row?.quantity) || hasNumericInput(row?.labor_count ?? row?.laborCount);
 }
 
+function toConstructionDays(value) {
+  const numberValue = Number(`${value ?? ""}`.replaceAll(",", ""));
+  return Number.isFinite(numberValue) && numberValue > 0 ? Math.trunc(numberValue) : 0;
+}
+
 function createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus = "empty", patch = {}) {
   const isReady = hasTemplateValue(subitem);
   const quantity = subitem.quantity ?? "";
   const laborCount = subitem.labor_count ?? "";
+  const constructionDays = toConstructionDays(subitem.construction_days);
   const unitPrice = toNonNegativeNumberOrZero(subitem.unit_price);
   const laborRate = getLaborRateForResidence(subitem, residenceStatus);
   const specOptions = normalizeSpecOptions(subitem.spec_options);
@@ -1173,6 +1180,7 @@ function createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus = "
     selectedSpecOption: specOptions[0] ?? "",
     quantity,
     laborCount,
+    constructionDays,
     unitPrice,
     laborRate,
     productAmount,
@@ -1216,6 +1224,7 @@ function buildEstimateItemsFromTemplate(catalog, pyeong, residenceStatus = "empt
                       subitemId: option.id,
                       quantity: option.quantity ?? "",
                       laborCount: option.labor_count ?? "",
+                      constructionDays: toConstructionDays(option.construction_days),
                       unitPrice: toNonNegativeNumberOrZero(option.unit_price),
                       laborRate: getLaborRateForResidence(option, residenceStatus),
                       baseQuantity: option.quantity ?? "",
@@ -2788,6 +2797,7 @@ export default function App() {
             estimatePyeong: toNumberOrZero(estimatePyeong || condition.size),
             quantity,
             laborCount,
+            construction_days: toConstructionDays(row.constructionDays ?? row.construction_days),
             unit: row.unit ?? "평",
             unitPrice,
             laborRate,
@@ -2807,6 +2817,19 @@ export default function App() {
   }, [condition.size, estimateCatalog, estimatePyeong, items]);
 
   const selectedItemsTotal = selectedRows.reduce((sum, row) => sum + row.price, 0);
+  const selectedConstructionDaysTotal = selectedRows.reduce(
+    (sum, row) => sum + toConstructionDays(row.construction_days),
+    0
+  );
+  const selectedConstructionDayParts = Object.entries(
+    selectedRows.reduce((groups, row) => {
+      const constructionDays = toConstructionDays(row.construction_days);
+      if (!constructionDays) return groups;
+      const categoryName = row.categoryName || "시공 항목";
+      groups[categoryName] = (groups[categoryName] ?? 0) + constructionDays;
+      return groups;
+    }, {})
+  ).map(([categoryName, constructionDays]) => `${categoryName} ${constructionDays}일`);
   const cleanEstimateAdjustments = useMemo(
     () => getCleanEstimateAdjustments(estimateAdjustments),
     [estimateAdjustments]
@@ -5605,7 +5628,7 @@ export default function App() {
         if (templateRow?.id) {
           const { data: values, error: valuesError } = await supabase
             .from("admin_condition_template_values")
-            .select("id, template_id, item_id, subitem_id, option_value, quantity, labor_count")
+            .select("id, template_id, item_id, subitem_id, option_value, quantity, labor_count, construction_days")
             .eq("template_id", templateRow.id);
 
           if (valuesError) throw valuesError;
@@ -6648,7 +6671,7 @@ export default function App() {
           templateFound = true;
           const { data: values, error: valuesError } = await supabase
             .from("admin_condition_template_values")
-            .select("id, template_id, item_id, subitem_id, option_value, quantity, labor_count")
+            .select("id, template_id, item_id, subitem_id, option_value, quantity, labor_count, construction_days")
             .eq("template_id", templateRow.id);
 
           if (valuesError) throw valuesError;
@@ -6755,6 +6778,7 @@ export default function App() {
       template_value_id: matchedOption.templateValueId,
       quantity: matchedOption.quantity,
       laborCount: matchedOption.laborCount,
+      constructionDays: matchedOption.constructionDays,
       unitPrice: matchedOption.unitPrice,
       laborRate: matchedOption.laborRate,
       baseQuantity: matchedOption.baseQuantity,
@@ -7228,6 +7252,7 @@ export default function App() {
         baseLaborRate: toNonNegativeNumberOrZero(item.baseLaborRate ?? item.laborRate ?? item.labor_rate),
         quantity: item.quantity ?? "",
         laborCount: item.laborCount ?? item.labor_count ?? "",
+        constructionDays: toConstructionDays(item.construction_days ?? item.constructionDays),
         unitPrice: toNonNegativeNumberOrZero(item.unitPrice ?? item.unit_price),
         laborRate: toNonNegativeNumberOrZero(item.laborRate ?? item.labor_rate),
         contractor: item.contractor ?? item.vendor ?? item.worker ?? "",
@@ -9263,6 +9288,7 @@ export default function App() {
         {item.item_type !== "flat" && <span />}
         <span>소재명</span>
         <span>규격/두께</span>
+        <span>공사기간</span>
         <span>수량</span>
         <span>인원</span>
         {item.item_type !== "flat" && <span>삭제</span>}
@@ -9273,6 +9299,26 @@ export default function App() {
   function renderAdminItemsQuantityCells(subitem) {
     return (
       <>
+        <label className="admin-items-v2-number-cell admin-items-v2-construction-days-cell">
+          <span className="field-label">공사기간</span>
+          <span className="admin-items-v2-day-input">
+            <input
+              className={`items-v2-inline-input items-v2-inline-input--number ${isEmptyOrZeroDisplayValue(subitem.construction_days) ? "items-v2-muted-value" : ""}`.trim()}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              placeholder="0"
+              value={subitem.construction_days ?? ""}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                if (nextValue === "" || /^\d+$/.test(nextValue)) {
+                  updateLocalSubitemPrice(subitem.id, { construction_days: nextValue });
+                }
+              }}
+            />
+            <span aria-hidden="true">일</span>
+          </span>
+        </label>
         <label className="admin-items-v2-number-cell">
           <span className="field-label">수량</span>
           <input
@@ -9923,6 +9969,7 @@ export default function App() {
         option_value: getTemplateOptionValue(subitem),
         quantity: toNullableNumber(subitem.quantity),
         labor_count: toNullableNumber(subitem.labor_count),
+        construction_days: toConstructionDays(subitem.construction_days),
       }));
 
       if (templateValuePayloads.length) {
@@ -9998,6 +10045,7 @@ export default function App() {
           vatStatus: estimateVatStatus,
         },
         selectedItemsTotal,
+        constructionDaysTotal: selectedConstructionDaysTotal,
         adjustmentTotal,
         finalTotal: total,
       };
@@ -10661,6 +10709,9 @@ export default function App() {
             amounts={[
               { label: "선택 항목 합계", value: `${selectedItemsTotal.toLocaleString("ko-KR")}원` },
               { label: "추가금/할인", value: `${adjustmentTotal >= 0 ? "+" : "-"}${Math.abs(adjustmentTotal).toLocaleString("ko-KR")}원` },
+              ...(selectedConstructionDaysTotal > 0
+                ? [{ label: "예상 공사일정", value: `${selectedConstructionDaysTotal.toLocaleString("ko-KR")}일` }]
+                : []),
               { label: "최종 견적 금액", value: `${total.toLocaleString("ko-KR")}원` },
             ]}
           />
@@ -14911,6 +14962,16 @@ export default function App() {
                   <PriceText value={estimatePyeong || condition.size || 0} unit="평" size="sm" />
                 </div>
               </div>
+
+              {selectedConstructionDaysTotal > 0 && (
+                <div className="estimate-construction-schedule">
+                  <span>예상 공사일정</span>
+                  <strong>{selectedConstructionDaysTotal.toLocaleString("ko-KR")}일</strong>
+                  {selectedConstructionDayParts.length > 0 && (
+                    <p>{selectedConstructionDayParts.join(" + ")}</p>
+                  )}
+                </div>
+              )}
 
               {estimatePreviewType === "detail" ? renderDetailEstimateTable() : renderGeneralEstimateTable()}
               <p className="tax-note">세액은 공급가의 10%로 임시 계산했습니다.</p>
@@ -20019,6 +20080,34 @@ const styles = `
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-semibold);
   }
+  .estimate-construction-schedule {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1);
+    margin: 0 0 var(--space-2);
+    padding: var(--space-1) 0;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .estimate-construction-schedule > span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+  }
+  .estimate-construction-schedule > strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-semibold);
+  }
+  .estimate-construction-schedule > p {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
   .estimate-meta-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -23802,8 +23891,8 @@ const styles = `
     margin: 0;
     padding-left: 0;
     gap: 0;
-    --quantity-table-columns: 48px minmax(220px, 1fr) minmax(140px, 180px) minmax(96px, 120px) minmax(96px, 120px) 64px;
-    --quantity-table-flat-columns: minmax(220px, 1fr) minmax(140px, 180px) minmax(96px, 120px) minmax(96px, 120px);
+    --quantity-table-columns: 48px minmax(220px, 1fr) minmax(120px, 140px) 96px minmax(96px, 120px) minmax(96px, 120px) 64px;
+    --quantity-table-flat-columns: minmax(220px, 1fr) minmax(120px, 140px) 96px minmax(96px, 120px) minmax(96px, 120px);
   }
   .admin-items-v2-grid-list.quantity-table-list,
   .admin-items-v2-grid-list.admin-subitem-list,
@@ -23897,6 +23986,21 @@ const styles = `
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .admin-items-v2-number-cell {
     display: block;
     min-width: 0;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .admin-items-v2-day-input {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+  }
+  .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .admin-items-v2-day-input > span {
+    padding-right: var(--space-1);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-table-cell);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-medium);
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row .field-label {
     display: none;
