@@ -50,6 +50,7 @@ export default function AppShell({
   documentMode = false,
   className = "",
   workspaceHeader = null,
+  topbar = null,
 }) {
   const isDocumentMode = documentMode || variant === "document";
 
@@ -118,6 +119,7 @@ export default function AppShell({
       className={cx(
         "formate-app-shell",
         hideSidebar && "formate-app-shell--no-sidebar",
+        topbar && "formate-app-shell--with-topbar",
         className,
       )}
     >
@@ -137,6 +139,7 @@ export default function AppShell({
           </nav>
         </aside>
       )}
+      {topbar && <div className="formate-app-shell__topbar">{topbar}</div>}
       <div className="formate-app-shell__main">
         {children}
       </div>

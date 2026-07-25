@@ -349,9 +349,34 @@
   background: var(--color-bg);
 }
 
+.formate-app-shell--with-topbar {
+  grid-template-rows: 56px minmax(0, 1fr);
+}
+
 .formate-app-shell--no-sidebar,
 .formate-app-shell--document {
   display: block;
+}
+
+.formate-app-shell--with-topbar .formate-app-shell__sidebar {
+  grid-row: 1 / -1;
+  top: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+.formate-app-shell__topbar {
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.formate-app-shell--with-topbar .formate-app-shell__main {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .formate-app-shell__sidebar {

@@ -4,7 +4,6 @@ import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import {
   ArrowLeft,
-  Bell,
   BookOpen,
   Building2,
   Calculator,
@@ -34,6 +33,7 @@ import {
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient";
 import PriceText from "./components/PriceText.jsx";
 import AppShell from "./components/layout/AppShell.jsx";
+import GlobalTopbar from "./components/layout/GlobalTopbar.jsx";
 import Button from "./components/ui/Button.jsx";
 import CategorySidebar from "./components/ui/CategorySidebar.jsx";
 import EmptyState from "./components/ui/EmptyState.jsx";
@@ -2586,7 +2586,6 @@ export default function App() {
   const autoSaveQueuedRef = useRef(false);
   const autoSaveTargetRef = useRef("");
   const pendingAdminLeaveActionRef = useRef(null);
-  const homeProfileMenuRef = useRef(null);
   const adminItemsRef = useRef([]);
   const adminPriceRowRefs = useRef(new Map());
   const estimatePhotoRequestRef = useRef("");
@@ -2723,7 +2722,6 @@ export default function App() {
   const [estimates, setEstimates] = useState([]);
   const [estimateSearch, setEstimateSearch] = useState("");
   const [selectedEstimate, setSelectedEstimate] = useState(null);
-  const [homeProfileMenuOpen, setHomeProfileMenuOpen] = useState(false);
   const [pyeongDropdownOpen, setPyeongDropdownOpen] = useState(false);
   const [adminPyeongDropdownOpen, setAdminPyeongDropdownOpen] = useState(false);
   const [favoritePyeongs, setFavoritePyeongs] = useState(readFavoritePyeongs);
@@ -3408,19 +3406,6 @@ export default function App() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [estimateSearch, page, selectedCompanyId]);
-
-  useEffect(() => {
-    if (!homeProfileMenuOpen) return undefined;
-
-    const handlePointerDown = (event) => {
-      if (!homeProfileMenuRef.current?.contains(event.target)) {
-        setHomeProfileMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [homeProfileMenuOpen]);
 
   useEffect(() => {
     window.localStorage.setItem(FAVORITE_PYEONG_STORAGE_KEY, JSON.stringify(favoritePyeongs));
@@ -10180,6 +10165,67 @@ export default function App() {
       !providedShellClassName.includes("formate-app-shell--overview") && "formate-app-shell--overview",
       providedShellClassName,
     ].filter(Boolean).join(" ");
+    let topbarContext = null;
+
+    if (isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit") {
+      topbarContext = (
+        <div className={`header-admin-condition ${canEditConditionQuantities ? "active" : ""}`.trim()} aria-live="polite">
+          <span>현재 관리 중</span>
+          <strong>
+            {canEditConditionQuantities && currentAdminConditionLabel
+              ? `현재 관리 중: ${currentAdminConditionLabel}`
+              : "현재 관리 중인 조건 없음"}
+          </strong>
+        </div>
+      );
+    }
+
+    if (page === "items" && USE_ITEMS_SCREEN_V2) {
+      topbarContext = (
+        <div className="header-estimate-actions">
+          <Button
+            variant="tertiary"
+            size="sm"
+            onClick={() => {
+              setEstimateConditionEditMode(true);
+              setEstimateConditionDrawerOpen(true);
+            }}
+          >
+            조건 변경
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              setPreviewBackPage("items");
+              setEstimatePreviewType("general");
+              setPage("preview");
+            }}
+          >
+            일반 견적서 확인
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setPreviewBackPage("items");
+              setEstimatePreviewType("detail");
+              setPage("preview");
+            }}
+          >
+            세부 견적서 확인
+          </Button>
+        </div>
+      );
+    }
+
+    const workspaceHeader = shellOptions.workspaceHeader ?? (
+      <div className="home-sidebar-workspace">
+        <img src={logoUrl} alt="" />
+        <span>
+          <strong>FORMATE</strong>
+          <em>운영 워크스페이스</em>
+        </span>
+      </div>
+    );
 
     return (
       <AppShell
@@ -10188,7 +10234,14 @@ export default function App() {
         companyName={selectedCompanyName}
         navItems={APP_SHELL_NAV_ITEMS}
         className={shellClassName}
-        workspaceHeader={shellOptions.workspaceHeader}
+        workspaceHeader={workspaceHeader}
+        topbar={
+          <GlobalTopbar
+            companyName={selectedCompanyName}
+            contextContent={topbarContext}
+            onLogout={() => requestAdminCatalogLeave(handleChangeCompany)}
+          />
+        }
       >
         {children}
       </AppShell>
@@ -10888,69 +10941,8 @@ export default function App() {
   }
 
   return (
-    <div className={`app-shell ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""} ${page === "landing" ? "home-workspace-shell" : ""}`.trim()}>
+    <div className={`app-shell global-topbar-shell ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""} ${page === "landing" ? "home-workspace-shell" : ""}`.trim()}>
       <style>{styles}</style>
-
-      {page !== "landing" && (
-      <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""}`.trim()}>
-          <button className="global-brand" onClick={() => requestAdminCatalogLeave(resetFlow)} aria-label="FORMATE 홈으로 이동">
-            <img src={logoUrl} alt="" />
-            <strong>FORMATE</strong>
-          </button>
-          {isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" && (
-            <div className={`header-admin-condition ${canEditConditionQuantities ? "active" : ""}`.trim()} aria-live="polite">
-              <span>현재 관리 중</span>
-              <strong>
-                {canEditConditionQuantities && currentAdminConditionLabel
-                  ? `현재 관리 중: ${currentAdminConditionLabel}`
-                  : "현재 관리 중인 조건 없음"}
-              </strong>
-            </div>
-          )}
-          {page === "items" && USE_ITEMS_SCREEN_V2 ? (
-          <div className="header-estimate-actions">
-            <Button
-              variant="tertiary"
-              size="sm"
-              onClick={() => {
-                setEstimateConditionEditMode(true);
-                setEstimateConditionDrawerOpen(true);
-              }}
-            >
-              조건 변경
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setPreviewBackPage("items");
-                setEstimatePreviewType("general");
-                setPage("preview");
-              }}
-            >
-              일반 견적서 확인
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setPreviewBackPage("items");
-                setEstimatePreviewType("detail");
-                setPage("preview");
-              }}
-            >
-              세부 견적서 확인
-            </Button>
-          </div>
-          ) : (
-          <div className="company-session">
-            <span className="session-status-dot">로그인됨</span>
-            <span>{selectedCompanyName}님 반갑습니다.</span>
-            <button type="button" className="company-switch-button" onClick={() => requestAdminCatalogLeave(handleChangeCompany)}>
-              로그아웃
-            </button>
-          </div>
-          )}
-      </header>
-      )}
 
       {adminVerifyOpen && (
         <div className="modal-backdrop" onClick={closeAdminGate}>
@@ -11258,60 +11250,6 @@ export default function App() {
 
       {page === "landing" && renderAppShell(
         <main className="landing work-home work-home-flat">
-          <div className="home-workspace-toolbar" aria-label="홈 작업 도구">
-            <div className="home-workspace-toolbar__nav" aria-hidden="true">
-              <button type="button" className="home-toolbar-icon-button" tabIndex={-1}>
-                <ArrowLeft size={18} strokeWidth={1.5} />
-              </button>
-              <button type="button" className="home-toolbar-icon-button" tabIndex={-1}>
-                <ChevronRight size={18} strokeWidth={1.5} />
-              </button>
-            </div>
-            <label className="home-workspace-search">
-              <Search size={16} strokeWidth={1.5} aria-hidden="true" />
-              <input
-                type="search"
-                readOnly
-                placeholder="고객, 현장 주소, 견적번호 검색"
-                aria-label="고객, 현장 주소, 견적번호 검색"
-              />
-              <kbd>Ctrl K</kbd>
-            </label>
-            <div className="home-workspace-actions">
-              <button type="button" className="home-toolbar-icon-button" aria-label="알림">
-                <Bell size={18} strokeWidth={1.5} />
-              </button>
-              <div className="home-profile-menu" ref={homeProfileMenuRef}>
-                <button
-                  type="button"
-                  className="home-toolbar-avatar"
-                  aria-label="프로필 메뉴"
-                  aria-haspopup="menu"
-                  aria-expanded={homeProfileMenuOpen}
-                  onClick={() => setHomeProfileMenuOpen((open) => !open)}
-                >
-                  {`${selectedCompanyName || "운"}`.trim().charAt(0) || "운"}
-                </button>
-                {homeProfileMenuOpen && (
-                  <div className="home-profile-dropdown" role="menu">
-                    <div className="home-profile-dropdown__meta">{selectedCompanyName || "운영자"}</div>
-                    <button
-                      type="button"
-                      className="home-profile-dropdown__item"
-                      role="menuitem"
-                      onClick={() => {
-                        setHomeProfileMenuOpen(false);
-                        requestAdminCatalogLeave(handleChangeCompany);
-                      }}
-                    >
-                      로그아웃
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
           <section className="work-home-content">
             <PageHeader
               title="홈"
@@ -15149,6 +15087,10 @@ const styles = `
   }
   .app-shell.items-v2-shell {
     padding-top: 56px;
+  }
+  .app-shell.global-topbar-shell,
+  .app-shell.global-topbar-shell.items-v2-shell {
+    padding-top: 0;
   }
   .app-shell svg {
     stroke-width: 1.75;
@@ -24478,6 +24420,28 @@ const styles = `
     padding: 0 var(--space-page-x);
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
+  }
+  .formate-global-topbar {
+    position: relative;
+    top: auto;
+    z-index: auto;
+    width: 100%;
+    height: 56px;
+    min-height: 56px;
+  }
+  .formate-global-topbar .home-workspace-search {
+    flex: 1 1 320px;
+    width: auto;
+    max-width: 576px;
+  }
+  .formate-global-topbar__context {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    margin-left: auto;
+  }
+  .formate-global-topbar__context .header-admin-condition {
+    max-width: min(32vw, 420px);
   }
   .home-workspace-toolbar__nav,
   .home-workspace-search,
