@@ -185,73 +185,112 @@ export function buildHomeOperationsData({
   const attention = [
     ...requests.map((request) => ({
       id: `request-${request.id}`,
+      sourceId: request.id,
       type: "request",
+      requestType: request.request_type,
+      rawStatus: request.status,
       title: getCustomerOperationText(
         request.title,
         getOperationLabel(REQUEST_TYPE, request.request_type, "고객 요청")
       ),
       meta: `${getCustomerName(request)} · ${getProjectName(request)}`,
+      customerName: getCustomerName(request),
+      projectName: getProjectName(request),
       status: createStatusView(REQUEST_STATUS, request.status),
       createdAt: request.created_at,
     })),
     ...serviceRequests.map((request) => ({
       id: `service-${request.id}`,
+      sourceId: request.id,
       type: "service",
+      rawStatus: request.status,
       title: request.problem_space || "A/S 요청",
       meta: `${getCustomerName(request)} · ${getProjectName(request)}`,
+      customerName: getCustomerName(request),
+      projectName: getProjectName(request),
       status: createStatusView(SERVICE_REQUEST_STATUS, request.status),
       createdAt: request.created_at,
-    })),
-    ...notifications.map((notification) => ({
-      id: `notification-${notification.id}`,
-      type: "notification",
-      title: notification.title || "알림",
-      meta: notification.body || "확인이 필요한 알림입니다.",
-      status: { label: "읽지 않음", tone: "info" },
-      createdAt: notification.created_at,
     })),
   ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
 
   const inProgress = [
     ...projects.map((project) => ({
       id: `project-${project.id}`,
+      sourceId: project.id,
+      projectId: project.id,
       type: "project",
       title: project.name || project.address || "현장",
       meta: getCustomerName(project),
+      customerName: getCustomerName(project),
+      projectName: project.name || project.address || "현장",
+      rawStatus: project.construction_status,
       status: createStatusView(CONSTRUCTION_STATUS, project.construction_status),
       createdAt: project.updated_at ?? project.created_at,
     })),
     ...estimateVersions.map((version) => ({
       id: `estimate-version-${version.id}`,
+      sourceId: version.id,
+      projectId: getRelationRow(version.project)?.id || "",
       type: "estimate",
       title: version.label || `견적 v${version.version_no}`,
       meta: `${getCustomerName(version)} · ${getProjectName(version)}`,
+      customerName: getCustomerName(version),
+      projectName: getProjectName(version),
+      rawStatus: version.status,
       status: createStatusView(ESTIMATE_VERSION_STATUS, version.status),
       createdAt: version.created_at,
     })),
     ...aftercareSchedules.map((schedule) => ({
       id: `aftercare-${schedule.id}`,
+      sourceId: schedule.id,
+      projectId: getRelationRow(schedule.project)?.id || "",
       type: "aftercare",
       title: getProjectName(schedule),
       meta: `${getCustomerName(schedule)} · 다음 일정 ${formatOperationDate(schedule.next_send_date)}`,
+      customerName: getCustomerName(schedule),
+      projectName: getProjectName(schedule),
+      rawStatus: schedule.status,
       status: createStatusView(AFTERCARE_STATUS, schedule.status),
       createdAt: schedule.updated_at ?? schedule.created_at,
     })),
   ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
 
-  const recentActivity = timelineEvents.map((event) => ({
-    id: event.id,
-    title: getCustomerOperationText(
-      event.title,
-      getOperationLabel(TIMELINE_EVENT_TYPE, event.event_type, "활동")
-    ),
-    description: getCustomerOperationText(
-      event.description,
-      `${getCustomerName(event)} · ${getProjectName(event)}`
-    ),
-    status: createStatusView(TIMELINE_EVENT_TYPE, event.event_type),
-    createdAt: event.created_at,
-  }));
+  const recentActivity = [
+    ...timelineEvents.map((event) => ({
+      id: `timeline-${event.id}`,
+      sourceId: event.id,
+      sourceType: "timeline",
+      eventType: event.event_type,
+      projectId: getRelationRow(event.project)?.id || "",
+      customerId: getRelationRow(event.customer)?.id || "",
+      title: getCustomerOperationText(
+        event.title,
+        getOperationLabel(TIMELINE_EVENT_TYPE, event.event_type, "활동")
+      ),
+      description: getCustomerOperationText(
+        event.description,
+        `${getCustomerName(event)} · ${getProjectName(event)}`
+      ),
+      customerName: getCustomerName(event),
+      projectName: getProjectName(event),
+      status: createStatusView(TIMELINE_EVENT_TYPE, event.event_type),
+      createdAt: event.created_at,
+    })),
+    ...notifications.map((notification) => ({
+      id: `notification-${notification.id}`,
+      sourceId: notification.id,
+      sourceType: "notification",
+      eventType: notification.event_type,
+      relatedType: notification.related_type,
+      relatedId: notification.related_id,
+      title: getCustomerOperationText(notification.title, "활동 알림"),
+      description: getCustomerOperationText(notification.body, ""),
+      customerName: "",
+      projectName: "",
+      status: createStatusView(TIMELINE_EVENT_TYPE, notification.event_type),
+      createdAt: notification.created_at,
+    })),
+  ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
 
   return {
     summary: {
@@ -261,8 +300,8 @@ export function buildHomeOperationsData({
       revisionRequests: summary.revisionRequests ?? 0,
       approvalsToday: summary.approvalsToday ?? 0,
     },
-    attention: attention.slice(0, 6),
-    inProgress: inProgress.slice(0, 6),
-    recentActivity: recentActivity.slice(0, 8),
+    attention,
+    inProgress,
+    recentActivity,
   };
 }
