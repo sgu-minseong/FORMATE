@@ -68,6 +68,42 @@ import {
   getExcelDuplicateMappingWarnings,
   createExcelPreviewColumns,
 } from "./features/aiExcelImport/excelMapping";
+import {
+  UNIT_OPTIONS,
+  PYEONG_OPTIONS,
+  FLOORING_THICKNESS_OPTIONS,
+  DEFAULT_FLOORING_SPEC,
+  DEFAULT_FLOORING_AUTO_SPECS,
+  FLOORING_NAME_KEYWORDS,
+  FLOORING_MATERIAL_KEYWORDS,
+} from "./shared/constants/estimateOptions";
+import {
+  EXTENDED_VARIANTS,
+  OLD_EXTENDED_VARIANTS,
+  OLD_NO_EXTENSION_VARIANT,
+  CONDITION_VARIANT_KEYS,
+} from "./shared/constants/conditionVariants";
+import {
+  CATEGORY_DISPLAY_TARGETS,
+  DEFAULT_CONSTRUCTION_CATALOG,
+} from "./shared/constants/defaultConstructionCatalog";
+import {
+  toNumberOrZero,
+  toNullableNumber,
+  toNonNegativeNumberOrZero,
+  hasNumericInput,
+  stripNumberInputFormatting,
+  formatMoneyInputValue,
+  isEmptyOrZeroDisplayValue,
+} from "./shared/utils/numbers";
+import {
+  getTodayDateInput,
+  getDateInputFromValue,
+  addDaysToDateInput,
+  formatDisplayDate,
+  formatDisplayDateTime,
+  formatRecentSaveTime,
+} from "./shared/utils/dates";
 
 const pageFromHash = () => {
   const page = window.location.hash.replace("#", "");
@@ -122,17 +158,6 @@ const APP_SHELL_NAV_ITEMS = [
 const USE_ITEMS_SCREEN_V2 = true;
 const USE_ADMIN_ITEMS_SCREEN_V2 = true;
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
-const UNIT_OPTIONS = ["평", "m²", "m", "개소", "식", "자당", "롤", "박스", "EA"];
-const PYEONG_OPTIONS = Array.from({ length: 90 }, (_, index) => index + 1);
-const FLOORING_THICKNESS_OPTIONS = Array.from({ length: 28 }, (_, index) => (1.8 + index / 10).toFixed(1));
-const DEFAULT_FLOORING_SPEC = "기본";
-const DEFAULT_FLOORING_AUTO_SPECS = ["1.8", "2.2", "2.7"];
-const FLOORING_NAME_KEYWORDS = ["장판", "바닥", "바닥재"];
-const FLOORING_MATERIAL_KEYWORDS = ["장판", "마루", "데코타일", "바닥"];
-const EXTENDED_VARIANTS = ["확장형1", "확장형2", "확장형3", "확장형4", "확장형5"];
-const OLD_EXTENDED_VARIANTS = ["구형1", "구형2", "구형3", "구형4", "구형5"];
-const OLD_NO_EXTENSION_VARIANT = "구형0";
-const CONDITION_VARIANT_KEYS = [...EXTENDED_VARIANTS, OLD_NO_EXTENSION_VARIANT, ...OLD_EXTENDED_VARIANTS];
 const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
 const ADMIN_TEMPLATE_ORDER_STORAGE_PREFIX = "formate.adminTemplateOrder";
 const ADMIN_AUTOSAVE_DELAY_MS = 1200;
@@ -152,159 +177,6 @@ const PHOTO_COLLECTION_DEFAULT_NAMES = ["1000만원대", "2000만원대", "3000�
 const MAX_SUBITEM_PHOTO_COUNT = 10;
 const MAX_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MATERIAL_NAME_PLACEHOLDER = "추가된 항목의 이름을 입력하세요";
-const CATEGORY_DISPLAY_TARGETS = {
-  바닥: "바닥재",
-  몰딩: "목공",
-  페인트: "도장/페인트",
-  도장: "도장/페인트",
-};
-const DEFAULT_CONSTRUCTION_CATALOG = [
-  {
-    name: "철거",
-    subitems: [
-      ["전체 철거", "식"], ["부분 철거", "식"], ["도배 철거", "평"], ["장판 철거", "평"],
-      ["마루 철거", "평"], ["타일 철거", "평"], ["욕실 철거", "개소"], ["주방 철거", "식"],
-      ["몰딩 철거", "m"], ["걸레받이 철거", "m"], ["싱크대 철거", "식"], ["붙박이장 철거", "식"],
-      ["문/문틀 철거", "개"], ["조명 철거", "개"], ["폐기물 반출", "식"],
-    ],
-  },
-  {
-    name: "가설/보양",
-    subitems: [
-      ["바닥 보양", "평"], ["엘리베이터 보양", "식"], ["공용부 보양", "식"], ["현관 보양", "식"],
-      ["가구 보양", "식"], ["먼지 차단 비닐", "식"], ["양중/운반", "식"], ["사다리차", "회"],
-      ["현장 정리", "식"],
-    ],
-  },
-  {
-    name: "설비/수도",
-    subitems: [
-      ["수도 배관 이동", "개소"], ["배수 배관 이동", "개소"], ["세탁기 배관", "개소"],
-      ["싱크대 급배수", "식"], ["욕실 급배수", "개소"], ["보일러 배관", "식"], ["난방 배관", "평"],
-      ["분배기 교체", "개"], ["수전 설치", "개"], ["배수구 교체", "개"], ["방수 작업", "평"],
-      ["미장 작업", "평"],
-    ],
-  },
-  {
-    name: "전기/조명",
-    subitems: [
-      ["전체 전기 배선", "식"], ["콘센트 추가", "개"], ["스위치 교체", "개"], ["분전함 교체", "식"],
-      ["조명 배선", "개"], ["다운라이트 타공/설치", "개"], ["간접조명 배선", "m"], ["LED 등 설치", "개"],
-      ["주방 조명", "개"], ["욕실 조명", "개"], ["인터넷/LAN 배선", "개소"], ["인터폰/도어락 배선", "개소"],
-    ],
-  },
-  {
-    name: "목공",
-    subitems: [
-      ["천장 목공", "평"], ["벽체 목공", "평"], ["가벽 시공", "m"], ["문틀 목공", "개"],
-      ["몰딩 시공", "m"], ["걸레받이 시공", "m"], ["등박스", "식"], ["간접조명 박스", "m"],
-      ["커튼박스", "m"], ["아트월 목공", "식"], ["수납장 목공", "식"], ["단차 보정", "식"],
-    ],
-  },
-  {
-    name: "창호/샷시",
-    subitems: [
-      ["거실 샷시", "개소"], ["안방 샷시", "개소"], ["작은방 샷시", "개소"], ["주방 창호", "개소"],
-      ["발코니 창호", "개소"], ["터닝도어", "개"], ["방충망 교체", "개"], ["유리 교체", "장"],
-      ["실리콘 마감", "m"], ["창호 철거", "개소"],
-    ],
-  },
-  {
-    name: "중문/도어",
-    subitems: [
-      ["3연동 중문", "개"], ["슬라이딩 중문", "개"], ["여닫이 중문", "개"], ["방문 교체", "개"],
-      ["문틀 교체", "개"], ["문 손잡이 교체", "개"], ["도어락 설치", "개"], ["현관문 필름", "개"],
-      ["문선 시공", "m"],
-    ],
-  },
-  {
-    name: "도배",
-    subitems: [
-      ["실크벽지", "평"], ["합지벽지", "평"], ["천장 도배", "평"], ["벽면 도배", "평"],
-      ["부분 도배", "식"], ["초배지", "평"], ["퍼티/면처리", "평"], ["기존 벽지 제거", "평"],
-    ],
-  },
-  {
-    name: "바닥",
-    subitems: [
-      ["장판", "평"], ["KCC장판 1.8T", "평"], ["KCC장판 2.2T", "평"], ["KCC장판 2.7T", "평"],
-      ["LG장판 1.8T", "평"], ["LG장판 2.2T", "평"], ["강마루", "평"], ["강화마루", "평"],
-      ["원목마루", "평"], ["데코타일", "평"], ["포세린 바닥", "평"], ["바닥 평탄화", "평"],
-      ["걸레받이", "m"], ["기존 바닥 철거", "평"],
-    ],
-  },
-  {
-    name: "필름",
-    subitems: [
-      ["현관문 필름", "개"], ["방문 필름", "개"], ["문틀 필름", "개"], ["샷시 필름", "개소"],
-      ["주방 필름", "식"], ["붙박이장 필름", "식"], ["몰딩 필름", "m"], ["걸레받이 필름", "m"],
-      ["아트월 필름", "식"],
-    ],
-  },
-  {
-    name: "도장/페인트",
-    subitems: [
-      ["벽면 도장", "평"], ["천장 도장", "평"], ["방문 도장", "개"], ["문틀 도장", "개"],
-      ["베란다 탄성코트", "평"], ["발코니 페인트", "평"], ["방수 페인트", "평"], ["퍼티 작업", "평"],
-      ["곰팡이 방지 도장", "평"],
-    ],
-  },
-  {
-    name: "타일",
-    subitems: [
-      ["주방 벽타일", "m"], ["욕실 벽타일", "평"], ["욕실 바닥타일", "평"], ["현관 바닥타일", "평"],
-      ["발코니 타일", "평"], ["포세린 타일", "평"], ["타일 덧방", "평"], ["타일 철거", "평"],
-      ["줄눈 시공", "m"], ["실리콘 마감", "m"],
-    ],
-  },
-  {
-    name: "욕실",
-    subitems: [
-      ["욕실 전체 공사", "개소"], ["욕조 철거", "개"], ["샤워부스 설치", "개"], ["양변기 설치", "개"],
-      ["세면대 설치", "개"], ["욕실장 설치", "개"], ["거울 설치", "개"], ["수건장 설치", "개"],
-      ["환풍기 설치", "개"], ["젠다이 시공", "m"], ["욕실 방수", "평"], ["욕실 돔천장", "개소"],
-      ["욕실 악세서리", "식"], ["욕실 문 교체", "개"],
-    ],
-  },
-  {
-    name: "주방/가구",
-    subitems: [
-      ["싱크대", "자당"], ["상부장", "자당"], ["하부장", "자당"], ["키큰장", "자당"], ["아일랜드 식탁", "자당"],
-      ["주방 상판", "자당"], ["주방 벽타일", "자당"], ["후드 설치", "자당"], ["쿡탑 설치", "자당"],
-      ["식기세척기 자리", "개소"], ["냉장고장", "자당"], ["붙박이장", "자당"], ["신발장", "자당"],
-      ["수납장", "자당"],
-    ],
-  },
-  {
-    name: "현관",
-    subitems: [
-      ["현관 타일", "평"], ["신발장", "m"], ["현관 중문", "개"], ["현관 센서등", "개"],
-      ["현관문 필름", "개"], ["도어락", "개"], ["현관 거울", "개"], ["현관 수납", "식"],
-    ],
-  },
-  {
-    name: "발코니/확장",
-    subitems: [
-      ["발코니 확장", "개소"], ["확장부 단열", "평"], ["확장부 난방 배관", "평"], ["발코니 타일", "평"],
-      ["발코니 탄성코트", "평"], ["빨래건조대", "개"], ["배수 트랩", "개"], ["발코니 창호", "개소"],
-      ["확장부 마감", "식"],
-    ],
-  },
-  {
-    name: "에어컨/환기",
-    subitems: [
-      ["시스템에어컨 배관", "개소"], ["에어컨 배관 매립", "개소"], ["에어컨 전용 콘센트", "개"],
-      ["실외기 배관", "m"], ["환풍기 설치", "개"], ["주방 후드 배관", "식"], ["욕실 환기 배관", "식"],
-    ],
-  },
-  {
-    name: "청소/폐기물/마감",
-    subitems: [
-      ["입주 청소", "평"], ["준공 청소", "식"], ["폐기물 처리", "식"], ["폐기물 추가 반출", "회"],
-      ["실리콘 마감", "m"], ["코킹", "m"], ["하자 보수", "식"], ["마감재 보수", "식"], ["현장 정리", "식"],
-    ],
-  },
-];
 
 function readStoredCompany() {
   if (typeof window === "undefined") return null;
@@ -761,30 +633,6 @@ function normalizeAdminItems(itemsRows, subitemRows, templateValueRows = []) {
   );
 }
 
-function toNumberOrZero(value) {
-  const numberValue = Number(`${value ?? ""}`.replaceAll(",", ""));
-  return Number.isFinite(numberValue) ? numberValue : 0;
-}
-
-function toNullableNumber(value) {
-  if (`${value ?? ""}`.trim() === "") return null;
-  const numberValue = Number(`${value ?? ""}`.replaceAll(",", ""));
-  return Number.isFinite(numberValue) ? numberValue : null;
-}
-
-function toNonNegativeNumberOrZero(value) {
-  return Math.max(0, toNumberOrZero(value));
-}
-
-function hasNumericInput(value) {
-  if (`${value ?? ""}`.trim() === "") return false;
-  return Number.isFinite(Number(`${value ?? ""}`.replaceAll(",", "")));
-}
-
-function stripNumberInputFormatting(value) {
-  return `${value ?? ""}`.replaceAll(",", "").replace(/[^\d.]/g, "");
-}
-
 function normalizeUnitOptionValue(value) {
   const rawValue = `${value ?? ""}`.trim();
   if (rawValue === "㎡") return "m²";
@@ -840,23 +688,6 @@ function getBulkTargetValue(subitem, field) {
   if (field === "labor_rate_empty") return getLaborRateEmptyValue(subitem);
   if (field === "labor_rate_occupied") return getLaborRateOccupiedValue(subitem);
   return subitem?.[field];
-}
-
-function formatMoneyInputValue(value) {
-  const raw = stripNumberInputFormatting(value);
-  if (raw === "") return "";
-  const [integerPart, ...decimalParts] = raw.split(".");
-  const integerValue = integerPart === "" ? "0" : integerPart;
-  const formattedInteger = Number(integerValue).toLocaleString("ko-KR");
-  if (!decimalParts.length) return formattedInteger;
-  return `${formattedInteger}.${decimalParts.join("").slice(0, 2)}`;
-}
-
-function isEmptyOrZeroDisplayValue(value) {
-  const raw = stripNumberInputFormatting(value);
-  if (raw === "") return true;
-  const numericValue = Number(raw);
-  return Number.isFinite(numericValue) && numericValue === 0;
 }
 
 function getDefaultQuantityForUnit(unit, pyeong) {
@@ -1505,53 +1336,6 @@ function getEstimateItemsDataMeta(itemsData) {
   return itemsData?.estimateMeta && typeof itemsData.estimateMeta === "object"
     ? itemsData.estimateMeta
     : {};
-}
-
-function getTodayDateInput() {
-  const date = new Date();
-  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return offsetDate.toISOString().slice(0, 10);
-}
-
-function getDateInputFromValue(value) {
-  if (!value) return getTodayDateInput();
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return getTodayDateInput();
-  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return offsetDate.toISOString().slice(0, 10);
-}
-
-function addDaysToDateInput(dateInput, days) {
-  const date = new Date(`${dateInput || getTodayDateInput()}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return getDateInputFromValue(date);
-}
-
-function formatDisplayDate(dateInput) {
-  if (!dateInput) return "-";
-  const date = new Date(`${dateInput}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return dateInput;
-  return date.toLocaleDateString("ko-KR");
-}
-
-function formatDisplayDateTime(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("ko-KR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatRecentSaveTime(value) {
-  if (!value) return "";
-  const savedAt = new Date(value);
-  if (Number.isNaN(savedAt.getTime())) return "";
-  return Date.now() - savedAt.getTime() < 60_000 ? "방금 저장됨" : formatDisplayDateTime(value);
 }
 
 function getAiSaveTargetName(target) {
