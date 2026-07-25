@@ -53,7 +53,7 @@ export default function Table({
 
   return (
     <div className="ui-table-wrap">
-      <div className="ui-table-scroll">
+      <div className="ui-table-scroll formate-scroll-light">
         <table
           className={cx(
             "ui-table",

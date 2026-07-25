@@ -15,7 +15,6 @@ import {
   HelpCircle,
   Home,
   Image,
-  LogOut,
   Mail,
   MessageSquare,
   Plus,
@@ -33,7 +32,6 @@ import {
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient";
 import PriceText from "./components/PriceText.jsx";
 import AppShell from "./components/layout/AppShell.jsx";
-import GlobalTopbar from "./components/layout/GlobalTopbar.jsx";
 import Button from "./components/ui/Button.jsx";
 import CategorySidebar from "./components/ui/CategorySidebar.jsx";
 import EmptyState from "./components/ui/EmptyState.jsx";
@@ -185,7 +183,6 @@ const APP_SHELL_NAV_ITEMS = [
     ],
   },
   { key: "help-support", label: "도움말 / 지원", icon: <HelpCircle />, placement: "bottom", disabled: true },
-  { key: "logout", label: "로그아웃", icon: <LogOut />, placement: "bottom" },
 ];
 const USE_ITEMS_SCREEN_V2 = true;
 const USE_ADMIN_ITEMS_SCREEN_V2 = true;
@@ -2635,6 +2632,7 @@ function AdminApp() {
       checking: isSupabaseConfigured,
     };
   });
+  const [authUser, setAuthUser] = useState(null);
   const [loginCode, setLoginCode] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
@@ -2812,6 +2810,9 @@ function AdminApp() {
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
   const selectedCompanyName = selectedCompany?.name ?? "";
+  const authUserMetadata = authUser?.user_metadata ?? {};
+  const accountDisplayName = `${authUserMetadata.display_name || authUserMetadata.full_name || authUserMetadata.name || "운영자"}`.trim();
+  const accountAvatarUrl = `${authUserMetadata.avatar_url || authUserMetadata.picture || ""}`.trim();
   const estimateCreatedDate = useMemo(() => formatDisplayDate(estimateIssuedAt), [estimateIssuedAt]);
   const estimateValidUntil = useMemo(
     () => formatDisplayDate(addDaysToDateInput(estimateIssuedAt, 30)),
@@ -3246,6 +3247,7 @@ function AdminApp() {
       if (!isSupabaseConfigured) {
         clearStoredCompany();
         if (active) {
+          setAuthUser(null);
           setLoginError("로그인 정보를 다시 확인해주세요.");
           setCompanySession({ company: null, checking: false });
         }
@@ -3257,12 +3259,17 @@ function AdminApp() {
 
         if (!authenticatedCompany) {
           clearStoredCompany();
-          if (active) setCompanySession({ company: null, checking: false });
+          if (active) {
+            setAuthUser(null);
+            setCompanySession({ company: null, checking: false });
+          }
           return;
         }
 
+        const { data: authUserData } = await supabase.auth.getUser();
         writeStoredCompany(authenticatedCompany);
         if (active) {
+          setAuthUser(authUserData?.user ?? null);
           setCompanySession({ company: authenticatedCompany, checking: false });
         }
       } catch (error) {
@@ -3275,6 +3282,7 @@ function AdminApp() {
         clearStoredCompany();
         clearAdminVerifiedCompany();
         if (active) {
+          setAuthUser(null);
           setLoginError("로그인 정보를 다시 확인해주세요.");
           setCompanySession({ company: null, checking: false });
         }
@@ -3539,6 +3547,7 @@ function AdminApp() {
       clearAdminVerifiedCompany();
       clearCompanyScopedState();
       await loadCurrentCompanyFromAuth(authUserId);
+      setAuthUser(data?.user ?? data?.session?.user ?? null);
       setLoginCode("");
       setLoginPassword("");
       setLoginError("");
@@ -3562,6 +3571,7 @@ function AdminApp() {
     clearStoredCompany();
     clearAdminVerifiedCompany();
     clearCompanyScopedState();
+    setAuthUser(null);
     setCompanySession({ company: null, checking: false });
     setLoginCode("");
     setLoginPassword("");
@@ -8815,7 +8825,7 @@ function AdminApp() {
 
   function renderAdminPriceCategorySidebar() {
     return (
-      <aside className="admin-price-v2-sidebar" aria-label="단가표 대분류">
+      <aside className="admin-price-v2-sidebar formate-scroll-light" aria-label="단가표 대분류">
         <div className="admin-price-v2-sidebar-header">
           <span>대분류</span>
           <strong>{filteredAdminItems.length}개</strong>
@@ -9381,7 +9391,7 @@ function AdminApp() {
 
           {item ? (
             <section className="items-v2-table-section admin-price-v2-table-section">
-              <div className="admin-price-v2-table-scroll">
+              <div className="admin-price-v2-table-scroll formate-scroll-light">
                 {renderAdminPriceRows(item)}
               </div>
             </section>
@@ -9407,7 +9417,7 @@ function AdminApp() {
 
   function renderAdminItemsCategorySidebar() {
     return (
-      <aside className="admin-price-v2-sidebar admin-items-v2-sidebar" aria-label="견적 템플릿 대분류">
+      <aside className="admin-price-v2-sidebar admin-items-v2-sidebar formate-scroll-light" aria-label="견적 템플릿 대분류">
         <div className="admin-price-v2-sidebar-header">
           <span>대분류</span>
           <strong>{filteredAdminItems.length}개</strong>
@@ -9456,7 +9466,7 @@ function AdminApp() {
           <span>기본 견적 조건</span>
           <strong>총 {orderedAdminTemplates.length}개</strong>
         </div>
-        <div className="admin-price-v2-category-list admin-template-condition-list">
+        <div className="admin-price-v2-category-list admin-template-condition-list formate-scroll-light">
           {orderedAdminTemplates.map((template) => {
             const templateKey = getTemplateConditionKey(template);
             const active = currentAdminTemplateId === template.id || currentConditionKey === templateKey;
@@ -9536,7 +9546,7 @@ function AdminApp() {
           <span>대분류</span>
           <strong>{filteredAdminItems.length}개</strong>
         </div>
-        <div className="admin-items-v2-category-panel-list">
+        <div className="admin-items-v2-category-panel-list formate-scroll-light">
           {filteredAdminItems.map((item) => {
             const active = selectedAdminTemplateItem?.id === item.id;
             return (
@@ -9806,7 +9816,7 @@ function AdminApp() {
           </Button>
         </div>
 
-        <div className="condition-static-grid estimate-condition-drawer__fields">
+        <div className="condition-static-grid estimate-condition-drawer__fields formate-scroll-light">
           <div className="condition-static-field">
             <p className="field-label">평수</p>
             <div className="custom-select admin-pyeong-select">
@@ -9949,7 +9959,7 @@ function AdminApp() {
               <span>기본 견적 조건</span>
               <strong>불러오는 중</strong>
             </div>
-            <div className="admin-price-v2-category-list admin-template-condition-list">
+            <div className="admin-price-v2-category-list admin-template-condition-list formate-scroll-light">
               <div className="admin-items-v2-loading-line wide" />
               <div className="admin-items-v2-loading-line" />
               <div className="admin-items-v2-loading-line short" />
@@ -9965,7 +9975,7 @@ function AdminApp() {
               <span>대분류</span>
               <strong>불러오는 중</strong>
             </div>
-            <div className="admin-items-v2-category-panel-list">
+            <div className="admin-items-v2-category-panel-list formate-scroll-light">
               <div className="admin-items-v2-loading-line wide" />
               <div className="admin-items-v2-loading-line" />
               <div className="admin-items-v2-loading-line" />
@@ -9983,7 +9993,7 @@ function AdminApp() {
               <div className="admin-items-v2-loading-line toolbar" />
             </div>
             <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
-              <div className="admin-price-v2-table-scroll">
+              <div className="admin-price-v2-table-scroll formate-scroll-light">
                 <div className="admin-items-v2-loading-table">
                   <div className="admin-items-v2-loading-row" />
                   <div className="admin-items-v2-loading-row" />
@@ -10059,7 +10069,7 @@ function AdminApp() {
 
           {item ? (
             <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
-              <div className="admin-price-v2-table-scroll">
+              <div className="admin-price-v2-table-scroll formate-scroll-light">
                 {renderAdminItemsRows(item)}
               </div>
             </section>
@@ -10436,57 +10446,6 @@ function AdminApp() {
       !providedShellClassName.includes("formate-app-shell--overview") && "formate-app-shell--overview",
       providedShellClassName,
     ].filter(Boolean).join(" ");
-    let topbarContext = null;
-
-    if (isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit") {
-      topbarContext = (
-        <div className={`header-admin-condition ${canEditConditionQuantities ? "active" : ""}`.trim()} aria-live="polite">
-          <span>현재 관리 중</span>
-          <strong>
-            {canEditConditionQuantities && currentAdminConditionLabel
-              ? `현재 관리 중: ${currentAdminConditionLabel}`
-              : "현재 관리 중인 조건 없음"}
-          </strong>
-        </div>
-      );
-    }
-
-    if (page === "items" && USE_ITEMS_SCREEN_V2) {
-      topbarContext = (
-        <div className="header-estimate-actions">
-          <Button
-            variant="tertiary"
-            size="sm"
-            onClick={() => {
-              setEstimateConditionEditMode(true);
-              setEstimateConditionDrawerOpen(true);
-            }}
-          >
-            조건 변경
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              setPreviewBackPage("items");
-              setEstimatePreviewType("general");
-              setPage("preview");
-            }}
-          >
-            일반 견적서 확인
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setPreviewBackPage("items");
-              setEstimatePreviewType("detail");
-              setPage("preview");
-            }}
-          >
-            세부 견적서 확인
-          </Button>
-        </div>
-      );
-    }
 
     const workspaceHeader = shellOptions.workspaceHeader ?? (
       <div className="home-sidebar-workspace">
@@ -10503,16 +10462,12 @@ function AdminApp() {
         currentPage={page}
         onNavigate={handleAppShellNavigate}
         companyName={selectedCompanyName}
+        userName={accountDisplayName}
+        userAvatarUrl={accountAvatarUrl}
+        onLogout={() => requestAdminCatalogLeave(handleChangeCompany)}
         navItems={APP_SHELL_NAV_ITEMS}
         className={shellClassName}
         workspaceHeader={workspaceHeader}
-        topbar={
-          <GlobalTopbar
-            companyName={selectedCompanyName}
-            contextContent={topbarContext}
-            onLogout={() => requestAdminCatalogLeave(handleChangeCompany)}
-          />
-        }
       >
         {children}
       </AppShell>
@@ -10731,7 +10686,7 @@ function AdminApp() {
               </Button>
             </div>
 
-            <div className="condition-static-grid estimate-condition-drawer__fields">
+            <div className="condition-static-grid estimate-condition-drawer__fields formate-scroll-light">
               <div className="condition-static-field">
                 <p className="field-label">평수</p>
                 <div className="custom-select">
@@ -11212,7 +11167,7 @@ function AdminApp() {
   }
 
   return (
-    <div className={`app-shell global-topbar-shell ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""} ${page === "landing" ? "home-workspace-shell" : ""}`.trim()}>
+    <div className={`app-shell admin-shell-root ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""} ${page === "landing" ? "home-workspace-shell" : ""}`.trim()}>
       <style>{styles}</style>
 
       {adminVerifyOpen && (
@@ -15507,13 +15462,16 @@ const styles = `
   }
   .app-shell {
     min-height: 100vh;
-    padding-top: 56px;
+    padding-top: 0;
   }
   .app-shell.items-v2-shell {
-    padding-top: 56px;
+    padding-top: 0;
   }
-  .app-shell.global-topbar-shell,
-  .app-shell.global-topbar-shell.items-v2-shell {
+  .app-shell.admin-shell-root,
+  .app-shell.admin-shell-root.items-v2-shell {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
     padding-top: 0;
   }
   .app-shell svg {
@@ -21359,10 +21317,10 @@ const styles = `
     transform: translateY(1px);
   }
   .app-shell {
-    padding-top: 56px;
+    padding-top: 0;
   }
   .app-shell.items-v2-shell {
-    padding-top: 56px;
+    padding-top: 0;
   }
   .global-header {
     height: 56px;
@@ -23029,12 +22987,11 @@ const styles = `
   }
   .items-v2-category-sidebar {
     position: sticky;
-    top: 56px;
+    top: 0;
     width: var(--layout-local-sidebar);
-    height: calc(100dvh - 56px);
-    max-height: calc(100dvh - 56px);
+    height: 100dvh;
+    max-height: 100dvh;
     overflow-y: auto;
-    scrollbar-gutter: stable;
     border-right: 1px solid var(--color-border);
     background: var(--color-surface);
     transition: opacity 150ms ease, filter 150ms ease;
@@ -23370,7 +23327,7 @@ const styles = `
   }
   .estimate-condition-drawer {
     position: fixed;
-    top: 56px;
+    top: 0;
     right: 0;
     bottom: 0;
     z-index: 40;
@@ -23563,12 +23520,11 @@ const styles = `
   }
   .admin-price-v2-sidebar {
     position: sticky;
-    top: 56px;
+    top: 0;
     width: var(--layout-local-sidebar);
-    height: calc(100dvh - 56px);
-    max-height: calc(100dvh - 56px);
+    height: 100dvh;
+    max-height: 100dvh;
     overflow-y: auto;
-    scrollbar-gutter: stable;
     border-right: 1px solid var(--color-border);
     background: var(--color-surface);
   }
@@ -24043,7 +23999,7 @@ const styles = `
     border-bottom: 1px solid var(--color-border);
   }
   .formate-app-shell--admin-items-v2 .formate-app-shell__main {
-    height: calc(100dvh - 56px);
+    height: 100dvh;
     min-height: 0;
     padding: 0;
     overflow-x: hidden;
@@ -24060,8 +24016,8 @@ const styles = `
     align-items: stretch;
     width: 100%;
     max-width: 100%;
-    height: calc(100dvh - 56px);
-    max-height: calc(100dvh - 56px);
+    height: 100dvh;
+    max-height: 100dvh;
     overflow: hidden;
   }
   .admin-items-v2-sidebar {
@@ -24164,10 +24120,10 @@ const styles = `
   }
   .admin-template-condition-drawer {
     position: fixed;
-    inset: 56px 0 0 auto;
+    inset: 0 0 0 auto;
     width: min(420px, 100vw);
     max-width: 420px;
-    height: calc(100dvh - 56px);
+    height: 100dvh;
     max-height: none;
     margin: 0;
     border-radius: 0;
@@ -25003,205 +24959,6 @@ const styles = `
     padding: 0;
     background: var(--color-surface);
   }
-  .home-workspace-toolbar {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-    min-height: 48px;
-    padding: 0 var(--space-page-x);
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-bg);
-  }
-  .formate-global-topbar {
-    position: relative;
-    top: auto;
-    z-index: auto;
-    display: grid;
-    grid-template-columns: 64px minmax(0, 1fr) auto;
-    column-gap: var(--space-2);
-    width: 100%;
-    height: 56px;
-    min-height: 56px;
-    box-shadow: none;
-  }
-  .formate-global-topbar .home-workspace-search {
-    grid-column: 2;
-    justify-self: center;
-    flex: none;
-    width: min(100%, 600px);
-    max-width: 600px;
-  }
-  .formate-global-topbar__right {
-    display: inline-flex;
-    min-width: 0;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-2);
-  }
-  .formate-global-topbar__context {
-    display: inline-flex;
-    align-items: center;
-    min-width: 0;
-  }
-  .formate-global-topbar__right .home-workspace-actions {
-    margin-left: 0;
-  }
-  .formate-global-topbar__context .header-admin-condition {
-    max-width: min(32vw, 420px);
-  }
-  .home-workspace-toolbar__nav,
-  .home-workspace-search,
-  .home-workspace-actions {
-    display: inline-flex;
-    align-items: center;
-    min-width: 0;
-  }
-  .home-workspace-toolbar__nav {
-    gap: var(--space-0-5);
-  }
-  .home-workspace-actions {
-    justify-content: flex-end;
-    gap: var(--space-1);
-    margin-left: auto;
-  }
-  .home-toolbar-icon-button {
-    width: 32px;
-    height: 32px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 0;
-    border-radius: var(--radius-button);
-    background: transparent;
-    color: var(--color-text-secondary);
-  }
-  .home-toolbar-icon-button svg {
-    width: 18px;
-    height: 18px;
-    stroke-width: 1.5;
-  }
-  .home-toolbar-icon-button:hover,
-  .home-toolbar-icon-button:focus-visible {
-    background: var(--color-row-alt);
-    color: var(--color-text-primary);
-    outline: none;
-  }
-  .home-workspace-search {
-    flex: 0 1 576px;
-    width: min(42vw, 576px);
-    height: var(--button-height);
-    gap: var(--space-1);
-    padding: 0 var(--space-1);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-panel);
-    background: var(--color-surface-subtle);
-    color: var(--color-text-muted);
-  }
-  .home-workspace-search input {
-    width: 100%;
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    color: var(--color-text-primary);
-    font: inherit;
-    outline: none;
-  }
-  .home-workspace-search input::placeholder {
-    color: var(--color-text-secondary);
-  }
-  .home-workspace-search kbd {
-    flex: 0 0 auto;
-    padding: 1px 6px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-button);
-    background: var(--color-surface);
-    color: var(--color-text-muted);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-caption);
-  }
-  .home-profile-menu {
-    position: relative;
-    display: inline-flex;
-  }
-  .home-toolbar-avatar {
-    width: 32px;
-    height: 32px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid var(--color-primary-border);
-    border-radius: 999px;
-    background: var(--color-primary-soft);
-    color: var(--color-primary);
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-bold);
-    line-height: 1;
-    cursor: pointer;
-  }
-  .home-toolbar-avatar:hover,
-  .home-toolbar-avatar:focus-visible {
-    border-color: var(--color-primary);
-    color: var(--color-primary-hover);
-    outline: none;
-  }
-  .home-profile-dropdown {
-    position: absolute;
-    top: calc(100% + var(--space-1));
-    right: 0;
-    z-index: 40;
-    width: 184px;
-    display: grid;
-    gap: var(--space-0-5);
-    padding: var(--space-1);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-card);
-    background: var(--color-surface);
-    box-shadow: var(--shadow-hover);
-    animation: home-profile-dropdown-enter 0.15s ease both;
-  }
-  @keyframes home-profile-dropdown-enter {
-    from {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  .home-profile-dropdown__meta {
-    overflow: hidden;
-    padding: 0 var(--space-1) var(--space-0-5);
-    color: var(--color-text-muted);
-    font-size: 12px;
-    line-height: var(--line-height-caption);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .home-profile-dropdown__item {
-    width: 100%;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    padding: 0 var(--space-1);
-    border: 0;
-    border-radius: var(--radius-button);
-    background: transparent;
-    color: var(--color-text-primary);
-    font-size: 14px;
-    font-weight: var(--font-weight-medium);
-    text-align: left;
-  }
-  .home-profile-dropdown__item:hover,
-  .home-profile-dropdown__item:focus-visible {
-    background: var(--color-primary-soft);
-    color: var(--color-primary);
-    outline: none;
-  }
   .work-home-content {
     width: min(100%, 1480px);
     margin: 0 auto;
@@ -25315,13 +25072,6 @@ const styles = `
     font-weight: var(--font-weight-medium);
   }
   @media (max-width: 1180px) {
-    .home-workspace-toolbar {
-      gap: var(--space-1);
-    }
-    .home-workspace-search {
-      flex: 1 1 auto;
-      width: auto;
-    }
     .home-placeholder-grid {
       grid-template-columns: 1fr;
     }
@@ -25362,10 +25112,10 @@ const styles = `
   }
   @media (max-width: 840px) {
     .app-shell {
-      padding-top: 56px;
+      padding-top: 0;
     }
     .app-shell.items-v2-shell {
-      padding-top: 56px;
+      padding-top: 0;
     }
     .global-header {
       min-height: 56px;
