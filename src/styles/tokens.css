@@ -10,15 +10,17 @@
   --color-text-secondary: #667085;
   --color-text-muted: #98A2B3;
 
-  --color-primary: #0F766E;
-  --color-primary-hover: #115E59;
-  --color-primary-soft: #F0FDFA;
-  --color-primary-border: #99F6E4;
+  --color-primary: #0D5C52;
+  --color-primary-hover: #042F2C;
+  --color-primary-soft: #ECFDF5;
+  --color-primary-border: #A7F3D0;
+  --color-accent: #10B981;
+  --color-brand-deep: #042F2C;
 
   --color-header-bg: #F3F1EC;
   --color-row-alt: #FBFAF7;
   --color-row-hover: #F1EFE8;
-  --color-cell-focus: #F0FDFA;
+  --color-cell-focus: #ECFDF5;
 
   --color-success: #16803C;
   --color-success-bg: #EAF7EE;
@@ -47,7 +49,7 @@
   --cat-plumbing: #0891B2;
   --cat-electric: #D97706;
   --cat-wood: #92400E;
-  --cat-window: #0F766E;
+  --cat-window: var(--color-primary);
   --cat-door: #4F46E5;
   --cat-paint: #DB2777;
   --cat-bath: #0284C7;
@@ -481,7 +483,7 @@
 
 .formate-app-shell__main {
   min-width: 0;
-  padding: var(--space-page-y) var(--space-page-x);
+  padding: var(--space-1-5) var(--space-page-x) var(--space-page-y);
 }
 
 .ui-card {

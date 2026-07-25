@@ -65,7 +65,7 @@
 }
 
 .customer-operation-status--success .customer-operation-status__dot {
-  background: var(--color-success);
+  background: var(--color-accent);
 }
 
 .customer-operation-status--warning .customer-operation-status__dot {

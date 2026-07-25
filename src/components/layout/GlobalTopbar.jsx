@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bell, ChevronRight, Search } from "lucide-react";
+import { Bell, ChevronLeft, ChevronRight, Search } from "lucide-react";
 
 export default function GlobalTopbar({
   companyName = "",
@@ -31,7 +31,7 @@ export default function GlobalTopbar({
           aria-label="뒤로가기"
           disabled
         >
-          <ArrowLeft size={18} strokeWidth={1.5} />
+          <ChevronLeft size={18} strokeWidth={1.5} />
         </button>
         <button
           type="button"
@@ -54,43 +54,45 @@ export default function GlobalTopbar({
         <kbd>Ctrl K</kbd>
       </label>
 
-      {contextContent && (
-        <div className="formate-global-topbar__context">
-          {contextContent}
-        </div>
-      )}
+      <div className="formate-global-topbar__right">
+        {contextContent && (
+          <div className="formate-global-topbar__context">
+            {contextContent}
+          </div>
+        )}
 
-      <div className="home-workspace-actions">
-        <button type="button" className="home-toolbar-icon-button" aria-label="알림">
-          <Bell size={18} strokeWidth={1.5} />
-        </button>
-        <div className="home-profile-menu" ref={profileMenuRef}>
-          <button
-            type="button"
-            className="home-toolbar-avatar"
-            aria-label="프로필 메뉴"
-            aria-haspopup="menu"
-            aria-expanded={profileMenuOpen}
-            onClick={() => setProfileMenuOpen((open) => !open)}
-          >
-            {`${companyName || "운"}`.trim().charAt(0) || "운"}
+        <div className="home-workspace-actions">
+          <button type="button" className="home-toolbar-icon-button" aria-label="알림">
+            <Bell size={18} strokeWidth={1.5} />
           </button>
-          {profileMenuOpen && (
-            <div className="home-profile-dropdown" role="menu">
-              <div className="home-profile-dropdown__meta">{companyName || "운영자"}</div>
-              <button
-                type="button"
-                className="home-profile-dropdown__item"
-                role="menuitem"
-                onClick={() => {
-                  setProfileMenuOpen(false);
-                  onLogout?.();
-                }}
-              >
-                로그아웃
-              </button>
-            </div>
-          )}
+          <div className="home-profile-menu" ref={profileMenuRef}>
+            <button
+              type="button"
+              className="home-toolbar-avatar"
+              aria-label="프로필 메뉴"
+              aria-haspopup="menu"
+              aria-expanded={profileMenuOpen}
+              onClick={() => setProfileMenuOpen((open) => !open)}
+            >
+              {`${companyName || "운"}`.trim().charAt(0) || "운"}
+            </button>
+            {profileMenuOpen && (
+              <div className="home-profile-dropdown" role="menu">
+                <div className="home-profile-dropdown__meta">{companyName || "운영자"}</div>
+                <button
+                  type="button"
+                  className="home-profile-dropdown__item"
+                  role="menuitem"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    onLogout?.();
+                  }}
+                >
+                  로그아웃
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
