@@ -4,7 +4,6 @@ import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import {
   ArrowLeft,
-  Bell,
   BookOpen,
   Building2,
   Calculator,
@@ -16,7 +15,6 @@ import {
   HelpCircle,
   Home,
   Image,
-  LogOut,
   Mail,
   MessageSquare,
   Plus,
@@ -104,10 +102,42 @@ import {
   formatDisplayDateTime,
   formatRecentSaveTime,
 } from "./shared/utils/dates";
+import AftercareServicePage from "./features/customerOperations/AftercareServicePage";
+import CustomerRequestsPage from "./features/customerOperations/CustomerRequestsPage";
+import CustomersProjectsPage from "./features/customerOperations/CustomersProjectsPage";
+import HomeOperationsOverview from "./features/customerOperations/HomeOperationsOverview";
+import MessagesPage from "./features/customerOperations/MessagesPage";
+import ShareEstimateModal from "./features/customerOperations/ShareEstimateModal";
+import { CUSTOMER_OPERATIONS_PAGES } from "./features/customerOperations/constants";
+import CustomerPortalPage from "./features/customerPortal/CustomerPortalPage";
+import { parseCustomerPortalPath } from "./features/customerPortal/customerPortalUtils";
+import DeleteSavedEstimateDialog from "./features/estimates/DeleteSavedEstimateDialog";
+import {
+  archiveSavedEstimate,
+  deleteSavedEstimate,
+  getSavedEstimateRemovalMode,
+  reauthenticateSavedEstimateDeletion,
+  restoreSavedEstimate,
+  SAVED_ESTIMATE_ARCHIVE_RESULT,
+  SAVED_ESTIMATE_DELETE_RESULT,
+  SAVED_ESTIMATE_REMOVAL_MODE,
+  SAVED_ESTIMATE_RESTORE_RESULT,
+} from "./features/estimates/api";
+import "./features/customerOperations/customerOperations.css";
 
 const pageFromHash = () => {
   const page = window.location.hash.replace("#", "");
-  return ["landing", "condition", "photo-management", "admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-ai-setup"].includes(page) ? page : "landing";
+  return [
+    "landing",
+    "condition",
+    "photo-management",
+    "admin",
+    "admin-prices",
+    "admin-items",
+    "admin-condition-labels",
+    "admin-ai-setup",
+    ...Object.values(CUSTOMER_OPERATIONS_PAGES),
+  ].includes(page) ? page : "landing";
 };
 
 const COMPANY_STORAGE_KEYS = {
@@ -120,7 +150,7 @@ const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
 const APP_SHELL_NAV_ITEMS = [
   { key: "landing", label: "홈", icon: <Home /> },
-  { key: "incoming-requests", label: "받은 요청", icon: <MessageSquare />, disabled: true },
+  { key: CUSTOMER_OPERATIONS_PAGES.REQUESTS, label: "받은 요청", icon: <MessageSquare /> },
   {
     key: "estimate-work",
     type: "section",
@@ -128,7 +158,7 @@ const APP_SHELL_NAV_ITEMS = [
     items: [
       { key: "condition", label: "새 견적서 작성", icon: <ClipboardList />, activeKeys: ["condition", "items"] },
       { key: "admin-estimates", label: "저장 견적 보기", icon: <FileText /> },
-      { key: "customers-sites", label: "고객·현장", icon: <Users />, disabled: true },
+      { key: CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS, label: "고객·현장", icon: <Users /> },
     ],
   },
   {
@@ -136,8 +166,8 @@ const APP_SHELL_NAV_ITEMS = [
     type: "section",
     label: "고객관리",
     items: [
-      { key: "after-service", label: "사후관리·A/S", icon: <SlidersHorizontal />, disabled: true },
-      { key: "message-history", label: "메시지 이력", icon: <Mail />, disabled: true },
+      { key: CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE, label: "사후관리·A/S", icon: <SlidersHorizontal /> },
+      { key: CUSTOMER_OPERATIONS_PAGES.MESSAGES, label: "메시지 이력", icon: <Mail /> },
     ],
   },
   {
@@ -153,7 +183,6 @@ const APP_SHELL_NAV_ITEMS = [
     ],
   },
   { key: "help-support", label: "도움말 / 지원", icon: <HelpCircle />, placement: "bottom", disabled: true },
-  { key: "logout", label: "로그아웃", icon: <LogOut />, placement: "bottom" },
 ];
 const USE_ITEMS_SCREEN_V2 = true;
 const USE_ADMIN_ITEMS_SCREEN_V2 = true;
@@ -1409,6 +1438,24 @@ function getSavedEstimateDisplayDate(estimate) {
   });
 }
 
+function getHomeEstimateStatusView(estimate) {
+  const estimateMeta = getEstimateItemsDataMeta(estimate?.items_data);
+  const status = `${estimate?.status ?? estimateMeta.status ?? estimateMeta.estimateStatus ?? ""}`
+    .trim()
+    .toLowerCase();
+
+  if (status === "approved") return { label: "확정", tone: "success" };
+  if (status === "viewed") return { label: "고객 열람", tone: "info" };
+  if (status === "sent" || status === "revision_requested") {
+    return { label: status === "sent" ? "고객 검토 중" : "수정 요청", tone: "warning" };
+  }
+  if (status === "expired" || status === "cancelled") {
+    return { label: status === "expired" ? "만료" : "취소", tone: "danger" };
+  }
+  if (status === "draft") return { label: "초안", tone: "muted" };
+  return { label: "저장됨", tone: "muted" };
+}
+
 function HomePlaceholderWidget({ title }) {
   // TODO: 이 위젯은 UI 껍데기만 존재합니다. "처리 필요"/"진행 중"
   // 기능(고객 요청, 승인 상태 등)은 아직 설계/구현되지 않았습니다.
@@ -2562,18 +2609,20 @@ function getAiSetupFlowState({
   return { steps, nextAction };
 }
 
-export default function App() {
+function AdminApp() {
   const previewPdfRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
   const autoSaveRunningRef = useRef(false);
   const autoSaveQueuedRef = useRef(false);
   const autoSaveTargetRef = useRef("");
   const pendingAdminLeaveActionRef = useRef(null);
-  const homeProfileMenuRef = useRef(null);
   const adminItemsRef = useRef([]);
   const adminPriceRowRefs = useRef(new Map());
   const estimatePhotoRequestRef = useRef("");
   const estimateBlankCatalogRequestRef = useRef(0);
+  const estimateListRequestRef = useRef(0);
+  const estimateDeleteTriggerRef = useRef(null);
+  const estimateDeleteModeRequestRef = useRef(0);
   const pageRef = useRef("");
   const adminConditionStepRef = useRef("select");
   const currentAdminTemplateConditionRef = useRef(null);
@@ -2583,6 +2632,7 @@ export default function App() {
       checking: isSupabaseConfigured,
     };
   });
+  const [authUser, setAuthUser] = useState(null);
   const [loginCode, setLoginCode] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
@@ -2705,8 +2755,18 @@ export default function App() {
   const [detailCostBulkInput, setDetailCostBulkInput] = useState({ cost: "" });
   const [estimates, setEstimates] = useState([]);
   const [estimateSearch, setEstimateSearch] = useState("");
+  const [estimateArchiveView, setEstimateArchiveView] = useState("active");
   const [selectedEstimate, setSelectedEstimate] = useState(null);
-  const [homeProfileMenuOpen, setHomeProfileMenuOpen] = useState(false);
+  const [estimateDeleteTarget, setEstimateDeleteTarget] = useState(null);
+  const [estimateDeleteMode, setEstimateDeleteMode] = useState("");
+  const [estimateDeleteReasons, setEstimateDeleteReasons] = useState([]);
+  const [estimateDeleteModeLoading, setEstimateDeleteModeLoading] = useState(false);
+  const [estimateDeletePassword, setEstimateDeletePassword] = useState("");
+  const [estimateDeleteLoading, setEstimateDeleteLoading] = useState(false);
+  const [estimateDeleteError, setEstimateDeleteError] = useState("");
+  const [estimateDeleteNotice, setEstimateDeleteNotice] = useState("");
+  const [estimateRestoreLoadingId, setEstimateRestoreLoadingId] = useState("");
+  const [shareEstimateTarget, setShareEstimateTarget] = useState(null);
   const [pyeongDropdownOpen, setPyeongDropdownOpen] = useState(false);
   const [adminPyeongDropdownOpen, setAdminPyeongDropdownOpen] = useState(false);
   const [favoritePyeongs, setFavoritePyeongs] = useState(readFavoritePyeongs);
@@ -2750,6 +2810,9 @@ export default function App() {
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
   const selectedCompanyName = selectedCompany?.name ?? "";
+  const authUserMetadata = authUser?.user_metadata ?? {};
+  const accountDisplayName = `${authUserMetadata.display_name || authUserMetadata.full_name || authUserMetadata.name || "운영자"}`.trim();
+  const accountAvatarUrl = `${authUserMetadata.avatar_url || authUserMetadata.picture || ""}`.trim();
   const estimateCreatedDate = useMemo(() => formatDisplayDate(estimateIssuedAt), [estimateIssuedAt]);
   const estimateValidUntil = useMemo(
     () => formatDisplayDate(addDaysToDateInput(estimateIssuedAt, 30)),
@@ -2868,6 +2931,7 @@ export default function App() {
   }, [selectedRows]);
   const recentHomeEstimates = useMemo(() =>
     [...estimates]
+      .filter((estimate) => !estimate.archived_at)
       .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
       .slice(0, 8),
     [estimates]
@@ -3183,6 +3247,7 @@ export default function App() {
       if (!isSupabaseConfigured) {
         clearStoredCompany();
         if (active) {
+          setAuthUser(null);
           setLoginError("로그인 정보를 다시 확인해주세요.");
           setCompanySession({ company: null, checking: false });
         }
@@ -3194,12 +3259,17 @@ export default function App() {
 
         if (!authenticatedCompany) {
           clearStoredCompany();
-          if (active) setCompanySession({ company: null, checking: false });
+          if (active) {
+            setAuthUser(null);
+            setCompanySession({ company: null, checking: false });
+          }
           return;
         }
 
+        const { data: authUserData } = await supabase.auth.getUser();
         writeStoredCompany(authenticatedCompany);
         if (active) {
+          setAuthUser(authUserData?.user ?? null);
           setCompanySession({ company: authenticatedCompany, checking: false });
         }
       } catch (error) {
@@ -3212,6 +3282,7 @@ export default function App() {
         clearStoredCompany();
         clearAdminVerifiedCompany();
         if (active) {
+          setAuthUser(null);
           setLoginError("로그인 정보를 다시 확인해주세요.");
           setCompanySession({ company: null, checking: false });
         }
@@ -3265,8 +3336,11 @@ export default function App() {
     if (page === "admin-detail-costs") {
       fetchDetailSubitems();
     }
-    if (page === "admin-estimates" || page === "landing") {
-      fetchEstimates();
+    if (page === "admin-estimates") {
+      fetchEstimates(estimateSearch, estimateArchiveView);
+    }
+    if (page === "landing") {
+      fetchEstimates("", "active");
     }
     if (page === "photo-management") {
       fetchPhotoManagementData();
@@ -3387,23 +3461,10 @@ export default function App() {
   useEffect(() => {
     if (!selectedCompanyId || page !== "admin-estimates") return;
     const timer = window.setTimeout(() => {
-      fetchEstimates(estimateSearch);
+      fetchEstimates(estimateSearch, estimateArchiveView);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [estimateSearch, page, selectedCompanyId]);
-
-  useEffect(() => {
-    if (!homeProfileMenuOpen) return undefined;
-
-    const handlePointerDown = (event) => {
-      if (!homeProfileMenuRef.current?.contains(event.target)) {
-        setHomeProfileMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [homeProfileMenuOpen]);
+  }, [estimateArchiveView, estimateSearch, page, selectedCompanyId]);
 
   useEffect(() => {
     window.localStorage.setItem(FAVORITE_PYEONG_STORAGE_KEY, JSON.stringify(favoritePyeongs));
@@ -3486,6 +3547,7 @@ export default function App() {
       clearAdminVerifiedCompany();
       clearCompanyScopedState();
       await loadCurrentCompanyFromAuth(authUserId);
+      setAuthUser(data?.user ?? data?.session?.user ?? null);
       setLoginCode("");
       setLoginPassword("");
       setLoginError("");
@@ -3509,6 +3571,7 @@ export default function App() {
     clearStoredCompany();
     clearAdminVerifiedCompany();
     clearCompanyScopedState();
+    setAuthUser(null);
     setCompanySession({ company: null, checking: false });
     setLoginCode("");
     setLoginPassword("");
@@ -5756,7 +5819,9 @@ export default function App() {
     }
   }
 
-  async function fetchEstimates(searchText = estimateSearch) {
+  async function fetchEstimates(searchText = estimateSearch, archiveView = estimateArchiveView) {
+    const requestId = estimateListRequestRef.current + 1;
+    estimateListRequestRef.current = requestId;
     setAdminLoading(true);
     setAdminError("");
     try {
@@ -5768,12 +5833,22 @@ export default function App() {
       let query = supabase
         .from("estimates")
         .select("*")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false });
+        .eq("company_id", companyId);
+
+      if (archiveView === "archive") {
+        query = query
+          .not("archived_at", "is", null)
+          .order("archived_at", { ascending: false });
+      } else {
+        query = query
+          .is("archived_at", null)
+          .order("created_at", { ascending: false });
+      }
 
       const keyword = searchText.trim();
       const { data, error } = await query;
       if (error) throw error;
+      if (estimateListRequestRef.current !== requestId) return;
 
       const normalizedKeyword = keyword.toLowerCase();
       const filtered = normalizedKeyword
@@ -5785,9 +5860,205 @@ export default function App() {
         : data ?? [];
       setEstimates(filtered);
     } catch (error) {
+      if (estimateListRequestRef.current !== requestId) return;
       setAdminError(getFriendlyError(error, "견적서 목록을 불러오지 못했어요. 다시 시도해주세요."));
     } finally {
-      setAdminLoading(false);
+      if (estimateListRequestRef.current === requestId) {
+        setAdminLoading(false);
+      }
+    }
+  }
+
+  async function openEstimateDeleteDialog(event, estimate) {
+    const requestId = estimateDeleteModeRequestRef.current + 1;
+    estimateDeleteModeRequestRef.current = requestId;
+    estimateDeleteTriggerRef.current = event.currentTarget;
+    setEstimateDeleteNotice("");
+    setEstimateDeleteError("");
+    setEstimateDeleteMode("");
+    setEstimateDeleteReasons([]);
+    setEstimateDeletePassword("");
+    setEstimateDeleteTarget(estimate);
+    setEstimateDeleteModeLoading(true);
+
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error("Supabase is not configured.");
+      }
+
+      const companyId = requireSelectedCompanyId();
+      const result = await getSavedEstimateRemovalMode({
+        estimateId: estimate.id,
+        companyId,
+      });
+
+      if (estimateDeleteModeRequestRef.current !== requestId) return;
+
+      if (
+        !result?.ok
+        || ![
+          SAVED_ESTIMATE_REMOVAL_MODE.HARD_DELETE,
+          SAVED_ESTIMATE_REMOVAL_MODE.ARCHIVE,
+        ].includes(result?.mode)
+      ) {
+        setEstimateDeleteError("견적 상태를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.");
+        return;
+      }
+
+      setEstimateDeleteMode(result.mode);
+      setEstimateDeleteReasons(Array.isArray(result.reasons) ? result.reasons : []);
+    } catch (error) {
+      if (estimateDeleteModeRequestRef.current !== requestId) return;
+      setEstimateDeleteError("견적 상태를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.");
+    } finally {
+      if (estimateDeleteModeRequestRef.current === requestId) {
+        setEstimateDeleteModeLoading(false);
+      }
+    }
+  }
+
+  function closeEstimateDeleteDialog() {
+    if (estimateDeleteLoading) return;
+    estimateDeleteModeRequestRef.current += 1;
+    setEstimateDeleteTarget(null);
+    setEstimateDeleteMode("");
+    setEstimateDeleteReasons([]);
+    setEstimateDeleteModeLoading(false);
+    setEstimateDeletePassword("");
+    setEstimateDeleteError("");
+    window.requestAnimationFrame(() => {
+      estimateDeleteTriggerRef.current?.focus();
+    });
+  }
+
+  async function confirmSavedEstimateRemoval() {
+    const estimateId = estimateDeleteTarget?.id;
+    if (!estimateId || !estimateDeleteMode || estimateDeleteLoading) return;
+
+    setEstimateDeleteLoading(true);
+    setEstimateDeleteError("");
+    setEstimateDeleteNotice("");
+
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error("Supabase is not configured.");
+      }
+
+      const companyId = requireSelectedCompanyId();
+
+      if (estimateDeleteMode === SAVED_ESTIMATE_REMOVAL_MODE.HARD_DELETE) {
+        if (!estimateDeletePassword) {
+          setEstimateDeleteError("비밀번호가 올바르지 않습니다.");
+          return;
+        }
+
+        const verification = await reauthenticateSavedEstimateDeletion(estimateDeletePassword);
+        setEstimateDeletePassword("");
+
+        if (verification?.result === "password_provider_unavailable") {
+          setEstimateDeleteError("비밀번호로 로그인한 계정에서만 영구 삭제할 수 있습니다.");
+          return;
+        }
+
+        if (!verification?.ok) {
+          setEstimateDeleteError("비밀번호가 올바르지 않습니다.");
+          return;
+        }
+
+        const result = await deleteSavedEstimate({ estimateId, companyId });
+
+        if (result?.result === SAVED_ESTIMATE_DELETE_RESULT.REAUTHENTICATION_REQUIRED) {
+          setEstimateDeleteError("보안을 위해 비밀번호를 다시 확인해주세요.");
+          return;
+        }
+
+        if (result?.result === SAVED_ESTIMATE_DELETE_RESULT.REMOVAL_MODE_CHANGED_TO_ARCHIVE) {
+          setEstimateDeleteMode(SAVED_ESTIMATE_REMOVAL_MODE.ARCHIVE);
+          setEstimateDeleteReasons(Array.isArray(result.reasons) ? result.reasons : []);
+          setEstimateDeleteError("새로운 고객 기록이 확인되어 영구 삭제할 수 없습니다. 다시 시도하면 보관함으로 이동할 수 있습니다.");
+          return;
+        }
+
+        if (!result?.ok || result?.result !== SAVED_ESTIMATE_DELETE_RESULT.DELETED) {
+          setEstimateDeleteError("견적을 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.");
+          return;
+        }
+
+        setEstimates((current) => current.filter((estimate) => estimate.id !== estimateId));
+        setSelectedEstimate((current) => current?.id === estimateId ? null : current);
+        setShareEstimateTarget((current) => current?.id === estimateId ? null : current);
+        setEstimateDeleteTarget(null);
+        setEstimateDeleteMode("");
+        setEstimateDeleteReasons([]);
+        setEstimateDeleteNotice("견적을 영구 삭제했습니다.");
+      } else {
+        const result = await archiveSavedEstimate({ estimateId, companyId });
+
+        if (
+          !result?.ok
+          || ![
+            SAVED_ESTIMATE_ARCHIVE_RESULT.ARCHIVED,
+            SAVED_ESTIMATE_ARCHIVE_RESULT.ALREADY_ARCHIVED,
+          ].includes(result?.result)
+        ) {
+          setEstimateDeleteError("견적을 보관하지 못했습니다. 잠시 후 다시 시도해주세요.");
+          return;
+        }
+
+        setEstimates((current) => current.filter((estimate) => estimate.id !== estimateId));
+        setSelectedEstimate((current) => current?.id === estimateId ? null : current);
+        setShareEstimateTarget((current) => current?.id === estimateId ? null : current);
+        setEstimateDeleteTarget(null);
+        setEstimateDeleteMode("");
+        setEstimateDeleteReasons([]);
+        setEstimateDeleteNotice("견적을 보관함으로 이동했습니다.");
+      }
+
+      window.requestAnimationFrame(() => {
+        document.querySelector(".estimate-search-panel input")?.focus();
+      });
+    } catch (error) {
+      setEstimateDeleteError(
+        estimateDeleteMode === SAVED_ESTIMATE_REMOVAL_MODE.ARCHIVE
+          ? "견적을 보관하지 못했습니다. 잠시 후 다시 시도해주세요."
+          : "견적을 삭제하지 못했습니다. 잠시 후 다시 시도해주세요."
+      );
+    } finally {
+      setEstimateDeletePassword("");
+      setEstimateDeleteLoading(false);
+    }
+  }
+
+  async function restoreArchivedEstimate(estimate) {
+    if (!estimate?.id || estimateRestoreLoadingId) return;
+
+    setEstimateRestoreLoadingId(estimate.id);
+    setEstimateDeleteNotice("");
+    setAdminError("");
+
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error("Supabase is not configured.");
+      }
+
+      const companyId = requireSelectedCompanyId();
+      const result = await restoreSavedEstimate({
+        estimateId: estimate.id,
+        companyId,
+      });
+
+      if (!result?.ok || result?.result !== SAVED_ESTIMATE_RESTORE_RESULT.RESTORED) {
+        setAdminError("견적을 복원하지 못했습니다. 잠시 후 다시 시도해주세요.");
+        return;
+      }
+
+      setEstimates((current) => current.filter((row) => row.id !== estimate.id));
+      setSelectedEstimate((current) => current?.id === estimate.id ? null : current);
+      setEstimateDeleteNotice("견적을 저장 목록으로 복원했습니다.");
+    } catch (error) {
+      setAdminError("견적을 복원하지 못했습니다. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setEstimateRestoreLoadingId("");
     }
   }
 
@@ -7451,6 +7722,8 @@ export default function App() {
   }
 
   function clearCompanyScopedState() {
+    estimateListRequestRef.current += 1;
+    estimateDeleteModeRequestRef.current += 1;
     resetFlow();
     setAdminItems([]);
     setAdminError("");
@@ -7479,7 +7752,17 @@ export default function App() {
     setDetailCostBulkInput({ cost: "" });
     setEstimates([]);
     setEstimateSearch("");
+    setEstimateArchiveView("active");
     setSelectedEstimate(null);
+    setEstimateDeleteTarget(null);
+    setEstimateDeleteMode("");
+    setEstimateDeleteReasons([]);
+    setEstimateDeleteModeLoading(false);
+    setEstimateDeletePassword("");
+    setEstimateDeleteLoading(false);
+    setEstimateDeleteError("");
+    setEstimateDeleteNotice("");
+    setEstimateRestoreLoadingId("");
     estimatePhotoRequestRef.current = "";
     setSelectedPhotoSubitemId("");
     setSelectedPhotoSubitemName("");
@@ -8542,7 +8825,7 @@ export default function App() {
 
   function renderAdminPriceCategorySidebar() {
     return (
-      <aside className="admin-price-v2-sidebar" aria-label="단가표 대분류">
+      <aside className="admin-price-v2-sidebar formate-scroll-light" aria-label="단가표 대분류">
         <div className="admin-price-v2-sidebar-header">
           <span>대분류</span>
           <strong>{filteredAdminItems.length}개</strong>
@@ -9108,7 +9391,7 @@ export default function App() {
 
           {item ? (
             <section className="items-v2-table-section admin-price-v2-table-section">
-              <div className="admin-price-v2-table-scroll">
+              <div className="admin-price-v2-table-scroll formate-scroll-light">
                 {renderAdminPriceRows(item)}
               </div>
             </section>
@@ -9134,7 +9417,7 @@ export default function App() {
 
   function renderAdminItemsCategorySidebar() {
     return (
-      <aside className="admin-price-v2-sidebar admin-items-v2-sidebar" aria-label="견적 템플릿 대분류">
+      <aside className="admin-price-v2-sidebar admin-items-v2-sidebar formate-scroll-light" aria-label="견적 템플릿 대분류">
         <div className="admin-price-v2-sidebar-header">
           <span>대분류</span>
           <strong>{filteredAdminItems.length}개</strong>
@@ -9183,7 +9466,7 @@ export default function App() {
           <span>기본 견적 조건</span>
           <strong>총 {orderedAdminTemplates.length}개</strong>
         </div>
-        <div className="admin-price-v2-category-list admin-template-condition-list">
+        <div className="admin-price-v2-category-list admin-template-condition-list formate-scroll-light">
           {orderedAdminTemplates.map((template) => {
             const templateKey = getTemplateConditionKey(template);
             const active = currentAdminTemplateId === template.id || currentConditionKey === templateKey;
@@ -9263,7 +9546,7 @@ export default function App() {
           <span>대분류</span>
           <strong>{filteredAdminItems.length}개</strong>
         </div>
-        <div className="admin-items-v2-category-panel-list">
+        <div className="admin-items-v2-category-panel-list formate-scroll-light">
           {filteredAdminItems.map((item) => {
             const active = selectedAdminTemplateItem?.id === item.id;
             return (
@@ -9533,7 +9816,7 @@ export default function App() {
           </Button>
         </div>
 
-        <div className="condition-static-grid estimate-condition-drawer__fields">
+        <div className="condition-static-grid estimate-condition-drawer__fields formate-scroll-light">
           <div className="condition-static-field">
             <p className="field-label">평수</p>
             <div className="custom-select admin-pyeong-select">
@@ -9676,7 +9959,7 @@ export default function App() {
               <span>기본 견적 조건</span>
               <strong>불러오는 중</strong>
             </div>
-            <div className="admin-price-v2-category-list admin-template-condition-list">
+            <div className="admin-price-v2-category-list admin-template-condition-list formate-scroll-light">
               <div className="admin-items-v2-loading-line wide" />
               <div className="admin-items-v2-loading-line" />
               <div className="admin-items-v2-loading-line short" />
@@ -9692,7 +9975,7 @@ export default function App() {
               <span>대분류</span>
               <strong>불러오는 중</strong>
             </div>
-            <div className="admin-items-v2-category-panel-list">
+            <div className="admin-items-v2-category-panel-list formate-scroll-light">
               <div className="admin-items-v2-loading-line wide" />
               <div className="admin-items-v2-loading-line" />
               <div className="admin-items-v2-loading-line" />
@@ -9710,7 +9993,7 @@ export default function App() {
               <div className="admin-items-v2-loading-line toolbar" />
             </div>
             <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
-              <div className="admin-price-v2-table-scroll">
+              <div className="admin-price-v2-table-scroll formate-scroll-light">
                 <div className="admin-items-v2-loading-table">
                   <div className="admin-items-v2-loading-row" />
                   <div className="admin-items-v2-loading-row" />
@@ -9786,7 +10069,7 @@ export default function App() {
 
           {item ? (
             <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
-              <div className="admin-price-v2-table-scroll">
+              <div className="admin-price-v2-table-scroll formate-scroll-light">
                 {renderAdminItemsRows(item)}
               </div>
             </section>
@@ -10164,14 +10447,27 @@ export default function App() {
       providedShellClassName,
     ].filter(Boolean).join(" ");
 
+    const workspaceHeader = shellOptions.workspaceHeader ?? (
+      <div className="home-sidebar-workspace">
+        <img src={logoUrl} alt="" />
+        <span>
+          <strong>FORMATE</strong>
+          <em>운영 워크스페이스</em>
+        </span>
+      </div>
+    );
+
     return (
       <AppShell
         currentPage={page}
         onNavigate={handleAppShellNavigate}
         companyName={selectedCompanyName}
+        userName={accountDisplayName}
+        userAvatarUrl={accountAvatarUrl}
+        onLogout={() => requestAdminCatalogLeave(handleChangeCompany)}
         navItems={APP_SHELL_NAV_ITEMS}
         className={shellClassName}
-        workspaceHeader={shellOptions.workspaceHeader}
+        workspaceHeader={workspaceHeader}
       >
         {children}
       </AppShell>
@@ -10390,7 +10686,7 @@ export default function App() {
               </Button>
             </div>
 
-            <div className="condition-static-grid estimate-condition-drawer__fields">
+            <div className="condition-static-grid estimate-condition-drawer__fields formate-scroll-light">
               <div className="condition-static-field">
                 <p className="field-label">평수</p>
                 <div className="custom-select">
@@ -10871,69 +11167,8 @@ export default function App() {
   }
 
   return (
-    <div className={`app-shell ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""} ${page === "landing" ? "home-workspace-shell" : ""}`.trim()}>
+    <div className={`app-shell admin-shell-root ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""} ${page === "landing" ? "home-workspace-shell" : ""}`.trim()}>
       <style>{styles}</style>
-
-      {page !== "landing" && (
-      <header className={`global-header ${isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" ? "with-admin-condition" : ""}`.trim()}>
-          <button className="global-brand" onClick={() => requestAdminCatalogLeave(resetFlow)} aria-label="FORMATE 홈으로 이동">
-            <img src={logoUrl} alt="" />
-            <strong>FORMATE</strong>
-          </button>
-          {isConditionQuantityAdminPage && adminVerified && adminConditionStep === "edit" && (
-            <div className={`header-admin-condition ${canEditConditionQuantities ? "active" : ""}`.trim()} aria-live="polite">
-              <span>현재 관리 중</span>
-              <strong>
-                {canEditConditionQuantities && currentAdminConditionLabel
-                  ? `현재 관리 중: ${currentAdminConditionLabel}`
-                  : "현재 관리 중인 조건 없음"}
-              </strong>
-            </div>
-          )}
-          {page === "items" && USE_ITEMS_SCREEN_V2 ? (
-          <div className="header-estimate-actions">
-            <Button
-              variant="tertiary"
-              size="sm"
-              onClick={() => {
-                setEstimateConditionEditMode(true);
-                setEstimateConditionDrawerOpen(true);
-              }}
-            >
-              조건 변경
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setPreviewBackPage("items");
-                setEstimatePreviewType("general");
-                setPage("preview");
-              }}
-            >
-              일반 견적서 확인
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setPreviewBackPage("items");
-                setEstimatePreviewType("detail");
-                setPage("preview");
-              }}
-            >
-              세부 견적서 확인
-            </Button>
-          </div>
-          ) : (
-          <div className="company-session">
-            <span className="session-status-dot">로그인됨</span>
-            <span>{selectedCompanyName}님 반갑습니다.</span>
-            <button type="button" className="company-switch-button" onClick={() => requestAdminCatalogLeave(handleChangeCompany)}>
-              로그아웃
-            </button>
-          </div>
-          )}
-      </header>
-      )}
 
       {adminVerifyOpen && (
         <div className="modal-backdrop" onClick={closeAdminGate}>
@@ -11241,69 +11476,15 @@ export default function App() {
 
       {page === "landing" && renderAppShell(
         <main className="landing work-home work-home-flat">
-          <div className="home-workspace-toolbar" aria-label="홈 작업 도구">
-            <div className="home-workspace-toolbar__nav" aria-hidden="true">
-              <button type="button" className="home-toolbar-icon-button" tabIndex={-1}>
-                <ArrowLeft size={18} strokeWidth={1.5} />
-              </button>
-              <button type="button" className="home-toolbar-icon-button" tabIndex={-1}>
-                <ChevronRight size={18} strokeWidth={1.5} />
-              </button>
-            </div>
-            <label className="home-workspace-search">
-              <Search size={16} strokeWidth={1.5} aria-hidden="true" />
-              <input
-                type="search"
-                readOnly
-                placeholder="고객, 현장 주소, 견적번호 검색"
-                aria-label="고객, 현장 주소, 견적번호 검색"
-              />
-              <kbd>Ctrl K</kbd>
-            </label>
-            <div className="home-workspace-actions">
-              <button type="button" className="home-toolbar-icon-button" aria-label="알림">
-                <Bell size={18} strokeWidth={1.5} />
-              </button>
-              <div className="home-profile-menu" ref={homeProfileMenuRef}>
-                <button
-                  type="button"
-                  className="home-toolbar-avatar"
-                  aria-label="프로필 메뉴"
-                  aria-haspopup="menu"
-                  aria-expanded={homeProfileMenuOpen}
-                  onClick={() => setHomeProfileMenuOpen((open) => !open)}
-                >
-                  {`${selectedCompanyName || "운"}`.trim().charAt(0) || "운"}
-                </button>
-                {homeProfileMenuOpen && (
-                  <div className="home-profile-dropdown" role="menu">
-                    <div className="home-profile-dropdown__meta">{selectedCompanyName || "운영자"}</div>
-                    <button
-                      type="button"
-                      className="home-profile-dropdown__item"
-                      role="menuitem"
-                      onClick={() => {
-                        setHomeProfileMenuOpen(false);
-                        requestAdminCatalogLeave(handleChangeCompany);
-                      }}
-                    >
-                      로그아웃
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
           <section className="work-home-content">
-            <PageHeader
-              title="홈"
-              description="오늘 처리할 견적과 고객 업무를 확인하세요."
-              className="work-home-heading"
-              actions={
+            <HomeOperationsOverview
+              companyId={selectedCompanyId}
+              onNavigate={setPage}
+              headerAction={
                 <Button
                   variant="primary"
                   leftIcon={<Plus />}
+                  className="customer-operations-home-priority__create-estimate"
                   onClick={() => {
                     resetEstimateDraftForNewStart();
                     setEstimateConditionDrawerOpen(true);
@@ -11314,84 +11495,78 @@ export default function App() {
                   새 견적서 작성
                 </Button>
               }
+              recentEstimates={
+                <>
+                  <header>
+                    <h3 id="home-recent-estimates-title">최근 견적</h3>
+                    <button type="button" className="home-text-link" onClick={() => setPage("admin-estimates")}>
+                      전체 보기
+                    </button>
+                  </header>
+                  {recentHomeEstimates.length > 0 ? (
+                    <div className="customer-operations-home-priority__estimate-list">
+                      {recentHomeEstimates.slice(0, 4).map((estimate) => {
+                        const estimateMeta = getEstimateItemsDataMeta(estimate.items_data);
+                        const customerName = getSavedEstimateCustomerName(estimate);
+                        const address = `${estimate.address ?? ""}`.trim();
+                        const title = address || customerName || "견적 정보";
+                        const estimateNumber = `${estimateMeta.estimateNumber ?? ""}`.trim();
+                        const constructionDays = getEstimateItemsDataConstructionDaysTotal(estimate.items_data);
+                        const statusView = getHomeEstimateStatusView(estimate);
+                        const totalAmount = toNonNegativeNumberOrZero(estimate.total_amount);
+                        const showZeroAmount = statusView.tone === "success";
+                        const displayDate = getSavedEstimateDisplayDate(estimate);
+                        const metadata = [
+                          estimateNumber,
+                          displayDate !== "-" ? displayDate : "",
+                          constructionDays > 0 ? `예상 ${constructionDays}일` : "",
+                          estimate.construction_date ? `시공 ${estimate.construction_date}` : "",
+                        ].filter(Boolean);
+
+                        return (
+                          <article className="customer-operations-home-priority__estimate-row" key={estimate.id}>
+                            <span className="customer-operations-home-priority__estimate-copy">
+                              <strong className={title === "견적 정보" ? "is-fallback" : ""}>{title}</strong>
+                              {address && customerName ? <small>{customerName} 고객</small> : null}
+                              <small>{metadata.join(" · ")}</small>
+                            </span>
+                            <span className="customer-operations-home-priority__estimate-side">
+                              {totalAmount > 0 || showZeroAmount
+                                ? <PriceText value={totalAmount} size="sm" />
+                                : <strong className="is-undecided">금액 미정</strong>}
+                              <span className={`customer-operations-home-priority__estimate-status is-${statusView.tone}`}>
+                                <i aria-hidden="true" />
+                                {statusView.label}
+                              </span>
+                            </span>
+                            <span className="customer-operations-home-priority__estimate-actions">
+                              <button
+                                type="button"
+                                className="home-text-action"
+                                onClick={() => setSelectedEstimate(estimate)}
+                              >
+                                확인
+                              </button>
+                              <button
+                                type="button"
+                                className="home-text-action"
+                                onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
+                              >
+                                이어서 작성
+                              </button>
+                            </span>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="customer-operations-home-priority__state">
+                      최근 저장 견적이 없습니다
+                    </div>
+                  )}
+                </>
+              }
             />
-
-            <div className="home-placeholder-grid">
-              <HomePlaceholderWidget title="처리 필요" />
-              <HomePlaceholderWidget title="진행 중" />
-            </div>
-
-            <section className="home-recent-estimates" aria-labelledby="home-recent-estimates-title">
-              <div className="home-section-head">
-                <h2 id="home-recent-estimates-title">최근 견적</h2>
-                <button type="button" className="home-text-link" onClick={() => setPage("admin-estimates")}>
-                  전체 보기
-                </button>
-              </div>
-              {recentHomeEstimates.length > 0 ? (
-                <div className="home-estimate-table" role="table" aria-label="최근 견적">
-                  <div className="home-estimate-table__header" role="row">
-                    <span role="columnheader">고객명</span>
-                    <span role="columnheader">현장 주소</span>
-                    <span role="columnheader" className="home-date-cell">작성일</span>
-                    <span role="columnheader" className="home-number-cell">예상시공일</span>
-                    <span role="columnheader" className="home-date-cell">시공 예정일</span>
-                    <span role="columnheader" className="home-number-cell">총액</span>
-                    <span role="columnheader" className="home-action-cell">견적서 확인</span>
-                    <span role="columnheader" className="home-action-cell">이어서 작성</span>
-                  </div>
-                  {recentHomeEstimates.map((estimate) => {
-                    const customerName = getSavedEstimateCustomerName(estimate);
-                    const constructionDays = getEstimateItemsDataConstructionDaysTotal(estimate.items_data);
-
-                    return (
-                      <div className="home-estimate-table__row" role="row" key={estimate.id}>
-                        <span className="home-estimate-customer" role="cell">
-                          <strong>{customerName || "고객명 미입력"}</strong>
-                        </span>
-                        <span className={`home-estimate-address ${estimate.address ? "" : "saved-estimate-muted"}`.trim()} role="cell">
-                          {estimate.address || "주소 미입력"}
-                        </span>
-                        <span role="cell" className="home-date-cell">{getSavedEstimateDisplayDate(estimate)}</span>
-                        <span role="cell" className="home-number-cell">
-                          {constructionDays > 0
-                            ? <PriceText value={constructionDays} unit="일" size="sm" />
-                            : <span className="saved-estimate-muted">-</span>}
-                        </span>
-                        <span role="cell" className="home-date-cell">{estimate.construction_date || "-"}</span>
-                        <span role="cell" className="home-number-cell">
-                          <PriceText value={estimate.total_amount || 0} size="sm" />
-                        </span>
-                        <span role="cell" className="home-action-cell">
-                          <button
-                            type="button"
-                            className="home-text-action"
-                            onClick={() => setSelectedEstimate(estimate)}
-                          >
-                            확인
-                          </button>
-                        </span>
-                        <span role="cell" className="home-action-cell">
-                          <button
-                            type="button"
-                            className="home-text-action"
-                            onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
-                          >
-                            이어서 작성
-                          </button>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptyState
-                  title="최근 저장 견적이 없습니다."
-                  description="새 견적서를 작성하면 이곳에 표시됩니다."
-                  className="home-empty-state"
-                />
-              )}
-            </section>
           </section>
 
           {selectedEstimate && (
@@ -11445,6 +11620,22 @@ export default function App() {
             </div>
           ),
         }
+      )}
+
+      {page === CUSTOMER_OPERATIONS_PAGES.REQUESTS && renderAppShell(
+        <CustomerRequestsPage companyId={selectedCompanyId} onNavigate={setPage} />
+      )}
+
+      {page === CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS && renderAppShell(
+        <CustomersProjectsPage companyId={selectedCompanyId} />
+      )}
+
+      {page === CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE && renderAppShell(
+        <AftercareServicePage companyId={selectedCompanyId} />
+      )}
+
+      {page === CUSTOMER_OPERATIONS_PAGES.MESSAGES && renderAppShell(
+        <MessagesPage companyId={selectedCompanyId} />
       )}
 
       {page === "admin" && adminVerified && renderAppShell(
@@ -14651,15 +14842,53 @@ export default function App() {
               <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
                 홈으로
               </Button>
-              <h2>저장한 견적</h2>
-              <p className="muted caption">고객명이나 주소로 찾고 다시 열 수 있습니다.</p>
+              <h2>{estimateArchiveView === "archive" ? "견적 보관함" : "저장한 견적"}</h2>
+              <p className="muted caption">
+                {estimateArchiveView === "archive"
+                  ? "고객 기록을 보존한 견적을 확인하고 복원할 수 있습니다."
+                  : "고객명이나 주소로 찾고 다시 열 수 있습니다."}
+              </p>
             </div>
             <div className="admin-actions">
-              <Button variant="secondary" leftIcon={<RefreshCcw />} disabled={adminLoading} onClick={() => fetchEstimates()}>
+              <Button
+                variant="secondary"
+                leftIcon={<RefreshCcw />}
+                disabled={adminLoading}
+                onClick={() => fetchEstimates(estimateSearch, estimateArchiveView)}
+              >
                 새로고침
               </Button>
             </div>
           </div>
+
+          <nav className="saved-estimate-view-tabs" aria-label="저장 견적 분류">
+            <button
+              type="button"
+              className={estimateArchiveView === "active" ? "is-active" : ""}
+              aria-current={estimateArchiveView === "active" ? "page" : undefined}
+              onClick={() => {
+                setEstimateArchiveView("active");
+                setSelectedEstimate(null);
+                setEstimateDeleteNotice("");
+                setAdminError("");
+              }}
+            >
+              저장 견적
+            </button>
+            <button
+              type="button"
+              className={estimateArchiveView === "archive" ? "is-active" : ""}
+              aria-current={estimateArchiveView === "archive" ? "page" : undefined}
+              onClick={() => {
+                setEstimateArchiveView("archive");
+                setSelectedEstimate(null);
+                setEstimateDeleteNotice("");
+                setAdminError("");
+              }}
+            >
+              보관함
+            </button>
+          </nav>
 
           <section className="estimate-search-panel">
             <label>
@@ -14675,12 +14904,19 @@ export default function App() {
 
           {adminLoading && <div className="status-box">불러오는 중...</div>}
           {adminError && <div className="error-box">{adminError}</div>}
+          {estimateDeleteNotice && (
+            <div className="success-box saved-estimate-delete-notice" role="status">
+              {estimateDeleteNotice}
+            </div>
+          )}
 
           <section className="estimate-list">
             {!adminLoading && !estimates.length && (
               <div className="estimate-empty-state">
                 <p className="muted">
-                  조회된 견적서가 없습니다. 신규 견적서를 저장하면 이곳에 자동으로 쌓입니다.
+                  {estimateArchiveView === "archive"
+                    ? "보관된 견적이 없습니다."
+                    : "저장된 견적이 없습니다."}
                 </p>
               </div>
             )}
@@ -14688,21 +14924,34 @@ export default function App() {
             {!!estimates.length && (
               <Table
                 className="saved-estimates-table"
-                columns={[
-                  { key: "customer", label: "고객명", width: "16%" },
-                  { key: "address", label: "현장 주소", width: "25%" },
-                  { key: "createdAt", label: "작성일", width: "11%" },
-                  { key: "constructionDays", label: "예상시공일", align: "right", width: "10%" },
-                  { key: "constructionDate", label: "시공 예정일", width: "12%" },
-                  { key: "amount", label: "총액", align: "right", width: "12%" },
-                  { key: "actions", label: "작업", align: "right", width: "14%" },
-                ]}
+                columns={estimateArchiveView === "archive"
+                  ? [
+                      { key: "customer", label: "고객명", width: "15%" },
+                      { key: "address", label: "현장 주소", width: "22%" },
+                      { key: "estimateNumber", label: "견적번호", width: "16%" },
+                      { key: "createdAt", label: "작성일", width: "12%" },
+                      { key: "archivedAt", label: "보관일", width: "12%" },
+                      { key: "preservation", label: "보존 상태", width: "13%" },
+                      { key: "actions", label: "작업", align: "right", width: "10%" },
+                    ]
+                  : [
+                      { key: "customer", label: "고객명", width: "16%" },
+                      { key: "address", label: "현장 주소", width: "25%" },
+                      { key: "createdAt", label: "작성일", width: "11%" },
+                      { key: "constructionDays", label: "예상시공일", align: "right", width: "10%" },
+                      { key: "constructionDate", label: "시공 예정일", width: "12%" },
+                      { key: "amount", label: "총액", align: "right", width: "12%" },
+                      { key: "actions", label: "작업", align: "right", width: "14%" },
+                    ]}
                 rows={estimates.map((estimate) => ({
                   id: estimate.id,
                   estimate,
                   customer: getSavedEstimateCustomerName(estimate) || "고객명 미입력",
                   address: estimate.address || "주소 미입력",
+                  estimateNumber: `${getEstimateItemsDataMeta(estimate.items_data).estimateNumber ?? ""}`.trim() || "-",
                   createdAt: estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-",
+                  archivedAt: estimate.archived_at ? new Date(estimate.archived_at).toLocaleDateString("ko-KR") : "-",
+                  preservation: estimate.archive_reason === "customer_history_preserved" ? "고객 기록 보존" : "보관됨",
                   constructionDays: getEstimateItemsDataConstructionDaysTotal(estimate.items_data),
                   constructionDate: estimate.construction_date || "-",
                   amount: estimate.total_amount || 0,
@@ -14727,6 +14976,24 @@ export default function App() {
                   }
 
                   if (column.key === "actions") {
+                    if (estimateArchiveView === "archive") {
+                      return (
+                        <div className="saved-estimate-table-actions">
+                          <Button variant="secondary" size="sm" onClick={() => setSelectedEstimate(row.estimate)}>
+                            보기
+                          </Button>
+                          <Button
+                            variant="tertiary"
+                            size="sm"
+                            disabled={estimateRestoreLoadingId === row.estimate.id}
+                            onClick={() => restoreArchivedEstimate(row.estimate)}
+                          >
+                            {estimateRestoreLoadingId === row.estimate.id ? "복원 중..." : "복원"}
+                          </Button>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div className="saved-estimate-table-actions">
                         <Button variant="secondary" size="sm" onClick={() => setSelectedEstimate(row.estimate)}>
@@ -14761,7 +15028,9 @@ export default function App() {
               <section className="estimate-modal" onClick={(event) => event.stopPropagation()}>
                 <div className="editor-header">
                   <div>
-                    <p className="eyebrow dark">견적서 상세</p>
+                    <p className="eyebrow dark">
+                      {estimateArchiveView === "archive" ? "보관 견적 상세" : "견적서 상세"}
+                    </p>
                     <h3>{getSavedEstimateCustomerName(selectedEstimate) || selectedEstimate.address || "견적서"}</h3>
                     <p className="muted">
                       연락처 {getSavedEstimateCustomerPhone(selectedEstimate) || "-"} · 현장 주소 {selectedEstimate.address || "주소 미입력"}
@@ -14773,6 +15042,11 @@ export default function App() {
                     {selectedEstimate.condition_snapshot?.summary && (
                       <p className="muted caption">{selectedEstimate.condition_snapshot.summary}</p>
                     )}
+                    {estimateArchiveView === "archive" && selectedEstimate.archived_at ? (
+                      <p className="muted caption">
+                        보관일 {new Date(selectedEstimate.archived_at).toLocaleDateString("ko-KR")} · 고객 관련 기록 보존
+                      </p>
+                    ) : null}
                   </div>
                   <Button variant="tertiary" onClick={() => setSelectedEstimate(null)}>
                     닫기
@@ -14780,18 +15054,45 @@ export default function App() {
                 </div>
 
                 <div className="estimate-card-actions modal-actions">
-                  <Button
-                    variant="tertiary"
-                    onClick={() => loadSavedEstimateDraft(selectedEstimate, { destination: "preview" })}
-                  >
-                    다시 열기
-                  </Button>
-                  <Button
-                    variant="tertiary"
-                    onClick={() => loadSavedEstimateDraft(selectedEstimate, { copy: true, destination: "items" })}
-                  >
-                    복사해서 견적서 작성
-                  </Button>
+                  {estimateArchiveView === "archive" ? (
+                    <Button
+                      variant="primary"
+                      leftIcon={<RefreshCcw />}
+                      disabled={estimateRestoreLoadingId === selectedEstimate.id}
+                      onClick={() => restoreArchivedEstimate(selectedEstimate)}
+                    >
+                      {estimateRestoreLoadingId === selectedEstimate.id ? "복원 중..." : "저장 목록으로 복원"}
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        variant="tertiary"
+                        leftIcon={<Trash2 />}
+                        className="saved-estimate-delete-trigger"
+                        onClick={(event) => openEstimateDeleteDialog(event, selectedEstimate)}
+                      >
+                        견적 삭제
+                      </Button>
+                      <Button
+                        variant="primary"
+                        onClick={() => setShareEstimateTarget(selectedEstimate)}
+                      >
+                        고객에게 보내기
+                      </Button>
+                      <Button
+                        variant="tertiary"
+                        onClick={() => loadSavedEstimateDraft(selectedEstimate, { destination: "preview" })}
+                      >
+                        다시 열기
+                      </Button>
+                      <Button
+                        variant="tertiary"
+                        onClick={() => loadSavedEstimateDraft(selectedEstimate, { copy: true, destination: "items" })}
+                      >
+                        복사해서 견적서 작성
+                      </Button>
+                    </>
+                  )}
                 </div>
 
                 {selectedEstimateItems.length ? (
@@ -14870,6 +15171,42 @@ export default function App() {
                 )}
               </section>
             </div>
+          )}
+
+          {estimateDeleteTarget && (
+            <DeleteSavedEstimateDialog
+              estimate={estimateDeleteTarget}
+              title={
+                estimateDeleteTarget.address
+                || getSavedEstimateCustomerName(estimateDeleteTarget)
+                || "견적서"
+              }
+              estimateNumber={
+                `${getEstimateItemsDataMeta(estimateDeleteTarget.items_data).estimateNumber ?? ""}`.trim()
+              }
+              createdAt={
+                getSavedEstimateDisplayDate(estimateDeleteTarget) === "-"
+                  ? ""
+                  : getSavedEstimateDisplayDate(estimateDeleteTarget)
+              }
+              deleting={estimateDeleteLoading}
+              mode={estimateDeleteMode}
+              modeLoading={estimateDeleteModeLoading}
+              reasons={estimateDeleteReasons}
+              password={estimateDeletePassword}
+              error={estimateDeleteError}
+              onPasswordChange={setEstimateDeletePassword}
+              onClose={closeEstimateDeleteDialog}
+              onConfirm={confirmSavedEstimateRemoval}
+            />
+          )}
+
+          {shareEstimateTarget && (
+            <ShareEstimateModal
+              companyId={selectedCompanyId}
+              estimate={shareEstimateTarget}
+              onClose={() => setShareEstimateTarget(null)}
+            />
           )}
         </main>
       )}
@@ -15073,6 +15410,16 @@ export default function App() {
   );
 }
 
+export default function App() {
+  const customerPortalRoute = parseCustomerPortalPath(window.location.pathname);
+
+  if (customerPortalRoute.isPortal) {
+    return <CustomerPortalPage token={customerPortalRoute.token} />;
+  }
+
+  return <AdminApp />;
+}
+
 function Progress({ step }) {
   return (
     <div className="progress">
@@ -15115,10 +15462,17 @@ const styles = `
   }
   .app-shell {
     min-height: 100vh;
-    padding-top: 56px;
+    padding-top: 0;
   }
   .app-shell.items-v2-shell {
-    padding-top: 56px;
+    padding-top: 0;
+  }
+  .app-shell.admin-shell-root,
+  .app-shell.admin-shell-root.items-v2-shell {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    padding-top: 0;
   }
   .app-shell svg {
     stroke-width: 1.75;
@@ -20921,14 +21275,16 @@ const styles = `
     --color-text-primary: #1F2933;
     --color-text-secondary: #667085;
     --color-text-muted: #98A2B3;
-    --color-primary: #0F766E;
-    --color-primary-hover: #115E59;
-    --color-primary-soft: #F0FDFA;
-    --color-primary-border: #99F6E4;
+    --color-primary: #0D5C52;
+    --color-primary-hover: #042F2C;
+    --color-primary-soft: #ECFDF5;
+    --color-primary-border: #A7F3D0;
+    --color-accent: #10B981;
+    --color-brand-deep: #042F2C;
     --color-header-bg: #F3F1EC;
     --color-row-alt: #FBFAF7;
     --color-row-hover: #F1EFE8;
-    --color-cell-focus: #F0FDFA;
+    --color-cell-focus: #ECFDF5;
     --color-danger: #DC2626;
     --color-danger-bg: #FEF2F2;
     --color-danger-border: #FECACA;
@@ -20961,10 +21317,10 @@ const styles = `
     transform: translateY(1px);
   }
   .app-shell {
-    padding-top: 56px;
+    padding-top: 0;
   }
   .app-shell.items-v2-shell {
-    padding-top: 56px;
+    padding-top: 0;
   }
   .global-header {
     height: 56px;
@@ -22631,12 +22987,11 @@ const styles = `
   }
   .items-v2-category-sidebar {
     position: sticky;
-    top: 56px;
+    top: 0;
     width: var(--layout-local-sidebar);
-    height: calc(100dvh - 56px);
-    max-height: calc(100dvh - 56px);
+    height: 100dvh;
+    max-height: 100dvh;
     overflow-y: auto;
-    scrollbar-gutter: stable;
     border-right: 1px solid var(--color-border);
     background: var(--color-surface);
     transition: opacity 150ms ease, filter 150ms ease;
@@ -22972,7 +23327,7 @@ const styles = `
   }
   .estimate-condition-drawer {
     position: fixed;
-    top: 56px;
+    top: 0;
     right: 0;
     bottom: 0;
     z-index: 40;
@@ -23165,12 +23520,11 @@ const styles = `
   }
   .admin-price-v2-sidebar {
     position: sticky;
-    top: 56px;
+    top: 0;
     width: var(--layout-local-sidebar);
-    height: calc(100dvh - 56px);
-    max-height: calc(100dvh - 56px);
+    height: 100dvh;
+    max-height: 100dvh;
     overflow-y: auto;
-    scrollbar-gutter: stable;
     border-right: 1px solid var(--color-border);
     background: var(--color-surface);
   }
@@ -23645,7 +23999,7 @@ const styles = `
     border-bottom: 1px solid var(--color-border);
   }
   .formate-app-shell--admin-items-v2 .formate-app-shell__main {
-    height: calc(100dvh - 56px);
+    height: 100dvh;
     min-height: 0;
     padding: 0;
     overflow-x: hidden;
@@ -23662,8 +24016,8 @@ const styles = `
     align-items: stretch;
     width: 100%;
     max-width: 100%;
-    height: calc(100dvh - 56px);
-    max-height: calc(100dvh - 56px);
+    height: 100dvh;
+    max-height: 100dvh;
     overflow: hidden;
   }
   .admin-items-v2-sidebar {
@@ -23766,10 +24120,10 @@ const styles = `
   }
   .admin-template-condition-drawer {
     position: fixed;
-    inset: 56px 0 0 auto;
+    inset: 0 0 0 auto;
     width: min(420px, 100vw);
     max-width: 420px;
-    height: calc(100dvh - 56px);
+    height: 100dvh;
     max-height: none;
     margin: 0;
     border-radius: 0;
@@ -24167,11 +24521,180 @@ const styles = `
     justify-content: flex-start;
     margin-bottom: var(--space-2);
   }
+  .saved-estimate-view-tabs {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .saved-estimate-view-tabs button {
+    position: relative;
+    min-height: var(--button-height-sm);
+    padding: 0 var(--space-0-5);
+    border: 0;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+  }
+  .saved-estimate-view-tabs button::after {
+    position: absolute;
+    right: 0;
+    bottom: -1px;
+    left: 0;
+    height: 2px;
+    background: transparent;
+    content: "";
+  }
+  .saved-estimate-view-tabs button:hover,
+  .saved-estimate-view-tabs button:focus-visible,
+  .saved-estimate-view-tabs button.is-active {
+    color: var(--color-primary);
+  }
+  .saved-estimate-view-tabs button.is-active::after {
+    background: var(--color-primary);
+  }
+  .saved-estimate-view-tabs button:focus-visible {
+    outline: 2px solid var(--color-primary-border);
+    outline-offset: 2px;
+  }
   .saved-estimates-page .estimate-modal {
     width: min(960px, 100%);
     border-radius: var(--radius-card);
     background: var(--color-surface);
     box-shadow: var(--shadow-popover);
+  }
+  .saved-estimate-delete-trigger {
+    margin-right: auto;
+    color: var(--color-danger);
+  }
+  .saved-estimate-delete-trigger.ui-button--tertiary:hover,
+  .saved-estimate-delete-trigger.ui-button--tertiary:focus-visible {
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+    text-decoration-color: transparent;
+  }
+  .saved-estimate-delete-notice {
+    margin-bottom: var(--space-2);
+  }
+  .saved-estimate-delete-backdrop {
+    z-index: 90;
+  }
+  .saved-estimate-delete-dialog {
+    display: grid;
+    width: min(480px, 100%);
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+  }
+  .saved-estimate-delete-dialog__header {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-1-5);
+  }
+  .saved-estimate-delete-dialog__icon {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-button);
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+  }
+  .saved-estimate-delete-dialog.is-archive .saved-estimate-delete-dialog__icon {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+  .saved-estimate-delete-dialog__header h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-title-sm);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-heading);
+  }
+  .saved-estimate-delete-dialog__header p,
+  .saved-estimate-delete-dialog__preservation-note,
+  .saved-estimate-delete-dialog__error {
+    margin: var(--space-0-5) 0 0;
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-body);
+  }
+  .saved-estimate-delete-dialog__header p,
+  .saved-estimate-delete-dialog__preservation-note {
+    color: var(--color-text-secondary);
+  }
+  .saved-estimate-delete-dialog__summary {
+    display: grid;
+    margin: 0;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .saved-estimate-delete-dialog__summary > div {
+    display: grid;
+    grid-template-columns: 80px minmax(0, 1fr);
+    gap: var(--space-1);
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .saved-estimate-delete-dialog__summary > div:last-child {
+    border-bottom: 0;
+  }
+  .saved-estimate-delete-dialog__summary dt,
+  .saved-estimate-delete-dialog__summary dd {
+    margin: 0;
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+  }
+  .saved-estimate-delete-dialog__summary dt {
+    color: var(--color-text-muted);
+  }
+  .saved-estimate-delete-dialog__summary dd {
+    overflow-wrap: anywhere;
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-medium);
+    font-variant-numeric: tabular-nums;
+  }
+  .saved-estimate-delete-dialog__preservation-note {
+    margin: 0;
+  }
+  .saved-estimate-delete-dialog__password,
+  .saved-estimate-delete-dialog__archive-copy {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .saved-estimate-delete-dialog__archive-copy {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-body);
+  }
+  .saved-estimate-delete-dialog__archive-copy p,
+  .saved-estimate-delete-dialog__archive-copy ul {
+    margin: 0;
+  }
+  .saved-estimate-delete-dialog__archive-copy ul {
+    display: grid;
+    gap: var(--space-0-5);
+    padding-left: var(--space-2);
+  }
+  .saved-estimate-delete-dialog__error {
+    margin: 0;
+    padding: var(--space-1);
+    border: 1px solid var(--color-danger-border);
+    border-radius: var(--radius-button);
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+  }
+  .saved-estimate-delete-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-1);
   }
   .saved-estimate-detail-table td:nth-child(2) {
     min-width: 220px;
@@ -24369,14 +24892,13 @@ const styles = `
   .formate-app-shell__workspace-header {
     flex: 0 0 auto;
     padding-bottom: var(--space-1);
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
   .formate-app-shell__nav-section-title {
-    color: var(--color-text-muted);
+    color: rgba(255, 255, 255, 0.42);
     font-size: 12px;
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-medium);
     line-height: var(--line-height-caption);
-    text-transform: uppercase;
   }
   .formate-app-shell--home-workspace {
     min-height: 100dvh;
@@ -24392,7 +24914,7 @@ const styles = `
   }
   .formate-app-shell--home-workspace .formate-app-shell__main {
     padding: 0;
-    background: var(--color-surface);
+    background: var(--color-bg);
   }
   .home-sidebar-workspace {
     display: grid;
@@ -24400,7 +24922,7 @@ const styles = `
     align-items: center;
     gap: var(--space-1);
     min-height: 44px;
-    color: var(--color-text-primary);
+    color: rgba(255, 255, 255, 0.94);
   }
   .home-sidebar-workspace img {
     width: 32px;
@@ -24422,7 +24944,7 @@ const styles = `
   }
   .home-sidebar-workspace em {
     overflow: hidden;
-    color: var(--color-text-secondary);
+    color: rgba(255, 255, 255, 0.58);
     font-size: var(--font-size-caption);
     font-style: normal;
     line-height: var(--line-height-caption);
@@ -24437,172 +24959,10 @@ const styles = `
     padding: 0;
     background: var(--color-surface);
   }
-  .home-workspace-toolbar {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-    min-height: 48px;
-    padding: 0 var(--space-page-x);
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-surface);
-  }
-  .home-workspace-toolbar__nav,
-  .home-workspace-search,
-  .home-workspace-actions {
-    display: inline-flex;
-    align-items: center;
-    min-width: 0;
-  }
-  .home-workspace-toolbar__nav {
-    gap: var(--space-0-5);
-  }
-  .home-workspace-actions {
-    justify-content: flex-end;
-    gap: var(--space-1);
-    margin-left: auto;
-  }
-  .home-toolbar-icon-button {
-    width: 32px;
-    height: 32px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 0;
-    border-radius: var(--radius-button);
-    background: transparent;
-    color: var(--color-text-secondary);
-  }
-  .home-toolbar-icon-button svg {
-    width: 18px;
-    height: 18px;
-    stroke-width: 1.5;
-  }
-  .home-toolbar-icon-button:hover,
-  .home-toolbar-icon-button:focus-visible {
-    background: var(--color-row-alt);
-    color: var(--color-text-primary);
-    outline: none;
-  }
-  .home-workspace-search {
-    flex: 0 1 576px;
-    width: min(42vw, 576px);
-    height: 32px;
-    gap: var(--space-1);
-    padding: 0 var(--space-1);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-button);
-    background: var(--color-surface-subtle);
-    color: var(--color-text-muted);
-  }
-  .home-workspace-search input {
-    width: 100%;
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    color: var(--color-text-primary);
-    font: inherit;
-    outline: none;
-  }
-  .home-workspace-search input::placeholder {
-    color: var(--color-text-secondary);
-  }
-  .home-workspace-search kbd {
-    flex: 0 0 auto;
-    padding: 1px 6px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-button);
-    background: var(--color-surface);
-    color: var(--color-text-muted);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-caption);
-  }
-  .home-profile-menu {
-    position: relative;
-    display: inline-flex;
-  }
-  .home-toolbar-avatar {
-    width: 32px;
-    height: 32px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid var(--color-primary-border);
-    border-radius: 999px;
-    background: var(--color-primary-soft);
-    color: var(--color-primary);
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-bold);
-    line-height: 1;
-    cursor: pointer;
-  }
-  .home-toolbar-avatar:hover,
-  .home-toolbar-avatar:focus-visible {
-    border-color: var(--color-primary);
-    color: var(--color-primary-hover);
-    outline: none;
-  }
-  .home-profile-dropdown {
-    position: absolute;
-    top: calc(100% + var(--space-1));
-    right: 0;
-    z-index: 40;
-    width: 184px;
-    display: grid;
-    gap: var(--space-0-5);
-    padding: var(--space-1);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-card);
-    background: var(--color-surface);
-    box-shadow: var(--shadow-hover);
-    animation: home-profile-dropdown-enter 0.15s ease both;
-  }
-  @keyframes home-profile-dropdown-enter {
-    from {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  .home-profile-dropdown__meta {
-    overflow: hidden;
-    padding: 0 var(--space-1) var(--space-0-5);
-    color: var(--color-text-muted);
-    font-size: 12px;
-    line-height: var(--line-height-caption);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .home-profile-dropdown__item {
-    width: 100%;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    padding: 0 var(--space-1);
-    border: 0;
-    border-radius: var(--radius-button);
-    background: transparent;
-    color: var(--color-text-primary);
-    font-size: 14px;
-    font-weight: var(--font-weight-medium);
-    text-align: left;
-  }
-  .home-profile-dropdown__item:hover,
-  .home-profile-dropdown__item:focus-visible {
-    background: var(--color-primary-soft);
-    color: var(--color-primary);
-    outline: none;
-  }
   .work-home-content {
     width: min(100%, 1480px);
     margin: 0 auto;
-    padding: 40px var(--space-page-x) 64px;
+    padding: var(--space-3) var(--space-page-x) var(--space-4);
   }
   .work-home-flat .work-home-heading {
     display: flex;
@@ -24672,17 +25032,13 @@ const styles = `
     color: var(--color-text-muted);
     font-size: var(--font-size-body-sm);
   }
-  .home-recent-estimates {
-    display: grid;
-    gap: var(--space-1);
-  }
   .home-text-link,
   .home-text-action {
     border: 0;
     background: transparent;
     color: var(--color-primary);
     font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-medium);
     white-space: nowrap;
   }
   .home-text-link:hover,
@@ -24693,88 +25049,6 @@ const styles = `
     text-decoration: underline;
     text-underline-offset: 3px;
     outline: none;
-  }
-  .home-estimate-table {
-    display: grid;
-    min-width: 0;
-  }
-  .home-estimate-table__header,
-  .home-estimate-table__row {
-    display: grid;
-    grid-template-columns: minmax(104px, 0.75fr) minmax(180px, 1.3fr) 104px 88px 112px minmax(104px, 0.7fr) 88px 96px;
-    align-items: center;
-    gap: var(--space-1);
-    min-width: 0;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .home-estimate-table__header {
-    min-height: var(--table-header-height);
-    color: var(--color-text-muted);
-    font-size: var(--font-size-table-header);
-    font-weight: var(--font-weight-medium);
-  }
-  .home-estimate-table__row {
-    min-height: 52px;
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-body-sm);
-  }
-  .home-estimate-table__row:hover {
-    background: var(--color-row-alt);
-  }
-  .home-estimate-customer {
-    display: grid;
-    gap: 2px;
-    min-width: 0;
-  }
-  .home-estimate-customer strong,
-  .home-estimate-customer em {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .home-estimate-customer strong {
-    color: var(--color-text-primary);
-    font-weight: var(--font-weight-semibold);
-  }
-  .home-estimate-address {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .home-estimate-customer em {
-    color: var(--color-text-muted);
-    font-style: normal;
-    font-size: var(--font-size-caption);
-  }
-  .home-date-cell {
-    text-align: center;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .home-number-cell {
-    justify-self: end;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-  .home-number-cell .number-text {
-    justify-content: flex-end;
-  }
-  .home-action-cell {
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-1);
-  }
-  .home-empty-state {
-    min-height: 136px;
-    padding: var(--space-2);
-    border: 1px dashed var(--color-border);
-    border-radius: var(--radius-card);
-    background: transparent;
-  }
-  .home-empty-state h2 {
-    font-size: var(--font-size-section-title);
   }
   .home-estimate-modal {
     max-width: 560px;
@@ -24798,19 +25072,8 @@ const styles = `
     font-weight: var(--font-weight-medium);
   }
   @media (max-width: 1180px) {
-    .home-workspace-toolbar {
-      gap: var(--space-1);
-    }
-    .home-workspace-search {
-      flex: 1 1 auto;
-      width: auto;
-    }
     .home-placeholder-grid {
       grid-template-columns: 1fr;
-    }
-    .home-estimate-table__header,
-    .home-estimate-table__row {
-      grid-template-columns: minmax(92px, 0.7fr) minmax(140px, 1.1fr) 88px 80px 96px 96px 80px 88px;
     }
   }
   @media (max-width: 1180px) {
@@ -24849,16 +25112,20 @@ const styles = `
   }
   @media (max-width: 840px) {
     .app-shell {
-      padding-top: 56px;
+      padding-top: 0;
     }
     .app-shell.items-v2-shell {
-      padding-top: 56px;
+      padding-top: 0;
     }
     .global-header {
       min-height: 56px;
       height: 56px;
       flex-wrap: nowrap;
       align-content: center;
+    }
+    .work-home-content {
+      padding-right: var(--space-3);
+      padding-left: var(--space-3);
     }
     .primary-action-grid,
     .hero,
@@ -24892,6 +25159,12 @@ const styles = `
     .admin-catalog-actions,
     .estimate-template-expanded-content {
       grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 767px) {
+    .work-home-content {
+      padding-right: var(--space-2);
+      padding-left: var(--space-2);
     }
   }
 `;

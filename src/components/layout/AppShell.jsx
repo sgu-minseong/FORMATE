@@ -1,4 +1,5 @@
 import React from "react";
+import { LogOut, UserRound } from "lucide-react";
 import Button from "../ui/Button.jsx";
 
 function cx(...classes) {
@@ -44,6 +45,9 @@ export default function AppShell({
   onNavigate,
   companyName = "",
   userLabel = "",
+  userName = "",
+  userAvatarUrl = "",
+  onLogout,
   navItems = DEFAULT_NAV_ITEMS,
   variant = "app",
   hideSidebar = false,
@@ -52,6 +56,9 @@ export default function AppShell({
   workspaceHeader = null,
 }) {
   const isDocumentMode = documentMode || variant === "document";
+  const accountName = `${userName || userLabel || "운영자"}`.trim();
+  const accountCompanyName = `${companyName || ""}`.trim();
+  const accountLabel = [accountName, accountCompanyName].filter(Boolean).join(", ");
 
   const renderNavButton = (item, { child = false, bottom = false } = {}) => {
     const active = isNavItemActive(item, currentPage);
@@ -73,6 +80,7 @@ export default function AppShell({
             disabled && "formate-app-shell__nav-button--disabled",
           )}
           leftIcon={item.icon ? normalizeShellIcon(item.icon) : undefined}
+          aria-current={active ? "page" : undefined}
           title={item.description || item.label}
           onClick={() => {
             if (!disabled) {
@@ -128,16 +136,43 @@ export default function AppShell({
               {workspaceHeader}
             </div>
           )}
-          <nav className="formate-app-shell__nav" aria-label="주요 화면">
-            {mainNavItems.map(renderNavSection)}
-          </nav>
-          <nav className="formate-app-shell__nav-bottom" aria-label="보조 메뉴">
-            {bottomNavItems.map((item) => renderNavButton(item, { bottom: true }))}
-            {userLabel && <div className="formate-app-shell__user">{userLabel}</div>}
-          </nav>
+          <div className="formate-app-shell__nav-scroll formate-scroll-dark">
+            <nav className="formate-app-shell__nav" aria-label="주요 화면">
+              {mainNavItems.map(renderNavSection)}
+            </nav>
+            {bottomNavItems.length > 0 && (
+              <nav className="formate-app-shell__nav-bottom" aria-label="보조 메뉴">
+                {bottomNavItems.map((item) => renderNavButton(item, { bottom: true }))}
+              </nav>
+            )}
+          </div>
+          <footer className="formate-app-shell__account" title={accountLabel}>
+            <div className="formate-app-shell__account-avatar">
+              {userAvatarUrl ? (
+                <img src={userAvatarUrl} alt={`${accountName} 프로필`} />
+              ) : (
+                <UserRound size={18} strokeWidth={1.6} aria-hidden="true" />
+              )}
+            </div>
+            <div className="formate-app-shell__account-copy">
+              <strong>{accountName}</strong>
+              {accountCompanyName && <span>{accountCompanyName}</span>}
+            </div>
+            {onLogout && (
+              <button
+                type="button"
+                className="formate-app-shell__account-logout"
+                aria-label="로그아웃"
+                title="로그아웃"
+                onClick={onLogout}
+              >
+                <LogOut size={17} strokeWidth={1.6} aria-hidden="true" />
+              </button>
+            )}
+          </footer>
         </aside>
       )}
-      <div className="formate-app-shell__main">
+      <div className="formate-app-shell__main formate-scroll-light">
         {children}
       </div>
     </div>
