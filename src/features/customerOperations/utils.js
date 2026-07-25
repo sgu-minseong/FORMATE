@@ -80,6 +80,27 @@ export const operationStatusViews = {
   timeline: (value) => createStatusView(TIMELINE_EVENT_TYPE, value),
 };
 
+export function getEstimateShareDefaults(estimate) {
+  const itemsData = estimate?.items_data;
+  const estimateMeta = (
+    itemsData
+    && !Array.isArray(itemsData)
+    && typeof itemsData.estimateMeta === "object"
+  )
+    ? itemsData.estimateMeta
+    : {};
+  const savedCustomerName = `${estimateMeta.customerName ?? ""}`.trim();
+
+  return {
+    customerName: savedCustomerName === "고객명 미입력" ? "" : savedCustomerName,
+    customerPhone: `${estimateMeta.customerPhone ?? ""}`.trim(),
+    customerEmail: "",
+    projectName: "",
+    projectAddress: `${estimate?.address ?? ""}`.trim(),
+    versionLabel: `${estimateMeta.estimateNumber ?? ""}`.trim(),
+  };
+}
+
 export function getProjectCurrentStage(project) {
   if (project?.construction_status && project.construction_status !== "not_started") {
     return operationStatusViews.construction(project.construction_status);

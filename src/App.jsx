@@ -109,7 +109,10 @@ import CustomerRequestsPage from "./features/customerOperations/CustomerRequests
 import CustomersProjectsPage from "./features/customerOperations/CustomersProjectsPage";
 import HomeOperationsOverview from "./features/customerOperations/HomeOperationsOverview";
 import MessagesPage from "./features/customerOperations/MessagesPage";
+import ShareEstimateModal from "./features/customerOperations/ShareEstimateModal";
 import { CUSTOMER_OPERATIONS_PAGES } from "./features/customerOperations/constants";
+import CustomerPortalPage from "./features/customerPortal/CustomerPortalPage";
+import { parseCustomerPortalPath } from "./features/customerPortal/customerPortalUtils";
 import "./features/customerOperations/customerOperations.css";
 
 const pageFromHash = () => {
@@ -2579,7 +2582,7 @@ function getAiSetupFlowState({
   return { steps, nextAction };
 }
 
-export default function App() {
+function AdminApp() {
   const previewPdfRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
   const autoSaveRunningRef = useRef(false);
@@ -2722,6 +2725,7 @@ export default function App() {
   const [estimates, setEstimates] = useState([]);
   const [estimateSearch, setEstimateSearch] = useState("");
   const [selectedEstimate, setSelectedEstimate] = useState(null);
+  const [shareEstimateTarget, setShareEstimateTarget] = useState(null);
   const [pyeongDropdownOpen, setPyeongDropdownOpen] = useState(false);
   const [adminPyeongDropdownOpen, setAdminPyeongDropdownOpen] = useState(false);
   const [favoritePyeongs, setFavoritePyeongs] = useState(readFavoritePyeongs);
@@ -14749,6 +14753,12 @@ export default function App() {
 
                 <div className="estimate-card-actions modal-actions">
                   <Button
+                    variant="primary"
+                    onClick={() => setShareEstimateTarget(selectedEstimate)}
+                  >
+                    고객에게 보내기
+                  </Button>
+                  <Button
                     variant="tertiary"
                     onClick={() => loadSavedEstimateDraft(selectedEstimate, { destination: "preview" })}
                   >
@@ -14838,6 +14848,14 @@ export default function App() {
                 )}
               </section>
             </div>
+          )}
+
+          {shareEstimateTarget && (
+            <ShareEstimateModal
+              companyId={selectedCompanyId}
+              estimate={shareEstimateTarget}
+              onClose={() => setShareEstimateTarget(null)}
+            />
           )}
         </main>
       )}
@@ -15039,6 +15057,16 @@ export default function App() {
       )}
     </div>
   );
+}
+
+export default function App() {
+  const customerPortalRoute = parseCustomerPortalPath(window.location.pathname);
+
+  if (customerPortalRoute.isPortal) {
+    return <CustomerPortalPage token={customerPortalRoute.token} />;
+  }
+
+  return <AdminApp />;
 }
 
 function Progress({ step }) {

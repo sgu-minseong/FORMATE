@@ -283,3 +283,46 @@ export async function fetchHomeCustomerOperations(companyId) {
     timelineEvents: unwrap(timelineResult),
   });
 }
+
+export async function createEstimatePortalLink({
+  companyId,
+  estimateId,
+  customerName,
+  customerPhone = "",
+  customerEmail = "",
+  projectName = "",
+  projectAddress = "",
+  versionLabel = "",
+  expiresAt = null,
+  requiredContactConsent = false,
+  aftercareConsent = false,
+  marketingConsent = false,
+}) {
+  assertCustomerOperationsQuery(companyId);
+
+  if (!estimateId) {
+    throw new Error("공유할 견적서를 확인할 수 없습니다.");
+  }
+
+  const { data, error } = await supabase.rpc("create_customer_portal_link", {
+    p_company_id: companyId,
+    p_estimate_id: estimateId,
+    p_customer_name: customerName,
+    p_customer_phone: customerPhone,
+    p_customer_email: customerEmail,
+    p_project_name: projectName,
+    p_project_address: projectAddress,
+    p_version_label: versionLabel,
+    p_expires_at: expiresAt,
+    p_required_contact_consent: requiredContactConsent,
+    p_aftercare_consent: aftercareConsent,
+    p_marketing_consent: marketingConsent,
+  });
+
+  if (error) throw error;
+  if (!data?.ok) {
+    throw new Error(data?.message || "공유 링크를 생성하지 못했습니다.");
+  }
+
+  return data;
+}
