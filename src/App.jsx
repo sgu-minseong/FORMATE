@@ -104,10 +104,27 @@ import {
   formatDisplayDateTime,
   formatRecentSaveTime,
 } from "./shared/utils/dates";
+import AftercareServicePage from "./features/customerOperations/AftercareServicePage";
+import CustomerRequestsPage from "./features/customerOperations/CustomerRequestsPage";
+import CustomersProjectsPage from "./features/customerOperations/CustomersProjectsPage";
+import HomeOperationsOverview from "./features/customerOperations/HomeOperationsOverview";
+import MessagesPage from "./features/customerOperations/MessagesPage";
+import { CUSTOMER_OPERATIONS_PAGES } from "./features/customerOperations/constants";
+import "./features/customerOperations/customerOperations.css";
 
 const pageFromHash = () => {
   const page = window.location.hash.replace("#", "");
-  return ["landing", "condition", "photo-management", "admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-ai-setup"].includes(page) ? page : "landing";
+  return [
+    "landing",
+    "condition",
+    "photo-management",
+    "admin",
+    "admin-prices",
+    "admin-items",
+    "admin-condition-labels",
+    "admin-ai-setup",
+    ...Object.values(CUSTOMER_OPERATIONS_PAGES),
+  ].includes(page) ? page : "landing";
 };
 
 const COMPANY_STORAGE_KEYS = {
@@ -120,7 +137,7 @@ const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
 const APP_SHELL_NAV_ITEMS = [
   { key: "landing", label: "홈", icon: <Home /> },
-  { key: "incoming-requests", label: "받은 요청", icon: <MessageSquare />, disabled: true },
+  { key: CUSTOMER_OPERATIONS_PAGES.REQUESTS, label: "받은 요청", icon: <MessageSquare /> },
   {
     key: "estimate-work",
     type: "section",
@@ -128,7 +145,7 @@ const APP_SHELL_NAV_ITEMS = [
     items: [
       { key: "condition", label: "새 견적서 작성", icon: <ClipboardList />, activeKeys: ["condition", "items"] },
       { key: "admin-estimates", label: "저장 견적 보기", icon: <FileText /> },
-      { key: "customers-sites", label: "고객·현장", icon: <Users />, disabled: true },
+      { key: CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS, label: "고객·현장", icon: <Users /> },
     ],
   },
   {
@@ -136,8 +153,8 @@ const APP_SHELL_NAV_ITEMS = [
     type: "section",
     label: "고객관리",
     items: [
-      { key: "after-service", label: "사후관리·A/S", icon: <SlidersHorizontal />, disabled: true },
-      { key: "message-history", label: "메시지 이력", icon: <Mail />, disabled: true },
+      { key: CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE, label: "사후관리·A/S", icon: <SlidersHorizontal /> },
+      { key: CUSTOMER_OPERATIONS_PAGES.MESSAGES, label: "메시지 이력", icon: <Mail /> },
     ],
   },
   {
@@ -11316,10 +11333,7 @@ export default function App() {
               }
             />
 
-            <div className="home-placeholder-grid">
-              <HomePlaceholderWidget title="처리 필요" />
-              <HomePlaceholderWidget title="진행 중" />
-            </div>
+            <HomeOperationsOverview companyId={selectedCompanyId} onNavigate={setPage} />
 
             <section className="home-recent-estimates" aria-labelledby="home-recent-estimates-title">
               <div className="home-section-head">
@@ -11445,6 +11459,22 @@ export default function App() {
             </div>
           ),
         }
+      )}
+
+      {page === CUSTOMER_OPERATIONS_PAGES.REQUESTS && renderAppShell(
+        <CustomerRequestsPage companyId={selectedCompanyId} />
+      )}
+
+      {page === CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS && renderAppShell(
+        <CustomersProjectsPage companyId={selectedCompanyId} />
+      )}
+
+      {page === CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE && renderAppShell(
+        <AftercareServicePage companyId={selectedCompanyId} />
+      )}
+
+      {page === CUSTOMER_OPERATIONS_PAGES.MESSAGES && renderAppShell(
+        <MessagesPage companyId={selectedCompanyId} />
       )}
 
       {page === "admin" && adminVerified && renderAppShell(
