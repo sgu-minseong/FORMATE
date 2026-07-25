@@ -3,7 +3,7 @@ import PageHeader from "../../components/ui/PageHeader";
 import Table from "../../components/ui/Table";
 import ToggleButton from "../../components/ui/ToggleButton";
 import { fetchAftercareAndService } from "./api";
-import { OperationsLoadState, StatusText } from "./components";
+import { OperationsListHeader, OperationsLoadState, StatusText } from "./components";
 import {
   formatOperationDate,
   formatOperationDateTime,
@@ -63,6 +63,7 @@ export default function AftercareServicePage({ companyId }) {
               onClick={() => setActiveView("aftercare")}
             >
               사후관리
+              <span className="customer-operations__segment-count">{aftercareSchedules.length}</span>
             </ToggleButton>
             <ToggleButton
               size="sm"
@@ -70,6 +71,7 @@ export default function AftercareServicePage({ companyId }) {
               onClick={() => setActiveView("service")}
             >
               A/S 요청
+              <span className="customer-operations__segment-count">{serviceRequests.length}</span>
             </ToggleButton>
           </div>
         }
@@ -89,49 +91,77 @@ export default function AftercareServicePage({ companyId }) {
           onRetry={() => setReloadKey((value) => value + 1)}
         />
       ) : activeView === "aftercare" ? (
-        <Table
-          columns={[
-            { key: "customerName", label: "고객명", width: "18%" },
-            { key: "projectName", label: "현장명", width: "27%" },
-            { key: "status", label: "상태", width: "17%" },
-            { key: "nextSendDate", label: "다음 발송 예정일", width: "22%" },
-            { key: "interval", label: "반복 주기", align: "right", width: "16%" },
-          ]}
-          rows={aftercareSchedules.map((schedule) => ({
-            id: schedule.id,
-            customerName: getCustomerName(schedule),
-            projectName: getProjectName(schedule),
-            status: operationStatusViews.aftercare(schedule.status),
-            nextSendDate: formatOperationDate(schedule.next_send_date),
-            interval: schedule.repeat_interval_months > 0 ? `${schedule.repeat_interval_months}개월` : "-",
-          }))}
-          renderCell={({ column, value }) => (
-            column.key === "status" ? <StatusText status={value} /> : value
-          )}
-        />
+        <section className="customer-operations__list-section" aria-label="사후관리 일정 목록">
+          <OperationsListHeader
+            label="사후관리 일정"
+            count={aftercareSchedules.length}
+            hint="다음 안내 예정일을 기준으로 후속 업무를 확인합니다."
+          />
+          <Table
+            zebra={false}
+            className="customer-operations__table"
+            columns={[
+              { key: "customerName", label: "고객명", width: "18%" },
+              { key: "projectName", label: "현장명", width: "27%" },
+              { key: "status", label: "상태", width: "17%" },
+              { key: "nextSendDate", label: "다음 발송 예정일", width: "22%" },
+              { key: "interval", label: "반복 주기", align: "right", width: "16%" },
+            ]}
+            rows={aftercareSchedules.map((schedule) => ({
+              id: schedule.id,
+              customerName: getCustomerName(schedule),
+              projectName: getProjectName(schedule),
+              status: operationStatusViews.aftercare(schedule.status),
+              nextSendDate: formatOperationDate(schedule.next_send_date),
+              interval: schedule.repeat_interval_months > 0 ? `${schedule.repeat_interval_months}개월` : "-",
+            }))}
+            renderCell={({ column, value }) => {
+              if (column.key === "status") return <StatusText status={value} />;
+              if (["nextSendDate", "interval"].includes(column.key)) {
+                return <span className="customer-operations__date-cell">{value}</span>;
+              }
+              return value;
+            }}
+          />
+        </section>
       ) : (
-        <Table
-          columns={[
-            { key: "customerName", label: "고객명", width: "17%" },
-            { key: "projectName", label: "현장명", width: "22%" },
-            { key: "problemSpace", label: "문제 공간", width: "18%" },
-            { key: "urgency", label: "긴급도", width: "13%" },
-            { key: "status", label: "상태", width: "14%" },
-            { key: "visitAt", label: "방문 예정일", width: "16%" },
-          ]}
-          rows={serviceRequests.map((request) => ({
-            id: request.id,
-            customerName: getCustomerName(request),
-            projectName: getProjectName(request),
-            problemSpace: request.problem_space || "-",
-            urgency: operationStatusViews.urgency(request.urgency),
-            status: operationStatusViews.service(request.status),
-            visitAt: formatOperationDateTime(request.visit_scheduled_at),
-          }))}
-          renderCell={({ column, value }) => (
-            ["urgency", "status"].includes(column.key) ? <StatusText status={value} /> : value
-          )}
-        />
+        <section className="customer-operations__list-section" aria-label="A/S 요청 목록">
+          <OperationsListHeader
+            label="A/S 요청"
+            count={serviceRequests.length}
+            hint="긴급도와 방문 예정일을 함께 확인합니다."
+          />
+          <Table
+            zebra={false}
+            className="customer-operations__table"
+            columns={[
+              { key: "customerName", label: "고객명", width: "17%" },
+              { key: "projectName", label: "현장명", width: "22%" },
+              { key: "problemSpace", label: "문제 공간", width: "18%" },
+              { key: "urgency", label: "긴급도", width: "13%" },
+              { key: "status", label: "상태", width: "14%" },
+              { key: "visitAt", label: "방문 예정일", width: "16%" },
+            ]}
+            rows={serviceRequests.map((request) => ({
+              id: request.id,
+              customerName: getCustomerName(request),
+              projectName: getProjectName(request),
+              problemSpace: request.problem_space || "-",
+              urgency: operationStatusViews.urgency(request.urgency),
+              status: operationStatusViews.service(request.status),
+              visitAt: formatOperationDateTime(request.visit_scheduled_at),
+            }))}
+            renderCell={({ column, value }) => {
+              if (["urgency", "status"].includes(column.key)) {
+                return <StatusText status={value} />;
+              }
+              if (column.key === "visitAt") {
+                return <span className="customer-operations__date-cell">{value}</span>;
+              }
+              return value;
+            }}
+          />
+        </section>
       )}
     </main>
   );

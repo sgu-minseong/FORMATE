@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import PageHeader from "../../components/ui/PageHeader";
 import Table from "../../components/ui/Table";
 import { fetchCustomerMessages } from "./api";
-import { OperationsLoadState, StatusText } from "./components";
+import { OperationsListHeader, OperationsLoadState, StatusText } from "./components";
 import {
   formatOperationDateTime,
   getCustomerName,
@@ -60,31 +60,53 @@ export default function MessagesPage({ companyId }) {
           onRetry={() => setReloadKey((value) => value + 1)}
         />
       ) : (
-        <Table
-          columns={[
-            { key: "messageType", label: "메시지 유형", width: "17%" },
-            { key: "channel", label: "채널", width: "12%" },
-            { key: "customerName", label: "고객명", width: "15%" },
-            { key: "projectName", label: "현장명", width: "22%" },
-            { key: "status", label: "상태", width: "14%" },
-            { key: "createdAt", label: "발송/생성 시각", width: "20%" },
-          ]}
-          rows={messages.map((message) => ({
-            id: message.id,
-            messageType: operationStatusViews.messageType(message.message_type),
-            channel: operationStatusViews.messageChannel(message.channel),
-            customerName: getCustomerName(message),
-            projectName: getProjectName(message),
-            status: operationStatusViews.message(message.status),
-            createdAt: formatOperationDateTime(message.sent_at || message.created_at),
-          }))}
-          renderCell={({ column, value }) => {
-            if (["messageType", "channel", "status"].includes(column.key)) {
-              return <StatusText status={value} />;
-            }
-            return value;
-          }}
-        />
+        <section className="customer-operations__list-section" aria-label="메시지 이력 목록">
+          <OperationsListHeader
+            label="메시지 기록"
+            count={messages.length}
+            hint="최신 생성·발송 기록부터 표시합니다."
+          />
+          <Table
+            zebra={false}
+            className="customer-operations__table customer-operations__table--activity"
+            columns={[
+              { key: "messageType", label: "메시지 유형", width: "20%" },
+              { key: "channel", label: "채널", width: "10%" },
+              { key: "customerName", label: "고객명", width: "14%" },
+              { key: "projectName", label: "현장명", width: "21%" },
+              { key: "status", label: "상태", width: "14%" },
+              { key: "createdAt", label: "발송/생성 시각", width: "21%" },
+            ]}
+            rows={messages.map((message) => ({
+              id: message.id,
+              messageType: operationStatusViews.messageType(message.message_type),
+              messageBody: message.body || "",
+              channel: operationStatusViews.messageChannel(message.channel),
+              customerName: getCustomerName(message),
+              projectName: getProjectName(message),
+              status: operationStatusViews.message(message.status),
+              createdAt: formatOperationDateTime(message.sent_at || message.created_at),
+            }))}
+            renderCell={({ row, column, value }) => {
+              if (column.key === "messageType") {
+                return (
+                  <span className="customer-operations__activity-cell">
+                    <strong>{value.label}</strong>
+                    {row.messageBody ? <span>{row.messageBody}</span> : null}
+                  </span>
+                );
+              }
+              if (column.key === "channel") {
+                return <span className="customer-operations__channel-label">{value.label}</span>;
+              }
+              if (column.key === "status") return <StatusText status={value} />;
+              if (column.key === "createdAt") {
+                return <span className="customer-operations__date-cell">{value}</span>;
+              }
+              return value;
+            }}
+          />
+        </section>
       )}
     </main>
   );

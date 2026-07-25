@@ -53,6 +53,22 @@ export function OperationsLoadState({
   return null;
 }
 
+export function OperationsListHeader({
+  label,
+  count = 0,
+  hint = "",
+}) {
+  return (
+    <div className="customer-operations__list-header">
+      <div className="customer-operations__list-header-title">
+        <strong>{label}</strong>
+        <span>{count}건</span>
+      </div>
+      {hint ? <span className="customer-operations__list-header-hint">{hint}</span> : null}
+    </div>
+  );
+}
+
 export function DetailField({ label, children }) {
   return (
     <span className="customer-operations__detail-field">

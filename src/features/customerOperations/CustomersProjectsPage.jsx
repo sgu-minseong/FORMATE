@@ -5,7 +5,12 @@ import Table from "../../components/ui/Table";
 import ToggleButton from "../../components/ui/ToggleButton";
 import { fetchCustomersProjects } from "./api";
 import { CUSTOMER_DETAIL_TABS } from "./constants";
-import { DetailField, OperationsLoadState, StatusText } from "./components";
+import {
+  DetailField,
+  OperationsListHeader,
+  OperationsLoadState,
+  StatusText,
+} from "./components";
 import {
   formatOperationDateTime,
   getProjectAddress,
@@ -75,59 +80,71 @@ export default function CustomersProjectsPage({ companyId }) {
         />
       ) : (
         <>
-          <Table
-            columns={[
-              { key: "customerName", label: "고객명", width: "14%" },
-              { key: "phone", label: "연락처", width: "14%" },
-              { key: "project", label: "현장명/주소", width: "25%" },
-              { key: "stage", label: "현재 단계", width: "13%" },
-              { key: "estimateCount", label: "견적 수", align: "right", width: "9%" },
-              { key: "openRequestCount", label: "미처리 요청", align: "right", width: "10%" },
-              { key: "recentActivity", label: "최근 활동", width: "15%" },
-            ]}
-            rows={projects.map((project) => {
-              const customer = getRelationRow(project.customer);
-              return {
-                id: project.id,
-                project,
-                selected: project.id === selectedProjectId,
-                customerName: customer?.name || "고객명 미입력",
-                phone: customer?.phone || "-",
-                projectName: project.name || "현장명 미입력",
-                projectAddress: getProjectAddress({ project }),
-                stage: getProjectCurrentStage(project),
-                estimateCount: project.estimateCount,
-                openRequestCount: project.openRequestCount,
-                recentActivity: formatOperationDateTime(project.recentActivityAt),
-              };
-            })}
-            renderCell={({ row, column, value }) => {
-              if (column.key === "customerName") {
-                return (
-                  <button
-                    type="button"
-                    className="customer-operations__row-link"
-                    onClick={() => {
-                      setSelectedProjectId(row.id);
-                      setActiveTab("overview");
-                    }}
-                  >
-                    {value}
-                  </button>
-                );
-              }
-              if (column.key === "project") {
-                return (
-                  <span className="customer-operations__stacked-cell">
-                    <strong>{row.projectName}</strong>
-                    <span>{row.projectAddress}</span>
-                  </span>
-                );
-              }
-              if (column.key === "stage") return <StatusText status={value} />;
-              return value;
-            }}
-          />
+          <section className="customer-operations__list-section" aria-label="고객·현장 목록">
+            <OperationsListHeader
+              label="전체 고객·현장"
+              count={projects.length}
+              hint="고객명을 선택하면 연결된 현장 기록을 확인할 수 있습니다."
+            />
+            <Table
+              zebra={false}
+              className="customer-operations__table"
+              columns={[
+                { key: "customerName", label: "고객명", width: "14%" },
+                { key: "phone", label: "연락처", width: "14%" },
+                { key: "project", label: "현장명/주소", width: "25%" },
+                { key: "stage", label: "현재 단계", width: "13%" },
+                { key: "estimateCount", label: "견적 수", align: "right", width: "9%" },
+                { key: "openRequestCount", label: "미처리 요청", align: "right", width: "10%" },
+                { key: "recentActivity", label: "최근 활동", width: "15%" },
+              ]}
+              rows={projects.map((project) => {
+                const customer = getRelationRow(project.customer);
+                return {
+                  id: project.id,
+                  project,
+                  selected: project.id === selectedProjectId,
+                  customerName: customer?.name || "고객명 미입력",
+                  phone: customer?.phone || "-",
+                  projectName: project.name || "현장명 미입력",
+                  projectAddress: getProjectAddress({ project }),
+                  stage: getProjectCurrentStage(project),
+                  estimateCount: project.estimateCount,
+                  openRequestCount: project.openRequestCount,
+                  recentActivity: formatOperationDateTime(project.recentActivityAt),
+                };
+              })}
+              renderCell={({ row, column, value }) => {
+                if (column.key === "customerName") {
+                  return (
+                    <button
+                      type="button"
+                      className="customer-operations__row-link"
+                      onClick={() => {
+                        setSelectedProjectId(row.id);
+                        setActiveTab("overview");
+                      }}
+                    >
+                      {value}
+                    </button>
+                  );
+                }
+                if (column.key === "project") {
+                  return (
+                    <span className="customer-operations__stacked-cell">
+                      <strong>{row.projectName}</strong>
+                      <span>{row.projectAddress}</span>
+                    </span>
+                  );
+                }
+                if (column.key === "stage") return <StatusText status={value} />;
+                if (column.key === "recentActivity") {
+                  return <span className="customer-operations__date-cell">{value}</span>;
+                }
+                return value;
+              }}
+            />
+          </section>
 
           <section className="customer-operations__detail-panel customer-operations__detail-panel--tabs" aria-label="고객·현장 상세">
             {selectedProject ? (
@@ -136,6 +153,10 @@ export default function CustomersProjectsPage({ companyId }) {
                   <div>
                     <span>{selectedCustomer?.name || "고객명 미입력"}</span>
                     <h2>{selectedProject.name || selectedProject.address || "현장명 미입력"}</h2>
+                    <p className="customer-operations__detail-subtitle">
+                      {getProjectAddress({ project: selectedProject })}
+                      {selectedCustomer?.phone ? ` · ${selectedCustomer.phone}` : ""}
+                    </p>
                   </div>
                   <StatusText status={getProjectCurrentStage(selectedProject)} />
                 </header>

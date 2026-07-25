@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import PageHeader from "../../components/ui/PageHeader";
 import Table from "../../components/ui/Table";
 import { fetchCustomerRequests } from "./api";
-import { DetailField, OperationsLoadState, StatusText } from "./components";
+import {
+  DetailField,
+  OperationsListHeader,
+  OperationsLoadState,
+  StatusText,
+} from "./components";
 import {
   formatOperationDateTime,
   getCustomerName,
@@ -71,42 +76,54 @@ export default function CustomerRequestsPage({ companyId }) {
         />
       ) : (
         <>
-          <Table
-            columns={[
-              { key: "requestType", label: "요청 유형", width: "15%" },
-              { key: "customerName", label: "고객명", width: "14%" },
-              { key: "projectName", label: "현장명", width: "20%" },
-              { key: "status", label: "상태", width: "15%" },
-              { key: "createdAt", label: "접수일", width: "18%" },
-              { key: "estimate", label: "관련 견적", width: "18%" },
-            ]}
-            rows={requests.map((request) => ({
-              id: request.id,
-              request,
-              selected: request.id === selectedRequestId,
-              requestType: operationStatusViews.requestType(request.request_type),
-              customerName: getCustomerName(request),
-              projectName: getProjectName(request),
-              status: operationStatusViews.request(request.status),
-              createdAt: formatOperationDateTime(request.created_at),
-              estimate: getEstimateReference(request),
-            }))}
-            renderCell={({ row, column, value }) => {
-              if (column.key === "requestType") {
-                return (
-                  <button
-                    type="button"
-                    className="customer-operations__row-link"
-                    onClick={() => setSelectedRequestId(row.id)}
-                  >
-                    {value.label}
-                  </button>
-                );
-              }
-              if (column.key === "status") return <StatusText status={value} />;
-              return value;
-            }}
-          />
+          <section className="customer-operations__list-section" aria-label="받은 요청 목록">
+            <OperationsListHeader
+              label="전체 요청"
+              count={requests.length}
+              hint="요청 유형을 선택하면 상세 내용을 확인할 수 있습니다."
+            />
+            <Table
+              zebra={false}
+              className="customer-operations__table"
+              columns={[
+                { key: "requestType", label: "요청 유형", width: "15%" },
+                { key: "customerName", label: "고객명", width: "14%" },
+                { key: "projectName", label: "현장명", width: "20%" },
+                { key: "status", label: "상태", width: "15%" },
+                { key: "createdAt", label: "접수일", width: "18%" },
+                { key: "estimate", label: "관련 견적", width: "18%" },
+              ]}
+              rows={requests.map((request) => ({
+                id: request.id,
+                request,
+                selected: request.id === selectedRequestId,
+                requestType: operationStatusViews.requestType(request.request_type),
+                customerName: getCustomerName(request),
+                projectName: getProjectName(request),
+                status: operationStatusViews.request(request.status),
+                createdAt: formatOperationDateTime(request.created_at),
+                estimate: getEstimateReference(request),
+              }))}
+              renderCell={({ row, column, value }) => {
+                if (column.key === "requestType") {
+                  return (
+                    <button
+                      type="button"
+                      className="customer-operations__row-link"
+                      onClick={() => setSelectedRequestId(row.id)}
+                    >
+                      {value.label}
+                    </button>
+                  );
+                }
+                if (column.key === "status") return <StatusText status={value} />;
+                if (column.key === "createdAt") {
+                  return <span className="customer-operations__date-cell">{value}</span>;
+                }
+                return value;
+              }}
+            />
+          </section>
 
           <section className="customer-operations__detail-panel" aria-label="요청 상세">
             {selectedRequest ? (
@@ -124,9 +141,12 @@ export default function CustomerRequestsPage({ companyId }) {
                   <DetailField label="관련 견적">{getEstimateReference(selectedRequest)}</DetailField>
                   <DetailField label="관련 항목">{selectedRequest.related_item_label}</DetailField>
                 </div>
-                <p className="customer-operations__detail-body">
-                  {selectedRequest.body || "요청 내용이 입력되지 않았습니다."}
-                </p>
+                <div className="customer-operations__detail-content">
+                  <strong>요청 내용</strong>
+                  <p className="customer-operations__detail-body">
+                    {selectedRequest.body || "요청 내용이 입력되지 않았습니다."}
+                  </p>
+                </div>
               </>
             ) : (
               <p className="customer-operations__detail-guide">목록에서 요청 유형을 선택하면 상세 내용을 확인할 수 있습니다.</p>
