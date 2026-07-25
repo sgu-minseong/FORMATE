@@ -11404,7 +11404,7 @@ function AdminApp() {
       )}
 
       {page === CUSTOMER_OPERATIONS_PAGES.REQUESTS && renderAppShell(
-        <CustomerRequestsPage companyId={selectedCompanyId} />
+        <CustomerRequestsPage companyId={selectedCompanyId} onNavigate={setPage} />
       )}
 
       {page === CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS && renderAppShell(

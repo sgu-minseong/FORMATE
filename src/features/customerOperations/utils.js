@@ -14,6 +14,20 @@ import {
   TIMELINE_EVENT_TYPE,
 } from "./constants";
 
+const CUSTOMER_OPERATION_TEXT = {
+  "Customer created": "고객 등록",
+  "Project created": "현장 등록",
+  "Estimate link created": "견적 링크 생성",
+  "Estimate viewed": "견적 열람",
+  "Estimate inquiry": "견적 문의",
+  "Estimate revision request": "견적 수정 요청",
+  "Estimate approved": "견적 확정",
+  "Customer approved estimate": "고객 견적 확정",
+  "The customer approved the estimate": "고객이 견적을 확정했습니다",
+  "The customer approved the estimate.": "고객이 견적을 확정했습니다.",
+  "A customer estimate link was created.": "고객 견적 확인 링크를 생성했습니다.",
+};
+
 export function getRelationRow(value) {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
@@ -56,6 +70,20 @@ export function getEstimateReference(row) {
 
   const estimateId = row?.estimate_id || version?.estimate_id;
   return estimateId ? `견적 ${String(estimateId).slice(0, 8)}` : "-";
+}
+
+export function getEstimateVersionLabel(version) {
+  if (!version) return "-";
+  return version.label || (version.version_no ? `견적 v${version.version_no}` : "-");
+}
+
+export function getCustomerOperationText(value, fallback = "") {
+  if (!value) return fallback;
+  return CUSTOMER_OPERATION_TEXT[value] || value;
+}
+
+export function isOpenCustomerRequest(status) {
+  return !["approved", "rejected", "closed"].includes(status);
 }
 
 export function createStatusView(map, value) {
@@ -152,12 +180,16 @@ export function buildHomeOperationsData({
   estimateVersions = [],
   aftercareSchedules = [],
   timelineEvents = [],
+  summary = {},
 }) {
   const attention = [
     ...requests.map((request) => ({
       id: `request-${request.id}`,
       type: "request",
-      title: request.title || getOperationLabel(REQUEST_TYPE, request.request_type, "고객 요청"),
+      title: getCustomerOperationText(
+        request.title,
+        getOperationLabel(REQUEST_TYPE, request.request_type, "고객 요청")
+      ),
       meta: `${getCustomerName(request)} · ${getProjectName(request)}`,
       status: createStatusView(REQUEST_STATUS, request.status),
       createdAt: request.created_at,
@@ -209,13 +241,26 @@ export function buildHomeOperationsData({
 
   const recentActivity = timelineEvents.map((event) => ({
     id: event.id,
-    title: event.title || getOperationLabel(TIMELINE_EVENT_TYPE, event.event_type, "활동"),
-    description: event.description || `${getCustomerName(event)} · ${getProjectName(event)}`,
+    title: getCustomerOperationText(
+      event.title,
+      getOperationLabel(TIMELINE_EVENT_TYPE, event.event_type, "활동")
+    ),
+    description: getCustomerOperationText(
+      event.description,
+      `${getCustomerName(event)} · ${getProjectName(event)}`
+    ),
     status: createStatusView(TIMELINE_EVENT_TYPE, event.event_type),
     createdAt: event.created_at,
   }));
 
   return {
+    summary: {
+      openRequests: summary.openRequests ?? 0,
+      linksCreatedToday: summary.linksCreatedToday ?? 0,
+      estimateViewsToday: summary.estimateViewsToday ?? 0,
+      revisionRequests: summary.revisionRequests ?? 0,
+      approvalsToday: summary.approvalsToday ?? 0,
+    },
     attention: attention.slice(0, 6),
     inProgress: inProgress.slice(0, 6),
     recentActivity: recentActivity.slice(0, 8),

@@ -1,6 +1,7 @@
-import { AlertCircle, Inbox } from "lucide-react";
+import { AlertCircle, Check, Inbox, Play, XCircle } from "lucide-react";
 import Button from "../../components/ui/Button";
 import EmptyState from "../../components/ui/EmptyState";
+import Input from "../../components/ui/Input";
 
 export function StatusText({ status }) {
   return (
@@ -70,10 +71,75 @@ export function OperationsListHeader({
 }
 
 export function DetailField({ label, children }) {
+  const value = children === null || children === undefined || children === "" ? "-" : children;
+
   return (
     <span className="customer-operations__detail-field">
       <strong>{label}</strong>
-      <span>{children || "-"}</span>
+      <span>{value}</span>
     </span>
+  );
+}
+
+export function RequestProcessingControls({
+  request,
+  memo,
+  onMemoChange,
+  onStatusChange,
+  processing = false,
+  error = "",
+}) {
+  const status = request?.status;
+  const terminal = status === "closed" || status === "rejected";
+  const canStart = status === "received";
+  const canComplete = !!status && !terminal;
+  const canReject = !!status && !terminal && status !== "approved";
+
+  return (
+    <div className="customer-operations__processing">
+      <Input
+        as="textarea"
+        label="관리자 처리 메모"
+        value={memo}
+        maxLength={2000}
+        placeholder="처리 내용이나 확인 사항을 기록합니다."
+        onChange={(event) => onMemoChange(event.target.value)}
+      />
+      <div className="customer-operations__processing-actions">
+        <Button
+          variant="secondary"
+          size="sm"
+          leftIcon={<Play />}
+          disabled={!canStart || processing}
+          onClick={() => onStatusChange("reviewing")}
+        >
+          처리 시작
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          leftIcon={<Check />}
+          disabled={!canComplete || processing}
+          onClick={() => onStatusChange("closed")}
+        >
+          처리 완료
+        </Button>
+        <Button
+          variant="danger"
+          size="sm"
+          leftIcon={<XCircle />}
+          disabled={!canReject || processing}
+          onClick={() => onStatusChange("rejected")}
+        >
+          반려/종료
+        </Button>
+      </div>
+      {terminal ? (
+        <span className="customer-operations__processing-note">
+          종료된 요청은 상태를 다시 변경하지 않습니다.
+        </span>
+      ) : null}
+      {error ? <p className="customer-operations__inline-error" role="alert">{error}</p> : null}
+    </div>
   );
 }

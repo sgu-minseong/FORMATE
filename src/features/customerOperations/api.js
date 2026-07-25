@@ -22,6 +22,16 @@ function unwrap(result) {
   return result.data ?? [];
 }
 
+function unwrapSingle(result) {
+  if (result.error) throw result.error;
+  return result.data ?? null;
+}
+
+function unwrapCount(result) {
+  if (result.error) throw result.error;
+  return result.count ?? 0;
+}
+
 export async function fetchCustomerRequests(companyId) {
   assertCustomerOperationsQuery(companyId);
 
@@ -49,6 +59,127 @@ export async function fetchCustomerRequests(companyId) {
     `)
     .eq("company_id", companyId)
     .order("created_at", { ascending: false }));
+}
+
+export async function updateCustomerRequestStatus({
+  companyId,
+  requestId,
+  status,
+  internalMemo = "",
+}) {
+  assertCustomerOperationsQuery(companyId);
+
+  if (!requestId) {
+    throw new Error("처리할 요청을 확인할 수 없습니다.");
+  }
+
+  const allowedStatuses = [
+    "received",
+    "reviewing",
+    "pricing",
+    "awaiting_customer_approval",
+    "approved",
+    "rejected",
+    "closed",
+  ];
+
+  if (!allowedStatuses.includes(status)) {
+    throw new Error("변경할 수 없는 요청 상태입니다.");
+  }
+
+  const currentRequest = unwrapSingle(await supabase
+    .from("customer_requests")
+    .select(`
+      id,
+      company_id,
+      customer_id,
+      project_id,
+      estimate_id,
+      estimate_version_id,
+      status,
+      internal_memo
+    `)
+    .eq("company_id", companyId)
+    .eq("id", requestId)
+    .single());
+
+  if (!currentRequest) {
+    throw new Error("요청을 찾을 수 없습니다.");
+  }
+
+  const nextMemo = `${internalMemo ?? ""}`.trim();
+  const updatedRequest = unwrapSingle(await supabase
+    .from("customer_requests")
+    .update({
+      status,
+      internal_memo: nextMemo,
+    })
+    .eq("company_id", companyId)
+    .eq("id", requestId)
+    .select(`
+      id,
+      company_id,
+      customer_id,
+      project_id,
+      estimate_id,
+      estimate_version_id,
+      request_type,
+      status,
+      title,
+      body,
+      related_item_label,
+      customer_visible,
+      internal_memo,
+      created_at,
+      updated_at,
+      customer:customers(id, name, phone),
+      project:projects(id, name, address, detail_address),
+      estimate_version:estimate_versions(id, estimate_id, version_no, label, status)
+    `)
+    .single());
+
+  const timelineResult = await supabase
+    .from("timeline_events")
+    .insert({
+      company_id: companyId,
+      customer_id: currentRequest.customer_id,
+      project_id: currentRequest.project_id,
+      estimate_id: currentRequest.estimate_id,
+      estimate_version_id: currentRequest.estimate_version_id,
+      customer_request_id: currentRequest.id,
+      event_type: "request_updated",
+      title: "요청 처리 상태 변경",
+      description: nextMemo || `${currentRequest.status}에서 ${status}(으)로 변경`,
+      metadata: {
+        previousStatus: currentRequest.status,
+        status,
+        source: "admin",
+      },
+    });
+
+  if (timelineResult.error) {
+    await supabase
+      .from("customer_requests")
+      .update({
+        status: currentRequest.status,
+        internal_memo: currentRequest.internal_memo,
+      })
+      .eq("company_id", companyId)
+      .eq("id", requestId);
+    throw timelineResult.error;
+  }
+
+  if (status !== "received") {
+    await supabase
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("company_id", companyId)
+      .eq("related_type", "customer_request")
+      .eq("related_id", requestId)
+      .is("read_at", null);
+  }
+
+  return updatedRequest;
 }
 
 export async function fetchCustomersProjects(companyId) {
@@ -101,6 +232,151 @@ export async function fetchCustomersProjects(companyId) {
   });
 }
 
+export async function fetchCustomerProjectDetail({
+  companyId,
+  customerId,
+  projectId,
+}) {
+  assertCustomerOperationsQuery(companyId);
+
+  if (!customerId || !projectId) {
+    throw new Error("고객·현장 정보를 확인할 수 없습니다.");
+  }
+
+  const [
+    projectResult,
+    versionsResult,
+    requestsResult,
+    messagesResult,
+    timelineResult,
+    accessTokensResult,
+  ] = await Promise.all([
+    supabase
+      .from("projects")
+      .select(`
+        id,
+        company_id,
+        customer_id,
+        name,
+        address,
+        detail_address,
+        estimate_status,
+        contract_status,
+        construction_status,
+        aftercare_status,
+        service_status,
+        construction_start_date,
+        construction_completed_date,
+        memo,
+        created_at,
+        updated_at,
+        customer:customers(id, name, phone, email, memo)
+      `)
+      .eq("company_id", companyId)
+      .eq("customer_id", customerId)
+      .eq("id", projectId)
+      .single(),
+    supabase
+      .from("estimate_versions")
+      .select(`
+        id,
+        estimate_id,
+        customer_id,
+        project_id,
+        version_no,
+        label,
+        status,
+        total_amount,
+        estimated_construction_days,
+        approved_at,
+        viewed_at,
+        sent_at,
+        created_at
+      `)
+      .eq("company_id", companyId)
+      .eq("customer_id", customerId)
+      .eq("project_id", projectId)
+      .order("version_no", { ascending: false }),
+    supabase
+      .from("customer_requests")
+      .select(`
+        id,
+        company_id,
+        customer_id,
+        project_id,
+        estimate_id,
+        estimate_version_id,
+        request_type,
+        status,
+        title,
+        body,
+        related_item_label,
+        customer_visible,
+        internal_memo,
+        created_at,
+        updated_at,
+        estimate_version:estimate_versions(id, estimate_id, version_no, label, status)
+      `)
+      .eq("company_id", companyId)
+      .eq("customer_id", customerId)
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("customer_messages")
+      .select(`
+        id,
+        customer_request_id,
+        estimate_version_id,
+        message_type,
+        channel,
+        body,
+        status,
+        sent_at,
+        clicked_at,
+        responded_at,
+        failure_reason,
+        created_at,
+        estimate_version:estimate_versions(id, version_no, label, status)
+      `)
+      .eq("company_id", companyId)
+      .eq("customer_id", customerId)
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("timeline_events")
+      .select(`
+        id,
+        estimate_id,
+        estimate_version_id,
+        customer_request_id,
+        event_type,
+        title,
+        description,
+        metadata,
+        created_at
+      `)
+      .eq("company_id", companyId)
+      .eq("customer_id", customerId)
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("customer_access_tokens")
+      .select("id, estimate_version_id, status, expires_at, revoked_at, created_at")
+      .eq("company_id", companyId)
+      .eq("customer_id", customerId)
+      .eq("project_id", projectId),
+  ]);
+
+  return {
+    project: unwrapSingle(projectResult),
+    estimateVersions: unwrap(versionsResult),
+    requests: unwrap(requestsResult),
+    messages: unwrap(messagesResult),
+    timelineEvents: unwrap(timelineResult),
+    accessTokens: unwrap(accessTokensResult),
+  };
+}
+
 export async function fetchCustomerMessages(companyId) {
   assertCustomerOperationsQuery(companyId);
 
@@ -125,7 +401,8 @@ export async function fetchCustomerMessages(companyId) {
       failure_reason,
       created_at,
       customer:customers(id, name, phone),
-      project:projects(id, name, address)
+      project:projects(id, name, address),
+      estimate_version:estimate_versions(id, version_no, label, status)
     `)
     .eq("company_id", companyId)
     .order("created_at", { ascending: false }));
@@ -191,6 +468,10 @@ export async function fetchAftercareAndService(companyId) {
 export async function fetchHomeCustomerOperations(companyId) {
   assertCustomerOperationsQuery(companyId);
 
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayIso = today.toISOString();
+
   const [
     requestsResult,
     servicesResult,
@@ -199,6 +480,11 @@ export async function fetchHomeCustomerOperations(companyId) {
     versionsResult,
     aftercareResult,
     timelineResult,
+    openRequestsCountResult,
+    linksCreatedCountResult,
+    estimateViewsCountResult,
+    revisionRequestsCountResult,
+    approvalsCountResult,
   ] = await Promise.all([
     supabase
       .from("customer_requests")
@@ -271,6 +557,36 @@ export async function fetchHomeCustomerOperations(companyId) {
       .eq("company_id", companyId)
       .order("created_at", { ascending: false })
       .limit(8),
+    supabase
+      .from("customer_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .in("status", HOME_ATTENTION_REQUEST_STATUSES),
+    supabase
+      .from("customer_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("message_type", "estimate_link")
+      .gte("created_at", todayIso),
+    supabase
+      .from("timeline_events")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("event_type", "estimate_viewed")
+      .gte("created_at", todayIso),
+    supabase
+      .from("customer_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("request_type", "estimate_revision")
+      .in("status", HOME_ATTENTION_REQUEST_STATUSES),
+    supabase
+      .from("customer_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("request_type", "approval")
+      .eq("status", "approved")
+      .gte("created_at", todayIso),
   ]);
 
   return buildHomeOperationsData({
@@ -281,6 +597,13 @@ export async function fetchHomeCustomerOperations(companyId) {
     estimateVersions: unwrap(versionsResult),
     aftercareSchedules: unwrap(aftercareResult),
     timelineEvents: unwrap(timelineResult),
+    summary: {
+      openRequests: unwrapCount(openRequestsCountResult),
+      linksCreatedToday: unwrapCount(linksCreatedCountResult),
+      estimateViewsToday: unwrapCount(estimateViewsCountResult),
+      revisionRequests: unwrapCount(revisionRequestsCountResult),
+      approvalsToday: unwrapCount(approvalsCountResult),
+    },
   });
 }
 
