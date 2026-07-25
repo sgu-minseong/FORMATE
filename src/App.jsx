@@ -1347,6 +1347,22 @@ function getEstimateItemsDataMeta(itemsData) {
     : {};
 }
 
+function getEstimateItemsDataConstructionDaysTotal(itemsData) {
+  if (itemsData && typeof itemsData === "object" && !Array.isArray(itemsData)) {
+    if (Object.prototype.hasOwnProperty.call(itemsData, "constructionDaysTotal")) {
+      return toConstructionDays(itemsData.constructionDaysTotal);
+    }
+    if (Object.prototype.hasOwnProperty.call(itemsData, "construction_days_total")) {
+      return toConstructionDays(itemsData.construction_days_total);
+    }
+  }
+
+  return getEstimateItemsDataItems(itemsData).reduce(
+    (sum, item) => sum + toConstructionDays(item?.construction_days ?? item?.constructionDays),
+    0
+  );
+}
+
 function getAiSaveTargetName(target) {
   const categoryName = formatExcelCellValue(target?.selectedCategoryName ?? target?.categoryName ?? target?.sourceCategory).trim();
   const itemName = formatExcelCellValue(target?.selectedSubitemName ?? target?.subitemName ?? target?.sourceItemName).trim();
@@ -14656,10 +14672,11 @@ export default function App() {
               <Table
                 className="saved-estimates-table"
                 columns={[
-                  { key: "customer", label: "고객명", width: "18%" },
-                  { key: "address", label: "현장 주소", width: "30%" },
-                  { key: "createdAt", label: "작성일", width: "13%" },
-                  { key: "constructionDate", label: "시공 예정일", width: "13%" },
+                  { key: "customer", label: "고객명", width: "16%" },
+                  { key: "address", label: "현장 주소", width: "25%" },
+                  { key: "createdAt", label: "작성일", width: "11%" },
+                  { key: "constructionDays", label: "예상시공일", align: "right", width: "10%" },
+                  { key: "constructionDate", label: "시공 예정일", width: "12%" },
                   { key: "amount", label: "총액", align: "right", width: "12%" },
                   { key: "actions", label: "작업", align: "right", width: "14%" },
                 ]}
@@ -14669,6 +14686,7 @@ export default function App() {
                   customer: getSavedEstimateCustomerName(estimate) || "고객명 미입력",
                   address: estimate.address || "주소 미입력",
                   createdAt: estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-",
+                  constructionDays: getEstimateItemsDataConstructionDaysTotal(estimate.items_data),
                   constructionDate: estimate.construction_date || "-",
                   amount: estimate.total_amount || 0,
                 }))}
@@ -14683,6 +14701,12 @@ export default function App() {
 
                   if (column.key === "amount") {
                     return <PriceText value={value} size="sm" />;
+                  }
+
+                  if (column.key === "constructionDays") {
+                    return value > 0
+                      ? <PriceText value={value} unit="일" size="sm" />
+                      : <span className="saved-estimate-muted">-</span>;
                   }
 
                   if (column.key === "actions") {
