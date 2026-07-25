@@ -117,6 +117,20 @@ function getAttentionType(item) {
   return { label: "일반 문의", icon: MessageSquareText };
 }
 
+function getAttentionSignal(item) {
+  if (item.rawStatus === "reviewing" || item.rawStatus === "in_progress") return "progress";
+  if (item.requestType === "estimate_revision" || item.requestType === "change_request") return "warning";
+  if (item.rawStatus === "received") return "info";
+  return "muted";
+}
+
+function getProgressSignal(item) {
+  if (item.rawStatus === "in_progress" || item.rawStatus === "active") return "progress";
+  if (item.rawStatus === "revision_requested" || item.rawStatus === "reviewing") return "warning";
+  if (item.rawStatus === "scheduled" || item.rawStatus === "sent" || item.rawStatus === "viewed") return "info";
+  return "muted";
+}
+
 function normalizeActivityType(item) {
   const eventType = `${item.eventType || ""}`.trim().toLowerCase();
   const signal = `${eventType} ${item.title || ""}`
@@ -158,42 +172,42 @@ function getActivityPresentation(item) {
   const type = normalizeActivityType(item);
 
   if (type === "customer_created") {
-    return { type, title: "고객을 등록했습니다", icon: Activity };
+    return { type, title: "고객을 등록했습니다", icon: Activity, signal: "muted", priority: 2 };
   }
   if (type === "project_created") {
-    return { type, title: "현장을 등록했습니다", icon: Activity };
+    return { type, title: "현장을 등록했습니다", icon: Activity, signal: "muted", priority: 2 };
   }
   if (type === "estimate_link_created") {
-    return { type, title: "견적 링크를 생성했습니다", icon: Link2 };
+    return { type, title: "견적 링크를 생성했습니다", icon: Link2, signal: "info", priority: 0 };
   }
   if (type === "estimate_viewed") {
-    return { type, title: "고객이 견적을 확인했습니다", icon: Eye };
+    return { type, title: "고객이 견적을 확인했습니다", icon: Eye, signal: "info", priority: 0 };
   }
   if (type === "estimate_approved") {
-    return { type, title: "고객이 견적을 확정했습니다", icon: CircleCheck };
+    return { type, title: "고객이 견적을 확정했습니다", icon: CircleCheck, signal: "success", priority: 0 };
   }
   if (type === "request_received") {
-    return { type, title: "고객 요청이 접수되었습니다", icon: MessageSquareText };
+    return { type, title: "고객 요청이 접수되었습니다", icon: MessageSquareText, signal: "warning", priority: 1 };
   }
   if (type === "request_updated") {
-    return { type, title: "고객 요청 처리 상태가 변경되었습니다", icon: CircleCheck };
+    return { type, title: "고객 요청 처리 상태가 변경되었습니다", icon: CircleCheck, signal: "progress", priority: 0 };
   }
   if (type === "message_created") {
-    return { type, title: "고객 메시지가 등록되었습니다", icon: MessageSquareText };
+    return { type, title: "고객 메시지가 등록되었습니다", icon: MessageSquareText, signal: "info", priority: 1 };
   }
   if (type === "construction_updated") {
-    return { type, title: "현장 공사 상태가 변경되었습니다", icon: Hammer };
+    return { type, title: "현장 공사 상태가 변경되었습니다", icon: Hammer, signal: "progress", priority: 0 };
   }
   if (type === "link_shared") {
-    return { type, title: "견적 링크를 공유했습니다", icon: Link2 };
+    return { type, title: "견적 링크를 공유했습니다", icon: Link2, signal: "info", priority: 1 };
   }
   if (type === "manual") {
-    return { type, title: "고객 활동을 기록했습니다", icon: Activity };
+    return { type, title: "고객 활동을 기록했습니다", icon: Activity, signal: "muted", priority: 2 };
   }
   if (/[가-힣]/.test(item.title || "")) {
-    return { type, title: item.title, icon: Activity };
+    return { type, title: item.title, icon: Activity, signal: "muted", priority: 2 };
   }
-  return { type, title: "새 활동이 기록되었습니다", icon: Activity };
+  return { type: "unknown", title: "", icon: Activity, signal: "muted", priority: 3 };
 }
 
 function getActivityDedupKey(item, activityType) {
@@ -264,11 +278,12 @@ function OverviewState({ loading, error, emptyText }) {
 function AttentionRow({ item, onClick }) {
   const typeView = getAttentionType(item);
   const TypeIcon = typeView.icon;
+  const signal = getAttentionSignal(item);
 
   return (
     <button
       type="button"
-      className="customer-operations-home-priority__attention-row"
+      className={`customer-operations-home-priority__attention-row is-signal-${signal}`}
       onClick={onClick}
     >
       <span className="customer-operations-home-priority__row-top">
@@ -278,11 +293,11 @@ function AttentionRow({ item, onClick }) {
         </span>
         <time>{formatRelativeTime(item.createdAt)}</time>
       </span>
-      <strong>{item.title}</strong>
-      <span className="customer-operations-home-priority__row-meta">
-        <span>{item.meta}</span>
+      <span className="customer-operations-home-priority__row-title">
+        <strong>{item.title}</strong>
         <StatusText status={item.status} />
       </span>
+      <span className="customer-operations-home-priority__row-meta">{item.meta}</span>
     </button>
   );
 }
@@ -294,25 +309,33 @@ function ProgressRow({ item, onClick }) {
   const customerLabel = item.customerName && item.customerName !== "고객명 미입력"
     ? `${item.customerName} 고객`
     : "고객 정보 없음";
+  const projectAddress = item.projectAddress && item.projectAddress !== projectTitle
+    ? item.projectAddress
+    : "";
+  const signal = getProgressSignal(item);
 
   return (
     <button
       type="button"
-      className="customer-operations-home-priority__progress-row"
+      className={`customer-operations-home-priority__progress-row is-signal-${signal}`}
       onClick={onClick}
     >
-      <strong>{projectTitle}</strong>
-      <span>
-        {customerLabel}
-        {" · "}
+      <span className="customer-operations-home-priority__progress-title">
+        <strong>{projectTitle}</strong>
         <StatusText status={item.status} />
       </span>
+      <span>{[customerLabel, projectAddress].filter(Boolean).join(" · ")}</span>
       <time>최근 활동 {formatRelativeTime(item.createdAt)}</time>
     </button>
   );
 }
 
-export default function HomeOperationsOverview({ companyId, onNavigate }) {
+export default function HomeOperationsOverview({
+  companyId,
+  onNavigate,
+  headerAction = null,
+  recentEstimates = null,
+}) {
   const [data, setData] = useState(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -354,7 +377,7 @@ export default function HomeOperationsOverview({ companyId, onNavigate }) {
       return rightTime - leftTime;
     }), [data.attention]);
 
-  const attentionItems = actionableItems.slice(0, 6);
+  const attentionItems = actionableItems.slice(0, 5);
   const actionableCount = actionableItems.length;
   const actionableRevisionCount = actionableItems.filter(
     (item) => item.type === "request" && item.requestType === "estimate_revision"
@@ -376,7 +399,7 @@ export default function HomeOperationsOverview({ companyId, onNavigate }) {
         seenProjects.add(projectKey);
         return true;
       })
-      .slice(0, 5);
+      .slice(0, 4);
   }, [data.inProgress]);
 
   const activityItems = useMemo(() => {
@@ -390,6 +413,7 @@ export default function HomeOperationsOverview({ companyId, onNavigate }) {
       };
       if (INTERNAL_ACTIVITY_TYPES.has(item.eventType)) return;
       if (item.presentation.type === "request_received") return;
+      if (item.presentation.type === "unknown" || item.presentation.type === "manual") return;
 
       const key = getActivityDedupKey(item, item.presentation.type);
       if (seen.has(key)) return;
@@ -399,7 +423,13 @@ export default function HomeOperationsOverview({ companyId, onNavigate }) {
       uniqueItems.push(item);
     });
 
-    return uniqueItems.slice(0, 8);
+    return uniqueItems
+      .sort((left, right) => {
+        const priorityDifference = left.presentation.priority - right.presentation.priority;
+        if (priorityDifference !== 0) return priorityDifference;
+        return (new Date(right.createdAt).getTime() || 0) - (new Date(left.createdAt).getTime() || 0);
+      })
+      .slice(0, 5);
   }, [data.recentActivity]);
 
   const summaryUnavailable = loading || !!error;
@@ -408,28 +438,28 @@ export default function HomeOperationsOverview({ companyId, onNavigate }) {
   return (
     <section className="customer-operations-home-priority" aria-label="오늘의 고객 운영 업무">
       <header className="customer-operations-home-priority__intro">
-        <div>
-          <h2>안녕하세요, {displayName}님</h2>
-          <p>
-            {formatHomeDate()}
-            {" · "}
-            {summaryUnavailable
-              ? "고객 업무를 확인하고 있습니다"
-              : actionableCount > 0
-                ? `처리할 요청 ${actionableCount}건`
-                : "처리할 요청이 없습니다"}
-          </p>
+        <div className="customer-operations-home-priority__intro-main">
+          <div>
+            <h1>안녕하세요, {displayName}님</h1>
+            <p>{formatHomeDate()}</p>
+          </div>
+          {headerAction ? (
+            <div className="customer-operations-home-priority__intro-action">{headerAction}</div>
+          ) : null}
         </div>
         <div className="customer-operations-home-priority__summary" aria-label="고객 운영 요약">
-          <button type="button" onClick={() => onNavigate?.(CUSTOMER_OPERATIONS_PAGES.REQUESTS)}>
+          <button className="is-info" type="button" onClick={() => onNavigate?.(CUSTOMER_OPERATIONS_PAGES.REQUESTS)}>
+            <i aria-hidden="true" />
             처리할 요청 <strong>{summaryUnavailable ? "-" : `${actionableCount}건`}</strong>
           </button>
           <span aria-hidden="true">·</span>
-          <button type="button" onClick={() => onNavigate?.(CUSTOMER_OPERATIONS_PAGES.REQUESTS)}>
+          <button className="is-warning" type="button" onClick={() => onNavigate?.(CUSTOMER_OPERATIONS_PAGES.REQUESTS)}>
+            <i aria-hidden="true" />
             수정 요청 <strong>{summaryUnavailable ? "-" : `${actionableRevisionCount}건`}</strong>
           </button>
           <span aria-hidden="true">·</span>
-          <button type="button" onClick={() => onNavigate?.(CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS)}>
+          <button className="is-success" type="button" onClick={() => onNavigate?.(CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS)}>
+            <i aria-hidden="true" />
             오늘 견적 확정 <strong>{summaryUnavailable ? "-" : `${data.summary.approvalsToday}건`}</strong>
           </button>
         </div>
@@ -501,36 +531,44 @@ export default function HomeOperationsOverview({ companyId, onNavigate }) {
         </section>
       </section>
 
-      <section className="customer-operations-home-priority__activity" aria-labelledby="home-activity-title">
-        <header>
-          <h3 id="home-activity-title">최근 활동</h3>
-        </header>
-        {loading || error || activityItems.length === 0 ? (
-          <OverviewState
-            loading={loading}
-            error={error}
-            emptyText="아직 기록된 활동이 없습니다"
-          />
-        ) : (
-          <div className="customer-operations-home-priority__activity-list">
-            {activityItems.map((item) => {
-              const presentation = item.presentation;
-              const ActivityIcon = presentation.icon;
-              const meta = getSafeActivityMeta(item);
+      <section className="customer-operations-home-priority__secondary-workspace" aria-label="최근 업무 기록">
+        <section className="customer-operations-home-priority__activity" aria-labelledby="home-activity-title">
+          <header>
+            <h3 id="home-activity-title">최근 활동</h3>
+          </header>
+          {loading || error || activityItems.length === 0 ? (
+            <OverviewState
+              loading={loading}
+              error={error}
+              emptyText="아직 기록된 활동이 없습니다"
+            />
+          ) : (
+            <div className="customer-operations-home-priority__activity-list">
+              {activityItems.map((item) => {
+                const presentation = item.presentation;
+                const ActivityIcon = presentation.icon;
+                const meta = getSafeActivityMeta(item);
 
-              return (
-                <div className="customer-operations-home-priority__activity-row" key={item.id}>
-                  <ActivityIcon size={16} strokeWidth={1.5} aria-hidden="true" />
-                  <span>
-                    <strong>{presentation.title}</strong>
-                    {meta ? <small>{meta}</small> : null}
-                  </span>
-                  <time>{formatRelativeTime(item.createdAt)}</time>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                return (
+                  <div
+                    className={`customer-operations-home-priority__activity-row is-signal-${presentation.signal}`}
+                    key={item.id}
+                  >
+                    <ActivityIcon size={16} strokeWidth={1.5} aria-hidden="true" />
+                    <span>
+                      <strong>{presentation.title}</strong>
+                      {meta ? <small>{meta}</small> : null}
+                    </span>
+                    <time>{formatRelativeTime(item.createdAt)}</time>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+        <section className="customer-operations-home-priority__recent-estimates" aria-labelledby="home-recent-estimates-title">
+          {recentEstimates}
+        </section>
       </section>
     </section>
   );

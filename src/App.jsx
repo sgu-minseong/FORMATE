@@ -1429,6 +1429,24 @@ function getSavedEstimateDisplayDate(estimate) {
   });
 }
 
+function getHomeEstimateStatusView(estimate) {
+  const estimateMeta = getEstimateItemsDataMeta(estimate?.items_data);
+  const status = `${estimate?.status ?? estimateMeta.status ?? estimateMeta.estimateStatus ?? ""}`
+    .trim()
+    .toLowerCase();
+
+  if (status === "approved") return { label: "확정", tone: "success" };
+  if (status === "viewed") return { label: "고객 열람", tone: "info" };
+  if (status === "sent" || status === "revision_requested") {
+    return { label: status === "sent" ? "고객 검토 중" : "수정 요청", tone: "warning" };
+  }
+  if (status === "expired" || status === "cancelled") {
+    return { label: status === "expired" ? "만료" : "취소", tone: "danger" };
+  }
+  if (status === "draft") return { label: "초안", tone: "muted" };
+  return { label: "저장됨", tone: "muted" };
+}
+
 function HomePlaceholderWidget({ title }) {
   // TODO: 이 위젯은 UI 껍데기만 존재합니다. "처리 필요"/"진행 중"
   // 기능(고객 요청, 승인 상태 등)은 아직 설계/구현되지 않았습니다.
@@ -11255,14 +11273,14 @@ function AdminApp() {
       {page === "landing" && renderAppShell(
         <main className="landing work-home work-home-flat">
           <section className="work-home-content">
-            <PageHeader
-              title="홈"
-              description="오늘 처리할 견적과 고객 업무를 확인하세요."
-              className="work-home-heading"
-              actions={
+            <HomeOperationsOverview
+              companyId={selectedCompanyId}
+              onNavigate={setPage}
+              headerAction={
                 <Button
                   variant="primary"
                   leftIcon={<Plus />}
+                  className="customer-operations-home-priority__create-estimate"
                   onClick={() => {
                     resetEstimateDraftForNewStart();
                     setEstimateConditionDrawerOpen(true);
@@ -11273,81 +11291,78 @@ function AdminApp() {
                   새 견적서 작성
                 </Button>
               }
+              recentEstimates={
+                <>
+                  <header>
+                    <h3 id="home-recent-estimates-title">최근 견적</h3>
+                    <button type="button" className="home-text-link" onClick={() => setPage("admin-estimates")}>
+                      전체 보기
+                    </button>
+                  </header>
+                  {recentHomeEstimates.length > 0 ? (
+                    <div className="customer-operations-home-priority__estimate-list">
+                      {recentHomeEstimates.slice(0, 4).map((estimate) => {
+                        const estimateMeta = getEstimateItemsDataMeta(estimate.items_data);
+                        const customerName = getSavedEstimateCustomerName(estimate);
+                        const address = `${estimate.address ?? ""}`.trim();
+                        const title = address || customerName || "견적 정보";
+                        const estimateNumber = `${estimateMeta.estimateNumber ?? ""}`.trim();
+                        const constructionDays = getEstimateItemsDataConstructionDaysTotal(estimate.items_data);
+                        const statusView = getHomeEstimateStatusView(estimate);
+                        const totalAmount = toNonNegativeNumberOrZero(estimate.total_amount);
+                        const showZeroAmount = statusView.tone === "success";
+                        const displayDate = getSavedEstimateDisplayDate(estimate);
+                        const metadata = [
+                          estimateNumber,
+                          displayDate !== "-" ? displayDate : "",
+                          constructionDays > 0 ? `예상 ${constructionDays}일` : "",
+                          estimate.construction_date ? `시공 ${estimate.construction_date}` : "",
+                        ].filter(Boolean);
+
+                        return (
+                          <article className="customer-operations-home-priority__estimate-row" key={estimate.id}>
+                            <span className="customer-operations-home-priority__estimate-copy">
+                              <strong className={title === "견적 정보" ? "is-fallback" : ""}>{title}</strong>
+                              {address && customerName ? <small>{customerName} 고객</small> : null}
+                              <small>{metadata.join(" · ")}</small>
+                            </span>
+                            <span className="customer-operations-home-priority__estimate-side">
+                              {totalAmount > 0 || showZeroAmount
+                                ? <PriceText value={totalAmount} size="sm" />
+                                : <strong className="is-undecided">금액 미정</strong>}
+                              <span className={`customer-operations-home-priority__estimate-status is-${statusView.tone}`}>
+                                <i aria-hidden="true" />
+                                {statusView.label}
+                              </span>
+                            </span>
+                            <span className="customer-operations-home-priority__estimate-actions">
+                              <button
+                                type="button"
+                                className="home-text-action"
+                                onClick={() => setSelectedEstimate(estimate)}
+                              >
+                                확인
+                              </button>
+                              <button
+                                type="button"
+                                className="home-text-action"
+                                onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
+                              >
+                                이어서 작성
+                              </button>
+                            </span>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="customer-operations-home-priority__state">
+                      최근 저장 견적이 없습니다
+                    </div>
+                  )}
+                </>
+              }
             />
-
-            <HomeOperationsOverview companyId={selectedCompanyId} onNavigate={setPage} />
-
-            <section className="home-recent-estimates" aria-labelledby="home-recent-estimates-title">
-              <div className="home-section-head">
-                <h2 id="home-recent-estimates-title">최근 견적</h2>
-                <button type="button" className="home-text-link" onClick={() => setPage("admin-estimates")}>
-                  전체 보기
-                </button>
-              </div>
-              {recentHomeEstimates.length > 0 ? (
-                <div className="home-estimate-table" role="table" aria-label="최근 견적">
-                  <div className="home-estimate-table__header" role="row">
-                    <span role="columnheader">고객명</span>
-                    <span role="columnheader">현장 주소</span>
-                    <span role="columnheader" className="home-date-cell">작성일</span>
-                    <span role="columnheader" className="home-number-cell">예상시공일</span>
-                    <span role="columnheader" className="home-date-cell">시공 예정일</span>
-                    <span role="columnheader" className="home-number-cell">총액</span>
-                    <span role="columnheader" className="home-action-cell">견적서 확인</span>
-                    <span role="columnheader" className="home-action-cell">이어서 작성</span>
-                  </div>
-                  {recentHomeEstimates.map((estimate) => {
-                    const customerName = getSavedEstimateCustomerName(estimate);
-                    const constructionDays = getEstimateItemsDataConstructionDaysTotal(estimate.items_data);
-
-                    return (
-                      <div className="home-estimate-table__row" role="row" key={estimate.id}>
-                        <span className="home-estimate-customer" role="cell">
-                          <strong>{customerName || "고객명 미입력"}</strong>
-                        </span>
-                        <span className={`home-estimate-address ${estimate.address ? "" : "saved-estimate-muted"}`.trim()} role="cell">
-                          {estimate.address || "주소 미입력"}
-                        </span>
-                        <span role="cell" className="home-date-cell">{getSavedEstimateDisplayDate(estimate)}</span>
-                        <span role="cell" className="home-number-cell">
-                          {constructionDays > 0
-                            ? <PriceText value={constructionDays} unit="일" size="sm" />
-                            : <span className="saved-estimate-muted">-</span>}
-                        </span>
-                        <span role="cell" className="home-date-cell">{estimate.construction_date || "-"}</span>
-                        <span role="cell" className="home-number-cell">
-                          <PriceText value={estimate.total_amount || 0} size="sm" />
-                        </span>
-                        <span role="cell" className="home-action-cell">
-                          <button
-                            type="button"
-                            className="home-text-action"
-                            onClick={() => setSelectedEstimate(estimate)}
-                          >
-                            확인
-                          </button>
-                        </span>
-                        <span role="cell" className="home-action-cell">
-                          <button
-                            type="button"
-                            className="home-text-action"
-                            onClick={() => loadSavedEstimateDraft(estimate, { copy: true, destination: "items" })}
-                          >
-                            이어서 작성
-                          </button>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptyState
-                  title="최근 저장 견적이 없습니다."
-                  description="새 견적서를 작성하면 이곳에 표시됩니다."
-                  className="home-empty-state"
-                />
-              )}
-            </section>
           </section>
 
           {selectedEstimate && (
@@ -24371,14 +24386,13 @@ const styles = `
   .formate-app-shell__workspace-header {
     flex: 0 0 auto;
     padding-bottom: var(--space-1);
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
   .formate-app-shell__nav-section-title {
-    color: var(--color-text-muted);
+    color: rgba(255, 255, 255, 0.42);
     font-size: 12px;
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-medium);
     line-height: var(--line-height-caption);
-    text-transform: uppercase;
   }
   .formate-app-shell--home-workspace {
     min-height: 100dvh;
@@ -24394,7 +24408,7 @@ const styles = `
   }
   .formate-app-shell--home-workspace .formate-app-shell__main {
     padding: 0;
-    background: var(--color-surface);
+    background: var(--color-bg);
   }
   .home-sidebar-workspace {
     display: grid;
@@ -24402,7 +24416,7 @@ const styles = `
     align-items: center;
     gap: var(--space-1);
     min-height: 44px;
-    color: var(--color-text-primary);
+    color: rgba(255, 255, 255, 0.94);
   }
   .home-sidebar-workspace img {
     width: 32px;
@@ -24424,7 +24438,7 @@ const styles = `
   }
   .home-sidebar-workspace em {
     overflow: hidden;
-    color: var(--color-text-secondary);
+    color: rgba(255, 255, 255, 0.58);
     font-size: var(--font-size-caption);
     font-style: normal;
     line-height: var(--line-height-caption);
@@ -24449,7 +24463,7 @@ const styles = `
     min-height: 48px;
     padding: 0 var(--space-page-x);
     border-bottom: 1px solid var(--color-border);
-    background: var(--color-surface);
+    background: var(--color-bg);
   }
   .formate-global-topbar {
     position: relative;
@@ -24461,6 +24475,7 @@ const styles = `
     width: 100%;
     height: 56px;
     min-height: 56px;
+    box-shadow: none;
   }
   .formate-global-topbar .home-workspace-search {
     grid-column: 2;
@@ -24527,11 +24542,11 @@ const styles = `
   .home-workspace-search {
     flex: 0 1 576px;
     width: min(42vw, 576px);
-    height: 32px;
+    height: var(--button-height);
     gap: var(--space-1);
     padding: 0 var(--space-1);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-button);
+    border-radius: var(--radius-panel);
     background: var(--color-surface-subtle);
     color: var(--color-text-muted);
   }
@@ -24640,7 +24655,7 @@ const styles = `
   .work-home-content {
     width: min(100%, 1480px);
     margin: 0 auto;
-    padding: var(--space-3) var(--space-page-x) 64px;
+    padding: var(--space-3) var(--space-page-x) var(--space-4);
   }
   .work-home-flat .work-home-heading {
     display: flex;
@@ -24710,17 +24725,13 @@ const styles = `
     color: var(--color-text-muted);
     font-size: var(--font-size-body-sm);
   }
-  .home-recent-estimates {
-    display: grid;
-    gap: var(--space-1);
-  }
   .home-text-link,
   .home-text-action {
     border: 0;
     background: transparent;
     color: var(--color-primary);
     font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-medium);
     white-space: nowrap;
   }
   .home-text-link:hover,
@@ -24731,88 +24742,6 @@ const styles = `
     text-decoration: underline;
     text-underline-offset: 3px;
     outline: none;
-  }
-  .home-estimate-table {
-    display: grid;
-    min-width: 0;
-  }
-  .home-estimate-table__header,
-  .home-estimate-table__row {
-    display: grid;
-    grid-template-columns: minmax(104px, 0.75fr) minmax(180px, 1.3fr) 104px 88px 112px minmax(104px, 0.7fr) 88px 96px;
-    align-items: center;
-    gap: var(--space-1);
-    min-width: 0;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .home-estimate-table__header {
-    min-height: var(--table-header-height);
-    color: var(--color-text-muted);
-    font-size: var(--font-size-table-header);
-    font-weight: var(--font-weight-medium);
-  }
-  .home-estimate-table__row {
-    min-height: 52px;
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-body-sm);
-  }
-  .home-estimate-table__row:hover {
-    background: var(--color-row-alt);
-  }
-  .home-estimate-customer {
-    display: grid;
-    gap: 2px;
-    min-width: 0;
-  }
-  .home-estimate-customer strong,
-  .home-estimate-customer em {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .home-estimate-customer strong {
-    color: var(--color-text-primary);
-    font-weight: var(--font-weight-semibold);
-  }
-  .home-estimate-address {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .home-estimate-customer em {
-    color: var(--color-text-muted);
-    font-style: normal;
-    font-size: var(--font-size-caption);
-  }
-  .home-date-cell {
-    text-align: center;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .home-number-cell {
-    justify-self: end;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-  .home-number-cell .number-text {
-    justify-content: flex-end;
-  }
-  .home-action-cell {
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-1);
-  }
-  .home-empty-state {
-    min-height: 136px;
-    padding: var(--space-2);
-    border: 1px dashed var(--color-border);
-    border-radius: var(--radius-card);
-    background: transparent;
-  }
-  .home-empty-state h2 {
-    font-size: var(--font-size-section-title);
   }
   .home-estimate-modal {
     max-width: 560px;
@@ -24845,10 +24774,6 @@ const styles = `
     }
     .home-placeholder-grid {
       grid-template-columns: 1fr;
-    }
-    .home-estimate-table__header,
-    .home-estimate-table__row {
-      grid-template-columns: minmax(92px, 0.7fr) minmax(140px, 1.1fr) 88px 80px 96px 96px 80px 88px;
     }
   }
   @media (max-width: 1180px) {
@@ -24898,6 +24823,10 @@ const styles = `
       flex-wrap: nowrap;
       align-content: center;
     }
+    .work-home-content {
+      padding-right: var(--space-3);
+      padding-left: var(--space-3);
+    }
     .primary-action-grid,
     .hero,
     .condition-static-grid {
@@ -24930,6 +24859,12 @@ const styles = `
     .admin-catalog-actions,
     .estimate-template-expanded-content {
       grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 767px) {
+    .work-home-content {
+      padding-right: var(--space-2);
+      padding-left: var(--space-2);
     }
   }
 `;

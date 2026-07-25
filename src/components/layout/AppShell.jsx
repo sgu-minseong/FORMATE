@@ -74,6 +74,7 @@ export default function AppShell({
             disabled && "formate-app-shell__nav-button--disabled",
           )}
           leftIcon={item.icon ? normalizeShellIcon(item.icon) : undefined}
+          aria-current={active ? "page" : undefined}
           title={item.description || item.label}
           onClick={() => {
             if (!disabled) {
