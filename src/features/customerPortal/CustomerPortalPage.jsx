@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, FileText, MessageSquare, RefreshCcw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Check,
+  CircleCheck,
+  FileText,
+  MessageSquare,
+  PencilLine,
+  RefreshCcw,
+  X,
+} from "lucide-react";
 import Button from "../../components/ui/Button";
 import Input from "../../components/ui/Input";
 import Select from "../../components/ui/Select";
@@ -39,10 +47,15 @@ export default function CustomerPortalPage({ token }) {
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [requestError, setRequestError] = useState("");
   const [requestNotice, setRequestNotice] = useState("");
+  const [requestDialogOpen, setRequestDialogOpen] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalNote, setApprovalNote] = useState("");
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const [approvalError, setApprovalError] = useState("");
+  const requestDialogRef = useRef(null);
+  const requestTriggerRef = useRef(null);
+  const approvalDialogRef = useRef(null);
+  const approvalTriggerRef = useRef(null);
 
   const loadPortal = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) setLoading(true);
@@ -89,9 +102,68 @@ export default function CustomerPortalPage({ token }) {
     portalData?.project?.detailAddress,
   ].filter(Boolean).join(" ");
   const conditionSummary = getPortalConditionSummary(estimateVersion.conditionSnapshot);
+  const conditionValues = conditionSummary.split(" · ").filter(Boolean);
+  const estimateNumber = `${estimateMeta.estimateNumber ?? ""}`.trim();
+  const estimateVersionLabel = `${
+    estimateVersion.label || (estimateVersion.versionNo ? `견적 ${estimateVersion.versionNo}차` : "")
+  }`.trim();
+  const estimateCreatedDate = estimateMeta.createdDate || portalData?.estimate?.createdAt;
+  const metadata = [
+    estimateNumber ? { label: "견적번호", value: estimateNumber } : null,
+    estimateVersionLabel && estimateVersionLabel !== estimateNumber
+      ? { label: "견적 버전", value: estimateVersionLabel }
+      : null,
+    estimateCreatedDate
+      ? { label: "작성일", value: formatPortalDate(estimateCreatedDate) }
+      : null,
+    estimateMeta.validUntil
+      ? { label: "유효기간", value: formatPortalDate(estimateMeta.validUntil) }
+      : null,
+    Number(estimateVersion.estimatedConstructionDays) > 0
+      ? { label: "예상 시공일", value: `${estimateVersion.estimatedConstructionDays}일` }
+      : null,
+    portalData?.estimate?.constructionDate
+      ? { label: "시공 예정일", value: formatPortalDate(portalData.estimate.constructionDate) }
+      : null,
+  ].filter(Boolean);
+  const projectName = portalData?.project?.name || projectAddress || "인테리어 견적서";
+  const customerName = portalData?.customer?.name || "고객";
+
+  useEffect(() => {
+    if (!requestDialogOpen && !approvalOpen) return undefined;
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const dialog = requestDialogOpen ? requestDialogRef.current : approvalDialogRef.current;
+      const focusTarget = requestDialogOpen
+        ? dialog?.querySelector("input")
+        : dialog?.querySelector("textarea");
+      focusTarget?.focus();
+    });
+    const handleDialogKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      if (requestDialogOpen) setRequestDialogOpen(false);
+      if (approvalOpen) setApprovalOpen(false);
+    };
+
+    document.addEventListener("keydown", handleDialogKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleDialogKeyDown);
+      const trigger = requestDialogOpen ? requestTriggerRef.current : approvalTriggerRef.current;
+      window.requestAnimationFrame(() => trigger?.focus());
+    };
+  }, [approvalOpen, requestDialogOpen]);
 
   const updateRequestField = (key, value) => {
     setRequestForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const openRequestDialog = (type, trigger) => {
+    requestTriggerRef.current = trigger;
+    setRequestType(type);
+    setRequestError("");
+    setRequestNotice("");
+    setRequestDialogOpen(true);
   };
 
   const handleRequestSubmit = async (event) => {
@@ -119,6 +191,7 @@ export default function CustomerPortalPage({ token }) {
           ? "수정 요청을 전달했습니다. 업체 확인 후 연락드릴 예정입니다."
           : "문의를 전달했습니다. 업체 확인 후 연락드릴 예정입니다.",
       );
+      setRequestDialogOpen(false);
       await loadPortal({ quiet: true });
     } catch (error) {
       setRequestError(error?.message || "요청을 전송하지 못했습니다.");
@@ -187,73 +260,59 @@ export default function CustomerPortalPage({ token }) {
   return (
     <div className="customer-portal">
       <header className="customer-portal__topbar">
-        <div className="customer-portal__brand">
-          <span aria-hidden="true">F</span>
-          <div>
-            <strong>{portalData.company?.name || "FORMATE"}</strong>
-            <small>견적 확인</small>
+        <div className="customer-portal__topbar-inner">
+          <div className="customer-portal__brand">
+            <strong>{portalData.company?.name || "견적 발신 업체"}</strong>
           </div>
+          <span className="customer-portal__topbar-label">견적 확인</span>
         </div>
-        <span className={`customer-portal__status customer-portal__status--${status.tone}`}>
-          <span aria-hidden="true" />
-          {status.label}
-        </span>
       </header>
 
       <main className="customer-portal__main">
         <article className="customer-portal__document">
           <header className="customer-portal__document-header">
             <div className="customer-portal__document-heading">
-              <span>견적서 확인</span>
-              <h1>{portalData.project?.name || projectAddress || "인테리어 견적서"}</h1>
+              <span>견적서</span>
+              <h1>{projectName}</h1>
               <p>
-                {portalData.customer?.name || "고객"} 고객님
+                {customerName} 고객
                 {projectAddress ? ` · ${projectAddress}` : ""}
               </p>
             </div>
             <div className="customer-portal__document-total">
               <span>총 견적금액</span>
               <strong>{formatPortalMoney(estimateVersion.totalAmount)}</strong>
+              <div className={`customer-portal__status customer-portal__status--${status.tone}`}>
+                {approved ? <CircleCheck aria-hidden="true" /> : <i aria-hidden="true" />}
+                <span>{status.label}</span>
+              </div>
+              {status.description ? <small>{status.description}</small> : null}
             </div>
           </header>
 
-          <dl className="customer-portal__meta">
-            <div>
-              <dt>견적 버전</dt>
-              <dd>{estimateVersion.label || `견적 ${estimateVersion.versionNo || 1}차`}</dd>
-            </div>
-            <div>
-              <dt>견적서 번호</dt>
-              <dd>{estimateMeta.estimateNumber || "-"}</dd>
-            </div>
-            <div>
-              <dt>작성일</dt>
-              <dd>{formatPortalDate(estimateMeta.createdDate || portalData.estimate?.createdAt)}</dd>
-            </div>
-            <div>
-              <dt>전송일</dt>
-              <dd>{formatPortalDate(estimateVersion.sentAt)}</dd>
-            </div>
-          </dl>
+          {metadata.length > 0 ? (
+            <dl className="customer-portal__meta">
+              {metadata.map((entry) => (
+                <div key={entry.label}>
+                  <dt>{entry.label}</dt>
+                  <dd>{entry.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
 
-          <section className="customer-portal__summary" aria-label="견적 요약">
-            <div>
-              <span>예상 시공일</span>
-              <strong>
-                {Number(estimateVersion.estimatedConstructionDays) > 0
-                  ? `${estimateVersion.estimatedConstructionDays}일`
-                  : "-"}
-              </strong>
-            </div>
-            <div>
-              <span>시공 예정일</span>
-              <strong>{formatPortalDate(portalData.estimate?.constructionDate)}</strong>
-            </div>
-            <div>
-              <span>견적 조건</span>
-              <strong>{conditionSummary || "조건 정보 없음"}</strong>
-            </div>
-          </section>
+          {conditionValues.length > 0 ? (
+            <section className="customer-portal__section customer-portal__conditions">
+              <div className="customer-portal__section-heading">
+                <h2>주요 조건</h2>
+              </div>
+              <div className="customer-portal__condition-list">
+                {conditionValues.map((value, index) => (
+                  <span key={`${value}-${index}`}>{value}</span>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="customer-portal__section">
             <div className="customer-portal__section-heading">
@@ -274,11 +333,20 @@ export default function CustomerPortalPage({ token }) {
                 <tbody>
                   {items.map((item, index) => (
                     <tr key={`${getPortalItemLabel(item)}-${index}`}>
-                      <td>{item.categoryName || item.category || "시공 항목"}</td>
-                      <td>{item.material || item.name || "내용 미입력"}</td>
-                      <td>{item.spec || "-"}</td>
-                      <td>{formatPortalQuantity(item.quantity, item.unit)}</td>
-                      <td>{formatPortalMoney(getPortalItemAmount(item))}</td>
+                      <td className="customer-portal__item-category">
+                        {item.categoryName || item.category || "시공 항목"}
+                      </td>
+                      <td className="customer-portal__item-content">
+                        {item.material || item.name || "내용 미입력"}
+                      </td>
+                      <td className="customer-portal__item-spec">{item.spec || ""}</td>
+                      <td className="customer-portal__item-quantity">
+                        <span className="customer-portal__mobile-label">수량</span>
+                        {formatPortalQuantity(item.quantity, item.unit)}
+                      </td>
+                      <td className="customer-portal__item-amount">
+                        {formatPortalMoney(getPortalItemAmount(item))}
+                      </td>
                     </tr>
                   ))}
                   {items.length === 0 ? (
@@ -308,38 +376,108 @@ export default function CustomerPortalPage({ token }) {
             ) : null}
           </section>
 
-          <section className="customer-portal__section customer-portal__request-section">
+          <section className="customer-portal__section customer-portal__guidance">
             <div className="customer-portal__section-heading">
-              <h2>문의 및 수정 요청</h2>
-              <span>업체에 바로 전달됩니다</span>
+              <h2>고객 안내·유의사항</h2>
             </div>
+            <p>
+              견적 내용에 궁금한 점이나 변경할 사항이 있으면 문의 또는 변경 요청을 이용해주세요.
+            </p>
+          </section>
 
-            <div className="customer-portal__request-tabs" role="tablist" aria-label="요청 유형">
+          {requestNotice ? (
+            <p className="customer-portal__notice" role="status">{requestNotice}</p>
+          ) : null}
+        </article>
+      </main>
+
+      <aside className="customer-portal__action-bar" aria-label="견적 작업">
+        <div className="customer-portal__action-bar-inner">
+          <div className="customer-portal__action-total">
+            <span>총 견적금액</span>
+            <strong>{formatPortalMoney(estimateVersion.totalAmount)}</strong>
+          </div>
+          <div className="customer-portal__action-controls">
+            <Button
+              variant="tertiary"
+              leftIcon={<MessageSquare />}
+              onClick={(event) => openRequestDialog("inquiry", event.currentTarget)}
+            >
+              문의하기
+            </Button>
+            {approved ? (
+              <span className="customer-portal__approved-action">
+                <CircleCheck aria-hidden="true" />
+                <span>
+                  이 견적으로 진행하기로 확정했습니다
+                  {estimateVersion.approvedAt
+                    ? <small>{formatPortalDate(estimateVersion.approvedAt)}</small>
+                    : null}
+                </span>
+              </span>
+            ) : (
+              <>
+                <Button
+                  variant="secondary"
+                  leftIcon={<PencilLine />}
+                  onClick={(event) => openRequestDialog("estimate_revision", event.currentTarget)}
+                >
+                  변경 요청
+                </Button>
+                <Button
+                  variant="primary"
+                  leftIcon={<Check />}
+                  disabled={approvalSubmitting}
+                  onClick={(event) => {
+                    approvalTriggerRef.current = event.currentTarget;
+                    setApprovalError("");
+                    setApprovalOpen(true);
+                  }}
+                >
+                  이 견적으로 진행하기
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {requestDialogOpen ? (
+        <div
+          className="customer-portal__dialog-backdrop"
+          onClick={() => {
+            if (!requestSubmitting) setRequestDialogOpen(false);
+          }}
+        >
+          <section
+            ref={requestDialogRef}
+            className="customer-portal__dialog customer-portal__request-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="customer-portal-request-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="customer-portal__dialog-header">
+              <div>
+                <h2 id="customer-portal-request-title">
+                  {requestType === "estimate_revision" ? "변경 요청" : "문의하기"}
+                </h2>
+                <p>
+                  {requestType === "estimate_revision"
+                    ? "변경이 필요한 항목과 내용을 업체에 전달합니다."
+                    : "견적에 대해 궁금한 내용을 업체에 전달합니다."}
+                </p>
+              </div>
               <button
                 type="button"
-                role="tab"
-                aria-selected={requestType === "inquiry"}
-                onClick={() => {
-                  setRequestType("inquiry");
-                  setRequestError("");
-                  setRequestNotice("");
-                }}
+                className="customer-portal__dialog-close"
+                aria-label="요청 창 닫기"
+                disabled={requestSubmitting}
+                onClick={() => setRequestDialogOpen(false)}
               >
-                문의하기
+                <X aria-hidden="true" />
               </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={requestType === "estimate_revision"}
-                onClick={() => {
-                  setRequestType("estimate_revision");
-                  setRequestError("");
-                  setRequestNotice("");
-                }}
-              >
-                수정 요청
-              </button>
-            </div>
+            </header>
 
             <form className="customer-portal__request-form" onSubmit={handleRequestSubmit}>
               <Input
@@ -358,7 +496,7 @@ export default function CustomerPortalPage({ token }) {
               <Input
                 as="textarea"
                 className="customer-portal__request-body"
-                label={requestType === "estimate_revision" ? "수정할 내용" : "문의 내용"}
+                label={requestType === "estimate_revision" ? "변경할 내용" : "문의 내용"}
                 value={requestForm.body}
                 maxLength={4000}
                 required
@@ -369,57 +507,53 @@ export default function CustomerPortalPage({ token }) {
                 }
                 onChange={(event) => updateRequestField("body", event.target.value)}
               />
-              <div className="customer-portal__request-actions">
-                <div aria-live="polite">
-                  {requestError ? <p className="customer-portal__form-error">{requestError}</p> : null}
-                  {requestNotice ? <p className="customer-portal__form-notice">{requestNotice}</p> : null}
-                </div>
+              {requestError ? <p className="customer-portal__form-error">{requestError}</p> : null}
+              <footer>
                 <Button
-                  variant={requestType === "estimate_revision" ? "secondary" : "primary"}
+                  variant="secondary"
+                  disabled={requestSubmitting}
+                  onClick={() => setRequestDialogOpen(false)}
+                >
+                  취소
+                </Button>
+                <Button
+                  variant="primary"
                   type="submit"
-                  leftIcon={<MessageSquare />}
                   disabled={requestSubmitting}
                 >
-                  {requestSubmitting ? "전송 중" : requestType === "estimate_revision" ? "수정 요청 보내기" : "문의 보내기"}
+                  {requestSubmitting ? "전송 중" : "업체에 전달"}
                 </Button>
-              </div>
+              </footer>
             </form>
           </section>
-
-          <section className="customer-portal__approval">
-            <div>
-              <h2>{approved ? "견적이 확정되었습니다" : "이 견적으로 진행하시겠습니까?"}</h2>
-              <p>
-                {approved
-                  ? `${formatPortalDate(estimateVersion.approvedAt)}에 고객 확정이 기록되었습니다.`
-                  : "확정 후에도 위 문의 기능으로 추가 내용을 전달할 수 있습니다."}
-              </p>
-            </div>
-            <Button
-              variant="primary"
-              leftIcon={<Check />}
-              disabled={approved}
-              onClick={() => setApprovalOpen(true)}
-            >
-              {approved ? "확정 완료" : "이 견적으로 진행하기"}
-            </Button>
-          </section>
-        </article>
-      </main>
+        </div>
+      ) : null}
 
       {approvalOpen ? (
         <div className="customer-portal__dialog-backdrop" onClick={() => setApprovalOpen(false)}>
           <section
+            ref={approvalDialogRef}
             className="customer-portal__dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="customer-portal-approval-title"
             onClick={(event) => event.stopPropagation()}
           >
-            <div>
-              <h2 id="customer-portal-approval-title">견적을 확정하시겠습니까?</h2>
-              <p>확정 내용은 업체에 즉시 기록됩니다.</p>
-            </div>
+            <header className="customer-portal__dialog-header">
+              <div>
+                <h2 id="customer-portal-approval-title">이 견적으로 진행하시겠습니까?</h2>
+                <p>{projectName} · {formatPortalMoney(estimateVersion.totalAmount)}</p>
+              </div>
+              <button
+                type="button"
+                className="customer-portal__dialog-close"
+                aria-label="견적 확정 창 닫기"
+                disabled={approvalSubmitting}
+                onClick={() => setApprovalOpen(false)}
+              >
+                <X aria-hidden="true" />
+              </button>
+            </header>
             <Input
               as="textarea"
               label="업체에 남길 메모"

@@ -1,11 +1,16 @@
 const PORTAL_STATUS = {
-  draft: { label: "작성 중", tone: "muted" },
-  sent: { label: "전송됨", tone: "primary" },
-  viewed: { label: "열람됨", tone: "primary" },
-  revision_requested: { label: "수정 요청됨", tone: "primary" },
-  approved: { label: "확정됨", tone: "success" },
-  expired: { label: "만료됨", tone: "muted" },
-  cancelled: { label: "취소됨", tone: "muted" },
+  draft: { label: "견적 준비 중", tone: "muted" },
+  sent: { label: "검토 중", tone: "primary" },
+  viewed: { label: "검토 중", tone: "primary" },
+  revision_requested: {
+    label: "변경 요청 전달됨",
+    tone: "primary",
+    description: "업체에서 요청 내용을 확인하고 있습니다.",
+  },
+  approved: { label: "견적 확정 완료", tone: "success" },
+  expired: { label: "확인 기간 만료", tone: "muted" },
+  revoked: { label: "더 이상 유효하지 않은 견적", tone: "muted" },
+  cancelled: { label: "더 이상 유효하지 않은 견적", tone: "muted" },
 };
 
 export function parseCustomerPortalPath(pathname = "") {
@@ -94,6 +99,11 @@ export function getPortalConditionSummary(conditionSnapshot) {
     conditionSnapshot?.buildType ?? conditionSnapshot?.build_type,
     conditionSnapshot?.conditionVariantLabel ?? conditionSnapshot?.condition_variant_display_label,
     conditionSnapshot?.occupancyType ?? conditionSnapshot?.occupancy_type,
+    conditionSnapshot?.hasExtension === true
+      ? "확장 있음"
+      : conditionSnapshot?.hasExtension === false
+        ? "확장 없음"
+        : "",
   ].filter(Boolean).join(" · ");
 }
 
