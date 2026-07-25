@@ -1,19 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
-import EmptyState from "../../components/ui/EmptyState";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Activity,
+  ArrowLeft,
+  Copy,
+  Search,
+  X,
+} from "lucide-react";
+import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
-import Table from "../../components/ui/Table";
-import ToggleButton from "../../components/ui/ToggleButton";
 import PriceText from "../../components/PriceText";
 import {
   fetchCustomerProjectDetail,
   fetchCustomersProjects,
   updateCustomerRequestStatus,
 } from "./api";
-import { CUSTOMER_DETAIL_TABS } from "./constants";
 import {
-  DetailField,
-  OperationsListHeader,
-  OperationsLoadState,
   RequestProcessingControls,
   StatusText,
 } from "./components";
@@ -22,7 +23,6 @@ import {
   getCustomerOperationText,
   getEstimateReference,
   getEstimateVersionLabel,
-  getProjectAddress,
   getProjectCurrentStage,
   getRelationRow,
   isOpenCustomerRequest,
@@ -38,100 +38,105 @@ const EMPTY_DETAIL = {
   accessTokens: [],
 };
 
-function DetailEmpty({ title = "아직 등록된 내용이 없습니다" }) {
-  return (
-    <EmptyState
-      title={title}
-      description="연결된 기록이 생기면 이곳에 시간순으로 표시됩니다."
-      className="customer-operations__tab-empty"
-    />
-  );
+const PROJECT_TABS = [
+  { key: "overview", label: "개요" },
+  { key: "estimates-requests", label: "견적·요청" },
+  { key: "construction", label: "공사" },
+  { key: "settlement", label: "정산" },
+  { key: "aftercare", label: "사후관리" },
+];
+
+const PROJECT_FILTERS = [
+  { value: "all", label: "전체 현장" },
+  { value: "requests", label: "요청 있음" },
+  { value: "estimate-review", label: "견적 검토" },
+  { value: "contract-review", label: "계약 검토" },
+  { value: "construction", label: "공사 중" },
+  { value: "completed", label: "완료" },
+];
+
+function QuietEmpty({ children }) {
+  return <p className="customer-projects-workspace__quiet-empty">{children}</p>;
 }
 
-function EstimateVersionsTab({ versions, accessTokens }) {
-  if (versions.length === 0) return <DetailEmpty title="등록된 견적서가 없습니다" />;
+function getProjectTitle(project) {
+  return project?.name || project?.address || "현장";
+}
+
+function getProjectAddressText(project) {
+  return [project?.address, project?.detail_address].filter(Boolean).join(" ");
+}
+
+function formatRelativeActivity(value) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (elapsedSeconds < 60) return "방금 전";
+
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `${elapsedMinutes}분 전`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}시간 전`;
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 7) return `${elapsedDays}일 전`;
+
+  return formatOperationDateTime(value);
+}
+
+function matchesProjectStatus(project, filter) {
+  if (filter === "requests") return Number(project.openRequestCount) > 0;
+  if (filter === "estimate-review") {
+    return ["sent", "viewed", "revision_requested"].includes(project.estimate_status);
+  }
+  if (filter === "contract-review") return project.contract_status === "reviewing";
+  if (filter === "construction") return project.construction_status === "in_progress";
+  if (filter === "completed") return project.construction_status === "completed";
+  return true;
+}
+
+function getProjectSortPriority(project) {
+  if (Number(project.openRequestCount) > 0) return 0;
+  if (project.construction_status === "in_progress") return 1;
+  if (project.construction_status === "completed") return 3;
+  return 2;
+}
+
+function getSafeActivityDescription(value, fallback = "") {
+  const text = getCustomerOperationText(value, fallback);
+  if (/https?:\/\/|\/c\/|[A-Za-z0-9_-]{40,}/.test(text)) return fallback;
+  return text;
+}
+
+function EstimateVersionsList({ versions, accessTokens }) {
+  if (versions.length === 0) {
+    return <QuietEmpty>등록된 견적서가 없습니다.</QuietEmpty>;
+  }
 
   const linkedVersionIds = new Set(
     accessTokens.map((accessToken) => accessToken.estimate_version_id).filter(Boolean)
   );
 
   return (
-    <div className="customer-operations__record-list" aria-label="견적서 버전 목록">
-      <div className="customer-operations__record-list-header customer-operations__estimate-record">
-        <span>버전</span>
-        <span>상태</span>
-        <span>금액</span>
-        <span>전송/열람/확정</span>
-        <span>고객 링크</span>
-      </div>
+    <div className="customer-projects-workspace__estimate-list" aria-label="견적서 버전 목록">
       {versions.map((version) => (
-        <div className="customer-operations__record-row customer-operations__estimate-record" key={version.id}>
-          <span className="customer-operations__stacked-cell">
+        <div className="customer-projects-workspace__estimate-row" key={version.id}>
+          <div>
             <strong>{getEstimateVersionLabel(version)}</strong>
             <span>버전 {version.version_no}</span>
-          </span>
-          <StatusText status={operationStatusViews.estimate(version.status)} />
-          <span className="customer-operations__number-cell">
-            <PriceText value={version.total_amount || 0} size="sm" />
-          </span>
-          <span className="customer-operations__stacked-cell">
-            <span>전송 {formatOperationDateTime(version.sent_at)}</span>
-            <span>
-              열람 {formatOperationDateTime(version.viewed_at)}
-              {" · "}
-              확정 {formatOperationDateTime(version.approved_at)}
-            </span>
-          </span>
-          <span className="customer-operations__muted-label">
-            {linkedVersionIds.has(version.id) ? "고객 링크 생성됨" : "-"}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MessagesTab({ messages }) {
-  if (messages.length === 0) return <DetailEmpty title="메시지 이력이 없습니다" />;
-
-  return (
-    <div className="customer-operations__activity-list" aria-label="고객 메시지 이력">
-      {messages.map((message) => (
-        <div className="customer-operations__activity-row" key={message.id}>
-          <span className="customer-operations__activity-cell">
-            <strong>{operationStatusViews.messageType(message.message_type).label}</strong>
-            <span>{getCustomerOperationText(message.body, "내용 미입력")}</span>
-          </span>
-          <span>{getEstimateVersionLabel(getRelationRow(message.estimate_version))}</span>
-          <span className="customer-operations__channel-label">
-            {operationStatusViews.messageChannel(message.channel).label}
-          </span>
-          <StatusText status={operationStatusViews.message(message.status)} />
-          <time>{formatOperationDateTime(message.sent_at || message.created_at)}</time>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TimelineTab({ timelineEvents }) {
-  if (timelineEvents.length === 0) return <DetailEmpty title="타임라인 기록이 없습니다" />;
-
-  return (
-    <div className="customer-operations__timeline" aria-label="고객·현장 타임라인">
-      {timelineEvents.map((event) => (
-        <div className="customer-operations__timeline-row" key={event.id}>
-          <StatusText status={operationStatusViews.timeline(event.event_type)} />
-          <span className="customer-operations__activity-cell">
-            <strong>
-              {getCustomerOperationText(
-                event.title,
-                operationStatusViews.timeline(event.event_type).label
-              )}
-            </strong>
-            <span>{getCustomerOperationText(event.description, "상세 내용 없음")}</span>
-          </span>
-          <time>{formatOperationDateTime(event.created_at)}</time>
+          </div>
+          <PriceText value={version.total_amount || 0} size="sm" />
+          <div className="customer-projects-workspace__estimate-meta">
+            <StatusText status={operationStatusViews.estimate(version.status)} />
+            {version.sent_at ? <span>전송 {formatOperationDateTime(version.sent_at)}</span> : null}
+            {version.viewed_at ? <span>열람 {formatOperationDateTime(version.viewed_at)}</span> : null}
+            {version.approved_at ? <span>확정 {formatOperationDateTime(version.approved_at)}</span> : null}
+          </div>
+          {linkedVersionIds.has(version.id) ? (
+            <span className="customer-projects-workspace__link-state">고객 링크 생성됨</span>
+          ) : null}
         </div>
       ))}
     </div>
@@ -142,6 +147,13 @@ export default function CustomersProjectsPage({ companyId }) {
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
+  const [estimateRequestView, setEstimateRequestView] = useState("estimates");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityFilter, setActivityFilter] = useState("all");
+  const [copyNotice, setCopyNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
@@ -152,6 +164,9 @@ export default function CustomersProjectsPage({ companyId }) {
   const [requestMemo, setRequestMemo] = useState("");
   const [requestProcessing, setRequestProcessing] = useState(false);
   const [requestError, setRequestError] = useState("");
+  const detailContentRef = useRef(null);
+  const activityDrawerRef = useRef(null);
+  const activityTriggerRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -164,7 +179,7 @@ export default function CustomersProjectsPage({ companyId }) {
         if (!active) return;
         setProjects(rows);
         setSelectedProjectId((current) => (
-          rows.some((row) => row.id === current) ? current : rows[0]?.id || ""
+          rows.some((row) => row.id === current) ? current : ""
         ));
       } catch (loadError) {
         if (!active) return;
@@ -185,6 +200,57 @@ export default function CustomersProjectsPage({ companyId }) {
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
   );
+
+  const filteredProjects = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+    const selectedVersionText = detail.estimateVersions
+      .map((version) => `${version.label || ""} ${version.version_no || ""}`)
+      .join(" ");
+
+    return projects
+      .filter((project) => {
+        if (!matchesProjectStatus(project, statusFilter)) return false;
+        if (!normalizedQuery) return true;
+
+        const customer = getRelationRow(project.customer);
+        const searchable = [
+          project.name,
+          project.address,
+          project.detail_address,
+          customer?.name,
+          customer?.phone,
+          customer?.email,
+          project.id === selectedProjectId ? selectedVersionText : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase();
+
+        return searchable.includes(normalizedQuery);
+      })
+      .sort((left, right) => {
+        const priorityDifference = getProjectSortPriority(left) - getProjectSortPriority(right);
+        if (priorityDifference !== 0) return priorityDifference;
+
+        const leftTime = new Date(left.recentActivityAt || left.updated_at || left.created_at).getTime() || 0;
+        const rightTime = new Date(right.recentActivityAt || right.updated_at || right.created_at).getTime() || 0;
+        return rightTime - leftTime;
+      });
+  }, [
+    detail.estimateVersions,
+    projects,
+    searchQuery,
+    selectedProjectId,
+    statusFilter,
+  ]);
+
+  useEffect(() => {
+    if (filteredProjects.some((project) => project.id === selectedProjectId)) return;
+    setSelectedProjectId(filteredProjects[0]?.id || "");
+    setActiveTab("overview");
+    setEstimateRequestView("estimates");
+    setMobileDetailOpen(false);
+  }, [filteredProjects, selectedProjectId]);
 
   useEffect(() => {
     let active = true;
@@ -229,16 +295,109 @@ export default function CustomersProjectsPage({ companyId }) {
 
   const detailProject = detail.project || selectedProject;
   const selectedCustomer = getRelationRow(detailProject?.customer);
-  const activeTabLabel = CUSTOMER_DETAIL_TABS.find((tab) => tab.key === activeTab)?.label ?? "개요";
   const selectedRequest = useMemo(
     () => detail.requests.find((request) => request.id === selectedRequestId) ?? null,
     [detail.requests, selectedRequestId]
   );
+  const openRequests = useMemo(
+    () => detail.requests.filter((request) => isOpenCustomerRequest(request.status)),
+    [detail.requests]
+  );
+  const recentEstimate = detail.estimateVersions[0] ?? null;
+
+  const activityItems = useMemo(() => {
+    const messages = detail.messages.map((message) => {
+      const versionLabel = getEstimateVersionLabel(getRelationRow(message.estimate_version));
+      return {
+        id: `message-${message.id}`,
+        type: "message",
+        title: operationStatusViews.messageType(message.message_type).label,
+        description: versionLabel !== "-"
+          ? versionLabel
+          : operationStatusViews.messageChannel(message.channel).label,
+        createdAt: message.sent_at || message.created_at,
+      };
+    });
+    const timeline = detail.timelineEvents.map((event) => ({
+      id: `timeline-${event.id}`,
+      type: "timeline",
+      title: getCustomerOperationText(
+        event.title,
+        operationStatusViews.timeline(event.event_type).label
+      ),
+      description: getSafeActivityDescription(
+        event.description,
+        operationStatusViews.timeline(event.event_type).label
+      ),
+      createdAt: event.created_at,
+    }));
+
+    return [...messages, ...timeline].sort((left, right) => (
+      (new Date(right.createdAt).getTime() || 0) - (new Date(left.createdAt).getTime() || 0)
+    ));
+  }, [detail.messages, detail.timelineEvents]);
+
+  const filteredActivityItems = useMemo(() => activityItems.filter((item) => {
+    if (activityFilter === "messages") return item.type === "message";
+    if (activityFilter === "status") return item.type === "timeline";
+    return true;
+  }), [activityFilter, activityItems]);
 
   useEffect(() => {
     setRequestMemo(selectedRequest?.internal_memo || "");
     setRequestError("");
   }, [selectedRequestId, selectedRequest?.internal_memo]);
+
+  useEffect(() => {
+    if (detailContentRef.current) detailContentRef.current.scrollTop = 0;
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!activityOpen) return undefined;
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      activityDrawerRef.current?.querySelector("button")?.focus();
+    });
+    const handleDrawerKeyDown = (event) => {
+      if (event.key === "Escape") setActivityOpen(false);
+    };
+    document.addEventListener("keydown", handleDrawerKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleDrawerKeyDown);
+      window.requestAnimationFrame(() => activityTriggerRef.current?.focus());
+    };
+  }, [activityOpen]);
+
+  const selectProject = (projectId) => {
+    setSelectedProjectId(projectId);
+    setActiveTab("overview");
+    setEstimateRequestView("estimates");
+    setCopyNotice("");
+    setMobileDetailOpen(true);
+  };
+
+  const showEstimateRecords = () => {
+    setActiveTab("estimates-requests");
+    setEstimateRequestView("estimates");
+  };
+
+  const showRequestRecord = (requestId) => {
+    setSelectedRequestId(requestId);
+    setActiveTab("estimates-requests");
+    setEstimateRequestView("requests");
+  };
+
+  const handleCopyContact = async () => {
+    if (!selectedCustomer?.phone) return;
+    try {
+      await navigator.clipboard.writeText(selectedCustomer.phone);
+      setCopyNotice("연락처를 복사했습니다.");
+    } catch {
+      setCopyNotice("연락처를 복사하지 못했습니다.");
+    }
+  };
 
   const handleRequestStatusChange = async (status) => {
     if (!selectedRequest) return;
@@ -280,241 +439,513 @@ export default function CustomersProjectsPage({ companyId }) {
     }
   };
 
-  const showState = loading || !!error || projects.length === 0;
+  const renderOverview = () => {
+    const recentActivity = activityItems[0];
+    const summaryItems = [
+      openRequests.length > 0 ? `미처리 요청 ${openRequests.length}` : "",
+      recentEstimate ? `최근 견적 ${getEstimateVersionLabel(recentEstimate)}` : "",
+      recentActivity ? `최근 활동 ${formatRelativeActivity(recentActivity.createdAt)}` : "",
+    ].filter(Boolean);
 
-  const renderDetailTab = () => {
-    if (detailLoading) {
-      return <div className="customer-operations__detail-loading" role="status">상세 기록을 불러오는 중</div>;
-    }
-
-    if (detailError) {
-      return <p className="customer-operations__inline-error" role="alert">{detailError}</p>;
-    }
-
-    if (activeTab === "overview") {
-      const recentEvent = detail.timelineEvents[0];
-      return (
-        <div className="customer-operations__detail-grid">
-          <DetailField label="고객명">{selectedCustomer?.name}</DetailField>
-          <DetailField label="연락처">{selectedCustomer?.phone}</DetailField>
-          <DetailField label="이메일">{selectedCustomer?.email}</DetailField>
-          <DetailField label="현장명">{detailProject?.name}</DetailField>
-          <DetailField label="현장 주소">{getProjectAddress({ project: detailProject })}</DetailField>
-          <DetailField label="견적 상태">
-            <StatusText status={operationStatusViews.estimate(detailProject?.estimate_status)} />
-          </DetailField>
-          <DetailField label="계약 상태">
-            <StatusText status={operationStatusViews.contract(detailProject?.contract_status)} />
-          </DetailField>
-          <DetailField label="공사 상태">
-            <StatusText status={operationStatusViews.construction(detailProject?.construction_status)} />
-          </DetailField>
-          <DetailField label="미처리 요청">
-            {detail.requests.filter((request) => isOpenCustomerRequest(request.status)).length}
-          </DetailField>
-          <DetailField label="최근 활동">
-            {recentEvent
-              ? `${getCustomerOperationText(recentEvent.title, "활동")} · ${formatOperationDateTime(recentEvent.created_at)}`
-              : "-"}
-          </DetailField>
-        </div>
-      );
-    }
-
-    if (activeTab === "estimates") {
-      return (
-        <EstimateVersionsTab
-          versions={detail.estimateVersions}
-          accessTokens={detail.accessTokens}
-        />
-      );
-    }
-
-    if (activeTab === "requests") {
-      if (detail.requests.length === 0) {
-        return <DetailEmpty title="접수된 문의·변경 요청이 없습니다" />;
-      }
-
-      return (
-        <div className="customer-operations__request-workspace">
-          <div className="customer-operations__request-list">
-            {detail.requests.map((request) => (
-              <button
-                type="button"
-                className={request.id === selectedRequestId ? "is-selected" : ""}
-                key={request.id}
-                onClick={() => setSelectedRequestId(request.id)}
-              >
-                <span>
-                  <strong>
-                    {getCustomerOperationText(
-                      request.title,
-                      operationStatusViews.requestType(request.request_type).label
-                    )}
-                  </strong>
-                  <em>{getEstimateReference(request)}</em>
-                </span>
-                <StatusText status={operationStatusViews.request(request.status)} />
-                <time>{formatOperationDateTime(request.created_at)}</time>
-              </button>
-            ))}
-          </div>
-          {selectedRequest ? (
-            <div className="customer-operations__request-detail">
-              <div className="customer-operations__detail-content">
-                <strong>요청 내용</strong>
-                <p className="customer-operations__detail-body">
-                  {selectedRequest.body || "요청 내용이 입력되지 않았습니다."}
-                </p>
-                {selectedRequest.related_item_label ? (
-                  <span className="customer-operations__related-item">
-                    관련 항목 {selectedRequest.related_item_label}
-                  </span>
-                ) : null}
-              </div>
-              <RequestProcessingControls
-                request={selectedRequest}
-                memo={requestMemo}
-                onMemoChange={setRequestMemo}
-                onStatusChange={handleRequestStatusChange}
-                processing={requestProcessing}
-                error={requestError}
-              />
+    return (
+      <div className="customer-projects-workspace__record-document">
+        <section>
+          <h3>핵심 요약</h3>
+          {summaryItems.length > 0 ? (
+            <div className="customer-projects-workspace__summary-line">
+              {summaryItems.map((item) => <span key={item}>{item}</span>)}
             </div>
-          ) : null}
-        </div>
-      );
-    }
+          ) : (
+            <QuietEmpty>요약할 현장 기록이 없습니다.</QuietEmpty>
+          )}
+        </section>
 
-    if (activeTab === "messages") return <MessagesTab messages={detail.messages} />;
-    if (activeTab === "timeline") return <TimelineTab timelineEvents={detail.timelineEvents} />;
+        <section>
+          <h3>고객 정보</h3>
+          <dl className="customer-projects-workspace__definition-list">
+            {selectedCustomer?.name ? <div><dt>고객명</dt><dd>{selectedCustomer.name}</dd></div> : null}
+            {selectedCustomer?.phone ? <div><dt>연락처</dt><dd>{selectedCustomer.phone}</dd></div> : null}
+            {selectedCustomer?.email ? <div><dt>이메일</dt><dd>{selectedCustomer.email}</dd></div> : null}
+          </dl>
+        </section>
 
-    return <DetailEmpty title={`${activeTabLabel} 기록이 없습니다`} />;
+        <section>
+          <h3>현장 정보</h3>
+          <dl className="customer-projects-workspace__definition-list">
+            <div><dt>현장명</dt><dd>{getProjectTitle(detailProject)}</dd></div>
+            {getProjectAddressText(detailProject) ? (
+              <div><dt>주소</dt><dd>{getProjectAddressText(detailProject)}</dd></div>
+            ) : null}
+          </dl>
+        </section>
+
+        <section>
+          <h3>업무 상태</h3>
+          <dl className="customer-projects-workspace__definition-list">
+            <div>
+              <dt>견적</dt>
+              <dd><StatusText status={operationStatusViews.estimate(detailProject?.estimate_status)} /></dd>
+            </div>
+            <div>
+              <dt>계약</dt>
+              <dd><StatusText status={operationStatusViews.contract(detailProject?.contract_status)} /></dd>
+            </div>
+            <div>
+              <dt>공사</dt>
+              <dd><StatusText status={operationStatusViews.construction(detailProject?.construction_status)} /></dd>
+            </div>
+          </dl>
+        </section>
+
+        <section>
+          <div className="customer-projects-workspace__section-heading">
+            <h3>최근 견적</h3>
+            {recentEstimate ? (
+              <button type="button" onClick={showEstimateRecords}>견적 기록 보기</button>
+            ) : null}
+          </div>
+          {recentEstimate ? (
+            <div className="customer-projects-workspace__recent-estimate">
+              <div>
+                <strong>{getEstimateVersionLabel(recentEstimate)}</strong>
+                <StatusText status={operationStatusViews.estimate(recentEstimate.status)} />
+              </div>
+              <PriceText value={recentEstimate.total_amount || 0} size="sm" />
+            </div>
+          ) : (
+            <QuietEmpty>등록된 견적서가 없습니다.</QuietEmpty>
+          )}
+        </section>
+
+        <section>
+          <h3>미처리 요청</h3>
+          {openRequests.length > 0 ? (
+            <div className="customer-projects-workspace__compact-list">
+              {openRequests.slice(0, 3).map((request) => (
+                <button type="button" key={request.id} onClick={() => showRequestRecord(request.id)}>
+                  <span>
+                    <strong>
+                      {getCustomerOperationText(
+                        request.title,
+                        operationStatusViews.requestType(request.request_type).label
+                      )}
+                    </strong>
+                    <small>{operationStatusViews.requestType(request.request_type).label}</small>
+                  </span>
+                  <StatusText status={operationStatusViews.request(request.status)} />
+                  <time>{formatOperationDateTime(request.created_at)}</time>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <QuietEmpty>처리가 필요한 고객 요청이 없습니다.</QuietEmpty>
+          )}
+        </section>
+
+        <section>
+          <h3>최근 활동</h3>
+          {activityItems.length > 0 ? (
+            <div className="customer-projects-workspace__compact-activity">
+              {activityItems.slice(0, 3).map((item) => (
+                <div key={item.id}>
+                  <span>
+                    <strong>{item.title}</strong>
+                    {item.description ? <small>{item.description}</small> : null}
+                  </span>
+                  <time>{formatOperationDateTime(item.createdAt)}</time>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <QuietEmpty>최근 활동 기록이 없습니다.</QuietEmpty>
+          )}
+        </section>
+      </div>
+    );
   };
 
+  const renderRequests = () => {
+    if (detail.requests.length === 0) {
+      return <QuietEmpty>접수된 문의·변경 요청이 없습니다.</QuietEmpty>;
+    }
+
+    return (
+      <div className="customer-projects-workspace__request-workspace">
+        <div className="customer-projects-workspace__request-list">
+          {detail.requests.map((request) => (
+            <button
+              type="button"
+              className={request.id === selectedRequestId ? "is-selected" : ""}
+              key={request.id}
+              onClick={() => setSelectedRequestId(request.id)}
+            >
+              <span>
+                <strong>
+                  {getCustomerOperationText(
+                    request.title,
+                    operationStatusViews.requestType(request.request_type).label
+                  )}
+                </strong>
+                <small>
+                  {[getEstimateReference(request), request.body]
+                    .filter((value) => value && value !== "-")
+                    .join(" · ") || "요청 내용이 입력되지 않았습니다."}
+                </small>
+              </span>
+              <StatusText status={operationStatusViews.request(request.status)} />
+              <time>{formatOperationDateTime(request.created_at)}</time>
+            </button>
+          ))}
+        </div>
+
+        {selectedRequest ? (
+          <div className="customer-projects-workspace__request-detail">
+            <section>
+              <h3>요청 내용</h3>
+              <p>{selectedRequest.body || "요청 내용이 입력되지 않았습니다."}</p>
+              {selectedRequest.related_item_label ? (
+                <small>관련 항목 {selectedRequest.related_item_label}</small>
+              ) : null}
+            </section>
+            <RequestProcessingControls
+              request={selectedRequest}
+              memo={requestMemo}
+              onMemoChange={setRequestMemo}
+              onStatusChange={handleRequestStatusChange}
+              processing={requestProcessing}
+              error={requestError}
+            />
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderEstimatesRequests = () => (
+    <div className="customer-projects-workspace__combined-tab">
+      <div className="customer-projects-workspace__subtabs" role="tablist" aria-label="견적과 요청">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={estimateRequestView === "estimates"}
+          onClick={() => setEstimateRequestView("estimates")}
+        >
+          견적서
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={estimateRequestView === "requests"}
+          onClick={() => setEstimateRequestView("requests")}
+        >
+          문의·변경 요청
+        </button>
+      </div>
+      {estimateRequestView === "estimates"
+        ? <EstimateVersionsList versions={detail.estimateVersions} accessTokens={detail.accessTokens} />
+        : renderRequests()}
+    </div>
+  );
+
+  const renderConstruction = () => (
+    <div className="customer-projects-workspace__record-document">
+      <section>
+        <h3>현재 공사 상태</h3>
+        <dl className="customer-projects-workspace__definition-list">
+          <div>
+            <dt>상태</dt>
+            <dd><StatusText status={operationStatusViews.construction(detailProject?.construction_status)} /></dd>
+          </div>
+          {detailProject?.construction_start_date ? (
+            <div>
+              <dt>착공일</dt>
+              <dd>{formatOperationDateTime(detailProject.construction_start_date)}</dd>
+            </div>
+          ) : null}
+          {detailProject?.construction_completed_date ? (
+            <div>
+              <dt>완료일</dt>
+              <dd>{formatOperationDateTime(detailProject.construction_completed_date)}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </section>
+      <section>
+        <h3>변경공사</h3>
+        <QuietEmpty>등록된 변경공사가 없습니다.</QuietEmpty>
+      </section>
+      <section>
+        <h3>현장 사진·메모</h3>
+        {detailProject?.memo ? <p>{detailProject.memo}</p> : <QuietEmpty>등록된 사진·메모가 없습니다.</QuietEmpty>}
+      </section>
+    </div>
+  );
+
+  const renderAftercare = () => {
+    const hasAftercare = detailProject?.aftercare_status
+      && detailProject.aftercare_status !== "not_started";
+    const hasService = detailProject?.service_status
+      && detailProject.service_status !== "not_started";
+
+    if (!hasAftercare && !hasService) {
+      return <QuietEmpty>등록된 사후관리 또는 A/S 내역이 없습니다.</QuietEmpty>;
+    }
+
+    return (
+      <div className="customer-projects-workspace__record-document">
+        <section>
+          <h3>사후관리·A/S 상태</h3>
+          <dl className="customer-projects-workspace__definition-list">
+            {hasAftercare ? (
+              <div>
+                <dt>사후관리</dt>
+                <dd><StatusText status={operationStatusViews.aftercare(detailProject.aftercare_status)} /></dd>
+              </div>
+            ) : null}
+            {hasService ? (
+              <div>
+                <dt>A/S</dt>
+                <dd><StatusText status={operationStatusViews.service(detailProject.service_status)} /></dd>
+              </div>
+            ) : null}
+          </dl>
+        </section>
+      </div>
+    );
+  };
+
+  const renderDetailContent = () => {
+    if (detailLoading) {
+      return <div className="customer-projects-workspace__detail-state" role="status">상세 기록을 불러오는 중</div>;
+    }
+    if (detailError) {
+      return <p className="customer-projects-workspace__detail-error" role="alert">{detailError}</p>;
+    }
+    if (activeTab === "overview") return renderOverview();
+    if (activeTab === "estimates-requests") return renderEstimatesRequests();
+    if (activeTab === "construction") return renderConstruction();
+    if (activeTab === "settlement") return <QuietEmpty>등록된 정산 내역이 없습니다.</QuietEmpty>;
+    if (activeTab === "aftercare") return renderAftercare();
+    return null;
+  };
+
+  const stage = getProjectCurrentStage(detailProject);
+  const projectAddress = getProjectAddressText(detailProject);
+
   return (
-    <main className="customer-operations-page">
+    <main className="customer-operations-page customer-projects-workspace-page">
       <PageHeader
         title="고객·현장"
-        description="고객 정보와 연결된 현장의 견적, 요청, 메시지와 활동을 확인합니다."
+        description="고객과 연결된 현장의 견적, 요청, 공사 기록을 확인합니다."
       />
 
-      {showState ? (
-        <OperationsLoadState
-          loading={loading}
-          error={error}
-          empty={!loading && !error && projects.length === 0}
-          emptyTitle="등록된 고객·현장이 없습니다"
-          emptyDescription="견적 전송 흐름에서 고객과 현장을 연결하면 이 목록에 표시됩니다."
-          onRetry={() => setReloadKey((value) => value + 1)}
-        />
-      ) : (
-        <>
-          <section className="customer-operations__list-section" aria-label="고객·현장 목록">
-            <OperationsListHeader
-              label="전체 고객·현장"
-              count={projects.length}
-              hint="행을 선택하면 연결된 고객·현장 기록을 확인할 수 있습니다."
-            />
-            <Table
-              zebra={false}
-              className="customer-operations__table"
-              columns={[
-                { key: "customerName", label: "고객명", width: "14%" },
-                { key: "phone", label: "연락처", width: "14%" },
-                { key: "project", label: "현장명/주소", width: "25%" },
-                { key: "stage", label: "현재 단계", width: "13%" },
-                { key: "estimateCount", label: "견적 수", align: "right", width: "9%" },
-                { key: "openRequestCount", label: "미처리 요청", align: "right", width: "10%" },
-                { key: "recentActivity", label: "최근 활동", width: "15%" },
-              ]}
-              rows={projects.map((project) => {
+      <section className="customer-projects-workspace__toolbar" aria-label="현장 검색과 필터">
+        <label className="customer-projects-workspace__search">
+          <span className="customer-projects-workspace__visually-hidden">현장 검색</span>
+          <Search size={16} strokeWidth={1.5} aria-hidden="true" />
+          <input
+            value={searchQuery}
+            placeholder="고객, 현장, 주소, 견적번호 검색"
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
+        </label>
+        <label className="customer-projects-workspace__filter">
+          <span className="customer-projects-workspace__visually-hidden">현장 상태 필터</span>
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            {PROJECT_FILTERS.map((filter) => (
+              <option value={filter.value} key={filter.value}>{filter.label}</option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      <section
+        className={`customer-projects-workspace__surface ${mobileDetailOpen ? "is-detail-open" : ""}`.trim()}
+        aria-label="고객과 현장 기록"
+      >
+        <aside className="customer-projects-workspace__list-pane" aria-label="현장 목록">
+          <header>
+            <strong>현장 목록</strong>
+            <span>{filteredProjects.length}건</span>
+          </header>
+          <div className="customer-projects-workspace__list-scroll">
+            {loading ? (
+              <div className="customer-projects-workspace__list-state" role="status">현장을 불러오는 중</div>
+            ) : error ? (
+              <div className="customer-projects-workspace__list-state is-error">
+                <span>고객·현장 목록을 불러오지 못했습니다.</span>
+                <Button variant="secondary" size="sm" onClick={() => setReloadKey((value) => value + 1)}>
+                  다시 불러오기
+                </Button>
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="customer-projects-workspace__list-state">등록된 고객·현장이 없습니다</div>
+            ) : filteredProjects.length === 0 ? (
+              <div className="customer-projects-workspace__list-state">현재 조건에 맞는 현장이 없습니다</div>
+            ) : (
+              filteredProjects.map((project) => {
                 const customer = getRelationRow(project.customer);
-                return {
-                  id: project.id,
-                  project,
-                  selected: project.id === selectedProjectId,
-                  customerName: customer?.name || "고객명 미입력",
-                  phone: customer?.phone || "-",
-                  projectName: project.name || "현장명 미입력",
-                  projectAddress: getProjectAddress({ project }),
-                  stage: getProjectCurrentStage(project),
-                  estimateCount: project.estimateCount,
-                  openRequestCount: project.openRequestCount,
-                  recentActivity: formatOperationDateTime(project.recentActivityAt),
-                };
-              })}
-              renderCell={({ row, column, value }) => {
-                let content = value;
-                if (column.key === "customerName") {
-                  content = <strong>{value}</strong>;
-                } else if (column.key === "project") {
-                  content = (
-                    <span className="customer-operations__stacked-cell">
-                      <strong>{row.projectName}</strong>
-                      <span>{row.projectAddress}</span>
-                    </span>
-                  );
-                } else if (column.key === "stage") {
-                  content = <StatusText status={value} />;
-                } else if (column.key === "recentActivity") {
-                  content = <span className="customer-operations__date-cell">{value}</span>;
-                }
+                const projectStage = getProjectCurrentStage(project);
+                const selected = project.id === selectedProjectId;
+                const address = getProjectAddressText(project);
 
                 return (
                   <button
                     type="button"
-                    className={`customer-operations__table-cell-button ${column.align === "right" ? "is-right" : ""}`.trim()}
-                    onClick={() => {
-                      setSelectedProjectId(row.id);
-                      setActiveTab("overview");
-                    }}
+                    className={`customer-projects-workspace__project-row ${selected ? "is-selected" : ""}`.trim()}
+                    aria-current={selected ? "true" : undefined}
+                    key={project.id}
+                    onClick={() => selectProject(project.id)}
                   >
-                    {content}
+                    <span className="customer-projects-workspace__project-line">
+                      <strong>{getProjectTitle(project)}</strong>
+                      {Number(project.openRequestCount) > 0 ? (
+                        <small>요청 {project.openRequestCount}</small>
+                      ) : null}
+                    </span>
+                    <span className="customer-projects-workspace__project-address">
+                      {address || "주소 정보 없음"}
+                    </span>
+                    <span className="customer-projects-workspace__project-line customer-projects-workspace__project-line--meta">
+                      <span>
+                        {customer?.name ? `${customer.name} 고객` : "고객 정보 없음"}
+                        {" · "}
+                        <StatusText status={projectStage} />
+                      </span>
+                      <time>{formatRelativeActivity(project.recentActivityAt)}</time>
+                    </span>
                   </button>
                 );
-              }}
-            />
-          </section>
+              })
+            )}
+          </div>
+        </aside>
 
-          <section className="customer-operations__detail-panel customer-operations__detail-panel--tabs" aria-label="고객·현장 상세">
-            {detailProject ? (
-              <>
-                <header className="customer-operations__detail-header">
-                  <div>
-                    <span>{selectedCustomer?.name || "고객명 미입력"}</span>
-                    <h2>{detailProject.name || detailProject.address || "현장명 미입력"}</h2>
-                    <p className="customer-operations__detail-subtitle">
-                      {getProjectAddress({ project: detailProject })}
-                      {selectedCustomer?.phone ? ` · ${selectedCustomer.phone}` : ""}
+        <article className="customer-projects-workspace__detail-pane" aria-label="현장 상세">
+          {detailProject ? (
+            <>
+              <header className="customer-projects-workspace__detail-header">
+                <button
+                  type="button"
+                  className="customer-projects-workspace__back"
+                  onClick={() => setMobileDetailOpen(false)}
+                >
+                  <ArrowLeft size={18} strokeWidth={1.5} aria-hidden="true" />
+                  현장 목록
+                </button>
+                <div className="customer-projects-workspace__detail-heading">
+                  <h2>{getProjectTitle(detailProject)}</h2>
+                  <p>
+                    {[projectAddress, selectedCustomer?.name ? `${selectedCustomer.name} 고객` : "", selectedCustomer?.phone]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                  <StatusText status={stage} />
+                </div>
+                <div className="customer-projects-workspace__detail-actions">
+                  {recentEstimate ? (
+                    <Button variant="secondary" size="sm" onClick={showEstimateRecords}>
+                      최근 견적 보기
+                    </Button>
+                  ) : null}
+                  {selectedCustomer?.phone ? (
+                    <Button variant="secondary" size="sm" leftIcon={<Copy />} onClick={handleCopyContact}>
+                      연락처 복사
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="tertiary"
+                    size="sm"
+                    leftIcon={<Activity />}
+                    onClick={(event) => {
+                      activityTriggerRef.current = event.currentTarget;
+                      setActivityOpen(true);
+                    }}
+                  >
+                    활동
+                  </Button>
+                  {copyNotice ? <span role="status">{copyNotice}</span> : null}
+                </div>
+              </header>
+
+              <div className="customer-projects-workspace__tabs" role="tablist" aria-label="현장 상세 메뉴">
+                {PROJECT_TABS.map((tab) => (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === tab.key}
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="customer-projects-workspace__detail-scroll" ref={detailContentRef}>
+                {renderDetailContent()}
+              </div>
+            </>
+          ) : (
+            <div className="customer-projects-workspace__detail-state">
+              현장을 선택하면 관련 기록을 확인할 수 있습니다
+            </div>
+          )}
+        </article>
+      </section>
+
+      {activityOpen ? (
+        <div className="customer-projects-workspace__drawer-backdrop" onClick={() => setActivityOpen(false)}>
+          <aside
+            ref={activityDrawerRef}
+            className="customer-projects-workspace__drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="customer-projects-activity-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <h2 id="customer-projects-activity-title">활동</h2>
+              <button type="button" aria-label="활동 닫기" onClick={() => setActivityOpen(false)}>
+                <X size={18} strokeWidth={1.5} aria-hidden="true" />
+              </button>
+            </header>
+            <div className="customer-projects-workspace__drawer-filters" role="tablist" aria-label="활동 필터">
+              {[
+                { value: "all", label: "전체" },
+                { value: "messages", label: "메시지" },
+                { value: "status", label: "상태 변경" },
+              ].map((filter) => (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activityFilter === filter.value}
+                  key={filter.value}
+                  onClick={() => setActivityFilter(filter.value)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+            <div className="customer-projects-workspace__drawer-list">
+              {filteredActivityItems.length > 0 ? (
+                filteredActivityItems.map((item) => (
+                  <div key={item.id}>
+                    <span className={`is-${item.type}`} aria-hidden="true" />
+                    <p>
+                      <strong>{item.title}</strong>
+                      {item.description ? <span>{item.description}</span> : null}
+                      <time>{formatRelativeActivity(item.createdAt)}</time>
                     </p>
                   </div>
-                  <StatusText status={getProjectCurrentStage(detailProject)} />
-                </header>
-                <div className="customer-operations__tabs" role="tablist" aria-label="고객·현장 상세 메뉴">
-                  {CUSTOMER_DETAIL_TABS.map((tab) => (
-                    <ToggleButton
-                      key={tab.key}
-                      size="sm"
-                      pressed={activeTab === tab.key}
-                      onClick={() => setActiveTab(tab.key)}
-                      role="tab"
-                      aria-selected={activeTab === tab.key}
-                    >
-                      {tab.label}
-                    </ToggleButton>
-                  ))}
-                </div>
-                <div className="customer-operations__tab-content">
-                  {renderDetailTab()}
-                </div>
-              </>
-            ) : (
-              <p className="customer-operations__detail-guide">목록에서 고객·현장을 선택하면 상세를 확인할 수 있습니다.</p>
-            )}
-          </section>
-        </>
-      )}
+                ))
+              ) : (
+                <QuietEmpty>표시할 활동 기록이 없습니다.</QuietEmpty>
+              )}
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </main>
   );
 }
