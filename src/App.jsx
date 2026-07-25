@@ -11331,30 +11331,47 @@ export default function App() {
               {recentHomeEstimates.length > 0 ? (
                 <div className="home-estimate-table" role="table" aria-label="최근 견적">
                   <div className="home-estimate-table__header" role="row">
-                    <span role="columnheader">고객·현장</span>
-                    <span role="columnheader">작성일</span>
-                    <span role="columnheader" className="home-number-cell">금액</span>
-                    <span role="columnheader" className="home-action-cell">다음 행동</span>
+                    <span role="columnheader">고객명</span>
+                    <span role="columnheader">현장 주소</span>
+                    <span role="columnheader" className="home-date-cell">작성일</span>
+                    <span role="columnheader" className="home-number-cell">예상시공일</span>
+                    <span role="columnheader" className="home-date-cell">시공 예정일</span>
+                    <span role="columnheader" className="home-number-cell">총액</span>
+                    <span role="columnheader" className="home-action-cell">견적서 확인</span>
+                    <span role="columnheader" className="home-action-cell">이어서 작성</span>
                   </div>
                   {recentHomeEstimates.map((estimate) => {
                     const customerName = getSavedEstimateCustomerName(estimate);
-                    const primaryText = customerName || estimate.address || "고객·현장 미입력";
-                    const secondaryText = customerName ? estimate.address || "주소 미입력" : "고객명 미입력";
+                    const constructionDays = getEstimateItemsDataConstructionDaysTotal(estimate.items_data);
 
                     return (
                       <div className="home-estimate-table__row" role="row" key={estimate.id}>
                         <span className="home-estimate-customer" role="cell">
-                          <strong>{primaryText}</strong>
-                          <em>{secondaryText}</em>
+                          <strong>{customerName || "고객명 미입력"}</strong>
                         </span>
-                        <span role="cell">{getSavedEstimateDisplayDate(estimate)}</span>
+                        <span className={`home-estimate-address ${estimate.address ? "" : "saved-estimate-muted"}`.trim()} role="cell">
+                          {estimate.address || "주소 미입력"}
+                        </span>
+                        <span role="cell" className="home-date-cell">{getSavedEstimateDisplayDate(estimate)}</span>
+                        <span role="cell" className="home-number-cell">
+                          {constructionDays > 0
+                            ? <PriceText value={constructionDays} unit="일" size="sm" />
+                            : <span className="saved-estimate-muted">-</span>}
+                        </span>
+                        <span role="cell" className="home-date-cell">{estimate.construction_date || "-"}</span>
                         <span role="cell" className="home-number-cell">
                           <PriceText value={estimate.total_amount || 0} size="sm" />
                         </span>
                         <span role="cell" className="home-action-cell">
-                          <button type="button" className="home-text-action" onClick={() => setSelectedEstimate(estimate)}>
-                            보기
+                          <button
+                            type="button"
+                            className="home-text-action"
+                            onClick={() => setSelectedEstimate(estimate)}
+                          >
+                            확인
                           </button>
+                        </span>
+                        <span role="cell" className="home-action-cell">
                           <button
                             type="button"
                             className="home-text-action"
@@ -24684,9 +24701,9 @@ const styles = `
   .home-estimate-table__header,
   .home-estimate-table__row {
     display: grid;
-    grid-template-columns: minmax(260px, 1.4fr) 148px minmax(120px, 0.55fr) 180px;
+    grid-template-columns: minmax(104px, 0.75fr) minmax(180px, 1.3fr) 104px 88px 112px minmax(104px, 0.7fr) 88px 96px;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-1);
     min-width: 0;
     border-bottom: 1px solid var(--color-border);
   }
@@ -24719,10 +24736,21 @@ const styles = `
     color: var(--color-text-primary);
     font-weight: var(--font-weight-semibold);
   }
+  .home-estimate-address {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .home-estimate-customer em {
     color: var(--color-text-muted);
     font-style: normal;
     font-size: var(--font-size-caption);
+  }
+  .home-date-cell {
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .home-number-cell {
     justify-self: end;
@@ -24782,7 +24810,7 @@ const styles = `
     }
     .home-estimate-table__header,
     .home-estimate-table__row {
-      grid-template-columns: minmax(220px, 1fr) 124px 112px 150px;
+      grid-template-columns: minmax(92px, 0.7fr) minmax(140px, 1.1fr) 88px 80px 96px 96px 80px 88px;
     }
   }
   @media (max-width: 1180px) {
