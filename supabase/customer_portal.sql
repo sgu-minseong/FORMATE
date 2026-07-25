@@ -376,7 +376,7 @@ begin
   )
   returning id into v_version_id;
 
-  v_token := encode(gen_random_bytes(32), 'hex');
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
 
   insert into public.customer_access_tokens (
     company_id,
@@ -1063,3 +1063,4 @@ revoke all on function public.approve_customer_estimate(text, text) from public;
 grant execute on function public.approve_customer_estimate(text, text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
+
