@@ -315,7 +315,7 @@ export async function fetchCustomersProjects(companyId) {
       .order("updated_at", { ascending: false }),
     supabase
       .from("estimate_versions")
-      .select("id, project_id")
+      .select("id, project_id, estimate_id, version_no, label, estimate:estimates(id, deleted_at)")
       .eq("company_id", companyId),
     supabase
       .from("customer_requests")
@@ -330,7 +330,9 @@ export async function fetchCustomersProjects(companyId) {
 
   return buildCustomerProjectRows({
     projects: unwrap(projectsResult),
-    estimateVersions: unwrap(versionsResult),
+    estimateVersions: unwrap(versionsResult).filter(
+      (version) => !isDeletedEstimate(version.estimate)
+    ),
     requests: unwrap(requestsResult),
     timelineEvents: unwrap(timelineResult),
   });
@@ -353,7 +355,9 @@ export async function fetchCustomerProjectDetail({
     requestsResult,
     messagesResult,
     timelineResult,
-    accessTokensResult,
+    changeOrdersResult,
+    aftercareSchedulesResult,
+    serviceRequestsResult,
   ] = await Promise.all([
     supabase
       .from("projects")
@@ -400,7 +404,8 @@ export async function fetchCustomerProjectDetail({
         approved_at,
         viewed_at,
         sent_at,
-        created_at
+        created_at,
+        estimate:estimates(id, deleted_at)
       `)
       .eq("company_id", companyId)
       .eq("customer_id", customerId)
@@ -469,20 +474,78 @@ export async function fetchCustomerProjectDetail({
       .eq("project_id", projectId)
       .order("created_at", { ascending: false }),
     supabase
-      .from("customer_access_tokens")
-      .select("id, estimate_version_id, status, expires_at, revoked_at, created_at")
+      .from("change_orders")
+      .select(`
+        id,
+        estimate_id,
+        estimate_version_id,
+        customer_request_id,
+        status,
+        title,
+        description,
+        total_delta_amount,
+        estimated_construction_days_delta,
+        created_at,
+        updated_at
+      `)
       .eq("company_id", companyId)
       .eq("customer_id", customerId)
-      .eq("project_id", projectId),
+      .eq("project_id", projectId)
+      .order("updated_at", { ascending: false }),
+    supabase
+      .from("aftercare_schedules")
+      .select(`
+        id,
+        status,
+        base_date,
+        first_send_date,
+        repeat_interval_months,
+        end_date,
+        next_send_date,
+        paused_reason,
+        created_at,
+        updated_at
+      `)
+      .eq("company_id", companyId)
+      .eq("customer_id", customerId)
+      .eq("project_id", projectId)
+      .order("next_send_date", { ascending: true }),
+    supabase
+      .from("service_requests")
+      .select(`
+        id,
+        aftercare_schedule_id,
+        status,
+        urgency,
+        problem_space,
+        related_item_label,
+        description,
+        preferred_contact_time,
+        assigned_to,
+        visit_scheduled_at,
+        resolved_at,
+        created_at,
+        updated_at
+      `)
+      .eq("company_id", companyId)
+      .eq("customer_id", customerId)
+      .eq("project_id", projectId)
+      .order("updated_at", { ascending: false }),
   ]);
+
+  const estimateVersions = unwrap(versionsResult).filter(
+    (version) => !isDeletedEstimate(version.estimate)
+  );
 
   return {
     project: unwrapSingle(projectResult),
-    estimateVersions: unwrap(versionsResult),
+    estimateVersions,
     requests: unwrap(requestsResult),
     messages: unwrap(messagesResult),
     timelineEvents: unwrap(timelineResult),
-    accessTokens: unwrap(accessTokensResult),
+    changeOrders: unwrap(changeOrdersResult),
+    aftercareSchedules: unwrap(aftercareSchedulesResult),
+    serviceRequests: unwrap(serviceRequestsResult),
   };
 }
 

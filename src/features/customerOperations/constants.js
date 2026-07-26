@@ -2,7 +2,6 @@ export const CUSTOMER_OPERATIONS_PAGES = {
   REQUESTS: "incoming-requests",
   CUSTOMERS_PROJECTS: "customers-sites",
   AFTERCARE_SERVICE: "after-service",
-  MESSAGES: "message-history",
 };
 
 export const REQUEST_TYPE = {
@@ -124,16 +123,3 @@ export const TIMELINE_EVENT_TYPE = {
   service_updated: { label: "A/S 변경", tone: "warning" },
   note: { label: "메모", tone: "muted" },
 };
-
-export const CUSTOMER_DETAIL_TABS = [
-  { key: "overview", label: "개요" },
-  { key: "estimates", label: "견적서" },
-  { key: "requests", label: "문의·변경 요청" },
-  { key: "construction", label: "공사 진행" },
-  { key: "change-orders", label: "변경공사" },
-  { key: "settlement", label: "입금·정산" },
-  { key: "aftercare", label: "사후관리·A/S" },
-  { key: "messages", label: "메시지 이력" },
-  { key: "photos-notes", label: "사진·메모" },
-  { key: "timeline", label: "타임라인" },
-];

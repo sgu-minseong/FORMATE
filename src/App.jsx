@@ -15,7 +15,6 @@ import {
   HelpCircle,
   Home,
   Image,
-  Mail,
   MessageSquare,
   Plus,
   Printer,
@@ -106,7 +105,6 @@ import AftercareServicePage from "./features/customerOperations/AftercareService
 import CustomerRequestsPage from "./features/customerOperations/CustomerRequestsPage";
 import CustomersProjectsPage from "./features/customerOperations/CustomersProjectsPage";
 import HomeOperationsOverview from "./features/customerOperations/HomeOperationsOverview";
-import MessagesPage from "./features/customerOperations/MessagesPage";
 import ShareEstimateModal from "./features/customerOperations/ShareEstimateModal";
 import { CUSTOMER_OPERATIONS_PAGES } from "./features/customerOperations/constants";
 import { isOperationalEstimate } from "./features/customerOperations/utils";
@@ -123,6 +121,9 @@ import "./features/customerOperations/customerOperations.css";
 
 const pageFromHash = () => {
   const page = window.location.hash.replace("#", "");
+  if (page === "message-history") {
+    return CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS;
+  }
   return [
     "landing",
     "condition",
@@ -145,25 +146,31 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
 const APP_SHELL_NAV_ITEMS = [
-  { key: "landing", label: "홈", icon: <Home /> },
-  { key: CUSTOMER_OPERATIONS_PAGES.REQUESTS, label: "받은 요청", icon: <MessageSquare /> },
   {
-    key: "estimate-work",
+    key: "home-work",
+    type: "section",
+    label: "홈",
+    items: [
+      { key: "landing", label: "홈", icon: <Home /> },
+    ],
+  },
+  {
+    key: "operations-work",
     type: "section",
     label: "업무",
+    items: [
+      { key: CUSTOMER_OPERATIONS_PAGES.REQUESTS, label: "받은 요청", icon: <MessageSquare /> },
+      { key: CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE, label: "사후관리·A/S", icon: <SlidersHorizontal /> },
+    ],
+  },
+  {
+    key: "estimate-project-work",
+    type: "section",
+    label: "견적·현장",
     items: [
       { key: "condition", label: "새 견적서 작성", icon: <ClipboardList />, activeKeys: ["condition", "items"] },
       { key: "admin-estimates", label: "저장 견적 보기", icon: <FileText /> },
       { key: CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS, label: "고객·현장", icon: <Users /> },
-    ],
-  },
-  {
-    key: "customer-care",
-    type: "section",
-    label: "고객관리",
-    items: [
-      { key: CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE, label: "사후관리·A/S", icon: <SlidersHorizontal /> },
-      { key: CUSTOMER_OPERATIONS_PAGES.MESSAGES, label: "메시지 이력", icon: <Mail /> },
     ],
   },
   {
@@ -3340,6 +3347,13 @@ function AdminApp() {
       fetchPhotoManagementData();
     }
   }, [page, selectedCompanyId]);
+
+  useEffect(() => {
+    if (page === "items") return;
+    setEstimateConditionDrawerOpen(false);
+    setPyeongDropdownOpen(false);
+    setConditionLabelEditOpen(false);
+  }, [page]);
 
   useEffect(() => {
     if (!selectedCompanyId || page !== "admin-items" || !adminVerified || !USE_ADMIN_ITEMS_SCREEN_V2) return;
@@ -11431,7 +11445,7 @@ function AdminApp() {
         </div>
       )}
 
-      {conditionSummary && page !== "landing" && page !== "ready" && page !== "photo-management" && page !== "condition" && page !== "items" && !page.startsWith("admin") && (
+      {conditionSummary && page === "preview" && (
         <div className="sticky-summary">
           <span>견적 조건</span>
           <strong>{conditionSummary}</strong>
@@ -11591,15 +11605,11 @@ function AdminApp() {
       )}
 
       {page === CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS && renderAppShell(
-        <CustomersProjectsPage companyId={selectedCompanyId} />
+        <CustomersProjectsPage companyId={selectedCompanyId} onNavigate={setPage} />
       )}
 
       {page === CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE && renderAppShell(
         <AftercareServicePage companyId={selectedCompanyId} />
-      )}
-
-      {page === CUSTOMER_OPERATIONS_PAGES.MESSAGES && renderAppShell(
-        <MessagesPage companyId={selectedCompanyId} />
       )}
 
       {page === "admin" && adminVerified && renderAppShell(

@@ -18,18 +18,15 @@ import {
   getProjectTrashImpact,
   moveProjectToTrash,
   restoreProjectFromTrash,
-  updateCustomerRequestStatus,
   updateProjectStatus,
 } from "./api";
 import ProjectStatusConfirmDialog from "./ProjectStatusConfirmDialog";
 import ProjectTrashDialog from "./ProjectTrashDialog";
+import { StatusText } from "./components";
+import { CUSTOMER_OPERATIONS_PAGES } from "./constants";
 import {
-  RequestProcessingControls,
-  StatusText,
-} from "./components";
-import {
+  formatOperationDate,
   formatOperationDateTime,
-  getCustomerRequestLogicalStatus,
   getCustomerOperationText,
   getEstimateReference,
   getEstimateVersionLabel,
@@ -46,16 +43,52 @@ const EMPTY_DETAIL = {
   requests: [],
   messages: [],
   timelineEvents: [],
-  accessTokens: [],
+  changeOrders: [],
+  aftercareSchedules: [],
+  serviceRequests: [],
 };
 
 const PROJECT_TABS = [
   { key: "overview", label: "개요" },
-  { key: "estimates-requests", label: "견적·요청" },
+  { key: "estimates", label: "견적" },
+  { key: "requests", label: "요청" },
   { key: "construction", label: "공사" },
   { key: "settlement", label: "정산" },
   { key: "aftercare", label: "사후관리" },
 ];
+
+const VISIBLE_TIMELINE_EVENT_TYPES = new Set([
+  "estimate_created",
+  "estimate_sent",
+  "estimate_viewed",
+  "request_received",
+  "request_updated",
+  "change_order_created",
+  "change_order_approved",
+  "construction_updated",
+  "aftercare_scheduled",
+  "service_requested",
+  "service_updated",
+  "note",
+]);
+
+const VISIBLE_MESSAGE_TYPES = new Set([
+  "request_reply",
+  "schedule_notice",
+  "aftercare",
+  "service_update",
+  "manual",
+  "other",
+]);
+
+const CHANGE_ORDER_STATUS_LABELS = {
+  draft: "작성 중",
+  awaiting_approval: "승인 대기",
+  approved: "승인",
+  rejected: "반려",
+  completed: "완료",
+  cancelled: "취소",
+};
 
 const PROJECT_FILTERS = [
   { value: "all", label: "전체 현장" },
@@ -75,6 +108,35 @@ function getProjectTitle(project) {
 
 function getProjectAddressText(project) {
   return [project?.address, project?.detail_address].filter(Boolean).join(" ");
+}
+
+function normalizeComparableText(value) {
+  return `${value || ""}`
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function shouldShowProjectAddress(project) {
+  const address = getProjectAddressText(project);
+  if (!address) return false;
+  return normalizeComparableText(getProjectTitle(project)) !== normalizeComparableText(address);
+}
+
+function getProjectScheduleText(project) {
+  if (!project) return "";
+  if (project.construction_status === "cancelled" && project.cancelled_at) {
+    return `취소일 ${formatOperationDate(project.cancelled_at)}`;
+  }
+  if (project.construction_status === "completed") {
+    const completedAt = project.completed_at || project.construction_completed_date;
+    return completedAt ? `완료일 ${formatOperationDate(completedAt)}` : "";
+  }
+  if (project.construction_start_date) {
+    const prefix = project.construction_status === "in_progress" ? "착공" : "착공 예정";
+    return `${prefix} ${formatOperationDate(project.construction_start_date)}`;
+  }
+  return "";
 }
 
 function formatRelativeActivity(value) {
@@ -133,14 +195,10 @@ function getSafeActivityDescription(value, fallback = "") {
   return text;
 }
 
-function EstimateVersionsList({ versions, accessTokens }) {
+function EstimateVersionsList({ versions, onOpenEstimate }) {
   if (versions.length === 0) {
-    return <QuietEmpty>등록된 견적서가 없습니다.</QuietEmpty>;
+    return <QuietEmpty>이 현장에 연결된 견적이 없습니다.</QuietEmpty>;
   }
-
-  const linkedVersionIds = new Set(
-    accessTokens.map((accessToken) => accessToken.estimate_version_id).filter(Boolean)
-  );
 
   return (
     <div className="customer-projects-workspace__estimate-list" aria-label="견적서 버전 목록">
@@ -148,17 +206,12 @@ function EstimateVersionsList({ versions, accessTokens }) {
         <div className="customer-projects-workspace__estimate-row" key={version.id}>
           <div>
             <strong>{getEstimateVersionLabel(version)}</strong>
-            <span>버전 {version.version_no}</span>
+            <span>{formatOperationDate(version.created_at)}</span>
           </div>
+          <StatusText status={operationStatusViews.estimate(version.status)} />
           <PriceText value={version.total_amount || 0} size="sm" />
-          <div className="customer-projects-workspace__estimate-meta">
-            <StatusText status={operationStatusViews.estimate(version.status)} />
-            {version.sent_at ? <span>전송 {formatOperationDateTime(version.sent_at)}</span> : null}
-            {version.viewed_at ? <span>열람 {formatOperationDateTime(version.viewed_at)}</span> : null}
-            {version.approved_at ? <span>확정 {formatOperationDateTime(version.approved_at)}</span> : null}
-          </div>
-          {linkedVersionIds.has(version.id) ? (
-            <span className="customer-projects-workspace__link-state">고객 링크 생성됨</span>
+          {onOpenEstimate ? (
+            <button type="button" onClick={() => onOpenEstimate(version)}>보기</button>
           ) : null}
         </div>
       ))}
@@ -166,15 +219,15 @@ function EstimateVersionsList({ versions, accessTokens }) {
   );
 }
 
-export default function CustomersProjectsPage({ companyId }) {
+export default function CustomersProjectsPage({ companyId, onNavigate }) {
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
-  const [estimateRequestView, setEstimateRequestView] = useState("estimates");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [activityFilter, setActivityFilter] = useState("all");
   const [copyNotice, setCopyNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -183,11 +236,6 @@ export default function CustomersProjectsPage({ companyId }) {
   const [detail, setDetail] = useState(EMPTY_DETAIL);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
-  const [selectedRequestId, setSelectedRequestId] = useState("");
-  const [requestMemo, setRequestMemo] = useState("");
-  const [requestProcessing, setRequestProcessing] = useState(false);
-  const [requestError, setRequestError] = useState("");
-  const [requestNotice, setRequestNotice] = useState("");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectStatusConfirm, setProjectStatusConfirm] = useState("");
   const [projectStatusProcessing, setProjectStatusProcessing] = useState(false);
@@ -201,7 +249,10 @@ export default function CustomersProjectsPage({ companyId }) {
   const detailContentRef = useRef(null);
   const activityDrawerRef = useRef(null);
   const activityTriggerRef = useRef(null);
+  const infoDrawerRef = useRef(null);
+  const infoTriggerRef = useRef(null);
   const projectMenuRef = useRef(null);
+  const projectMenuTriggerRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -238,9 +289,6 @@ export default function CustomersProjectsPage({ companyId }) {
 
   const filteredProjects = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
-    const selectedVersionText = detail.estimateVersions
-      .map((version) => `${version.label || ""} ${version.version_no || ""}`)
-      .join(" ");
 
     return projects
       .filter((project) => {
@@ -255,7 +303,7 @@ export default function CustomersProjectsPage({ companyId }) {
           customer?.name,
           customer?.phone,
           customer?.email,
-          project.id === selectedProjectId ? selectedVersionText : "",
+          project.estimateSearchText,
         ]
           .filter(Boolean)
           .join(" ")
@@ -278,10 +326,8 @@ export default function CustomersProjectsPage({ companyId }) {
         return rightTime - leftTime;
       });
   }, [
-    detail.estimateVersions,
     projects,
     searchQuery,
-    selectedProjectId,
     statusFilter,
   ]);
   const trashCount = useMemo(
@@ -293,7 +339,6 @@ export default function CustomersProjectsPage({ companyId }) {
     if (filteredProjects.some((project) => project.id === selectedProjectId)) return;
     setSelectedProjectId(filteredProjects[0]?.id || "");
     setActiveTab("overview");
-    setEstimateRequestView("estimates");
     setMobileDetailOpen(false);
   }, [filteredProjects, selectedProjectId]);
 
@@ -309,7 +354,6 @@ export default function CustomersProjectsPage({ companyId }) {
       setDetailLoading(true);
       setDetailError("");
       setDetail(EMPTY_DETAIL);
-      setSelectedRequestId("");
       try {
         const nextDetail = await fetchCustomerProjectDetail({
           companyId,
@@ -318,11 +362,6 @@ export default function CustomersProjectsPage({ companyId }) {
         });
         if (!active) return;
         setDetail(nextDetail);
-        setSelectedRequestId((current) => (
-          nextDetail.requests.some((request) => request.id === current)
-            ? current
-            : nextDetail.requests[0]?.id || ""
-        ));
       } catch (loadError) {
         if (!active) return;
         setDetail(EMPTY_DETAIL);
@@ -344,10 +383,6 @@ export default function CustomersProjectsPage({ companyId }) {
     ? projectTrashImpacts[detailProject.id] ?? null
     : null;
   const selectedCustomer = getRelationRow(detailProject?.customer);
-  const selectedRequest = useMemo(
-    () => detail.requests.find((request) => request.id === selectedRequestId) ?? null,
-    [detail.requests, selectedRequestId]
-  );
   const openRequests = useMemo(
     () => detail.requests.filter((request) => isOpenCustomerRequest(request.status)),
     [detail.requests]
@@ -355,11 +390,17 @@ export default function CustomersProjectsPage({ companyId }) {
   const recentEstimate = detail.estimateVersions[0] ?? null;
 
   const activityItems = useMemo(() => {
-    const messages = detail.messages.map((message) => {
+    const messages = detail.messages
+      .filter((message) => (
+        VISIBLE_MESSAGE_TYPES.has(message.message_type)
+        && message.channel !== "link_copy"
+      ))
+      .map((message) => {
       const versionLabel = getEstimateVersionLabel(getRelationRow(message.estimate_version));
       return {
         id: `message-${message.id}`,
         type: "message",
+        eventType: message.message_type,
         title: operationStatusViews.messageType(message.message_type).label,
         description: versionLabel !== "-"
           ? versionLabel
@@ -367,19 +408,22 @@ export default function CustomersProjectsPage({ companyId }) {
         createdAt: message.sent_at || message.created_at,
       };
     });
-    const timeline = detail.timelineEvents.map((event) => ({
-      id: `timeline-${event.id}`,
-      type: "timeline",
-      title: getCustomerOperationText(
-        event.title,
-        operationStatusViews.timeline(event.event_type).label
-      ),
-      description: getSafeActivityDescription(
-        event.description,
-        operationStatusViews.timeline(event.event_type).label
-      ),
-      createdAt: event.created_at,
-    }));
+    const timeline = detail.timelineEvents
+      .filter((event) => VISIBLE_TIMELINE_EVENT_TYPES.has(event.event_type))
+      .map((event) => ({
+        id: `timeline-${event.id}`,
+        type: "timeline",
+        eventType: event.event_type,
+        title: getCustomerOperationText(
+          event.title,
+          operationStatusViews.timeline(event.event_type).label
+        ),
+        description: getSafeActivityDescription(
+          event.description,
+          operationStatusViews.timeline(event.event_type).label
+        ),
+        createdAt: event.created_at,
+      }));
 
     return [...messages, ...timeline].sort((left, right) => (
       (new Date(right.createdAt).getTime() || 0) - (new Date(left.createdAt).getTime() || 0)
@@ -387,20 +431,17 @@ export default function CustomersProjectsPage({ companyId }) {
   }, [detail.messages, detail.timelineEvents]);
 
   const filteredActivityItems = useMemo(() => activityItems.filter((item) => {
-    if (activityFilter === "messages") return item.type === "message";
-    if (activityFilter === "status") return item.type === "timeline";
+    if (activityFilter === "customer") return item.type === "message"
+      || ["estimate_viewed", "request_received", "service_requested"].includes(item.eventType);
+    if (activityFilter === "status") return item.type === "timeline"
+      && ["request_updated", "construction_updated", "service_updated"].includes(item.eventType);
     return true;
   }), [activityFilter, activityItems]);
 
   useEffect(() => {
-    setRequestMemo(selectedRequest?.internal_memo || "");
-    setRequestError("");
-    setRequestNotice("");
-  }, [selectedRequestId, selectedRequest?.internal_memo]);
-
-  useEffect(() => {
     if (detailContentRef.current) detailContentRef.current.scrollTop = 0;
     setActivityOpen(false);
+    setInfoOpen(false);
     setProjectMenuOpen(false);
     setProjectStatusConfirm("");
     setProjectStatusError("");
@@ -448,24 +489,38 @@ export default function CustomersProjectsPage({ companyId }) {
     };
   }, [activityOpen]);
 
+  useEffect(() => {
+    if (!infoOpen) return undefined;
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      infoDrawerRef.current?.querySelector("button")?.focus();
+    });
+    const handleDrawerKeyDown = (event) => {
+      if (event.key === "Escape") setInfoOpen(false);
+    };
+    document.addEventListener("keydown", handleDrawerKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleDrawerKeyDown);
+      window.requestAnimationFrame(() => infoTriggerRef.current?.focus());
+    };
+  }, [infoOpen]);
+
   const selectProject = (projectId) => {
     setSelectedProjectId(projectId);
     setActiveTab("overview");
-    setEstimateRequestView("estimates");
     setCopyNotice("");
     setProjectTrashError("");
     setMobileDetailOpen(true);
   };
 
   const showEstimateRecords = () => {
-    setActiveTab("estimates-requests");
-    setEstimateRequestView("estimates");
+    setActiveTab("estimates");
   };
 
-  const showRequestRecord = (requestId) => {
-    setSelectedRequestId(requestId);
-    setActiveTab("estimates-requests");
-    setEstimateRequestView("requests");
+  const showRequestRecords = () => {
+    setActiveTab("requests");
   };
 
   const handleCopyContact = async () => {
@@ -475,56 +530,6 @@ export default function CustomersProjectsPage({ companyId }) {
       setCopyNotice("연락처를 복사했습니다.");
     } catch {
       setCopyNotice("연락처를 복사하지 못했습니다.");
-    }
-  };
-
-  const handleRequestStatusChange = async (status) => {
-    if (!selectedRequest) return;
-
-    setRequestProcessing(true);
-    setRequestError("");
-    setRequestNotice("");
-    try {
-      const updatedRequest = await updateCustomerRequestStatus({
-        companyId,
-        requestId: selectedRequest.id,
-        status,
-        internalMemo: requestMemo,
-      });
-      setDetail((current) => ({
-        ...current,
-        requests: current.requests.map((request) => (
-          request.id === updatedRequest.id ? updatedRequest : request
-        )),
-      }));
-      setProjects((current) => current.map((project) => (
-        project.id === selectedProjectId
-          ? {
-              ...project,
-              openRequestCount: detail.requests.reduce((count, request) => (
-                count + (
-                  request.id === updatedRequest.id
-                    ? Number(isOpenCustomerRequest(updatedRequest.status))
-                    : Number(isOpenCustomerRequest(request.status))
-                )
-              ), 0),
-            }
-          : project
-      )));
-      setRequestMemo(updatedRequest.internal_memo || "");
-      if (status === "closed") {
-        setRequestNotice("요청을 완료했습니다.");
-      } else if (
-        ["completed", "rejected"].includes(
-          getCustomerRequestLogicalStatus(selectedRequest.status)
-        )
-      ) {
-        setRequestNotice("요청을 다시 열었습니다.");
-      }
-    } catch (updateError) {
-      setRequestError("요청 상태를 변경하지 못했습니다. 잠시 후 다시 시도해주세요.");
-    } finally {
-      setRequestProcessing(false);
     }
   };
 
@@ -697,307 +702,286 @@ export default function CustomersProjectsPage({ companyId }) {
   };
 
   const renderOverview = () => {
-    const recentActivity = activityItems[0];
-    const summaryItems = [
-      openRequests.length > 0 ? `미처리 요청 ${openRequests.length}` : "",
-      recentEstimate ? `최근 견적 ${getEstimateVersionLabel(recentEstimate)}` : "",
-      recentActivity ? `최근 활동 ${formatRelativeActivity(recentActivity.createdAt)}` : "",
-    ].filter(Boolean);
+    const latestRequest = detail.requests[0] ?? null;
+    const latestOpenRequest = openRequests[0] ?? null;
+    const nextAftercare = detail.aftercareSchedules.find((schedule) => schedule.next_send_date)
+      ?? detail.aftercareSchedules[0]
+      ?? null;
+    const activeServiceCount = detail.serviceRequests.filter(
+      (request) => !["resolved", "closed"].includes(request.status)
+    ).length;
 
     return (
-      <div className="customer-projects-workspace__record-document">
+      <div className="customer-projects-workspace__overview-list">
         {isTrashProject ? (
-          <section>
-            <h3>연결 데이터</h3>
-            {projectTrashImpactLoadingId === detailProject.id && !selectedTrashImpact ? (
-              <p className="customer-projects-workspace__impact-loading" role="status">
-                연결된 데이터 수량을 확인하는 중
-              </p>
-            ) : selectedTrashImpact ? (
-              <dl className="customer-projects-workspace__impact-list">
-                <div><dt>연결된 견적</dt><dd>{selectedTrashImpact.estimateCount || 0}건</dd></div>
-                <div><dt>받은 요청</dt><dd>{selectedTrashImpact.totalRequestCount || 0}건</dd></div>
-                <div><dt>처리되지 않은 요청</dt><dd>{selectedTrashImpact.pendingRequestCount || 0}건</dd></div>
-                <div><dt>메시지</dt><dd>{selectedTrashImpact.messageCount || 0}건</dd></div>
-                <div><dt>활동 기록</dt><dd>{selectedTrashImpact.activityCount || 0}건</dd></div>
-                <div><dt>활성 공유 링크</dt><dd>{selectedTrashImpact.activeShareLinkCount || 0}건</dd></div>
-              </dl>
-            ) : (
-              <p className="customer-projects-workspace__impact-loading">
-                연결된 데이터 수량을 표시하지 못했습니다.
-              </p>
-            )}
-          </section>
+          <div className="customer-projects-workspace__overview-row">
+            <span className="customer-projects-workspace__overview-label">연결 데이터</span>
+            <div className="customer-projects-workspace__overview-value">
+              {projectTrashImpactLoadingId === detailProject.id && !selectedTrashImpact ? (
+                <span role="status">연결된 데이터 수량을 확인하는 중</span>
+              ) : selectedTrashImpact ? (
+                <strong>
+                  견적 {selectedTrashImpact.estimateCount || 0}건, 요청 {selectedTrashImpact.totalRequestCount || 0}건,
+                  메시지 {selectedTrashImpact.messageCount || 0}건, 활동 {selectedTrashImpact.activityCount || 0}건
+                </strong>
+              ) : (
+                <span>연결된 데이터 수량을 표시하지 못했습니다.</span>
+              )}
+            </div>
+          </div>
         ) : null}
 
-        <section>
-          <h3>핵심 요약</h3>
-          {summaryItems.length > 0 ? (
-            <div className="customer-projects-workspace__summary-line">
-              {summaryItems.map((item) => <span key={item}>{item}</span>)}
+        {latestOpenRequest ? (
+          <div className="customer-projects-workspace__overview-row">
+            <span className="customer-projects-workspace__overview-label">다음 행동</span>
+            <div className="customer-projects-workspace__overview-value">
+              <strong>
+                {operationStatusViews.requestType(latestOpenRequest.request_type).label} {openRequests.length}건이 처리 대기 중입니다.
+              </strong>
+              <span>
+                {getCustomerOperationText(
+                  latestOpenRequest.title,
+                  operationStatusViews.requestType(latestOpenRequest.request_type).label
+                )}
+              </span>
             </div>
-          ) : (
-            <QuietEmpty>요약할 현장 기록이 없습니다.</QuietEmpty>
-          )}
-        </section>
-
-        <section>
-          <h3>고객 정보</h3>
-          <dl className="customer-projects-workspace__definition-list">
-            {selectedCustomer?.name ? <div><dt>고객명</dt><dd>{selectedCustomer.name}</dd></div> : null}
-            {selectedCustomer?.phone ? <div><dt>연락처</dt><dd>{selectedCustomer.phone}</dd></div> : null}
-            {selectedCustomer?.email ? <div><dt>이메일</dt><dd>{selectedCustomer.email}</dd></div> : null}
-          </dl>
-        </section>
-
-        <section>
-          <h3>현장 정보</h3>
-          <dl className="customer-projects-workspace__definition-list">
-            <div><dt>현장명</dt><dd>{getProjectTitle(detailProject)}</dd></div>
-            {getProjectAddressText(detailProject) ? (
-              <div><dt>주소</dt><dd>{getProjectAddressText(detailProject)}</dd></div>
-            ) : null}
-          </dl>
-        </section>
-
-        <section>
-          <h3>업무 상태</h3>
-          <dl className="customer-projects-workspace__definition-list">
-            <div>
-              <dt>견적</dt>
-              <dd><StatusText status={operationStatusViews.estimate(detailProject?.estimate_status)} /></dd>
-            </div>
-            <div>
-              <dt>계약</dt>
-              <dd><StatusText status={operationStatusViews.contract(detailProject?.contract_status)} /></dd>
-            </div>
-            <div>
-              <dt>공사</dt>
-              <dd><StatusText status={operationStatusViews.construction(detailProject?.construction_status)} /></dd>
-            </div>
-          </dl>
-        </section>
-
-        <section>
-          <div className="customer-projects-workspace__section-heading">
-            <h3>최근 견적</h3>
-            {recentEstimate ? (
-              <button type="button" onClick={showEstimateRecords}>견적 기록 보기</button>
+            {!isTrashProject ? (
+              <button type="button" onClick={() => onNavigate?.(CUSTOMER_OPERATIONS_PAGES.REQUESTS)}>
+                받은 요청에서 처리
+              </button>
             ) : null}
           </div>
-          {recentEstimate ? (
-            <div className="customer-projects-workspace__recent-estimate">
-              <div>
+        ) : null}
+
+        <div className="customer-projects-workspace__overview-row">
+          <span className="customer-projects-workspace__overview-label">공사 일정</span>
+          <div className="customer-projects-workspace__overview-value">
+            <strong>{operationStatusViews.construction(detailProject?.construction_status).label}</strong>
+            <span>{getProjectScheduleText(detailProject) || "등록된 핵심 일정이 없습니다."}</span>
+          </div>
+          <button type="button" onClick={() => setActiveTab("construction")}>공사 보기</button>
+        </div>
+
+        <div className="customer-projects-workspace__overview-row">
+          <span className="customer-projects-workspace__overview-label">최근 견적</span>
+          <div className="customer-projects-workspace__overview-value">
+            {recentEstimate ? (
+              <>
                 <strong>{getEstimateVersionLabel(recentEstimate)}</strong>
-                <StatusText status={operationStatusViews.estimate(recentEstimate.status)} />
-              </div>
-              <PriceText value={recentEstimate.total_amount || 0} size="sm" />
-            </div>
-          ) : (
-            <QuietEmpty>등록된 견적서가 없습니다.</QuietEmpty>
-          )}
-        </section>
+                <span>
+                  {operationStatusViews.estimate(recentEstimate.status).label},
+                  <PriceText value={recentEstimate.total_amount || 0} size="sm" />,
+                  {formatOperationDate(recentEstimate.created_at)}
+                </span>
+              </>
+            ) : (
+              <span>이 현장에 연결된 견적이 없습니다.</span>
+            )}
+          </div>
+          {recentEstimate ? <button type="button" onClick={showEstimateRecords}>보기</button> : null}
+        </div>
 
-        <section>
-          <h3>미처리 요청</h3>
-          {openRequests.length > 0 ? (
-            <div className="customer-projects-workspace__compact-list">
-              {openRequests.slice(0, 3).map((request) => (
-                <button type="button" key={request.id} onClick={() => showRequestRecord(request.id)}>
-                  <span>
-                    <strong>
-                      {getCustomerOperationText(
-                        request.title,
-                        operationStatusViews.requestType(request.request_type).label
-                      )}
-                    </strong>
-                    <small>{operationStatusViews.requestType(request.request_type).label}</small>
-                  </span>
-                  <StatusText status={operationStatusViews.request(request.status)} />
-                  <time>{formatOperationDateTime(request.created_at)}</time>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <QuietEmpty>처리가 필요한 고객 요청이 없습니다.</QuietEmpty>
-          )}
-        </section>
+        <div className="customer-projects-workspace__overview-row">
+          <span className="customer-projects-workspace__overview-label">요청 이력</span>
+          <div className="customer-projects-workspace__overview-value">
+            {latestRequest ? (
+              <>
+                <strong>전체 {detail.requests.length}건</strong>
+                <span>
+                  {getCustomerOperationText(
+                    latestRequest.title,
+                    operationStatusViews.requestType(latestRequest.request_type).label
+                  )}
+                </span>
+              </>
+            ) : (
+              <span>이 현장에 연결된 요청이 없습니다.</span>
+            )}
+          </div>
+          {latestRequest ? <button type="button" onClick={showRequestRecords}>요청 보기</button> : null}
+        </div>
 
-        <section>
-          <h3>최근 활동</h3>
-          {activityItems.length > 0 ? (
-            <div className="customer-projects-workspace__compact-activity">
-              {activityItems.slice(0, 3).map((item) => (
-                <div key={item.id}>
-                  <span>
-                    <strong>{item.title}</strong>
-                    {item.description ? <small>{item.description}</small> : null}
-                  </span>
-                  <time>{formatOperationDateTime(item.createdAt)}</time>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <QuietEmpty>최근 활동 기록이 없습니다.</QuietEmpty>
-          )}
-        </section>
+        <div className="customer-projects-workspace__overview-row">
+          <span className="customer-projects-workspace__overview-label">정산</span>
+          <div className="customer-projects-workspace__overview-value">
+            <strong>{operationStatusViews.contract(detailProject?.contract_status).label}</strong>
+            <span>아직 등록된 정산 내역이 없습니다.</span>
+          </div>
+          <button type="button" onClick={() => setActiveTab("settlement")}>정산 보기</button>
+        </div>
+
+        <div className="customer-projects-workspace__overview-row">
+          <span className="customer-projects-workspace__overview-label">사후관리</span>
+          <div className="customer-projects-workspace__overview-value">
+            {nextAftercare || activeServiceCount > 0 ? (
+              <>
+                <strong>
+                  {activeServiceCount > 0 ? `A/S 처리 중 ${activeServiceCount}건` : "사후관리 예정"}
+                </strong>
+                <span>
+                  {nextAftercare?.next_send_date
+                    ? `다음 일정 ${formatOperationDate(nextAftercare.next_send_date)}`
+                    : "등록된 다음 일정이 없습니다."}
+                </span>
+              </>
+            ) : (
+              <span>현장 완료 후 사후관리 일정을 등록할 수 있습니다.</span>
+            )}
+          </div>
+          {(nextAftercare || activeServiceCount > 0) ? (
+            <button type="button" onClick={() => setActiveTab("aftercare")}>사후관리 보기</button>
+          ) : null}
+        </div>
       </div>
     );
   };
+
+  const renderEstimates = () => (
+    <EstimateVersionsList
+      versions={detail.estimateVersions}
+      onOpenEstimate={() => onNavigate?.("admin-estimates")}
+    />
+  );
 
   const renderRequests = () => {
     if (detail.requests.length === 0) {
-      return <QuietEmpty>접수된 문의·변경 요청이 없습니다.</QuietEmpty>;
+      return <QuietEmpty>이 현장에 연결된 요청이 없습니다.</QuietEmpty>;
     }
 
     return (
-      <div className="customer-projects-workspace__request-workspace">
-        <div className="customer-projects-workspace__request-list">
-          {detail.requests.map((request) => (
-            <button
-              type="button"
-              className={request.id === selectedRequestId ? "is-selected" : ""}
-              key={request.id}
-              onClick={() => setSelectedRequestId(request.id)}
-            >
-              <span>
-                <strong>
-                  {getCustomerOperationText(
-                    request.title,
-                    operationStatusViews.requestType(request.request_type).label
-                  )}
-                </strong>
-                <small>
-                  {[getEstimateReference(request), request.body]
-                    .filter((value) => value && value !== "-")
-                    .join(" · ") || "요청 내용이 입력되지 않았습니다."}
-                </small>
-              </span>
-              <StatusText status={operationStatusViews.request(request.status)} />
-              <time>{formatOperationDateTime(request.created_at)}</time>
-            </button>
-          ))}
-        </div>
-
-        {selectedRequest ? (
-          <div className="customer-projects-workspace__request-detail">
-            <section>
-              <h3>요청 내용</h3>
-              <p>{selectedRequest.body || "요청 내용이 입력되지 않았습니다."}</p>
-              {selectedRequest.related_item_label ? (
-                <small>관련 항목 {selectedRequest.related_item_label}</small>
-              ) : null}
-            </section>
+      <div className="customer-projects-workspace__request-history" aria-label="현장 요청 이력">
+        {detail.requests.map((request) => (
+          <div className="customer-projects-workspace__request-history-row" key={request.id}>
+            <span className="customer-projects-workspace__request-kind">
+              {operationStatusViews.requestType(request.request_type).label}
+            </span>
+            <div>
+              <strong>
+                {getCustomerOperationText(
+                  request.title,
+                  operationStatusViews.requestType(request.request_type).label
+                )}
+              </strong>
+              <small>
+                {[getEstimateReference(request), formatOperationDateTime(request.updated_at || request.created_at)]
+                  .filter((value) => value && value !== "-")
+                  .join(" · ")}
+              </small>
+            </div>
+            <StatusText status={operationStatusViews.request(request.status)} />
             {!isTrashProject ? (
-              <RequestProcessingControls
-                request={selectedRequest}
-                memo={requestMemo}
-                onMemoChange={setRequestMemo}
-                onStatusChange={handleRequestStatusChange}
-                processing={requestProcessing}
-                error={requestError}
-                notice={requestNotice}
-              />
-            ) : (
-              <p className="customer-projects-workspace__readonly-note">
-                휴지통의 현장은 읽기 전용입니다.
-              </p>
-            )}
+              <button type="button" onClick={() => onNavigate?.(CUSTOMER_OPERATIONS_PAGES.REQUESTS)}>
+                받은 요청에서 처리
+              </button>
+            ) : null}
           </div>
-        ) : null}
+        ))}
       </div>
     );
   };
 
-  const renderEstimatesRequests = () => (
-    <div className="customer-projects-workspace__combined-tab">
-      <div className="customer-projects-workspace__subtabs" role="tablist" aria-label="견적과 요청">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={estimateRequestView === "estimates"}
-          onClick={() => setEstimateRequestView("estimates")}
-        >
-          견적서
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={estimateRequestView === "requests"}
-          onClick={() => setEstimateRequestView("requests")}
-        >
-          문의·변경 요청
-        </button>
-      </div>
-      {estimateRequestView === "estimates"
-        ? <EstimateVersionsList versions={detail.estimateVersions} accessTokens={detail.accessTokens} />
-        : renderRequests()}
-    </div>
-  );
+  const renderConstruction = () => {
+    const latestChangeOrder = detail.changeOrders[0] ?? null;
 
-  const renderConstruction = () => (
-    <div className="customer-projects-workspace__record-document">
-      <section>
-        <h3>현재 공사 상태</h3>
-        <dl className="customer-projects-workspace__definition-list">
-          <div>
-            <dt>상태</dt>
-            <dd><StatusText status={operationStatusViews.construction(detailProject?.construction_status)} /></dd>
-          </div>
-          {detailProject?.construction_start_date ? (
+    return (
+      <div className="customer-projects-workspace__section-list">
+        <section>
+          <h3>현재 공사</h3>
+          <dl className="customer-projects-workspace__definition-list">
             <div>
-              <dt>착공일</dt>
-              <dd>{formatOperationDateTime(detailProject.construction_start_date)}</dd>
+              <dt>상태</dt>
+              <dd><StatusText status={operationStatusViews.construction(detailProject?.construction_status)} /></dd>
             </div>
-          ) : null}
-          {detailProject?.construction_completed_date ? (
             <div>
-              <dt>완료일</dt>
-              <dd>{formatOperationDateTime(detailProject.construction_completed_date)}</dd>
+              <dt>핵심 일정</dt>
+              <dd>{getProjectScheduleText(detailProject) || "등록된 일정이 없습니다."}</dd>
             </div>
-          ) : null}
-        </dl>
-      </section>
-      <section>
-        <h3>변경공사</h3>
-        <QuietEmpty>등록된 변경공사가 없습니다.</QuietEmpty>
-      </section>
-      <section>
-        <h3>현장 사진·메모</h3>
-        {detailProject?.memo ? <p>{detailProject.memo}</p> : <QuietEmpty>등록된 사진·메모가 없습니다.</QuietEmpty>}
-      </section>
+          </dl>
+        </section>
+        <section>
+          <h3>변경공사</h3>
+          {latestChangeOrder ? (
+            <div className="customer-projects-workspace__single-record">
+              <strong>{latestChangeOrder.title || "변경공사"}</strong>
+              <span>
+                전체 {detail.changeOrders.length}건
+                {", "}
+                {CHANGE_ORDER_STATUS_LABELS[latestChangeOrder.status] || "상태 미입력"}
+                {", "}
+                {formatOperationDate(latestChangeOrder.updated_at || latestChangeOrder.created_at)}
+              </span>
+            </div>
+          ) : (
+            <QuietEmpty>등록된 변경공사가 없습니다.</QuietEmpty>
+          )}
+        </section>
+        <section>
+          <h3>현장 사진·메모</h3>
+          {detailProject?.memo ? (
+            <p className="customer-projects-workspace__project-memo">{detailProject.memo}</p>
+          ) : (
+            <QuietEmpty>등록된 사진·메모가 없습니다.</QuietEmpty>
+          )}
+        </section>
+      </div>
+    );
+  };
+
+  const renderSettlement = () => (
+    <div className="customer-projects-workspace__compact-empty">
+      <strong>{operationStatusViews.contract(detailProject?.contract_status).label}</strong>
+      <span>아직 등록된 정산 내역이 없습니다.</span>
     </div>
   );
 
   const renderAftercare = () => {
-    const hasAftercare = detailProject?.aftercare_status
-      && detailProject.aftercare_status !== "not_started";
-    const hasService = detailProject?.service_status
-      && detailProject.service_status !== "not_started";
-
-    if (!hasAftercare && !hasService) {
-      return <QuietEmpty>등록된 사후관리 또는 A/S 내역이 없습니다.</QuietEmpty>;
+    if (detail.aftercareSchedules.length === 0 && detail.serviceRequests.length === 0) {
+      return (
+        <div className="customer-projects-workspace__compact-empty">
+          <span>등록된 사후관리 일정 또는 A/S 내역이 없습니다.</span>
+        </div>
+      );
     }
 
     return (
-      <div className="customer-projects-workspace__record-document">
-        <section>
-          <h3>사후관리·A/S 상태</h3>
-          <dl className="customer-projects-workspace__definition-list">
-            {hasAftercare ? (
-              <div>
-                <dt>사후관리</dt>
-                <dd><StatusText status={operationStatusViews.aftercare(detailProject.aftercare_status)} /></dd>
+      <div className="customer-projects-workspace__section-list">
+        {detail.aftercareSchedules.length > 0 ? (
+          <section>
+            <h3>사후관리 일정</h3>
+            {detail.aftercareSchedules.map((schedule) => (
+              <div className="customer-projects-workspace__single-record" key={schedule.id}>
+                <strong>
+                  {schedule.next_send_date
+                    ? `다음 점검 ${formatOperationDate(schedule.next_send_date)}`
+                    : "다음 점검일 미정"}
+                </strong>
+                <span>{operationStatusViews.aftercare(schedule.status).label}</span>
               </div>
-            ) : null}
-            {hasService ? (
-              <div>
-                <dt>A/S</dt>
-                <dd><StatusText status={operationStatusViews.service(detailProject.service_status)} /></dd>
+            ))}
+          </section>
+        ) : null}
+        {detail.serviceRequests.length > 0 ? (
+          <section>
+            <h3>A/S 내역</h3>
+            {detail.serviceRequests.map((request) => (
+              <div className="customer-projects-workspace__single-record" key={request.id}>
+                <strong>{request.problem_space || request.related_item_label || "A/S 요청"}</strong>
+                <span>
+                  {operationStatusViews.service(request.status).label}
+                  {" · "}
+                  {formatOperationDate(request.updated_at || request.created_at)}
+                </span>
               </div>
-            ) : null}
-          </dl>
-        </section>
+            ))}
+          </section>
+        ) : null}
+        <button
+          type="button"
+          className="customer-projects-workspace__section-link"
+          onClick={() => onNavigate?.(CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE)}
+        >
+          전체 사후관리 화면으로 이동
+        </button>
       </div>
     );
   };
@@ -1010,60 +994,65 @@ export default function CustomersProjectsPage({ companyId }) {
       return <p className="customer-projects-workspace__detail-error" role="alert">{detailError}</p>;
     }
     if (activeTab === "overview") return renderOverview();
-    if (activeTab === "estimates-requests") return renderEstimatesRequests();
+    if (activeTab === "estimates") return renderEstimates();
+    if (activeTab === "requests") return renderRequests();
     if (activeTab === "construction") return renderConstruction();
-    if (activeTab === "settlement") return <QuietEmpty>등록된 정산 내역이 없습니다.</QuietEmpty>;
+    if (activeTab === "settlement") return renderSettlement();
     if (activeTab === "aftercare") return renderAftercare();
     return null;
   };
 
   const lifecycleStatus = getProjectLifecycleStatus(detailProject);
   const projectAddress = getProjectAddressText(detailProject);
+  const projectScheduleText = getProjectScheduleText(detailProject);
 
   return (
     <main className="customer-operations-page customer-projects-workspace-page">
       <PageHeader
         title="고객·현장"
         description="고객과 연결된 현장의 견적, 요청, 공사 기록을 확인합니다."
+        actions={(
+          <div className="customer-projects-workspace__toolbar" aria-label="현장 검색과 필터">
+            <label className="customer-projects-workspace__search">
+              <span className="customer-projects-workspace__visually-hidden">현장 검색</span>
+              <Search size={16} strokeWidth={1.5} aria-hidden="true" />
+              <input
+                value={searchQuery}
+                placeholder="고객·현장·주소·견적번호 검색"
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+            </label>
+            <label className="customer-projects-workspace__filter">
+              <span className="customer-projects-workspace__visually-hidden">현장 상태 필터</span>
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                {PROJECT_FILTERS.map((filter) => (
+                  <option value={filter.value} key={filter.value}>
+                    {filter.value === "trash" ? `${filter.label} ${trashCount}` : filter.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
       />
 
-      <section className="customer-projects-workspace__toolbar" aria-label="현장 검색과 필터">
-        <label className="customer-projects-workspace__search">
-          <span className="customer-projects-workspace__visually-hidden">현장 검색</span>
-          <Search size={16} strokeWidth={1.5} aria-hidden="true" />
-          <input
-            value={searchQuery}
-            placeholder="고객, 현장, 주소, 견적번호 검색"
-            onChange={(event) => setSearchQuery(event.target.value)}
-          />
-        </label>
-        <label className="customer-projects-workspace__filter">
-          <span className="customer-projects-workspace__visually-hidden">현장 상태 필터</span>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            {PROJECT_FILTERS.map((filter) => (
-              <option value={filter.value} key={filter.value}>
-                {filter.value === "trash" ? `${filter.label} ${trashCount}` : filter.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-
-      {projectStatusNotice ? (
-        <div className="customer-projects-workspace__status-notice" role="status">
-          {projectStatusNotice}
-        </div>
-      ) : null}
-      {projectStatusError && !projectStatusConfirm ? (
-        <div className="customer-projects-workspace__status-notice is-error" role="alert">
-          {projectStatusError}
-        </div>
-      ) : null}
-      {projectTrashError && !projectTrashDialog ? (
-        <div className="customer-projects-workspace__status-notice is-error" role="alert">
-          {projectTrashError}
-        </div>
-      ) : null}
+      <div className="customer-projects-workspace__status-stack">
+        {projectStatusNotice ? (
+          <div className="customer-projects-workspace__status-notice" role="status">
+            {projectStatusNotice}
+          </div>
+        ) : null}
+        {projectStatusError && !projectStatusConfirm ? (
+          <div className="customer-projects-workspace__status-notice is-error" role="alert">
+            {projectStatusError}
+          </div>
+        ) : null}
+        {projectTrashError && !projectTrashDialog ? (
+          <div className="customer-projects-workspace__status-notice is-error" role="alert">
+            {projectTrashError}
+          </div>
+        ) : null}
+      </div>
 
       <section
         className={`customer-projects-workspace__surface ${mobileDetailOpen ? "is-detail-open" : ""}`.trim()}
@@ -1094,6 +1083,8 @@ export default function CustomersProjectsPage({ companyId }) {
                 const projectStage = getProjectLifecycleStatus(project);
                 const selected = project.id === selectedProjectId;
                 const address = getProjectAddressText(project);
+                const showAddress = shouldShowProjectAddress(project);
+                const projectTitle = getProjectTitle(project);
 
                 return (
                   <button
@@ -1104,17 +1095,15 @@ export default function CustomersProjectsPage({ companyId }) {
                       project.deleted_at ? "is-trash" : "",
                     ].filter(Boolean).join(" ")}
                     aria-current={selected ? "true" : undefined}
+                    title={[projectTitle, showAddress ? address : ""].filter(Boolean).join("\n")}
                     key={project.id}
                     onClick={() => selectProject(project.id)}
                   >
                     <span className="customer-projects-workspace__project-line">
-                      <strong>{getProjectTitle(project)}</strong>
+                      <strong>{projectTitle}</strong>
                       {Number(project.openRequestCount) > 0 ? (
                         <small>요청 {project.openRequestCount}</small>
                       ) : null}
-                    </span>
-                    <span className="customer-projects-workspace__project-address">
-                      {address || "주소 정보 없음"}
                     </span>
                     <span className="customer-projects-workspace__project-line customer-projects-workspace__project-line--meta">
                       <span>
@@ -1128,6 +1117,9 @@ export default function CustomersProjectsPage({ companyId }) {
                         )}
                       </time>
                     </span>
+                    {showAddress ? (
+                      <span className="customer-projects-workspace__project-address">{address}</span>
+                    ) : null}
                   </button>
                 );
               })
@@ -1148,18 +1140,12 @@ export default function CustomersProjectsPage({ companyId }) {
                   현장 목록
                 </button>
                 <div className="customer-projects-workspace__detail-heading">
-                  <h2>{getProjectTitle(detailProject)}</h2>
-                  <p>
-                    {[projectAddress, selectedCustomer?.name ? `${selectedCustomer.name} 고객` : "", selectedCustomer?.phone]
-                      .filter(Boolean)
-                      .join(" · ")}
+                  <h2 title={getProjectTitle(detailProject)}>{getProjectTitle(detailProject)}</h2>
+                  <p className="customer-projects-workspace__detail-meta">
+                    <span>{selectedCustomer?.name ? `${selectedCustomer.name} 고객` : "고객 정보 없음"}</span>
+                    <StatusText status={lifecycleStatus} />
+                    {projectScheduleText ? <span>{projectScheduleText}</span> : null}
                   </p>
-                  <StatusText status={lifecycleStatus} />
-                  {isTrashProject ? (
-                    <time className="customer-projects-workspace__deleted-at">
-                      삭제일 {formatOperationDateTime(detailProject.deleted_at)}
-                    </time>
-                  ) : null}
                 </div>
                 <div className="customer-projects-workspace__detail-actions">
                   {isTrashProject ? (
@@ -1174,34 +1160,24 @@ export default function CustomersProjectsPage({ companyId }) {
                     >
                       복원
                     </Button>
-                  ) : (
-                    <>
-                      {recentEstimate ? (
-                        <Button variant="secondary" size="sm" onClick={showEstimateRecords}>
-                          최근 견적 보기
-                        </Button>
-                      ) : null}
-                      {selectedCustomer?.phone ? (
-                        <Button variant="secondary" size="sm" leftIcon={<Copy />} onClick={handleCopyContact}>
-                          연락처 복사
-                        </Button>
-                      ) : null}
-                      <Button
-                        variant="tertiary"
-                        size="sm"
-                        leftIcon={<Activity />}
-                        onClick={(event) => {
-                          activityTriggerRef.current = event.currentTarget;
-                          setActivityOpen(true);
-                        }}
-                      >
-                        활동
-                      </Button>
-                      <div className="customer-projects-workspace__project-menu" ref={projectMenuRef}>
+                  ) : null}
+                  {!isTrashProject && selectedCustomer?.phone ? (
+                    <button
+                      type="button"
+                      className="customer-projects-workspace__contact-copy"
+                      aria-label="고객 연락처 복사"
+                      title="고객 연락처 복사"
+                      onClick={handleCopyContact}
+                    >
+                      <Copy size={17} strokeWidth={1.5} aria-hidden="true" />
+                    </button>
+                  ) : null}
+                  <div className="customer-projects-workspace__project-menu" ref={projectMenuRef}>
                         <button
+                          ref={projectMenuTriggerRef}
                           type="button"
                           className="customer-projects-workspace__project-menu-trigger"
-                          aria-label="현장 상태 메뉴"
+                          aria-label="현장 더보기"
                           aria-haspopup="menu"
                           aria-expanded={projectMenuOpen}
                           onClick={() => setProjectMenuOpen((current) => !current)}
@@ -1210,7 +1186,33 @@ export default function CustomersProjectsPage({ companyId }) {
                         </button>
                         {projectMenuOpen ? (
                           <div className="customer-projects-workspace__project-menu-popover" role="menu">
-                            {["completed", "cancelled"].includes(detailProject.construction_status) ? (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                infoTriggerRef.current = projectMenuTriggerRef.current;
+                                setInfoOpen(true);
+                                setProjectMenuOpen(false);
+                              }}
+                            >
+                              고객·현장 정보 보기
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                activityTriggerRef.current = projectMenuTriggerRef.current;
+                                setActivityOpen(true);
+                                setProjectMenuOpen(false);
+                              }}
+                            >
+                              <Activity size={16} strokeWidth={1.5} aria-hidden="true" />
+                              활동 기록 보기
+                            </button>
+                            {!isTrashProject ? (
+                              <>
+                                <span className="customer-projects-workspace__project-menu-separator" />
+                                {["completed", "cancelled"].includes(detailProject.construction_status) ? (
                               <button
                                 type="button"
                                 role="menuitem"
@@ -1220,8 +1222,8 @@ export default function CustomersProjectsPage({ companyId }) {
                                 <RotateCcw size={16} strokeWidth={1.5} aria-hidden="true" />
                                 다시 진행 처리
                               </button>
-                            ) : (
-                              <>
+                                ) : (
+                                  <>
                                 <button
                                   type="button"
                                   role="menuitem"
@@ -1247,27 +1249,27 @@ export default function CustomersProjectsPage({ companyId }) {
                                 >
                                   현장 취소
                                 </button>
+                                  </>
+                                )}
+                                <span className="customer-projects-workspace__project-menu-separator" />
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="is-danger"
+                                  disabled={Boolean(projectTrashImpactLoadingId)}
+                                  onClick={() => loadProjectTrashImpact(detailProject, { openDialog: true })}
+                                >
+                                  <Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />
+                                  {projectTrashImpactLoadingId === detailProject.id
+                                    ? "영향 확인 중..."
+                                    : "현장 휴지통으로 이동"}
+                                </button>
                               </>
-                            )}
-                            <span className="customer-projects-workspace__project-menu-separator" />
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="is-danger"
-                              disabled={Boolean(projectTrashImpactLoadingId)}
-                              onClick={() => loadProjectTrashImpact(detailProject, { openDialog: true })}
-                            >
-                              <Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />
-                              {projectTrashImpactLoadingId === detailProject.id
-                                ? "영향 확인 중..."
-                                : "현장 휴지통으로 이동"}
-                            </button>
+                            ) : null}
                           </div>
                         ) : null}
-                      </div>
-                      {copyNotice ? <span role="status">{copyNotice}</span> : null}
-                    </>
-                  )}
+                  </div>
+                  {copyNotice ? <span role="status">{copyNotice}</span> : null}
                 </div>
               </header>
 
@@ -1297,6 +1299,74 @@ export default function CustomersProjectsPage({ companyId }) {
         </article>
       </section>
 
+      {infoOpen ? (
+        <div className="customer-projects-workspace__drawer-backdrop" onClick={() => setInfoOpen(false)}>
+          <aside
+            ref={infoDrawerRef}
+            className="customer-projects-workspace__drawer customer-projects-workspace__drawer--info"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="customer-projects-info-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <h2 id="customer-projects-info-title">고객·현장 정보</h2>
+              <button type="button" aria-label="고객·현장 정보 닫기" onClick={() => setInfoOpen(false)}>
+                <X size={18} strokeWidth={1.5} aria-hidden="true" />
+              </button>
+            </header>
+            <div className="customer-projects-workspace__info-scroll">
+              <section>
+                <h3>고객</h3>
+                <dl className="customer-projects-workspace__info-list">
+                  <div><dt>고객명</dt><dd>{selectedCustomer?.name || "미입력"}</dd></div>
+                  <div>
+                    <dt>연락처</dt>
+                    <dd>
+                      <span>{selectedCustomer?.phone || "미입력"}</span>
+                      {selectedCustomer?.phone ? (
+                        <button
+                          type="button"
+                          aria-label="고객 연락처 복사"
+                          title="고객 연락처 복사"
+                          onClick={handleCopyContact}
+                        >
+                          <Copy size={15} strokeWidth={1.5} aria-hidden="true" />
+                        </button>
+                      ) : null}
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+              <section>
+                <h3>현장</h3>
+                <dl className="customer-projects-workspace__info-list">
+                  <div><dt>현장명</dt><dd>{getProjectTitle(detailProject)}</dd></div>
+                  <div><dt>전체 주소</dt><dd>{projectAddress || "미입력"}</dd></div>
+                  <div><dt>현장 상태</dt><dd><StatusText status={lifecycleStatus} /></dd></div>
+                  {detailProject?.construction_start_date ? (
+                    <div><dt>착공 예정일</dt><dd>{formatOperationDate(detailProject.construction_start_date)}</dd></div>
+                  ) : null}
+                  {(detailProject?.completed_at || detailProject?.construction_completed_date) ? (
+                    <div>
+                      <dt>완료일</dt>
+                      <dd>{formatOperationDate(detailProject.completed_at || detailProject.construction_completed_date)}</dd>
+                    </div>
+                  ) : null}
+                  {detailProject?.cancelled_at ? (
+                    <div><dt>취소일</dt><dd>{formatOperationDate(detailProject.cancelled_at)}</dd></div>
+                  ) : null}
+                  {detailProject?.deleted_at ? (
+                    <div><dt>삭제일</dt><dd>{formatOperationDate(detailProject.deleted_at)}</dd></div>
+                  ) : null}
+                </dl>
+              </section>
+              {copyNotice ? <p className="customer-projects-workspace__drawer-notice" role="status">{copyNotice}</p> : null}
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
       {activityOpen ? (
         <div className="customer-projects-workspace__drawer-backdrop" onClick={() => setActivityOpen(false)}>
           <aside
@@ -1308,15 +1378,15 @@ export default function CustomersProjectsPage({ companyId }) {
             onClick={(event) => event.stopPropagation()}
           >
             <header>
-              <h2 id="customer-projects-activity-title">활동</h2>
-              <button type="button" aria-label="활동 닫기" onClick={() => setActivityOpen(false)}>
+              <h2 id="customer-projects-activity-title">활동 기록</h2>
+              <button type="button" aria-label="활동 기록 닫기" onClick={() => setActivityOpen(false)}>
                 <X size={18} strokeWidth={1.5} aria-hidden="true" />
               </button>
             </header>
             <div className="customer-projects-workspace__drawer-filters" role="tablist" aria-label="활동 필터">
               {[
                 { value: "all", label: "전체" },
-                { value: "messages", label: "메시지" },
+                { value: "customer", label: "고객 접점" },
                 { value: "status", label: "상태 변경" },
               ].map((filter) => (
                 <button
@@ -1334,7 +1404,6 @@ export default function CustomersProjectsPage({ companyId }) {
               {filteredActivityItems.length > 0 ? (
                 filteredActivityItems.map((item) => (
                   <div key={item.id}>
-                    <span className={`is-${item.type}`} aria-hidden="true" />
                     <p>
                       <strong>{item.title}</strong>
                       {item.description ? <span>{item.description}</span> : null}

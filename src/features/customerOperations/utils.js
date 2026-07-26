@@ -251,12 +251,20 @@ export function buildCustomerProjectRows({
   timelineEvents = [],
 }) {
   const estimateCounts = new Map();
+  const estimateReferences = new Map();
   const openRequestCounts = new Map();
   const recentActivityByProject = new Map();
 
   estimateVersions.forEach((version) => {
     if (!version.project_id) return;
     estimateCounts.set(version.project_id, (estimateCounts.get(version.project_id) ?? 0) + 1);
+    const references = estimateReferences.get(version.project_id) ?? [];
+    references.push(
+      version.label,
+      version.estimate_id,
+      version.version_no ? `v${version.version_no}` : ""
+    );
+    estimateReferences.set(version.project_id, references.filter(Boolean));
   });
 
   requests.forEach((request) => {
@@ -272,6 +280,7 @@ export function buildCustomerProjectRows({
   return projects.map((project) => ({
     ...project,
     estimateCount: estimateCounts.get(project.id) ?? 0,
+    estimateSearchText: (estimateReferences.get(project.id) ?? []).join(" "),
     openRequestCount: openRequestCounts.get(project.id) ?? 0,
     recentActivityAt: recentActivityByProject.get(project.id) ?? project.updated_at ?? project.created_at,
   }));
