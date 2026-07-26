@@ -53,7 +53,15 @@ export async function fetchCustomerRequests(companyId) {
       updated_at,
       customer:customers(id, name, phone),
       project:projects!inner(id, name, address, detail_address, deleted_at),
-      estimate_version:estimate_versions(id, estimate_id, version_no, label, status)
+      estimate:estimates(id, deleted_at),
+      estimate_version:estimate_versions(
+        id,
+        estimate_id,
+        version_no,
+        label,
+        status,
+        estimate:estimates(id, deleted_at)
+      )
     `)
     .eq("company_id", companyId)
     .is("project.deleted_at", null)
@@ -175,7 +183,15 @@ export async function updateCustomerRequestStatus({
       updated_at,
       customer:customers(id, name, phone),
       project:projects!inner(id, name, address, detail_address, construction_status, deleted_at),
-      estimate_version:estimate_versions(id, estimate_id, version_no, label, status)
+      estimate:estimates(id, deleted_at),
+      estimate_version:estimate_versions(
+        id,
+        estimate_id,
+        version_no,
+        label,
+        status,
+        estimate:estimates(id, deleted_at)
+      )
     `)
     .eq("company_id", companyId)
     .eq("id", requestId)
