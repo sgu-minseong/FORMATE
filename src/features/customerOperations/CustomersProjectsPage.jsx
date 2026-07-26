@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Copy,
   MoreHorizontal,
+  Plus,
   RotateCcw,
   Search,
   Trash2,
@@ -12,7 +13,10 @@ import {
 import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
 import PriceText from "../../components/PriceText";
+import AftercareRecordDialog from "./AftercareRecordDialog";
 import {
+  createAftercareSchedule,
+  createServiceRequest,
   fetchCustomerProjectDetail,
   fetchCustomersProjects,
   getProjectTrashImpact,
@@ -27,6 +31,7 @@ import { CUSTOMER_OPERATIONS_PAGES } from "./constants";
 import {
   formatOperationDate,
   formatOperationDateTime,
+  getAftercareScheduleTitle,
   getCustomerOperationText,
   getEstimateReference,
   getEstimateVersionLabel,
@@ -34,6 +39,7 @@ import {
   isActiveProjectStatus,
   isDeletedProject,
   isOpenCustomerRequest,
+  isServiceRequestInWorkspaceView,
   operationStatusViews,
 } from "./utils";
 
@@ -246,6 +252,10 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
   const [projectTrashDialog, setProjectTrashDialog] = useState(null);
   const [projectTrashProcessing, setProjectTrashProcessing] = useState(false);
   const [projectTrashError, setProjectTrashError] = useState("");
+  const [aftercareDialog, setAftercareDialog] = useState(null);
+  const [aftercareSaving, setAftercareSaving] = useState(false);
+  const [aftercareFormError, setAftercareFormError] = useState("");
+  const [aftercareNotice, setAftercareNotice] = useState("");
   const detailContentRef = useRef(null);
   const activityDrawerRef = useRef(null);
   const activityTriggerRef = useRef(null);
@@ -383,6 +393,11 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
     ? projectTrashImpacts[detailProject.id] ?? null
     : null;
   const selectedCustomer = getRelationRow(detailProject?.customer);
+  const aftercareProjectContext = useMemo(() => (
+    detailProject && selectedCustomer
+      ? { ...detailProject, customer: selectedCustomer }
+      : null
+  ), [detailProject, selectedCustomer]);
   const openRequests = useMemo(
     () => detail.requests.filter((request) => isOpenCustomerRequest(request.status)),
     [detail.requests]
@@ -447,6 +462,9 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
     setProjectStatusError("");
     setProjectTrashDialog(null);
     setProjectTrashError("");
+    setAftercareDialog(null);
+    setAftercareFormError("");
+    setAftercareNotice("");
   }, [selectedProjectId]);
 
   useEffect(() => {
@@ -701,14 +719,53 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
     }
   };
 
+  const handleProjectAftercareSubmit = async (values) => {
+    if (!aftercareDialog || aftercareSaving) return;
+    setAftercareSaving(true);
+    setAftercareFormError("");
+    setAftercareNotice("");
+    try {
+      if (aftercareDialog.kind === "schedule") {
+        const schedule = await createAftercareSchedule({
+          companyId,
+          ...values,
+        });
+        setDetail((current) => ({
+          ...current,
+          aftercareSchedules: [schedule, ...current.aftercareSchedules],
+        }));
+        setAftercareNotice("사후관리 일정을 등록했습니다.");
+      } else {
+        const request = await createServiceRequest({
+          companyId,
+          ...values,
+        });
+        setDetail((current) => ({
+          ...current,
+          serviceRequests: [request, ...current.serviceRequests],
+        }));
+        setAftercareNotice("A/S 요청을 등록했습니다.");
+      }
+      setAftercareDialog(null);
+    } catch {
+      setAftercareFormError("저장하지 못했습니다. 입력 내용을 확인한 뒤 다시 시도해주세요.");
+    } finally {
+      setAftercareSaving(false);
+    }
+  };
+
   const renderOverview = () => {
     const latestRequest = detail.requests[0] ?? null;
     const latestOpenRequest = openRequests[0] ?? null;
-    const nextAftercare = detail.aftercareSchedules.find((schedule) => schedule.next_send_date)
-      ?? detail.aftercareSchedules[0]
+    const nextAftercare = detail.aftercareSchedules.find((schedule) => (
+      schedule.next_send_date && !["completed", "cancelled"].includes(schedule.status)
+    ))
       ?? null;
     const activeServiceCount = detail.serviceRequests.filter(
-      (request) => !["resolved", "closed"].includes(request.status)
+      (request) => (
+        isServiceRequestInWorkspaceView(request.status, "service-intake")
+        || isServiceRequestInWorkspaceView(request.status, "service-progress")
+      )
     ).length;
 
     return (
@@ -935,52 +992,136 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
   );
 
   const renderAftercare = () => {
-    if (detail.aftercareSchedules.length === 0 && detail.serviceRequests.length === 0) {
-      return (
-        <div className="customer-projects-workspace__compact-empty">
-          <span>등록된 사후관리 일정 또는 A/S 내역이 없습니다.</span>
-        </div>
-      );
-    }
+    const nextSchedule = detail.aftercareSchedules.find((schedule) => (
+      schedule.next_send_date && !["completed", "cancelled"].includes(schedule.status)
+    )) ?? null;
+    const upcomingSchedules = detail.aftercareSchedules.filter((schedule) => (
+      !["completed", "cancelled"].includes(schedule.status)
+    ));
+    const activeServices = detail.serviceRequests.filter((request) => (
+      isServiceRequestInWorkspaceView(request.status, "service-intake")
+      || isServiceRequestInWorkspaceView(request.status, "service-progress")
+    ));
+    const recentService = detail.serviceRequests[0] ?? null;
+    const canCreate = !isTrashProject
+      && detailProject?.construction_status === "completed"
+      && Boolean(selectedCustomer?.id);
 
     return (
-      <div className="customer-projects-workspace__section-list">
-        {detail.aftercareSchedules.length > 0 ? (
-          <section>
-            <h3>사후관리 일정</h3>
-            {detail.aftercareSchedules.map((schedule) => (
-              <div className="customer-projects-workspace__single-record" key={schedule.id}>
-                <strong>
-                  {schedule.next_send_date
-                    ? `다음 점검 ${formatOperationDate(schedule.next_send_date)}`
-                    : "다음 점검일 미정"}
-                </strong>
-                <span>{operationStatusViews.aftercare(schedule.status).label}</span>
-              </div>
-            ))}
-          </section>
+      <div className="customer-projects-workspace__aftercare">
+        <header className="customer-projects-workspace__aftercare-header">
+          <div>
+            <h3>현장 사후관리</h3>
+            <span>이 현장에 연결된 일정과 A/S 기록만 표시합니다.</span>
+          </div>
+          {canCreate ? (
+            <div>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Plus />}
+                onClick={() => {
+                  setAftercareFormError("");
+                  setAftercareDialog({ kind: "schedule" });
+                }}
+              >
+                일정 등록
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Plus />}
+                onClick={() => {
+                  setAftercareFormError("");
+                  setAftercareDialog({ kind: "service" });
+                }}
+              >
+                A/S 등록
+              </Button>
+            </div>
+          ) : null}
+        </header>
+
+        {aftercareNotice ? (
+          <p className="customer-projects-workspace__aftercare-notice" role="status">
+            {aftercareNotice}
+          </p>
         ) : null}
-        {detail.serviceRequests.length > 0 ? (
-          <section>
-            <h3>A/S 내역</h3>
-            {detail.serviceRequests.map((request) => (
-              <div className="customer-projects-workspace__single-record" key={request.id}>
-                <strong>{request.problem_space || request.related_item_label || "A/S 요청"}</strong>
-                <span>
-                  {operationStatusViews.service(request.status).label}
-                  {" · "}
-                  {formatOperationDate(request.updated_at || request.created_at)}
-                </span>
-              </div>
-            ))}
-          </section>
-        ) : null}
+
+        <div className="customer-projects-workspace__aftercare-summary">
+          <div>
+            <span>다음 일정</span>
+            <strong>
+              {nextSchedule
+                ? `${getAftercareScheduleTitle(nextSchedule)} · ${formatOperationDate(nextSchedule.next_send_date)}`
+                : "예정된 점검이 없습니다."}
+            </strong>
+          </div>
+          <div>
+            <span>예정 일정</span>
+            <strong>{upcomingSchedules.length}건</strong>
+          </div>
+          <div>
+            <span>처리할 A/S</span>
+            <strong>{activeServices.length}건</strong>
+          </div>
+          <div>
+            <span>최근 A/S</span>
+            <strong>
+              {recentService
+                ? recentService.problem_space || recentService.related_item_label || "A/S 요청"
+                : "등록 내역 없음"}
+            </strong>
+          </div>
+        </div>
+
+        {detail.aftercareSchedules.length === 0 && detail.serviceRequests.length === 0 ? (
+          <div className="customer-projects-workspace__compact-empty">
+            <span>등록된 사후관리 일정 또는 A/S 내역이 없습니다.</span>
+            {!canCreate && !isTrashProject ? (
+              <span>현장을 완료 처리하면 사후관리 업무를 등록할 수 있습니다.</span>
+            ) : null}
+          </div>
+        ) : (
+          <div className="customer-projects-workspace__section-list">
+            {detail.aftercareSchedules.length > 0 ? (
+              <section>
+                <h3>최근 일정</h3>
+                {detail.aftercareSchedules.slice(0, 3).map((schedule) => (
+                  <div className="customer-projects-workspace__single-record" key={schedule.id}>
+                    <strong>
+                      {getAftercareScheduleTitle(schedule)}
+                      {schedule.next_send_date ? ` · ${formatOperationDate(schedule.next_send_date)}` : ""}
+                    </strong>
+                    <span>{operationStatusViews.aftercare(schedule.status).label}</span>
+                  </div>
+                ))}
+              </section>
+            ) : null}
+            {detail.serviceRequests.length > 0 ? (
+              <section>
+                <h3>최근 A/S</h3>
+                {detail.serviceRequests.slice(0, 3).map((request) => (
+                  <div className="customer-projects-workspace__single-record" key={request.id}>
+                    <strong>{request.problem_space || request.related_item_label || "A/S 요청"}</strong>
+                    <span>
+                      {operationStatusViews.service(request.status).label}
+                      {" · "}
+                      {formatOperationDate(request.updated_at || request.created_at)}
+                    </span>
+                  </div>
+                ))}
+              </section>
+            ) : null}
+          </div>
+        )}
+
         <button
           type="button"
           className="customer-projects-workspace__section-link"
           onClick={() => onNavigate?.(CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE)}
         >
-          전체 사후관리 화면으로 이동
+          전체 사후관리·A/S 화면으로 이동
         </button>
       </div>
     );
@@ -1453,6 +1594,18 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
           }
         />
       ) : null}
+
+      <AftercareRecordDialog
+        open={Boolean(aftercareDialog)}
+        kind={aftercareDialog?.kind}
+        lockedProject={aftercareProjectContext}
+        submitting={aftercareSaving}
+        error={aftercareFormError}
+        onClose={() => {
+          if (!aftercareSaving) setAftercareDialog(null);
+        }}
+        onSubmit={handleProjectAftercareSubmit}
+      />
     </main>
   );
 }

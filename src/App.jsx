@@ -11609,7 +11609,7 @@ function AdminApp() {
       )}
 
       {page === CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE && renderAppShell(
-        <AftercareServicePage companyId={selectedCompanyId} />
+        <AftercareServicePage companyId={selectedCompanyId} onNavigate={setPage} />
       )}
 
       {page === "admin" && adminVerified && renderAppShell(

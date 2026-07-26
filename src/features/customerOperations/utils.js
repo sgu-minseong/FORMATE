@@ -123,6 +123,33 @@ export function isOpenCustomerRequest(status) {
   return ["received", "in_progress"].includes(getCustomerRequestLogicalStatus(status));
 }
 
+export function getServiceRequestWorkspaceView(status) {
+  if (["not_started", "received"].includes(status)) return "service-intake";
+  if (["contacted", "visit_scheduled", "in_progress"].includes(status)) {
+    return "service-progress";
+  }
+  if (["resolved", "closed"].includes(status)) return "service-completed";
+  return "unknown";
+}
+
+export function isServiceRequestInWorkspaceView(status, view) {
+  return getServiceRequestWorkspaceView(status) === view;
+}
+
+export function getAftercareScheduleTitle(schedule) {
+  const interval = Number(schedule?.repeat_interval_months) || 0;
+  return interval > 0 ? `${interval}개월 주기 점검` : "사후관리 점검";
+}
+
+export function isAftercareScheduleOverdue(schedule, now = new Date()) {
+  if (!schedule?.next_send_date || ["completed", "cancelled"].includes(schedule.status)) {
+    return false;
+  }
+
+  const dueAt = new Date(`${schedule.next_send_date}T23:59:59`);
+  return Number.isFinite(dueAt.getTime()) && dueAt.getTime() < now.getTime();
+}
+
 export function getCustomerRequestLogicalStatus(status) {
   if (status === "received") return "received";
   if (["reviewing", "pricing", "awaiting_customer_approval"].includes(status)) {
