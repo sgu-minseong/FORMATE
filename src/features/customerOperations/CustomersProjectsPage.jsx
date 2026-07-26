@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
   RotateCcw,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import Button from "../../components/ui/Button";
@@ -14,10 +15,14 @@ import PriceText from "../../components/PriceText";
 import {
   fetchCustomerProjectDetail,
   fetchCustomersProjects,
+  getProjectTrashImpact,
+  moveProjectToTrash,
+  restoreProjectFromTrash,
   updateCustomerRequestStatus,
   updateProjectStatus,
 } from "./api";
 import ProjectStatusConfirmDialog from "./ProjectStatusConfirmDialog";
+import ProjectTrashDialog from "./ProjectTrashDialog";
 import {
   RequestProcessingControls,
   StatusText,
@@ -55,6 +60,7 @@ const PROJECT_FILTERS = [
   { value: "active", label: "진행 중" },
   { value: "completed", label: "완료" },
   { value: "cancelled", label: "취소" },
+  { value: "trash", label: "휴지통" },
 ];
 
 function QuietEmpty({ children }) {
@@ -89,6 +95,8 @@ function formatRelativeActivity(value) {
 }
 
 function matchesProjectStatus(project, filter) {
+  if (filter === "trash") return Boolean(project.deleted_at);
+  if (project.deleted_at) return false;
   if (filter === "active") {
     return !["completed", "cancelled"].includes(project.construction_status);
   }
@@ -98,6 +106,9 @@ function matchesProjectStatus(project, filter) {
 }
 
 function getProjectLifecycleStatus(project) {
+  if (project?.deleted_at) {
+    return { label: "삭제됨", tone: "muted" };
+  }
   if (project?.construction_status === "completed") {
     return { label: "완료", tone: "success" };
   }
@@ -180,6 +191,11 @@ export default function CustomersProjectsPage({ companyId }) {
   const [projectStatusProcessing, setProjectStatusProcessing] = useState(false);
   const [projectStatusError, setProjectStatusError] = useState("");
   const [projectStatusNotice, setProjectStatusNotice] = useState("");
+  const [projectTrashImpacts, setProjectTrashImpacts] = useState({});
+  const [projectTrashImpactLoadingId, setProjectTrashImpactLoadingId] = useState("");
+  const [projectTrashDialog, setProjectTrashDialog] = useState(null);
+  const [projectTrashProcessing, setProjectTrashProcessing] = useState(false);
+  const [projectTrashError, setProjectTrashError] = useState("");
   const detailContentRef = useRef(null);
   const activityDrawerRef = useRef(null);
   const activityTriggerRef = useRef(null);
@@ -246,6 +262,12 @@ export default function CustomersProjectsPage({ companyId }) {
         return searchable.includes(normalizedQuery);
       })
       .sort((left, right) => {
+        if (statusFilter === "trash") {
+          const leftDeletedAt = new Date(left.deleted_at || 0).getTime() || 0;
+          const rightDeletedAt = new Date(right.deleted_at || 0).getTime() || 0;
+          return rightDeletedAt - leftDeletedAt;
+        }
+
         const priorityDifference = getProjectSortPriority(left) - getProjectSortPriority(right);
         if (priorityDifference !== 0) return priorityDifference;
 
@@ -260,6 +282,10 @@ export default function CustomersProjectsPage({ companyId }) {
     selectedProjectId,
     statusFilter,
   ]);
+  const trashCount = useMemo(
+    () => projects.filter((project) => Boolean(project.deleted_at)).length,
+    [projects]
+  );
 
   useEffect(() => {
     if (filteredProjects.some((project) => project.id === selectedProjectId)) return;
@@ -311,6 +337,10 @@ export default function CustomersProjectsPage({ companyId }) {
   }, [companyId, selectedProject]);
 
   const detailProject = detail.project || selectedProject;
+  const isTrashProject = Boolean(detailProject?.deleted_at);
+  const selectedTrashImpact = detailProject?.id
+    ? projectTrashImpacts[detailProject.id] ?? null
+    : null;
   const selectedCustomer = getRelationRow(detailProject?.customer);
   const selectedRequest = useMemo(
     () => detail.requests.find((request) => request.id === selectedRequestId) ?? null,
@@ -368,10 +398,18 @@ export default function CustomersProjectsPage({ companyId }) {
 
   useEffect(() => {
     if (detailContentRef.current) detailContentRef.current.scrollTop = 0;
+    setActivityOpen(false);
     setProjectMenuOpen(false);
     setProjectStatusConfirm("");
     setProjectStatusError("");
+    setProjectTrashDialog(null);
+    setProjectTrashError("");
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProject?.deleted_at || projectTrashImpacts[selectedProject.id]) return;
+    loadProjectTrashImpact(selectedProject);
+  }, [companyId, projectTrashImpacts, selectedProject]);
 
   useEffect(() => {
     if (!projectMenuOpen) return undefined;
@@ -413,6 +451,7 @@ export default function CustomersProjectsPage({ companyId }) {
     setActiveTab("overview");
     setEstimateRequestView("estimates");
     setCopyNotice("");
+    setProjectTrashError("");
     setMobileDetailOpen(true);
   };
 
@@ -535,6 +574,126 @@ export default function CustomersProjectsPage({ companyId }) {
     }
   };
 
+  async function loadProjectTrashImpact(project, { openDialog = false } = {}) {
+    if (!project?.id || projectTrashImpactLoadingId) return null;
+
+    const cachedImpact = projectTrashImpacts[project.id];
+    if (cachedImpact) {
+      if (openDialog) {
+        setProjectTrashDialog({ mode: "trash", project });
+        setProjectMenuOpen(false);
+      }
+      return cachedImpact;
+    }
+
+    setProjectTrashImpactLoadingId(project.id);
+    setProjectTrashError("");
+    try {
+      const impact = await getProjectTrashImpact({
+        companyId,
+        projectId: project.id,
+      });
+      setProjectTrashImpacts((current) => ({
+        ...current,
+        [project.id]: impact,
+      }));
+      if (openDialog) {
+        setProjectTrashDialog({ mode: "trash", project });
+        setProjectMenuOpen(false);
+      }
+      return impact;
+    } catch (impactError) {
+      setProjectMenuOpen(false);
+      setProjectTrashError("현장 영향 범위를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
+      return null;
+    } finally {
+      setProjectTrashImpactLoadingId("");
+    }
+  }
+
+  const handleMoveProjectToTrash = async () => {
+    const project = projectTrashDialog?.project;
+    if (!project?.id || projectTrashProcessing) return;
+
+    setProjectTrashProcessing(true);
+    setProjectTrashError("");
+    setProjectStatusNotice("");
+    try {
+      const result = await moveProjectToTrash({
+        companyId,
+        projectId: project.id,
+      });
+      const deletedAt = result.deletedAt || new Date().toISOString();
+      const projectPatch = {
+        deleted_at: deletedAt,
+        updated_at: deletedAt,
+        recentActivityAt: deletedAt,
+      };
+
+      setProjects((current) => current.map((row) => (
+        row.id === project.id ? { ...row, ...projectPatch } : row
+      )));
+      setDetail((current) => ({
+        ...current,
+        project: current.project?.id === project.id
+          ? { ...current.project, ...projectPatch }
+          : current.project,
+      }));
+      setProjectTrashDialog(null);
+      setProjectMenuOpen(false);
+      setProjectStatusNotice("현장을 휴지통으로 이동했습니다.");
+    } catch (trashError) {
+      setProjectTrashError(
+        "현장을 휴지통으로 이동하지 못했습니다. 잠시 후 다시 시도해주세요."
+      );
+    } finally {
+      setProjectTrashProcessing(false);
+    }
+  };
+
+  const handleRestoreProject = async () => {
+    const project = projectTrashDialog?.project;
+    if (!project?.id || projectTrashProcessing) return;
+
+    setProjectTrashProcessing(true);
+    setProjectTrashError("");
+    setProjectStatusNotice("");
+    try {
+      await restoreProjectFromTrash({
+        companyId,
+        projectId: project.id,
+      });
+      const restoredAt = new Date().toISOString();
+      const projectPatch = {
+        deleted_at: null,
+        deleted_by: null,
+        updated_at: restoredAt,
+        recentActivityAt: restoredAt,
+      };
+
+      setProjects((current) => current.map((row) => (
+        row.id === project.id ? { ...row, ...projectPatch } : row
+      )));
+      setDetail((current) => ({
+        ...current,
+        project: current.project?.id === project.id
+          ? { ...current.project, ...projectPatch }
+          : current.project,
+      }));
+      setProjectTrashImpacts((current) => {
+        const next = { ...current };
+        delete next[project.id];
+        return next;
+      });
+      setProjectTrashDialog(null);
+      setProjectStatusNotice("현장을 복원했습니다.");
+    } catch (restoreError) {
+      setProjectTrashError("현장을 복원하지 못했습니다. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setProjectTrashProcessing(false);
+    }
+  };
+
   const renderOverview = () => {
     const recentActivity = activityItems[0];
     const summaryItems = [
@@ -545,6 +704,30 @@ export default function CustomersProjectsPage({ companyId }) {
 
     return (
       <div className="customer-projects-workspace__record-document">
+        {isTrashProject ? (
+          <section>
+            <h3>연결 데이터</h3>
+            {projectTrashImpactLoadingId === detailProject.id && !selectedTrashImpact ? (
+              <p className="customer-projects-workspace__impact-loading" role="status">
+                연결된 데이터 수량을 확인하는 중
+              </p>
+            ) : selectedTrashImpact ? (
+              <dl className="customer-projects-workspace__impact-list">
+                <div><dt>연결된 견적</dt><dd>{selectedTrashImpact.estimateCount || 0}건</dd></div>
+                <div><dt>받은 요청</dt><dd>{selectedTrashImpact.totalRequestCount || 0}건</dd></div>
+                <div><dt>처리되지 않은 요청</dt><dd>{selectedTrashImpact.pendingRequestCount || 0}건</dd></div>
+                <div><dt>메시지</dt><dd>{selectedTrashImpact.messageCount || 0}건</dd></div>
+                <div><dt>활동 기록</dt><dd>{selectedTrashImpact.activityCount || 0}건</dd></div>
+                <div><dt>활성 공유 링크</dt><dd>{selectedTrashImpact.activeShareLinkCount || 0}건</dd></div>
+              </dl>
+            ) : (
+              <p className="customer-projects-workspace__impact-loading">
+                연결된 데이터 수량을 표시하지 못했습니다.
+              </p>
+            )}
+          </section>
+        ) : null}
+
         <section>
           <h3>핵심 요약</h3>
           {summaryItems.length > 0 ? (
@@ -703,15 +886,21 @@ export default function CustomersProjectsPage({ companyId }) {
                 <small>관련 항목 {selectedRequest.related_item_label}</small>
               ) : null}
             </section>
-            <RequestProcessingControls
-              request={selectedRequest}
-              memo={requestMemo}
-              onMemoChange={setRequestMemo}
-              onStatusChange={handleRequestStatusChange}
-              processing={requestProcessing}
-              error={requestError}
-              notice={requestNotice}
-            />
+            {!isTrashProject ? (
+              <RequestProcessingControls
+                request={selectedRequest}
+                memo={requestMemo}
+                onMemoChange={setRequestMemo}
+                onStatusChange={handleRequestStatusChange}
+                processing={requestProcessing}
+                error={requestError}
+                notice={requestNotice}
+              />
+            ) : (
+              <p className="customer-projects-workspace__readonly-note">
+                휴지통의 현장은 읽기 전용입니다.
+              </p>
+            )}
           </div>
         ) : null}
       </div>
@@ -850,7 +1039,9 @@ export default function CustomersProjectsPage({ companyId }) {
           <span className="customer-projects-workspace__visually-hidden">현장 상태 필터</span>
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             {PROJECT_FILTERS.map((filter) => (
-              <option value={filter.value} key={filter.value}>{filter.label}</option>
+              <option value={filter.value} key={filter.value}>
+                {filter.value === "trash" ? `${filter.label} ${trashCount}` : filter.label}
+              </option>
             ))}
           </select>
         </label>
@@ -864,6 +1055,11 @@ export default function CustomersProjectsPage({ companyId }) {
       {projectStatusError && !projectStatusConfirm ? (
         <div className="customer-projects-workspace__status-notice is-error" role="alert">
           {projectStatusError}
+        </div>
+      ) : null}
+      {projectTrashError && !projectTrashDialog ? (
+        <div className="customer-projects-workspace__status-notice is-error" role="alert">
+          {projectTrashError}
         </div>
       ) : null}
 
@@ -900,7 +1096,11 @@ export default function CustomersProjectsPage({ companyId }) {
                 return (
                   <button
                     type="button"
-                    className={`customer-projects-workspace__project-row ${selected ? "is-selected" : ""}`.trim()}
+                    className={[
+                      "customer-projects-workspace__project-row",
+                      selected ? "is-selected" : "",
+                      project.deleted_at ? "is-trash" : "",
+                    ].filter(Boolean).join(" ")}
                     aria-current={selected ? "true" : undefined}
                     key={project.id}
                     onClick={() => selectProject(project.id)}
@@ -920,7 +1120,11 @@ export default function CustomersProjectsPage({ companyId }) {
                         {" · "}
                         <StatusText status={projectStage} />
                       </span>
-                      <time>{formatRelativeActivity(project.recentActivityAt)}</time>
+                      <time>
+                        {formatRelativeActivity(
+                          project.deleted_at || project.recentActivityAt
+                        )}
+                      </time>
                     </span>
                   </button>
                 );
@@ -949,85 +1153,119 @@ export default function CustomersProjectsPage({ companyId }) {
                       .join(" · ")}
                   </p>
                   <StatusText status={lifecycleStatus} />
+                  {isTrashProject ? (
+                    <time className="customer-projects-workspace__deleted-at">
+                      삭제일 {formatOperationDateTime(detailProject.deleted_at)}
+                    </time>
+                  ) : null}
                 </div>
                 <div className="customer-projects-workspace__detail-actions">
-                  {recentEstimate ? (
-                    <Button variant="secondary" size="sm" onClick={showEstimateRecords}>
-                      최근 견적 보기
-                    </Button>
-                  ) : null}
-                  {selectedCustomer?.phone ? (
-                    <Button variant="secondary" size="sm" leftIcon={<Copy />} onClick={handleCopyContact}>
-                      연락처 복사
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant="tertiary"
-                    size="sm"
-                    leftIcon={<Activity />}
-                    onClick={(event) => {
-                      activityTriggerRef.current = event.currentTarget;
-                      setActivityOpen(true);
-                    }}
-                  >
-                    활동
-                  </Button>
-                  <div className="customer-projects-workspace__project-menu" ref={projectMenuRef}>
-                    <button
-                      type="button"
-                      className="customer-projects-workspace__project-menu-trigger"
-                      aria-label="현장 상태 메뉴"
-                      aria-haspopup="menu"
-                      aria-expanded={projectMenuOpen}
-                      onClick={() => setProjectMenuOpen((current) => !current)}
+                  {isTrashProject ? (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      leftIcon={<RotateCcw />}
+                      onClick={() => {
+                        setProjectTrashError("");
+                        setProjectTrashDialog({ mode: "restore", project: detailProject });
+                      }}
                     >
-                      <MoreHorizontal size={18} strokeWidth={1.5} aria-hidden="true" />
-                    </button>
-                    {projectMenuOpen ? (
-                      <div className="customer-projects-workspace__project-menu-popover" role="menu">
-                        {["completed", "cancelled"].includes(detailProject.construction_status) ? (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            disabled={projectStatusProcessing}
-                            onClick={() => handleProjectStatusChange("in_progress")}
-                          >
-                            <RotateCcw size={16} strokeWidth={1.5} aria-hidden="true" />
-                            다시 진행 처리
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              disabled={projectStatusProcessing}
-                              onClick={() => {
-                                setProjectStatusError("");
-                                setProjectStatusConfirm("completed");
-                                setProjectMenuOpen(false);
-                              }}
-                            >
-                              현장 완료 처리
-                            </button>
+                      복원
+                    </Button>
+                  ) : (
+                    <>
+                      {recentEstimate ? (
+                        <Button variant="secondary" size="sm" onClick={showEstimateRecords}>
+                          최근 견적 보기
+                        </Button>
+                      ) : null}
+                      {selectedCustomer?.phone ? (
+                        <Button variant="secondary" size="sm" leftIcon={<Copy />} onClick={handleCopyContact}>
+                          연락처 복사
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="tertiary"
+                        size="sm"
+                        leftIcon={<Activity />}
+                        onClick={(event) => {
+                          activityTriggerRef.current = event.currentTarget;
+                          setActivityOpen(true);
+                        }}
+                      >
+                        활동
+                      </Button>
+                      <div className="customer-projects-workspace__project-menu" ref={projectMenuRef}>
+                        <button
+                          type="button"
+                          className="customer-projects-workspace__project-menu-trigger"
+                          aria-label="현장 상태 메뉴"
+                          aria-haspopup="menu"
+                          aria-expanded={projectMenuOpen}
+                          onClick={() => setProjectMenuOpen((current) => !current)}
+                        >
+                          <MoreHorizontal size={18} strokeWidth={1.5} aria-hidden="true" />
+                        </button>
+                        {projectMenuOpen ? (
+                          <div className="customer-projects-workspace__project-menu-popover" role="menu">
+                            {["completed", "cancelled"].includes(detailProject.construction_status) ? (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                disabled={projectStatusProcessing}
+                                onClick={() => handleProjectStatusChange("in_progress")}
+                              >
+                                <RotateCcw size={16} strokeWidth={1.5} aria-hidden="true" />
+                                다시 진행 처리
+                              </button>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  disabled={projectStatusProcessing}
+                                  onClick={() => {
+                                    setProjectStatusError("");
+                                    setProjectStatusConfirm("completed");
+                                    setProjectMenuOpen(false);
+                                  }}
+                                >
+                                  현장 완료 처리
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="is-danger"
+                                  disabled={projectStatusProcessing}
+                                  onClick={() => {
+                                    setProjectStatusError("");
+                                    setProjectStatusConfirm("cancelled");
+                                    setProjectMenuOpen(false);
+                                  }}
+                                >
+                                  현장 취소
+                                </button>
+                              </>
+                            )}
+                            <span className="customer-projects-workspace__project-menu-separator" />
                             <button
                               type="button"
                               role="menuitem"
                               className="is-danger"
-                              disabled={projectStatusProcessing}
-                              onClick={() => {
-                                setProjectStatusError("");
-                                setProjectStatusConfirm("cancelled");
-                                setProjectMenuOpen(false);
-                              }}
+                              disabled={Boolean(projectTrashImpactLoadingId)}
+                              onClick={() => loadProjectTrashImpact(detailProject, { openDialog: true })}
                             >
-                              현장 취소
+                              <Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />
+                              {projectTrashImpactLoadingId === detailProject.id
+                                ? "영향 확인 중..."
+                                : "현장 휴지통으로 이동"}
                             </button>
-                          </>
-                        )}
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
-                  </div>
-                  {copyNotice ? <span role="status">{copyNotice}</span> : null}
+                      {copyNotice ? <span role="status">{copyNotice}</span> : null}
+                    </>
+                  )}
                 </div>
               </header>
 
@@ -1122,6 +1360,26 @@ export default function CustomersProjectsPage({ companyId }) {
             setProjectStatusError("");
           }}
           onConfirm={() => handleProjectStatusChange(projectStatusConfirm)}
+        />
+      ) : null}
+
+      {projectTrashDialog ? (
+        <ProjectTrashDialog
+          mode={projectTrashDialog.mode}
+          projectName={getProjectTitle(projectTrashDialog.project)}
+          impact={projectTrashImpacts[projectTrashDialog.project.id]}
+          processing={projectTrashProcessing}
+          error={projectTrashError}
+          onClose={() => {
+            if (projectTrashProcessing) return;
+            setProjectTrashDialog(null);
+            setProjectTrashError("");
+          }}
+          onConfirm={
+            projectTrashDialog.mode === "restore"
+              ? handleRestoreProject
+              : handleMoveProjectToTrash
+          }
         />
       ) : null}
     </main>

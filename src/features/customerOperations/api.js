@@ -212,6 +212,75 @@ export async function updateProjectStatus({
   return data;
 }
 
+export async function getProjectTrashImpact({
+  companyId,
+  projectId,
+}) {
+  assertCustomerOperationsQuery(companyId);
+
+  if (!projectId) {
+    throw new Error("확인할 현장을 찾을 수 없습니다.");
+  }
+
+  const { data, error } = await supabase.rpc("get_project_trash_impact", {
+    p_company_id: companyId,
+    p_project_id: projectId,
+  });
+
+  if (error) throw error;
+  if (!data?.ok || data?.result !== "impact") {
+    throw new Error("현장 영향 범위를 확인할 수 없습니다.");
+  }
+
+  return data;
+}
+
+export async function moveProjectToTrash({
+  companyId,
+  projectId,
+}) {
+  assertCustomerOperationsQuery(companyId);
+
+  if (!projectId) {
+    throw new Error("처리할 현장을 확인할 수 없습니다.");
+  }
+
+  const { data, error } = await supabase.rpc("move_project_to_trash", {
+    p_company_id: companyId,
+    p_project_id: projectId,
+  });
+
+  if (error) throw error;
+  if (!data?.ok || !["moved_to_trash", "already_in_trash"].includes(data?.result)) {
+    throw new Error("현장을 휴지통으로 이동할 수 없습니다.");
+  }
+
+  return data;
+}
+
+export async function restoreProjectFromTrash({
+  companyId,
+  projectId,
+}) {
+  assertCustomerOperationsQuery(companyId);
+
+  if (!projectId) {
+    throw new Error("복원할 현장을 확인할 수 없습니다.");
+  }
+
+  const { data, error } = await supabase.rpc("restore_project_from_trash", {
+    p_company_id: companyId,
+    p_project_id: projectId,
+  });
+
+  if (error) throw error;
+  if (!data?.ok || !["restored", "already_restored"].includes(data?.result)) {
+    throw new Error("현장을 복원할 수 없습니다.");
+  }
+
+  return data;
+}
+
 export async function fetchCustomersProjects(companyId) {
   assertCustomerOperationsQuery(companyId);
 
@@ -243,7 +312,6 @@ export async function fetchCustomersProjects(companyId) {
         customer:customers(id, name, phone, email, memo)
       `)
       .eq("company_id", companyId)
-      .is("deleted_at", null)
       .order("updated_at", { ascending: false }),
     supabase
       .from("estimate_versions")
@@ -316,7 +384,6 @@ export async function fetchCustomerProjectDetail({
       .eq("company_id", companyId)
       .eq("customer_id", customerId)
       .eq("id", projectId)
-      .is("deleted_at", null)
       .single(),
     supabase
       .from("estimate_versions")
