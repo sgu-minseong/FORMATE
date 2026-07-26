@@ -1,12 +1,15 @@
 import { isSupabaseConfigured, supabase } from "../../lib/supabaseClient";
 import {
-  HOME_ACTIVE_AFTERCARE_STATUSES,
-  HOME_ACTIVE_CONSTRUCTION_STATUSES,
-  HOME_ACTIVE_ESTIMATE_STATUSES,
-  HOME_ATTENTION_REQUEST_STATUSES,
-  HOME_ATTENTION_SERVICE_STATUSES,
-} from "./constants";
-import { buildCustomerProjectRows, buildHomeOperationsData } from "./utils";
+  buildCustomerProjectRows,
+  buildHomeOperationsData,
+  isActiveProject,
+  isDeletedEstimate,
+  isHomeNotificationVisible,
+  isHomeTimelineEventVisible,
+  isOpenCustomerRequest,
+  isOperationalEstimate,
+  isProjectLinkedRowVisible,
+} from "./utils";
 
 function assertCustomerOperationsQuery(companyId) {
   if (!isSupabaseConfigured) {
@@ -25,11 +28,6 @@ function unwrap(result) {
 function unwrapSingle(result) {
   if (result.error) throw result.error;
   return result.data ?? null;
-}
-
-function unwrapCount(result) {
-  if (result.error) throw result.error;
-  return result.count ?? 0;
 }
 
 export async function fetchCustomerRequests(companyId) {
@@ -54,10 +52,11 @@ export async function fetchCustomerRequests(companyId) {
       created_at,
       updated_at,
       customer:customers(id, name, phone),
-      project:projects(id, name, address, detail_address),
+      project:projects!inner(id, name, address, detail_address, deleted_at),
       estimate_version:estimate_versions(id, estimate_id, version_no, label, status)
     `)
     .eq("company_id", companyId)
+    .is("project.deleted_at", null)
     .order("created_at", { ascending: false }));
 }
 
@@ -175,11 +174,12 @@ export async function updateCustomerRequestStatus({
       created_at,
       updated_at,
       customer:customers(id, name, phone),
-      project:projects(id, name, address, detail_address, construction_status),
+      project:projects!inner(id, name, address, detail_address, construction_status, deleted_at),
       estimate_version:estimate_versions(id, estimate_id, version_no, label, status)
     `)
     .eq("company_id", companyId)
     .eq("id", requestId)
+    .is("project.deleted_at", null)
     .single());
 }
 
@@ -510,10 +510,11 @@ export async function fetchCustomerMessages(companyId) {
       failure_reason,
       created_at,
       customer:customers(id, name, phone),
-      project:projects(id, name, address),
+      project:projects!inner(id, name, address, deleted_at),
       estimate_version:estimate_versions(id, version_no, label, status)
     `)
     .eq("company_id", companyId)
+    .is("project.deleted_at", null)
     .order("created_at", { ascending: false }));
 }
 
@@ -538,9 +539,10 @@ export async function fetchAftercareAndService(companyId) {
         created_at,
         updated_at,
         customer:customers(id, name, phone),
-        project:projects(id, name, address)
+        project:projects!inner(id, name, address, deleted_at)
       `)
       .eq("company_id", companyId)
+      .is("project.deleted_at", null)
       .order("next_send_date", { ascending: true }),
     supabase
       .from("service_requests")
@@ -562,9 +564,10 @@ export async function fetchAftercareAndService(companyId) {
         created_at,
         updated_at,
         customer:customers(id, name, phone),
-        project:projects(id, name, address)
+        project:projects!inner(id, name, address, deleted_at)
       `)
       .eq("company_id", companyId)
+      .is("project.deleted_at", null)
       .order("created_at", { ascending: false }),
   ]);
 
@@ -587,131 +590,140 @@ export async function fetchHomeCustomerOperations(companyId) {
     notificationsResult,
     projectsResult,
     versionsResult,
-    aftercareResult,
+    estimatesResult,
     timelineResult,
-    openRequestsCountResult,
-    linksCreatedCountResult,
-    estimateViewsCountResult,
-    revisionRequestsCountResult,
-    approvalsCountResult,
+    linkMessagesResult,
   ] = await Promise.all([
     supabase
       .from("customer_requests")
       .select(`
-        id, request_type, status, title, created_at,
+        id, project_id, estimate_id, estimate_version_id,
+        request_type, status, title, created_at,
         customer:customers(id, name),
-        project:projects(id, name, address)
+        project:projects(id, name, address, deleted_at)
       `)
       .eq("company_id", companyId)
-      .in("status", HOME_ATTENTION_REQUEST_STATUSES)
-      .order("created_at", { ascending: false })
-      .limit(8),
+      .order("created_at", { ascending: false }),
     supabase
       .from("service_requests")
       .select(`
         id, status, problem_space, created_at,
         customer:customers(id, name),
-        project:projects(id, name, address)
+        project:projects(id, name, address, deleted_at)
       `)
       .eq("company_id", companyId)
-      .in("status", HOME_ATTENTION_SERVICE_STATUSES)
-      .order("created_at", { ascending: false })
-      .limit(8),
+      .order("created_at", { ascending: false }),
     supabase
       .from("notifications")
       .select("id, title, body, event_type, related_type, related_id, created_at")
       .eq("company_id", companyId)
       .is("read_at", null)
       .order("created_at", { ascending: false })
-      .limit(8),
+      .limit(24),
     supabase
       .from("projects")
       .select(`
-        id, name, address, construction_status, created_at, updated_at,
+        id, name, address, construction_status, deleted_at, created_at, updated_at,
         customer:customers(id, name)
       `)
       .eq("company_id", companyId)
-      .in("construction_status", HOME_ACTIVE_CONSTRUCTION_STATUSES)
-      .order("updated_at", { ascending: false })
-      .limit(8),
+      .order("updated_at", { ascending: false }),
     supabase
       .from("estimate_versions")
       .select(`
-        id, version_no, label, status, created_at,
-        customer:customers(id, name),
-        project:projects(id, name, address)
+        id, estimate_id, project_id, status,
+        estimate:estimates(id, deleted_at),
+        project:projects(id, deleted_at)
       `)
       .eq("company_id", companyId)
-      .in("status", HOME_ACTIVE_ESTIMATE_STATUSES)
-      .order("created_at", { ascending: false })
-      .limit(8),
+      .order("created_at", { ascending: false }),
     supabase
-      .from("aftercare_schedules")
+      .from("estimates")
       .select(`
-        id, status, next_send_date, created_at, updated_at,
-        customer:customers(id, name),
-        project:projects(id, name, address)
+        id, deleted_at,
+        estimate_versions(id, project:projects(id, deleted_at))
       `)
-      .eq("company_id", companyId)
-      .in("status", HOME_ACTIVE_AFTERCARE_STATUSES)
-      .order("next_send_date", { ascending: true })
-      .limit(8),
+      .eq("company_id", companyId),
     supabase
       .from("timeline_events")
       .select(`
-        id, event_type, title, description, created_at,
+        id, project_id, estimate_id, estimate_version_id, customer_request_id,
+        event_type, title, description, created_at,
         customer:customers(id, name),
-        project:projects(id, name, address)
+        project:projects(id, name, address, deleted_at),
+        estimate:estimates(id, deleted_at),
+        estimate_version:estimate_versions(
+          id,
+          estimate:estimates(id, deleted_at),
+          project:projects(id, deleted_at)
+        )
       `)
       .eq("company_id", companyId)
-      .order("created_at", { ascending: false })
-      .limit(8),
-    supabase
-      .from("customer_requests")
-      .select("id", { count: "exact", head: true })
-      .eq("company_id", companyId)
-      .in("status", HOME_ATTENTION_REQUEST_STATUSES),
+      .order("created_at", { ascending: false }),
     supabase
       .from("customer_messages")
-      .select("id", { count: "exact", head: true })
+      .select(`
+        id,
+        project:projects(id, deleted_at),
+        estimate:estimates(id, deleted_at)
+      `)
       .eq("company_id", companyId)
       .eq("message_type", "estimate_link")
       .gte("created_at", todayIso),
-    supabase
-      .from("timeline_events")
-      .select("id", { count: "exact", head: true })
-      .eq("company_id", companyId)
-      .eq("event_type", "estimate_viewed")
-      .gte("created_at", todayIso),
-    supabase
-      .from("customer_requests")
-      .select("id", { count: "exact", head: true })
-      .eq("company_id", companyId)
-      .eq("request_type", "estimate_revision")
-      .in("status", HOME_ATTENTION_REQUEST_STATUSES),
-    supabase
-      .from("customer_requests")
-      .select("id", { count: "exact", head: true })
-      .eq("company_id", companyId)
-      .eq("request_type", "approval")
-      .eq("status", "approved")
-      .gte("created_at", todayIso),
   ]);
 
+  const requests = unwrap(requestsResult);
+  const serviceRequests = unwrap(servicesResult).filter(isProjectLinkedRowVisible);
+  const projects = unwrap(projectsResult);
+  const estimateVersions = unwrap(versionsResult);
+  const estimates = unwrap(estimatesResult);
+  const timelineEvents = unwrap(timelineResult).filter(isHomeTimelineEventVisible);
+  const visibleRequests = requests.filter(isProjectLinkedRowVisible);
+  const attentionRequests = visibleRequests.filter((request) => (
+    isOpenCustomerRequest(request.status)
+  ));
+  const activeProjects = projects.filter(isActiveProject);
+  const visibleLinkMessages = unwrap(linkMessagesResult).filter((message) => (
+    isProjectLinkedRowVisible(message) && !isDeletedEstimate(message.estimate)
+  ));
+  const projectsById = new Map(projects.map((project) => [project.id, project]));
+  const estimatesById = new Map(estimates.map((estimate) => [estimate.id, estimate]));
+  const requestsById = new Map(requests.map((request) => [request.id, request]));
+  const estimateVersionsById = new Map(
+    estimateVersions.map((version) => [version.id, version])
+  );
+  const notifications = unwrap(notificationsResult).filter((notification) => (
+    isHomeNotificationVisible(notification, {
+      projectsById,
+      estimatesById,
+      requestsById,
+      estimateVersionsById,
+    })
+  ));
+  const isToday = (value) => (
+    Boolean(value) && new Date(value).getTime() >= new Date(todayIso).getTime()
+  );
+
   return buildHomeOperationsData({
-    requests: unwrap(requestsResult),
-    serviceRequests: unwrap(servicesResult),
-    notifications: unwrap(notificationsResult),
-    projects: unwrap(projectsResult),
-    estimateVersions: unwrap(versionsResult),
-    aftercareSchedules: unwrap(aftercareResult),
-    timelineEvents: unwrap(timelineResult),
+    requests: attentionRequests,
+    serviceRequests,
+    notifications,
+    projects: activeProjects,
+    timelineEvents,
     summary: {
-      openRequests: unwrapCount(openRequestsCountResult),
-      linksCreatedToday: unwrapCount(linksCreatedCountResult),
-      estimateViewsToday: unwrapCount(estimateViewsCountResult),
-      revisionRequests: unwrapCount(revisionRequestsCountResult),
-      approvalsToday: unwrapCount(approvalsCountResult),
+      openRequests: attentionRequests.length,
+      linksCreatedToday: visibleLinkMessages.length,
+      estimateViewsToday: timelineEvents.filter((event) => (
+        event.event_type === "estimate_viewed" && isToday(event.created_at)
+      )).length,
+      revisionRequests: attentionRequests.filter((request) => (
+        request.request_type === "estimate_revision"
+      )).length,
+      approvalsToday: visibleRequests.filter((request) => (
+        request.request_type === "approval"
+        && request.status === "approved"
+        && isToday(request.created_at)
+      )).length,
     },
   });
 }
@@ -734,6 +746,24 @@ export async function createEstimatePortalLink({
 
   if (!estimateId) {
     throw new Error("공유할 견적서를 확인할 수 없습니다.");
+  }
+
+  const { data: estimate, error: estimateError } = await supabase
+    .from("estimates")
+    .select(`
+      id,
+      deleted_at,
+      estimate_versions(
+        id,
+        project:projects(id, deleted_at)
+      )
+    `)
+    .eq("company_id", companyId)
+    .eq("id", estimateId)
+    .maybeSingle();
+
+  if (estimateError || !estimate || !isOperationalEstimate(estimate)) {
+    throw new Error("휴지통의 견적 또는 휴지통 현장에 연결된 견적은 공유할 수 없습니다.");
   }
 
   const { data, error } = await supabase.rpc("create_customer_portal_link", {

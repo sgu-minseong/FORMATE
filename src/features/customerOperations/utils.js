@@ -33,6 +33,43 @@ export function getRelationRow(value) {
   return value ?? null;
 }
 
+export function getRelationRows(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+}
+
+export function isDeletedProject(project) {
+  return Boolean(getRelationRow(project)?.deleted_at);
+}
+
+export function isDeletedEstimate(estimate) {
+  return Boolean(getRelationRow(estimate)?.deleted_at);
+}
+
+export function isActiveProjectStatus(status) {
+  return Boolean(status) && !["completed", "cancelled"].includes(status);
+}
+
+export function isActiveProject(project) {
+  return !isDeletedProject(project) && isActiveProjectStatus(project?.construction_status);
+}
+
+export function isProjectLinkedRowVisible(row) {
+  return !isDeletedProject(row?.project);
+}
+
+export function getEstimateLinkedProjects(estimate) {
+  const directProjects = getRelationRows(estimate?.project);
+  const versionProjects = getRelationRows(estimate?.estimate_versions)
+    .flatMap((version) => getRelationRows(version?.project));
+  return [...directProjects, ...versionProjects];
+}
+
+export function isOperationalEstimate(estimate) {
+  if (isDeletedEstimate(estimate)) return false;
+  return getEstimateLinkedProjects(estimate).every((project) => !isDeletedProject(project));
+}
+
 export function getOperationLabel(map, value, fallback = "미입력") {
   return map[value]?.label ?? fallback;
 }
@@ -83,7 +120,7 @@ export function getCustomerOperationText(value, fallback = "") {
 }
 
 export function isOpenCustomerRequest(status) {
-  return !["approved", "rejected", "closed"].includes(status);
+  return ["received", "in_progress"].includes(getCustomerRequestLogicalStatus(status));
 }
 
 export function getCustomerRequestLogicalStatus(status) {
@@ -94,6 +131,64 @@ export function getCustomerRequestLogicalStatus(status) {
   if (["closed", "approved"].includes(status)) return "completed";
   if (status === "rejected") return "rejected";
   return "unknown";
+}
+
+const ESTIMATE_SCOPED_ACTIVITY_TYPES = new Set([
+  "estimate_created",
+  "estimate_sent",
+  "estimate_viewed",
+]);
+
+export function isHomeTimelineEventVisible(event) {
+  const estimateVersion = getRelationRow(event?.estimate_version);
+  if (
+    isDeletedProject(event?.project)
+    || isDeletedProject(estimateVersion?.project)
+  ) {
+    return false;
+  }
+  if (
+    ESTIMATE_SCOPED_ACTIVITY_TYPES.has(event?.event_type)
+    && (
+      isDeletedEstimate(event?.estimate)
+      || isDeletedEstimate(estimateVersion?.estimate)
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function isHomeNotificationVisible(notification, {
+  projectsById = new Map(),
+  estimatesById = new Map(),
+  requestsById = new Map(),
+  estimateVersionsById = new Map(),
+} = {}) {
+  if (!notification?.related_id) return true;
+
+  if (notification.related_type === "project") {
+    const project = projectsById.get(notification.related_id);
+    return project ? !isDeletedProject(project) : true;
+  }
+
+  if (notification.related_type === "estimate") {
+    const estimate = estimatesById.get(notification.related_id);
+    return estimate ? isOperationalEstimate(estimate) : true;
+  }
+
+  if (notification.related_type === "customer_request") {
+    const request = requestsById.get(notification.related_id);
+    return request ? isProjectLinkedRowVisible(request) : true;
+  }
+
+  if (notification.related_type === "estimate_version") {
+    const version = estimateVersionsById.get(notification.related_id);
+    if (!version) return true;
+    return isProjectLinkedRowVisible(version) && !isDeletedEstimate(version.estimate);
+  }
+
+  return true;
 }
 
 export function createStatusView(map, value) {
@@ -187,8 +282,6 @@ export function buildHomeOperationsData({
   serviceRequests = [],
   notifications = [],
   projects = [],
-  estimateVersions = [],
-  aftercareSchedules = [],
   timelineEvents = [],
   summary = {},
 }) {
@@ -223,8 +316,7 @@ export function buildHomeOperationsData({
     })),
   ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
 
-  const inProgress = [
-    ...projects.map((project) => ({
+  const inProgress = projects.map((project) => ({
       id: `project-${project.id}`,
       sourceId: project.id,
       projectId: project.id,
@@ -237,36 +329,8 @@ export function buildHomeOperationsData({
       rawStatus: project.construction_status,
       status: createStatusView(CONSTRUCTION_STATUS, project.construction_status),
       createdAt: project.updated_at ?? project.created_at,
-    })),
-    ...estimateVersions.map((version) => ({
-      id: `estimate-version-${version.id}`,
-      sourceId: version.id,
-      projectId: getRelationRow(version.project)?.id || "",
-      type: "estimate",
-      title: version.label || `견적 v${version.version_no}`,
-      meta: `${getCustomerName(version)} · ${getProjectName(version)}`,
-      customerName: getCustomerName(version),
-      projectName: getProjectName(version),
-      projectAddress: getRelationRow(version.project)?.address || "",
-      rawStatus: version.status,
-      status: createStatusView(ESTIMATE_VERSION_STATUS, version.status),
-      createdAt: version.created_at,
-    })),
-    ...aftercareSchedules.map((schedule) => ({
-      id: `aftercare-${schedule.id}`,
-      sourceId: schedule.id,
-      projectId: getRelationRow(schedule.project)?.id || "",
-      type: "aftercare",
-      title: getProjectName(schedule),
-      meta: `${getCustomerName(schedule)} · 다음 일정 ${formatOperationDate(schedule.next_send_date)}`,
-      customerName: getCustomerName(schedule),
-      projectName: getProjectName(schedule),
-      projectAddress: getRelationRow(schedule.project)?.address || "",
-      rawStatus: schedule.status,
-      status: createStatusView(AFTERCARE_STATUS, schedule.status),
-      createdAt: schedule.updated_at ?? schedule.created_at,
-    })),
-  ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
+    }))
+    .sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
 
   const recentActivity = [
     ...timelineEvents.map((event) => ({

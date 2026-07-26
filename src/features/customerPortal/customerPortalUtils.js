@@ -114,16 +114,16 @@ export function getPortalErrorCopy(code) {
       description: "새 링크가 필요한 경우 견적을 보낸 업체에 문의해주세요.",
     };
   }
-  if (code === "revoked_token" || code === "inactive_token") {
+  if (
+    code === "revoked_token"
+    || code === "inactive_token"
+    || code === "deleted_estimate"
+    || code === "deleted_project"
+    || code === "estimate_not_found"
+  ) {
     return {
-      title: "사용이 중지된 견적 링크입니다",
-      description: "현재 링크로는 견적을 확인할 수 없습니다.",
-    };
-  }
-  if (code === "estimate_not_found") {
-    return {
-      title: "견적 정보를 찾을 수 없습니다",
-      description: "링크가 올바른지 확인하거나 견적을 보낸 업체에 문의해주세요.",
+      title: "사용할 수 없는 견적 링크입니다",
+      description: "삭제되었거나 더 이상 사용할 수 없는 견적 링크입니다.",
     };
   }
   return {

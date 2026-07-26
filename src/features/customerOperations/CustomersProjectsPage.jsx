@@ -34,6 +34,8 @@ import {
   getEstimateReference,
   getEstimateVersionLabel,
   getRelationRow,
+  isActiveProjectStatus,
+  isDeletedProject,
   isOpenCustomerRequest,
   operationStatusViews,
 } from "./utils";
@@ -95,10 +97,10 @@ function formatRelativeActivity(value) {
 }
 
 function matchesProjectStatus(project, filter) {
-  if (filter === "trash") return Boolean(project.deleted_at);
-  if (project.deleted_at) return false;
+  if (filter === "trash") return isDeletedProject(project);
+  if (isDeletedProject(project)) return false;
   if (filter === "active") {
-    return !["completed", "cancelled"].includes(project.construction_status);
+    return isActiveProjectStatus(project.construction_status);
   }
   if (filter === "completed") return project.construction_status === "completed";
   if (filter === "cancelled") return project.construction_status === "cancelled";
@@ -106,7 +108,7 @@ function matchesProjectStatus(project, filter) {
 }
 
 function getProjectLifecycleStatus(project) {
-  if (project?.deleted_at) {
+  if (isDeletedProject(project)) {
     return { label: "삭제됨", tone: "muted" };
   }
   if (project?.construction_status === "completed") {
@@ -283,7 +285,7 @@ export default function CustomersProjectsPage({ companyId }) {
     statusFilter,
   ]);
   const trashCount = useMemo(
-    () => projects.filter((project) => Boolean(project.deleted_at)).length,
+    () => projects.filter(isDeletedProject).length,
     [projects]
   );
 

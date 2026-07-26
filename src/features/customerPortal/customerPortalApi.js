@@ -7,7 +7,17 @@ function assertCustomerPortalAvailable() {
 }
 
 function getActionError(result, fallback) {
-  const error = new Error(result?.message || fallback);
+  const unavailableCodes = new Set([
+    "revoked_token",
+    "inactive_token",
+    "deleted_estimate",
+    "deleted_project",
+    "estimate_not_found",
+  ]);
+  const message = unavailableCodes.has(result?.code)
+    ? "삭제되었거나 더 이상 사용할 수 없는 견적 링크입니다."
+    : result?.message || fallback;
+  const error = new Error(message);
   error.code = result?.code || "portal_action_failed";
   return error;
 }
@@ -29,6 +39,28 @@ export async function fetchCustomerPortal(token) {
 
   if (error) {
     throw new Error("견적 확인 서비스를 불러오지 못했습니다.");
+  }
+
+  if (data?.ok && data.tokenStatus !== "active") {
+    return {
+      ok: false,
+      code: "inactive_token",
+      tokenStatus: data.tokenStatus || "inactive",
+    };
+  }
+  if (data?.ok && data.estimate?.deletedAt) {
+    return {
+      ok: false,
+      code: "deleted_estimate",
+      tokenStatus: data.tokenStatus,
+    };
+  }
+  if (data?.ok && data.project?.deletedAt) {
+    return {
+      ok: false,
+      code: "deleted_project",
+      tokenStatus: data.tokenStatus,
+    };
   }
 
   return data ?? {

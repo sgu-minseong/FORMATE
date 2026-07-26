@@ -137,21 +137,3 @@ export const CUSTOMER_DETAIL_TABS = [
   { key: "photos-notes", label: "사진·메모" },
   { key: "timeline", label: "타임라인" },
 ];
-
-export const HOME_ATTENTION_REQUEST_STATUSES = [
-  "received",
-  "reviewing",
-  "pricing",
-  "awaiting_customer_approval",
-];
-
-export const HOME_ATTENTION_SERVICE_STATUSES = [
-  "received",
-  "contacted",
-  "visit_scheduled",
-  "in_progress",
-];
-
-export const HOME_ACTIVE_CONSTRUCTION_STATUSES = ["scheduled", "in_progress"];
-export const HOME_ACTIVE_ESTIMATE_STATUSES = ["sent", "viewed", "revision_requested"];
-export const HOME_ACTIVE_AFTERCARE_STATUSES = ["active", "scheduled"];

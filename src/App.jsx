@@ -109,6 +109,7 @@ import HomeOperationsOverview from "./features/customerOperations/HomeOperations
 import MessagesPage from "./features/customerOperations/MessagesPage";
 import ShareEstimateModal from "./features/customerOperations/ShareEstimateModal";
 import { CUSTOMER_OPERATIONS_PAGES } from "./features/customerOperations/constants";
+import { isOperationalEstimate } from "./features/customerOperations/utils";
 import CustomerPortalPage from "./features/customerPortal/CustomerPortalPage";
 import { parseCustomerPortalPath } from "./features/customerPortal/customerPortalUtils";
 import DeleteSavedEstimateDialog from "./features/estimates/DeleteSavedEstimateDialog";
@@ -2924,7 +2925,7 @@ function AdminApp() {
   const visibleEstimates = estimateListView === "trash" ? trashedEstimates : estimates;
   const recentHomeEstimates = useMemo(() =>
     [...estimates]
-      .filter((estimate) => !estimate.archived_at)
+      .filter(isOperationalEstimate)
       .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
       .slice(0, 8),
     [estimates]
@@ -3330,10 +3331,10 @@ function AdminApp() {
       fetchDetailSubitems();
     }
     if (page === "admin-estimates") {
-      fetchEstimates(estimateSearch, estimateListView);
+      fetchEstimates(estimateSearch);
     }
     if (page === "landing") {
-      fetchEstimates("", "active");
+      fetchEstimates("");
     }
     if (page === "photo-management") {
       fetchPhotoManagementData();
@@ -3454,7 +3455,7 @@ function AdminApp() {
   useEffect(() => {
     if (!selectedCompanyId || page !== "admin-estimates") return;
     const timer = window.setTimeout(() => {
-      fetchEstimates(estimateSearch, estimateListView);
+      fetchEstimates(estimateSearch);
     }, 250);
     return () => window.clearTimeout(timer);
   }, [estimateListView, estimateSearch, page, selectedCompanyId]);
@@ -5821,7 +5822,7 @@ function AdminApp() {
     return addressText.includes(normalizedKeyword) || customerText.includes(normalizedKeyword);
   }
 
-  async function fetchEstimates(searchText = estimateSearch, listView = estimateListView) {
+  async function fetchEstimates(searchText = estimateSearch) {
     const requestId = estimateListRequestRef.current + 1;
     estimateListRequestRef.current = requestId;
     setAdminLoading(true);
@@ -5831,54 +5832,48 @@ function AdminApp() {
         throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
       }
       const companyId = requireSelectedCompanyId();
+      const estimateSelect = `
+        *,
+        estimate_versions(
+          id,
+          project_id,
+          project:projects(id, deleted_at)
+        )
+      `;
 
-      let query = supabase
-        .from("estimates")
-        .select("*")
-        .eq("company_id", companyId);
-
-      if (listView === "trash") {
-        query = query
-          .not("deleted_at", "is", null)
-          .order("deleted_at", { ascending: false });
-      } else {
-        query = query
+      const [activeResult, trashResult] = await Promise.all([
+        supabase
+          .from("estimates")
+          .select(estimateSelect)
+          .eq("company_id", companyId)
           .is("deleted_at", null)
-          .order("created_at", { ascending: false });
-      }
-
-      const [listResult, activeCountResult, trashCountResult] = await Promise.all([
-        query,
+          .order("created_at", { ascending: false }),
         supabase
           .from("estimates")
-          .select("id", { count: "exact", head: true })
+          .select(estimateSelect)
           .eq("company_id", companyId)
-          .is("deleted_at", null),
-        supabase
-          .from("estimates")
-          .select("id", { count: "exact", head: true })
-          .eq("company_id", companyId)
-          .not("deleted_at", "is", null),
+          .not("deleted_at", "is", null)
+          .order("deleted_at", { ascending: false }),
       ]);
 
-      const { data, error } = listResult;
-      if (error) throw error;
-      if (activeCountResult.error) throw activeCountResult.error;
-      if (trashCountResult.error) throw trashCountResult.error;
+      if (activeResult.error) throw activeResult.error;
+      if (trashResult.error) throw trashResult.error;
       if (estimateListRequestRef.current !== requestId) return;
 
-      const filtered = (data ?? []).filter((estimate) => (
+      const activeRows = (activeResult.data ?? []).filter(isOperationalEstimate);
+      const trashRows = trashResult.data ?? [];
+      const filteredActiveRows = activeRows.filter((estimate) => (
+        doesSavedEstimateMatchSearch(estimate, searchText)
+      ));
+      const filteredTrashRows = trashRows.filter((estimate) => (
         doesSavedEstimateMatchSearch(estimate, searchText)
       ));
 
-      if (listView === "trash") {
-        setTrashedEstimates(filtered);
-      } else {
-        setEstimates(filtered);
-      }
+      setEstimates(filteredActiveRows);
+      setTrashedEstimates(filteredTrashRows);
       setEstimateListCounts({
-        active: activeCountResult.count ?? 0,
-        trash: trashCountResult.count ?? 0,
+        active: activeRows.length,
+        trash: trashRows.length,
       });
     } catch (error) {
       if (estimateListRequestRef.current !== requestId) return;
@@ -5999,9 +5994,15 @@ function AdminApp() {
         deleted_by: null,
         delete_reason: null,
       };
+      const restoreToActiveList = isOperationalEstimate(restoredEstimate);
       setTrashedEstimates((current) => current.filter((row) => row.id !== estimate.id));
       setEstimates((current) => {
-        if (!doesSavedEstimateMatchSearch(restoredEstimate)) return current;
+        if (
+          !restoreToActiveList
+          || !doesSavedEstimateMatchSearch(restoredEstimate)
+        ) {
+          return current;
+        }
         return [
           restoredEstimate,
           ...current.filter((row) => row.id !== estimate.id),
@@ -6009,7 +6010,7 @@ function AdminApp() {
       });
       if (result.result === SAVED_ESTIMATE_RESTORE_RESULT.RESTORED) {
         setEstimateListCounts((current) => ({
-          active: current.active + 1,
+          active: current.active + Number(restoreToActiveList),
           trash: Math.max(0, current.trash - 1),
         }));
       }
@@ -7459,6 +7460,12 @@ function AdminApp() {
   }
 
   function loadSavedEstimateDraft(estimate, { copy = false, destination = "preview" } = {}) {
+    if (!isOperationalEstimate(estimate)) {
+      setSelectedEstimate(null);
+      setEstimateNotice("휴지통의 견적 또는 휴지통 현장에 연결된 견적은 사용할 수 없습니다.");
+      return;
+    }
+
     const savedItems = getEstimateItemsDataItems(estimate.items_data);
     const savedAdjustments = getEstimateItemsDataAdjustments(estimate.items_data);
     const savedSiteMemo = getEstimateItemsDataSiteMemo(estimate.items_data);
@@ -14811,7 +14818,7 @@ function AdminApp() {
                 variant="secondary"
                 leftIcon={<RefreshCcw />}
                 disabled={adminLoading}
-                onClick={() => fetchEstimates(estimateSearch, estimateListView)}
+                onClick={() => fetchEstimates(estimateSearch)}
               >
                 새로고침
               </Button>

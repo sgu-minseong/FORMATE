@@ -401,6 +401,10 @@ export default function HomeOperationsOverview({
       })
       .slice(0, 4);
   }, [data.inProgress]);
+  const activeProjectCount = useMemo(
+    () => new Set(data.inProgress.map((item) => item.projectId || item.sourceId)).size,
+    [data.inProgress]
+  );
 
   const activityItems = useMemo(() => {
     const seen = new Set();
@@ -501,7 +505,7 @@ export default function HomeOperationsOverview({
         <section className="customer-operations-home-priority__progress" aria-labelledby="home-progress-title">
           <header>
             <h3 id="home-progress-title">진행 중 현장</h3>
-            {!summaryUnavailable ? <span>{progressItems.length}건</span> : null}
+            {!summaryUnavailable ? <span>{activeProjectCount}건</span> : null}
           </header>
           {loading || error || progressItems.length === 0 ? (
             <OverviewState
