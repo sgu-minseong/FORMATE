@@ -11004,6 +11004,20 @@ function AdminApp() {
                 : []),
               { label: "최종 견적 금액", value: `${total.toLocaleString("ko-KR")}원` },
             ]}
+            actions={(
+              <div className="items-v2-total-actions">
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setPreviewBackPage("items");
+                    setEstimatePreviewType("general");
+                    setPage("preview");
+                  }}
+                >
+                  견적서 출력하기
+                </Button>
+              </div>
+            )}
           />
         </section>
         {renderEstimateConditionDrawer()}
@@ -23484,10 +23498,25 @@ const styles = `
     outline: none;
   }
   .items-v2-total-bar {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    align-items: center;
     margin-right: calc(var(--space-page-x) * -1);
     margin-left: calc(var(--space-page-x) * -1);
   }
+  .items-v2-total-bar .ui-sticky-total-bar__amounts {
+    min-width: 0;
+    margin-left: 0;
+    justify-self: end;
+  }
   .items-v2-total-bar .ui-sticky-total-bar__amount-value {
+    white-space: nowrap;
+  }
+  .items-v2-total-bar .items-v2-total-actions {
+    justify-self: end;
+    flex: 0 0 auto;
+  }
+  .items-v2-total-bar .items-v2-total-actions .ui-button {
     white-space: nowrap;
   }
   .formate-app-shell--admin-price-v2 .formate-app-shell__main {
@@ -25139,6 +25168,25 @@ const styles = `
     }
     .app-shell.items-v2-shell {
       padding-top: 0;
+    }
+    .items-v2-total-bar {
+      grid-template-columns: max-content minmax(0, 1fr);
+      height: auto;
+      min-height: var(--sticky-total-height);
+      padding-top: var(--space-1);
+      padding-bottom: var(--space-1);
+    }
+    .items-v2-total-bar .ui-sticky-total-bar__amounts {
+      grid-row: 2;
+      grid-column: 1 / -1;
+      justify-self: stretch;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: var(--space-1) var(--space-2);
+    }
+    .items-v2-total-bar .items-v2-total-actions {
+      grid-row: 1;
+      grid-column: 2;
     }
     .global-header {
       min-height: 56px;
