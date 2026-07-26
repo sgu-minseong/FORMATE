@@ -390,17 +390,6 @@
   border-bottom: 0;
 }
 
-.aftercare-workspace .ui-page-header h1 {
-  font-size: 24px;
-  font-weight: 650;
-  line-height: 32px;
-}
-
-.aftercare-workspace .ui-page-header__description {
-  font-size: var(--font-size-body);
-  line-height: var(--line-height-body);
-}
-
 .aftercare-workspace__toolbar {
   display: flex;
   min-width: 0;
@@ -2019,17 +2008,6 @@
   border-bottom: 0;
 }
 
-.customer-requests-inbox .ui-page-header h1 {
-  font-size: 24px;
-  font-weight: 650;
-  line-height: 32px;
-}
-
-.customer-requests-inbox .ui-page-header__description {
-  font-size: var(--font-size-body);
-  line-height: var(--line-height-body);
-}
-
 .customer-requests-inbox__toolbar {
   display: flex;
   flex: 0 0 auto;
@@ -2868,17 +2846,6 @@
   min-height: 0;
   padding: 0;
   border-bottom: 0;
-}
-
-.customer-projects-workspace-page .ui-page-header h1 {
-  font-size: 24px;
-  font-weight: 650;
-  line-height: 32px;
-}
-
-.customer-projects-workspace-page .ui-page-header__description {
-  font-size: var(--font-size-body);
-  line-height: var(--line-height-body);
 }
 
 .customer-projects-workspace-page .ui-page-header__actions {

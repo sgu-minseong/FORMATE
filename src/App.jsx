@@ -21301,7 +21301,6 @@ const styles = `
     --radius-button: 6px;
     --shadow-sm: none;
     --shadow-md: none;
-    --focus-ring: 0 0 0 1px var(--color-primary-border);
   }
   body {
     background: var(--bg-base);
@@ -22310,7 +22309,6 @@ const styles = `
   .category-column h2,
   .editor h2,
   .editor-header h2,
-  .ui-page-header h1,
   .admin-verify-modal h2,
   .estimate-modal h3 {
     font-size: var(--font-size-title-md);
@@ -22338,7 +22336,6 @@ const styles = `
   }
   .muted,
   .caption,
-  .ui-page-header__description,
   .estimate-meta-grid span,
   .estimate-pyeong-preview span,
   .admin-condition-title span,
@@ -22379,8 +22376,13 @@ const styles = `
   .estimate-pyeong-input:focus-within {
     border-color: var(--brand-primary);
     background: var(--bg-surface);
-    box-shadow: var(--focus-ring);
     outline: none;
+  }
+  select:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  .custom-select-trigger:focus-visible {
+    box-shadow: var(--focus-ring);
   }
   .empty-state,
   .estimate-empty-state,
