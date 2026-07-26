@@ -113,15 +113,10 @@ import CustomerPortalPage from "./features/customerPortal/CustomerPortalPage";
 import { parseCustomerPortalPath } from "./features/customerPortal/customerPortalUtils";
 import DeleteSavedEstimateDialog from "./features/estimates/DeleteSavedEstimateDialog";
 import {
-  archiveSavedEstimate,
-  deleteSavedEstimate,
-  getSavedEstimateRemovalMode,
-  reauthenticateSavedEstimateDeletion,
+  moveSavedEstimateToTrash,
   restoreSavedEstimate,
-  SAVED_ESTIMATE_ARCHIVE_RESULT,
-  SAVED_ESTIMATE_DELETE_RESULT,
-  SAVED_ESTIMATE_REMOVAL_MODE,
   SAVED_ESTIMATE_RESTORE_RESULT,
+  SAVED_ESTIMATE_TRASH_RESULT,
 } from "./features/estimates/api";
 import "./features/customerOperations/customerOperations.css";
 
@@ -2622,7 +2617,6 @@ function AdminApp() {
   const estimateBlankCatalogRequestRef = useRef(0);
   const estimateListRequestRef = useRef(0);
   const estimateDeleteTriggerRef = useRef(null);
-  const estimateDeleteModeRequestRef = useRef(0);
   const pageRef = useRef("");
   const adminConditionStepRef = useRef("select");
   const currentAdminTemplateConditionRef = useRef(null);
@@ -2754,14 +2748,12 @@ function AdminApp() {
   });
   const [detailCostBulkInput, setDetailCostBulkInput] = useState({ cost: "" });
   const [estimates, setEstimates] = useState([]);
+  const [trashedEstimates, setTrashedEstimates] = useState([]);
   const [estimateSearch, setEstimateSearch] = useState("");
-  const [estimateArchiveView, setEstimateArchiveView] = useState("active");
+  const [estimateListView, setEstimateListView] = useState("active");
+  const [estimateListCounts, setEstimateListCounts] = useState({ active: 0, trash: 0 });
   const [selectedEstimate, setSelectedEstimate] = useState(null);
   const [estimateDeleteTarget, setEstimateDeleteTarget] = useState(null);
-  const [estimateDeleteMode, setEstimateDeleteMode] = useState("");
-  const [estimateDeleteReasons, setEstimateDeleteReasons] = useState([]);
-  const [estimateDeleteModeLoading, setEstimateDeleteModeLoading] = useState(false);
-  const [estimateDeletePassword, setEstimateDeletePassword] = useState("");
   const [estimateDeleteLoading, setEstimateDeleteLoading] = useState(false);
   const [estimateDeleteError, setEstimateDeleteError] = useState("");
   const [estimateDeleteNotice, setEstimateDeleteNotice] = useState("");
@@ -2929,6 +2921,7 @@ function AdminApp() {
       return groups;
     }, {});
   }, [selectedRows]);
+  const visibleEstimates = estimateListView === "trash" ? trashedEstimates : estimates;
   const recentHomeEstimates = useMemo(() =>
     [...estimates]
       .filter((estimate) => !estimate.archived_at)
@@ -3337,7 +3330,7 @@ function AdminApp() {
       fetchDetailSubitems();
     }
     if (page === "admin-estimates") {
-      fetchEstimates(estimateSearch, estimateArchiveView);
+      fetchEstimates(estimateSearch, estimateListView);
     }
     if (page === "landing") {
       fetchEstimates("", "active");
@@ -3461,10 +3454,10 @@ function AdminApp() {
   useEffect(() => {
     if (!selectedCompanyId || page !== "admin-estimates") return;
     const timer = window.setTimeout(() => {
-      fetchEstimates(estimateSearch, estimateArchiveView);
+      fetchEstimates(estimateSearch, estimateListView);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [estimateArchiveView, estimateSearch, page, selectedCompanyId]);
+  }, [estimateListView, estimateSearch, page, selectedCompanyId]);
 
   useEffect(() => {
     window.localStorage.setItem(FAVORITE_PYEONG_STORAGE_KEY, JSON.stringify(favoritePyeongs));
@@ -5819,7 +5812,16 @@ function AdminApp() {
     }
   }
 
-  async function fetchEstimates(searchText = estimateSearch, archiveView = estimateArchiveView) {
+  function doesSavedEstimateMatchSearch(estimate, searchText = estimateSearch) {
+    const normalizedKeyword = searchText.trim().toLowerCase();
+    if (!normalizedKeyword) return true;
+
+    const addressText = `${estimate?.address ?? ""}`.toLowerCase();
+    const customerText = getSavedEstimateCustomerName(estimate).toLowerCase();
+    return addressText.includes(normalizedKeyword) || customerText.includes(normalizedKeyword);
+  }
+
+  async function fetchEstimates(searchText = estimateSearch, listView = estimateListView) {
     const requestId = estimateListRequestRef.current + 1;
     estimateListRequestRef.current = requestId;
     setAdminLoading(true);
@@ -5835,30 +5837,49 @@ function AdminApp() {
         .select("*")
         .eq("company_id", companyId);
 
-      if (archiveView === "archive") {
+      if (listView === "trash") {
         query = query
-          .not("archived_at", "is", null)
-          .order("archived_at", { ascending: false });
+          .not("deleted_at", "is", null)
+          .order("deleted_at", { ascending: false });
       } else {
         query = query
-          .is("archived_at", null)
+          .is("deleted_at", null)
           .order("created_at", { ascending: false });
       }
 
-      const keyword = searchText.trim();
-      const { data, error } = await query;
+      const [listResult, activeCountResult, trashCountResult] = await Promise.all([
+        query,
+        supabase
+          .from("estimates")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", companyId)
+          .is("deleted_at", null),
+        supabase
+          .from("estimates")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", companyId)
+          .not("deleted_at", "is", null),
+      ]);
+
+      const { data, error } = listResult;
       if (error) throw error;
+      if (activeCountResult.error) throw activeCountResult.error;
+      if (trashCountResult.error) throw trashCountResult.error;
       if (estimateListRequestRef.current !== requestId) return;
 
-      const normalizedKeyword = keyword.toLowerCase();
-      const filtered = normalizedKeyword
-        ? (data ?? []).filter((estimate) => {
-            const addressText = `${estimate.address ?? ""}`.toLowerCase();
-            const customerText = getSavedEstimateCustomerName(estimate).toLowerCase();
-            return addressText.includes(normalizedKeyword) || customerText.includes(normalizedKeyword);
-          })
-        : data ?? [];
-      setEstimates(filtered);
+      const filtered = (data ?? []).filter((estimate) => (
+        doesSavedEstimateMatchSearch(estimate, searchText)
+      ));
+
+      if (listView === "trash") {
+        setTrashedEstimates(filtered);
+      } else {
+        setEstimates(filtered);
+      }
+      setEstimateListCounts({
+        active: activeCountResult.count ?? 0,
+        trash: trashCountResult.count ?? 0,
+      });
     } catch (error) {
       if (estimateListRequestRef.current !== requestId) return;
       setAdminError(getFriendlyError(error, "견적서 목록을 불러오지 못했어요. 다시 시도해주세요."));
@@ -5869,62 +5890,16 @@ function AdminApp() {
     }
   }
 
-  async function openEstimateDeleteDialog(event, estimate) {
-    const requestId = estimateDeleteModeRequestRef.current + 1;
-    estimateDeleteModeRequestRef.current = requestId;
+  function openEstimateDeleteDialog(event, estimate) {
     estimateDeleteTriggerRef.current = event.currentTarget;
     setEstimateDeleteNotice("");
     setEstimateDeleteError("");
-    setEstimateDeleteMode("");
-    setEstimateDeleteReasons([]);
-    setEstimateDeletePassword("");
     setEstimateDeleteTarget(estimate);
-    setEstimateDeleteModeLoading(true);
-
-    try {
-      if (!isSupabaseConfigured) {
-        throw new Error("Supabase is not configured.");
-      }
-
-      const companyId = requireSelectedCompanyId();
-      const result = await getSavedEstimateRemovalMode({
-        estimateId: estimate.id,
-        companyId,
-      });
-
-      if (estimateDeleteModeRequestRef.current !== requestId) return;
-
-      if (
-        !result?.ok
-        || ![
-          SAVED_ESTIMATE_REMOVAL_MODE.HARD_DELETE,
-          SAVED_ESTIMATE_REMOVAL_MODE.ARCHIVE,
-        ].includes(result?.mode)
-      ) {
-        setEstimateDeleteError("견적 상태를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.");
-        return;
-      }
-
-      setEstimateDeleteMode(result.mode);
-      setEstimateDeleteReasons(Array.isArray(result.reasons) ? result.reasons : []);
-    } catch (error) {
-      if (estimateDeleteModeRequestRef.current !== requestId) return;
-      setEstimateDeleteError("견적 상태를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.");
-    } finally {
-      if (estimateDeleteModeRequestRef.current === requestId) {
-        setEstimateDeleteModeLoading(false);
-      }
-    }
   }
 
   function closeEstimateDeleteDialog() {
     if (estimateDeleteLoading) return;
-    estimateDeleteModeRequestRef.current += 1;
     setEstimateDeleteTarget(null);
-    setEstimateDeleteMode("");
-    setEstimateDeleteReasons([]);
-    setEstimateDeleteModeLoading(false);
-    setEstimateDeletePassword("");
     setEstimateDeleteError("");
     window.requestAnimationFrame(() => {
       estimateDeleteTriggerRef.current?.focus();
@@ -5933,7 +5908,7 @@ function AdminApp() {
 
   async function confirmSavedEstimateRemoval() {
     const estimateId = estimateDeleteTarget?.id;
-    if (!estimateId || !estimateDeleteMode || estimateDeleteLoading) return;
+    if (!estimateId || estimateDeleteLoading) return;
 
     setEstimateDeleteLoading(true);
     setEstimateDeleteError("");
@@ -5945,91 +5920,51 @@ function AdminApp() {
       }
 
       const companyId = requireSelectedCompanyId();
+      const result = await moveSavedEstimateToTrash({ estimateId, companyId });
 
-      if (estimateDeleteMode === SAVED_ESTIMATE_REMOVAL_MODE.HARD_DELETE) {
-        if (!estimateDeletePassword) {
-          setEstimateDeleteError("비밀번호가 올바르지 않습니다.");
-          return;
-        }
-
-        const verification = await reauthenticateSavedEstimateDeletion(estimateDeletePassword);
-        setEstimateDeletePassword("");
-
-        if (verification?.result === "password_provider_unavailable") {
-          setEstimateDeleteError("비밀번호로 로그인한 계정에서만 영구 삭제할 수 있습니다.");
-          return;
-        }
-
-        if (!verification?.ok) {
-          setEstimateDeleteError("비밀번호가 올바르지 않습니다.");
-          return;
-        }
-
-        const result = await deleteSavedEstimate({ estimateId, companyId });
-
-        if (result?.result === SAVED_ESTIMATE_DELETE_RESULT.REAUTHENTICATION_REQUIRED) {
-          setEstimateDeleteError("보안을 위해 비밀번호를 다시 확인해주세요.");
-          return;
-        }
-
-        if (result?.result === SAVED_ESTIMATE_DELETE_RESULT.REMOVAL_MODE_CHANGED_TO_ARCHIVE) {
-          setEstimateDeleteMode(SAVED_ESTIMATE_REMOVAL_MODE.ARCHIVE);
-          setEstimateDeleteReasons(Array.isArray(result.reasons) ? result.reasons : []);
-          setEstimateDeleteError("새로운 고객 기록이 확인되어 영구 삭제할 수 없습니다. 다시 시도하면 보관함으로 이동할 수 있습니다.");
-          return;
-        }
-
-        if (!result?.ok || result?.result !== SAVED_ESTIMATE_DELETE_RESULT.DELETED) {
-          setEstimateDeleteError("견적을 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.");
-          return;
-        }
-
-        setEstimates((current) => current.filter((estimate) => estimate.id !== estimateId));
-        setSelectedEstimate((current) => current?.id === estimateId ? null : current);
-        setShareEstimateTarget((current) => current?.id === estimateId ? null : current);
-        setEstimateDeleteTarget(null);
-        setEstimateDeleteMode("");
-        setEstimateDeleteReasons([]);
-        setEstimateDeleteNotice("견적을 영구 삭제했습니다.");
-      } else {
-        const result = await archiveSavedEstimate({ estimateId, companyId });
-
-        if (
-          !result?.ok
-          || ![
-            SAVED_ESTIMATE_ARCHIVE_RESULT.ARCHIVED,
-            SAVED_ESTIMATE_ARCHIVE_RESULT.ALREADY_ARCHIVED,
-          ].includes(result?.result)
-        ) {
-          setEstimateDeleteError("견적을 보관하지 못했습니다. 잠시 후 다시 시도해주세요.");
-          return;
-        }
-
-        setEstimates((current) => current.filter((estimate) => estimate.id !== estimateId));
-        setSelectedEstimate((current) => current?.id === estimateId ? null : current);
-        setShareEstimateTarget((current) => current?.id === estimateId ? null : current);
-        setEstimateDeleteTarget(null);
-        setEstimateDeleteMode("");
-        setEstimateDeleteReasons([]);
-        setEstimateDeleteNotice("견적을 보관함으로 이동했습니다.");
+      if (
+        !result?.ok
+        || ![
+          SAVED_ESTIMATE_TRASH_RESULT.MOVED_TO_TRASH,
+          SAVED_ESTIMATE_TRASH_RESULT.ALREADY_IN_TRASH,
+        ].includes(result?.result)
+      ) {
+        setEstimateDeleteError("견적을 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.");
+        return;
       }
+
+      const trashedEstimate = {
+        ...estimateDeleteTarget,
+        deleted_at: result?.deletedAt ?? new Date().toISOString(),
+        delete_reason: estimateDeleteTarget.delete_reason || "user_deleted",
+      };
+      setEstimates((current) => current.filter((estimate) => estimate.id !== estimateId));
+      setTrashedEstimates((current) => [
+        trashedEstimate,
+        ...current.filter((estimate) => estimate.id !== estimateId),
+      ].sort((a, b) => new Date(b.deleted_at ?? 0).getTime() - new Date(a.deleted_at ?? 0).getTime()));
+      if (result.result === SAVED_ESTIMATE_TRASH_RESULT.MOVED_TO_TRASH) {
+        setEstimateListCounts((current) => ({
+          active: Math.max(0, current.active - 1),
+          trash: current.trash + 1,
+        }));
+      }
+      setSelectedEstimate((current) => current?.id === estimateId ? null : current);
+      setShareEstimateTarget((current) => current?.id === estimateId ? null : current);
+      setEstimateDeleteTarget(null);
+      setEstimateDeleteNotice("견적을 휴지통으로 이동했습니다.");
 
       window.requestAnimationFrame(() => {
         document.querySelector(".estimate-search-panel input")?.focus();
       });
     } catch (error) {
-      setEstimateDeleteError(
-        estimateDeleteMode === SAVED_ESTIMATE_REMOVAL_MODE.ARCHIVE
-          ? "견적을 보관하지 못했습니다. 잠시 후 다시 시도해주세요."
-          : "견적을 삭제하지 못했습니다. 잠시 후 다시 시도해주세요."
-      );
+      setEstimateDeleteError("견적을 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
-      setEstimateDeletePassword("");
       setEstimateDeleteLoading(false);
     }
   }
 
-  async function restoreArchivedEstimate(estimate) {
+  async function restoreTrashedEstimate(estimate) {
     if (!estimate?.id || estimateRestoreLoadingId) return;
 
     setEstimateRestoreLoadingId(estimate.id);
@@ -6047,14 +5982,39 @@ function AdminApp() {
         companyId,
       });
 
-      if (!result?.ok || result?.result !== SAVED_ESTIMATE_RESTORE_RESULT.RESTORED) {
+      if (
+        !result?.ok
+        || ![
+          SAVED_ESTIMATE_RESTORE_RESULT.RESTORED,
+          SAVED_ESTIMATE_RESTORE_RESULT.ALREADY_RESTORED,
+        ].includes(result?.result)
+      ) {
         setAdminError("견적을 복원하지 못했습니다. 잠시 후 다시 시도해주세요.");
         return;
       }
 
-      setEstimates((current) => current.filter((row) => row.id !== estimate.id));
+      const restoredEstimate = {
+        ...estimate,
+        deleted_at: null,
+        deleted_by: null,
+        delete_reason: null,
+      };
+      setTrashedEstimates((current) => current.filter((row) => row.id !== estimate.id));
+      setEstimates((current) => {
+        if (!doesSavedEstimateMatchSearch(restoredEstimate)) return current;
+        return [
+          restoredEstimate,
+          ...current.filter((row) => row.id !== estimate.id),
+        ].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime());
+      });
+      if (result.result === SAVED_ESTIMATE_RESTORE_RESULT.RESTORED) {
+        setEstimateListCounts((current) => ({
+          active: current.active + 1,
+          trash: Math.max(0, current.trash - 1),
+        }));
+      }
       setSelectedEstimate((current) => current?.id === estimate.id ? null : current);
-      setEstimateDeleteNotice("견적을 저장 목록으로 복원했습니다.");
+      setEstimateDeleteNotice("견적을 복원했습니다.");
     } catch (error) {
       setAdminError("견적을 복원하지 못했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -7723,7 +7683,6 @@ function AdminApp() {
 
   function clearCompanyScopedState() {
     estimateListRequestRef.current += 1;
-    estimateDeleteModeRequestRef.current += 1;
     resetFlow();
     setAdminItems([]);
     setAdminError("");
@@ -7751,14 +7710,12 @@ function AdminApp() {
     });
     setDetailCostBulkInput({ cost: "" });
     setEstimates([]);
+    setTrashedEstimates([]);
     setEstimateSearch("");
-    setEstimateArchiveView("active");
+    setEstimateListView("active");
+    setEstimateListCounts({ active: 0, trash: 0 });
     setSelectedEstimate(null);
     setEstimateDeleteTarget(null);
-    setEstimateDeleteMode("");
-    setEstimateDeleteReasons([]);
-    setEstimateDeleteModeLoading(false);
-    setEstimateDeletePassword("");
     setEstimateDeleteLoading(false);
     setEstimateDeleteError("");
     setEstimateDeleteNotice("");
@@ -14842,10 +14799,10 @@ function AdminApp() {
               <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
                 홈으로
               </Button>
-              <h2>{estimateArchiveView === "archive" ? "견적 보관함" : "저장한 견적"}</h2>
+              <h2>{estimateListView === "trash" ? "견적 휴지통" : "저장한 견적"}</h2>
               <p className="muted caption">
-                {estimateArchiveView === "archive"
-                  ? "고객 기록을 보존한 견적을 확인하고 복원할 수 있습니다."
+                {estimateListView === "trash"
+                  ? "삭제한 견적을 확인하고 저장 견적 목록으로 복원할 수 있습니다."
                   : "고객명이나 주소로 찾고 다시 열 수 있습니다."}
               </p>
             </div>
@@ -14854,7 +14811,7 @@ function AdminApp() {
                 variant="secondary"
                 leftIcon={<RefreshCcw />}
                 disabled={adminLoading}
-                onClick={() => fetchEstimates(estimateSearch, estimateArchiveView)}
+                onClick={() => fetchEstimates(estimateSearch, estimateListView)}
               >
                 새로고침
               </Button>
@@ -14864,29 +14821,31 @@ function AdminApp() {
           <nav className="saved-estimate-view-tabs" aria-label="저장 견적 분류">
             <button
               type="button"
-              className={estimateArchiveView === "active" ? "is-active" : ""}
-              aria-current={estimateArchiveView === "active" ? "page" : undefined}
+              className={estimateListView === "active" ? "is-active" : ""}
+              aria-current={estimateListView === "active" ? "page" : undefined}
               onClick={() => {
-                setEstimateArchiveView("active");
+                setEstimateListView("active");
                 setSelectedEstimate(null);
                 setEstimateDeleteNotice("");
                 setAdminError("");
               }}
             >
-              저장 견적
+              <span>저장 견적</span>
+              <span className="saved-estimate-tab-count">{estimateListCounts.active}</span>
             </button>
             <button
               type="button"
-              className={estimateArchiveView === "archive" ? "is-active" : ""}
-              aria-current={estimateArchiveView === "archive" ? "page" : undefined}
+              className={estimateListView === "trash" ? "is-active" : ""}
+              aria-current={estimateListView === "trash" ? "page" : undefined}
               onClick={() => {
-                setEstimateArchiveView("archive");
+                setEstimateListView("trash");
                 setSelectedEstimate(null);
                 setEstimateDeleteNotice("");
                 setAdminError("");
               }}
             >
-              보관함
+              <span>휴지통</span>
+              <span className="saved-estimate-tab-count">{estimateListCounts.trash}</span>
             </button>
           </nav>
 
@@ -14899,7 +14858,7 @@ function AdminApp() {
                 placeholder="예: 홍길동, 아파트, 빌라, 101동"
               />
             </label>
-            <span className="estimate-result-count">{estimates.length}건</span>
+            <span className="estimate-result-count">{visibleEstimates.length}건</span>
           </section>
 
           {adminLoading && <div className="status-box">불러오는 중...</div>}
@@ -14911,28 +14870,28 @@ function AdminApp() {
           )}
 
           <section className="estimate-list">
-            {!adminLoading && !estimates.length && (
+            {!adminLoading && !visibleEstimates.length && (
               <div className="estimate-empty-state">
                 <p className="muted">
-                  {estimateArchiveView === "archive"
-                    ? "보관된 견적이 없습니다."
+                  {estimateListView === "trash"
+                    ? "휴지통에 견적이 없습니다."
                     : "저장된 견적이 없습니다."}
                 </p>
               </div>
             )}
 
-            {!!estimates.length && (
+            {!!visibleEstimates.length && (
               <Table
                 className="saved-estimates-table"
-                columns={estimateArchiveView === "archive"
+                columns={estimateListView === "trash"
                   ? [
-                      { key: "customer", label: "고객명", width: "15%" },
+                      { key: "customer", label: "고객명", width: "14%" },
                       { key: "address", label: "현장 주소", width: "22%" },
-                      { key: "estimateNumber", label: "견적번호", width: "16%" },
-                      { key: "createdAt", label: "작성일", width: "12%" },
-                      { key: "archivedAt", label: "보관일", width: "12%" },
-                      { key: "preservation", label: "보존 상태", width: "13%" },
-                      { key: "actions", label: "작업", align: "right", width: "10%" },
+                      { key: "estimateNumber", label: "견적번호", width: "14%" },
+                      { key: "createdAt", label: "작성일", width: "10%" },
+                      { key: "deletedAt", label: "삭제일", width: "10%" },
+                      { key: "amount", label: "총액", align: "right", width: "12%" },
+                      { key: "actions", label: "작업", align: "right", width: "110px" },
                     ]
                   : [
                       { key: "customer", label: "고객명", width: "16%" },
@@ -14941,17 +14900,16 @@ function AdminApp() {
                       { key: "constructionDays", label: "예상시공일", align: "right", width: "10%" },
                       { key: "constructionDate", label: "시공 예정일", width: "12%" },
                       { key: "amount", label: "총액", align: "right", width: "12%" },
-                      { key: "actions", label: "작업", align: "right", width: "14%" },
+                      { key: "actions", label: "작업", align: "right", width: "190px" },
                     ]}
-                rows={estimates.map((estimate) => ({
+                rows={visibleEstimates.map((estimate) => ({
                   id: estimate.id,
                   estimate,
                   customer: getSavedEstimateCustomerName(estimate) || "고객명 미입력",
                   address: estimate.address || "주소 미입력",
                   estimateNumber: `${getEstimateItemsDataMeta(estimate.items_data).estimateNumber ?? ""}`.trim() || "-",
                   createdAt: estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-",
-                  archivedAt: estimate.archived_at ? new Date(estimate.archived_at).toLocaleDateString("ko-KR") : "-",
-                  preservation: estimate.archive_reason === "customer_history_preserved" ? "고객 기록 보존" : "보관됨",
+                  deletedAt: estimate.deleted_at ? new Date(estimate.deleted_at).toLocaleDateString("ko-KR") : "-",
                   constructionDays: getEstimateItemsDataConstructionDaysTotal(estimate.items_data),
                   constructionDate: estimate.construction_date || "-",
                   amount: estimate.total_amount || 0,
@@ -14976,43 +14934,58 @@ function AdminApp() {
                   }
 
                   if (column.key === "actions") {
-                    if (estimateArchiveView === "archive") {
+                    if (estimateListView === "trash") {
                       return (
                         <div className="saved-estimate-table-actions">
-                          <Button variant="secondary" size="sm" onClick={() => setSelectedEstimate(row.estimate)}>
+                          <button
+                            type="button"
+                            className="saved-estimate-row-action"
+                            onClick={() => setSelectedEstimate(row.estimate)}
+                          >
                             보기
-                          </Button>
-                          <Button
-                            variant="tertiary"
-                            size="sm"
+                          </button>
+                          <button
+                            type="button"
+                            className="saved-estimate-row-action"
                             disabled={estimateRestoreLoadingId === row.estimate.id}
-                            onClick={() => restoreArchivedEstimate(row.estimate)}
+                            onClick={() => restoreTrashedEstimate(row.estimate)}
                           >
                             {estimateRestoreLoadingId === row.estimate.id ? "복원 중..." : "복원"}
-                          </Button>
+                          </button>
                         </div>
                       );
                     }
 
                     return (
                       <div className="saved-estimate-table-actions">
-                        <Button variant="secondary" size="sm" onClick={() => setSelectedEstimate(row.estimate)}>
+                        <button
+                          type="button"
+                          className="saved-estimate-row-action"
+                          onClick={() => setSelectedEstimate(row.estimate)}
+                        >
                           보기
-                        </Button>
-                        <Button
-                          variant="tertiary"
-                          size="sm"
+                        </button>
+                        <button
+                          type="button"
+                          className="saved-estimate-row-action"
                           onClick={() => loadSavedEstimateDraft(row.estimate, { destination: "preview" })}
                         >
                           견적서 확인
-                        </Button>
-                        <Button
-                          variant="tertiary"
-                          size="sm"
+                        </button>
+                        <button
+                          type="button"
+                          className="saved-estimate-row-action"
                           onClick={() => loadSavedEstimateDraft(row.estimate, { copy: true, destination: "items" })}
                         >
                           복사
-                        </Button>
+                        </button>
+                        <button
+                          type="button"
+                          className="saved-estimate-row-action is-danger"
+                          onClick={(event) => openEstimateDeleteDialog(event, row.estimate)}
+                        >
+                          삭제
+                        </button>
                       </div>
                     );
                   }
@@ -15029,7 +15002,7 @@ function AdminApp() {
                 <div className="editor-header">
                   <div>
                     <p className="eyebrow dark">
-                      {estimateArchiveView === "archive" ? "보관 견적 상세" : "견적서 상세"}
+                      {estimateListView === "trash" ? "휴지통 견적 상세" : "견적서 상세"}
                     </p>
                     <h3>{getSavedEstimateCustomerName(selectedEstimate) || selectedEstimate.address || "견적서"}</h3>
                     <p className="muted">
@@ -15042,9 +15015,9 @@ function AdminApp() {
                     {selectedEstimate.condition_snapshot?.summary && (
                       <p className="muted caption">{selectedEstimate.condition_snapshot.summary}</p>
                     )}
-                    {estimateArchiveView === "archive" && selectedEstimate.archived_at ? (
+                    {estimateListView === "trash" && selectedEstimate.deleted_at ? (
                       <p className="muted caption">
-                        보관일 {new Date(selectedEstimate.archived_at).toLocaleDateString("ko-KR")} · 고객 관련 기록 보존
+                        삭제일 {new Date(selectedEstimate.deleted_at).toLocaleDateString("ko-KR")} · 고객 요청과 활동 기록 유지
                       </p>
                     ) : null}
                   </div>
@@ -15054,14 +15027,14 @@ function AdminApp() {
                 </div>
 
                 <div className="estimate-card-actions modal-actions">
-                  {estimateArchiveView === "archive" ? (
+                  {estimateListView === "trash" ? (
                     <Button
                       variant="primary"
                       leftIcon={<RefreshCcw />}
                       disabled={estimateRestoreLoadingId === selectedEstimate.id}
-                      onClick={() => restoreArchivedEstimate(selectedEstimate)}
+                      onClick={() => restoreTrashedEstimate(selectedEstimate)}
                     >
-                      {estimateRestoreLoadingId === selectedEstimate.id ? "복원 중..." : "저장 목록으로 복원"}
+                      {estimateRestoreLoadingId === selectedEstimate.id ? "복원 중..." : "복원"}
                     </Button>
                   ) : (
                     <>
@@ -15177,25 +15150,17 @@ function AdminApp() {
             <DeleteSavedEstimateDialog
               estimate={estimateDeleteTarget}
               title={
-                estimateDeleteTarget.address
-                || getSavedEstimateCustomerName(estimateDeleteTarget)
-                || "견적서"
+                getSavedEstimateCustomerName(estimateDeleteTarget)
+                || estimateDeleteTarget.address
+                || "고객/현장 미입력"
               }
+              address={estimateDeleteTarget.address || ""}
               estimateNumber={
                 `${getEstimateItemsDataMeta(estimateDeleteTarget.items_data).estimateNumber ?? ""}`.trim()
               }
-              createdAt={
-                getSavedEstimateDisplayDate(estimateDeleteTarget) === "-"
-                  ? ""
-                  : getSavedEstimateDisplayDate(estimateDeleteTarget)
-              }
+              totalAmount={estimateDeleteTarget.total_amount || 0}
               deleting={estimateDeleteLoading}
-              mode={estimateDeleteMode}
-              modeLoading={estimateDeleteModeLoading}
-              reasons={estimateDeleteReasons}
-              password={estimateDeletePassword}
               error={estimateDeleteError}
-              onPasswordChange={setEstimateDeletePassword}
               onClose={closeEstimateDeleteDialog}
               onConfirm={confirmSavedEstimateRemoval}
             />
@@ -24512,8 +24477,38 @@ const styles = `
     justify-content: flex-end;
     white-space: nowrap;
   }
-  .saved-estimate-table-actions .ui-button {
-    min-width: 0;
+  .saved-estimate-row-action {
+    min-height: 28px;
+    padding: 0 var(--space-0-5);
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+  }
+  .saved-estimate-row-action:hover,
+  .saved-estimate-row-action:focus-visible {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+  .saved-estimate-row-action:focus-visible {
+    outline: 2px solid var(--color-primary-border);
+    outline-offset: 1px;
+  }
+  .saved-estimate-row-action.is-danger {
+    color: var(--color-danger);
+  }
+  .saved-estimate-row-action.is-danger:hover,
+  .saved-estimate-row-action.is-danger:focus-visible {
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+  }
+  .saved-estimate-row-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .saved-estimates-page .modal-actions {
     display: flex;
@@ -24529,7 +24524,10 @@ const styles = `
   }
   .saved-estimate-view-tabs button {
     position: relative;
+    display: inline-flex;
     min-height: var(--button-height-sm);
+    align-items: center;
+    gap: var(--space-0-5);
     padding: 0 var(--space-0-5);
     border: 0;
     background: transparent;
@@ -24559,6 +24557,21 @@ const styles = `
   .saved-estimate-view-tabs button:focus-visible {
     outline: 2px solid var(--color-primary-border);
     outline-offset: 2px;
+  }
+  .saved-estimate-tab-count {
+    min-width: 20px;
+    padding: 1px var(--space-0-5);
+    border-radius: var(--radius-button);
+    background: var(--color-header-bg);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    line-height: 18px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .saved-estimate-view-tabs button.is-active .saved-estimate-tab-count {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
   }
   .saved-estimates-page .estimate-modal {
     width: min(960px, 100%);
@@ -24607,10 +24620,6 @@ const styles = `
     border-radius: var(--radius-button);
     background: var(--color-danger-soft);
     color: var(--color-danger);
-  }
-  .saved-estimate-delete-dialog.is-archive .saved-estimate-delete-dialog__icon {
-    background: var(--color-primary-soft);
-    color: var(--color-primary);
   }
   .saved-estimate-delete-dialog__header h2 {
     margin: 0;
@@ -24662,26 +24671,23 @@ const styles = `
     font-variant-numeric: tabular-nums;
   }
   .saved-estimate-delete-dialog__preservation-note {
-    margin: 0;
-  }
-  .saved-estimate-delete-dialog__password,
-  .saved-estimate-delete-dialog__archive-copy {
     display: grid;
+    margin: 0;
     gap: var(--space-1);
-  }
-  .saved-estimate-delete-dialog__archive-copy {
+    padding: var(--space-1-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-header-bg);
     color: var(--color-text-secondary);
     font-size: var(--font-size-table-cell);
     line-height: var(--line-height-body);
   }
-  .saved-estimate-delete-dialog__archive-copy p,
-  .saved-estimate-delete-dialog__archive-copy ul {
-    margin: 0;
+  .saved-estimate-delete-dialog__preservation-note strong {
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-semibold);
   }
-  .saved-estimate-delete-dialog__archive-copy ul {
-    display: grid;
-    gap: var(--space-0-5);
-    padding-left: var(--space-2);
+  .saved-estimate-delete-dialog__preservation-note p {
+    margin: 0;
   }
   .saved-estimate-delete-dialog__error {
     margin: 0;
