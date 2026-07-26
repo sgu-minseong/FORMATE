@@ -366,6 +366,12 @@
   font-size: var(--font-size-body-sm);
 }
 
+.customer-operations__inline-notice {
+  margin: 0;
+  color: var(--color-success);
+  font-size: var(--font-size-body-sm);
+}
+
 .customer-operations__detail-loading,
 .customer-operations__filter-empty {
   display: grid;
@@ -1935,6 +1941,16 @@
   color: var(--color-danger);
 }
 
+.customer-requests-inbox__notice {
+  margin-top: calc(var(--space-2) * -1);
+  padding: var(--space-1) var(--space-1-5);
+  border: 1px solid var(--color-success-border);
+  border-radius: var(--radius-button);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-size: var(--font-size-body-sm);
+}
+
 @media (max-width: 1099px) {
   .customer-requests-inbox {
     width: 100%;
@@ -2893,6 +2909,158 @@
 
 .customer-projects-workspace__drawer-list time {
   font-variant-numeric: tabular-nums;
+}
+
+.customer-projects-workspace__status-notice {
+  margin-top: calc(var(--space-2) * -1);
+  padding: var(--space-1) var(--space-1-5);
+  border: 1px solid var(--color-success-border);
+  border-radius: var(--radius-button);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-size: var(--font-size-body-sm);
+}
+
+.customer-projects-workspace__status-notice.is-error {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.customer-projects-workspace__project-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.customer-projects-workspace__project-menu-trigger {
+  display: inline-grid;
+  width: var(--button-height-sm);
+  height: var(--button-height-sm);
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.customer-projects-workspace__project-menu-trigger:hover,
+.customer-projects-workspace__project-menu-trigger:focus-visible,
+.customer-projects-workspace__project-menu-trigger[aria-expanded="true"] {
+  border-color: var(--color-border);
+  background: var(--color-row-hover);
+  color: var(--color-text-primary);
+}
+
+.customer-projects-workspace__project-menu-trigger:focus-visible {
+  outline: 2px solid var(--color-primary-border);
+  outline-offset: 1px;
+}
+
+.customer-projects-workspace__project-menu-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + var(--space-0-5));
+  right: 0;
+  display: grid;
+  width: max-content;
+  min-width: 152px;
+  padding: var(--space-0-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.customer-projects-workspace__project-menu-popover > button {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-table-cell);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.customer-projects-workspace__project-menu-popover > button:hover,
+.customer-projects-workspace__project-menu-popover > button:focus-visible {
+  background: var(--color-row-hover);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.customer-projects-workspace__project-menu-popover > button.is-danger {
+  color: var(--color-danger);
+}
+
+.customer-projects-workspace__project-menu-popover > button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.customer-project-status-dialog__backdrop {
+  position: fixed;
+  z-index: 140;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-2);
+  background: var(--bg-modal-overlay);
+}
+
+.customer-project-status-dialog {
+  display: grid;
+  width: min(420px, 100%);
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.customer-project-status-dialog > div {
+  display: grid;
+  gap: var(--space-0-5);
+}
+
+.customer-project-status-dialog > div > span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.customer-project-status-dialog h2,
+.customer-project-status-dialog p {
+  margin: 0;
+}
+
+.customer-project-status-dialog h2 {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-title-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-heading);
+}
+
+.customer-project-status-dialog p {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-body);
+}
+
+.customer-project-status-dialog .customer-project-status-dialog__error {
+  color: var(--color-danger);
+}
+
+.customer-project-status-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
 }
 
 @media (max-width: 1099px) {

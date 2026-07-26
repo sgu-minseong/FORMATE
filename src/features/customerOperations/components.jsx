@@ -1,7 +1,16 @@
-import { AlertCircle, Check, Inbox, Play, XCircle } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  Inbox,
+  Pause,
+  Play,
+  RotateCcw,
+  XCircle,
+} from "lucide-react";
 import Button from "../../components/ui/Button";
 import EmptyState from "../../components/ui/EmptyState";
 import Input from "../../components/ui/Input";
+import { getCustomerRequestLogicalStatus } from "./utils";
 
 export function StatusText({ status }) {
   return (
@@ -88,12 +97,82 @@ export function RequestProcessingControls({
   onStatusChange,
   processing = false,
   error = "",
+  notice = "",
 }) {
   const status = request?.status;
-  const terminal = status === "closed" || status === "rejected";
-  const canStart = status === "received";
-  const canComplete = !!status && !terminal;
-  const canReject = !!status && !terminal && status !== "approved";
+  const logicalStatus = getCustomerRequestLogicalStatus(status);
+
+  const renderActions = () => {
+    if (logicalStatus === "received") {
+      return (
+        <>
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<XCircle />}
+            disabled={processing}
+            onClick={() => onStatusChange("rejected")}
+          >
+            반려·종료
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={<Play />}
+            disabled={processing}
+            onClick={() => onStatusChange("reviewing")}
+          >
+            {processing ? "처리 중..." : "처리 시작"}
+          </Button>
+        </>
+      );
+    }
+
+    if (logicalStatus === "in_progress") {
+      return (
+        <>
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<Pause />}
+            disabled={processing}
+            onClick={() => onStatusChange("received")}
+          >
+            처리 보류
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={<Check />}
+            disabled={processing}
+            onClick={() => onStatusChange("closed")}
+          >
+            {processing ? "처리 중..." : "처리 완료"}
+          </Button>
+        </>
+      );
+    }
+
+    if (logicalStatus === "completed" || logicalStatus === "rejected") {
+      return (
+        <Button
+          variant="secondary"
+          size="sm"
+          leftIcon={<RotateCcw />}
+          disabled={processing}
+          onClick={() => onStatusChange(logicalStatus === "completed" ? "reviewing" : "received")}
+        >
+          {processing
+            ? "처리 중..."
+            : logicalStatus === "completed"
+              ? "처리 다시 열기"
+              : "다시 열기"}
+        </Button>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div className="customer-operations__processing">
@@ -106,39 +185,9 @@ export function RequestProcessingControls({
         onChange={(event) => onMemoChange(event.target.value)}
       />
       <div className="customer-operations__processing-actions">
-        <Button
-          variant="secondary"
-          size="sm"
-          leftIcon={<Play />}
-          disabled={!canStart || processing}
-          onClick={() => onStatusChange("reviewing")}
-        >
-          처리 시작
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          leftIcon={<Check />}
-          disabled={!canComplete || processing}
-          onClick={() => onStatusChange("closed")}
-        >
-          처리 완료
-        </Button>
-        <Button
-          variant="danger"
-          size="sm"
-          leftIcon={<XCircle />}
-          disabled={!canReject || processing}
-          onClick={() => onStatusChange("rejected")}
-        >
-          반려/종료
-        </Button>
+        {renderActions()}
       </div>
-      {terminal ? (
-        <span className="customer-operations__processing-note">
-          종료된 요청은 상태를 다시 변경하지 않습니다.
-        </span>
-      ) : null}
+      {notice ? <p className="customer-operations__inline-notice" role="status">{notice}</p> : null}
       {error ? <p className="customer-operations__inline-error" role="alert">{error}</p> : null}
     </div>
   );

@@ -78,7 +78,6 @@ export async function updateCustomerRequestStatus({
     "reviewing",
     "pricing",
     "awaiting_customer_approval",
-    "approved",
     "rejected",
     "closed",
   ];
@@ -108,14 +107,57 @@ export async function updateCustomerRequestStatus({
   }
 
   const nextMemo = `${internalMemo ?? ""}`.trim();
-  const updatedRequest = unwrapSingle(await supabase
+  const memoChanged = nextMemo !== `${currentRequest.internal_memo ?? ""}`.trim();
+
+  if (memoChanged) {
+    const memoResult = await supabase
+      .from("customer_requests")
+      .update({
+        internal_memo: nextMemo,
+      })
+      .eq("company_id", companyId)
+      .eq("id", requestId);
+    if (memoResult.error) throw memoResult.error;
+  }
+
+  const { data: statusResult, error: statusError } = await supabase.rpc(
+    "update_customer_request_status",
+    {
+      p_company_id: companyId,
+      p_request_id: requestId,
+      p_next_status: status,
+      p_closed_reason: ["closed", "rejected"].includes(status) ? nextMemo || null : null,
+    }
+  );
+
+  if (
+    statusError
+    || !statusResult?.ok
+    || !["updated", "already_set"].includes(statusResult?.result)
+  ) {
+    if (memoChanged) {
+      await supabase
+        .from("customer_requests")
+        .update({ internal_memo: currentRequest.internal_memo })
+        .eq("company_id", companyId)
+        .eq("id", requestId);
+    }
+    if (statusError) throw statusError;
+    throw new Error("요청 상태를 변경할 수 없습니다.");
+  }
+
+  if (status !== "received") {
+    await supabase
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("company_id", companyId)
+      .eq("related_type", "customer_request")
+      .eq("related_id", requestId)
+      .is("read_at", null);
+  }
+
+  return unwrapSingle(await supabase
     .from("customer_requests")
-    .update({
-      status,
-      internal_memo: nextMemo,
-    })
-    .eq("company_id", companyId)
-    .eq("id", requestId)
     .select(`
       id,
       company_id,
@@ -133,53 +175,41 @@ export async function updateCustomerRequestStatus({
       created_at,
       updated_at,
       customer:customers(id, name, phone),
-      project:projects(id, name, address, detail_address),
+      project:projects(id, name, address, detail_address, construction_status),
       estimate_version:estimate_versions(id, estimate_id, version_no, label, status)
     `)
+    .eq("company_id", companyId)
+    .eq("id", requestId)
     .single());
+}
 
-  const timelineResult = await supabase
-    .from("timeline_events")
-    .insert({
-      company_id: companyId,
-      customer_id: currentRequest.customer_id,
-      project_id: currentRequest.project_id,
-      estimate_id: currentRequest.estimate_id,
-      estimate_version_id: currentRequest.estimate_version_id,
-      customer_request_id: currentRequest.id,
-      event_type: "request_updated",
-      title: "요청 처리 상태 변경",
-      description: nextMemo || `${currentRequest.status}에서 ${status}(으)로 변경`,
-      metadata: {
-        previousStatus: currentRequest.status,
-        status,
-        source: "admin",
-      },
-    });
+export async function updateProjectStatus({
+  companyId,
+  projectId,
+  status,
+}) {
+  assertCustomerOperationsQuery(companyId);
 
-  if (timelineResult.error) {
-    await supabase
-      .from("customer_requests")
-      .update({
-        status: currentRequest.status,
-        internal_memo: currentRequest.internal_memo,
-      })
-      .eq("company_id", companyId)
-      .eq("id", requestId);
-    throw timelineResult.error;
+  if (!projectId) {
+    throw new Error("처리할 현장을 확인할 수 없습니다.");
   }
 
-  if (status !== "received") {
-    await supabase
-      .from("notifications")
-      .update({ read_at: new Date().toISOString() })
-      .eq("company_id", companyId)
-      .eq("related_type", "customer_request")
-      .eq("related_id", requestId)
-      .is("read_at", null);
+  if (!["in_progress", "completed", "cancelled"].includes(status)) {
+    throw new Error("변경할 수 없는 현장 상태입니다.");
   }
 
-  return updatedRequest;
+  const { data, error } = await supabase.rpc("update_project_status", {
+    p_company_id: companyId,
+    p_project_id: projectId,
+    p_next_status: status,
+  });
+
+  if (error) throw error;
+  if (!data?.ok || !["updated", "already_set"].includes(data?.result)) {
+    throw new Error("현장 상태를 변경할 수 없습니다.");
+  }
+
+  return data;
 }
 
 export async function fetchCustomersProjects(companyId) {
@@ -202,12 +232,18 @@ export async function fetchCustomersProjects(companyId) {
         service_status,
         construction_start_date,
         construction_completed_date,
+        completed_at,
+        completed_by,
+        cancelled_at,
+        cancelled_by,
+        deleted_at,
         memo,
         created_at,
         updated_at,
         customer:customers(id, name, phone, email, memo)
       `)
       .eq("company_id", companyId)
+      .is("deleted_at", null)
       .order("updated_at", { ascending: false }),
     supabase
       .from("estimate_versions")
@@ -267,6 +303,11 @@ export async function fetchCustomerProjectDetail({
         service_status,
         construction_start_date,
         construction_completed_date,
+        completed_at,
+        completed_by,
+        cancelled_at,
+        cancelled_by,
+        deleted_at,
         memo,
         created_at,
         updated_at,
@@ -275,6 +316,7 @@ export async function fetchCustomerProjectDetail({
       .eq("company_id", companyId)
       .eq("customer_id", customerId)
       .eq("id", projectId)
+      .is("deleted_at", null)
       .single(),
     supabase
       .from("estimate_versions")

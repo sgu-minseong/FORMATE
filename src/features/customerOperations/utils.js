@@ -86,6 +86,16 @@ export function isOpenCustomerRequest(status) {
   return !["approved", "rejected", "closed"].includes(status);
 }
 
+export function getCustomerRequestLogicalStatus(status) {
+  if (status === "received") return "received";
+  if (["reviewing", "pricing", "awaiting_customer_approval"].includes(status)) {
+    return "in_progress";
+  }
+  if (["closed", "approved"].includes(status)) return "completed";
+  if (status === "rejected") return "rejected";
+  return "unknown";
+}
+
 export function createStatusView(map, value) {
   return {
     label: getOperationLabel(map, value),

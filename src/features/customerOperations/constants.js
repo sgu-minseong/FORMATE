@@ -17,12 +17,12 @@ export const REQUEST_TYPE = {
 
 export const REQUEST_STATUS = {
   received: { label: "접수", tone: "info" },
-  reviewing: { label: "검토 중", tone: "warning" },
+  reviewing: { label: "처리 중", tone: "warning" },
   pricing: { label: "금액 확인 중", tone: "warning" },
   awaiting_customer_approval: { label: "고객 승인 대기", tone: "warning" },
   approved: { label: "승인", tone: "success" },
-  rejected: { label: "반려", tone: "danger" },
-  closed: { label: "종료", tone: "muted" },
+  rejected: { label: "반려·종료", tone: "danger" },
+  closed: { label: "완료", tone: "success" },
 };
 
 export const ESTIMATE_VERSION_STATUS = {

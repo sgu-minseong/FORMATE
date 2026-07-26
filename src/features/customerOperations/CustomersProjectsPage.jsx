@@ -3,6 +3,8 @@ import {
   Activity,
   ArrowLeft,
   Copy,
+  MoreHorizontal,
+  RotateCcw,
   Search,
   X,
 } from "lucide-react";
@@ -13,17 +15,19 @@ import {
   fetchCustomerProjectDetail,
   fetchCustomersProjects,
   updateCustomerRequestStatus,
+  updateProjectStatus,
 } from "./api";
+import ProjectStatusConfirmDialog from "./ProjectStatusConfirmDialog";
 import {
   RequestProcessingControls,
   StatusText,
 } from "./components";
 import {
   formatOperationDateTime,
+  getCustomerRequestLogicalStatus,
   getCustomerOperationText,
   getEstimateReference,
   getEstimateVersionLabel,
-  getProjectCurrentStage,
   getRelationRow,
   isOpenCustomerRequest,
   operationStatusViews,
@@ -48,11 +52,9 @@ const PROJECT_TABS = [
 
 const PROJECT_FILTERS = [
   { value: "all", label: "전체 현장" },
-  { value: "requests", label: "요청 있음" },
-  { value: "estimate-review", label: "견적 검토" },
-  { value: "contract-review", label: "계약 검토" },
-  { value: "construction", label: "공사 중" },
+  { value: "active", label: "진행 중" },
   { value: "completed", label: "완료" },
+  { value: "cancelled", label: "취소" },
 ];
 
 function QuietEmpty({ children }) {
@@ -87,14 +89,22 @@ function formatRelativeActivity(value) {
 }
 
 function matchesProjectStatus(project, filter) {
-  if (filter === "requests") return Number(project.openRequestCount) > 0;
-  if (filter === "estimate-review") {
-    return ["sent", "viewed", "revision_requested"].includes(project.estimate_status);
+  if (filter === "active") {
+    return !["completed", "cancelled"].includes(project.construction_status);
   }
-  if (filter === "contract-review") return project.contract_status === "reviewing";
-  if (filter === "construction") return project.construction_status === "in_progress";
   if (filter === "completed") return project.construction_status === "completed";
+  if (filter === "cancelled") return project.construction_status === "cancelled";
   return true;
+}
+
+function getProjectLifecycleStatus(project) {
+  if (project?.construction_status === "completed") {
+    return { label: "완료", tone: "success" };
+  }
+  if (project?.construction_status === "cancelled") {
+    return { label: "취소", tone: "danger" };
+  }
+  return { label: "진행 중", tone: "warning" };
 }
 
 function getProjectSortPriority(project) {
@@ -164,9 +174,16 @@ export default function CustomersProjectsPage({ companyId }) {
   const [requestMemo, setRequestMemo] = useState("");
   const [requestProcessing, setRequestProcessing] = useState(false);
   const [requestError, setRequestError] = useState("");
+  const [requestNotice, setRequestNotice] = useState("");
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [projectStatusConfirm, setProjectStatusConfirm] = useState("");
+  const [projectStatusProcessing, setProjectStatusProcessing] = useState(false);
+  const [projectStatusError, setProjectStatusError] = useState("");
+  const [projectStatusNotice, setProjectStatusNotice] = useState("");
   const detailContentRef = useRef(null);
   const activityDrawerRef = useRef(null);
   const activityTriggerRef = useRef(null);
+  const projectMenuRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -346,11 +363,32 @@ export default function CustomersProjectsPage({ companyId }) {
   useEffect(() => {
     setRequestMemo(selectedRequest?.internal_memo || "");
     setRequestError("");
+    setRequestNotice("");
   }, [selectedRequestId, selectedRequest?.internal_memo]);
 
   useEffect(() => {
     if (detailContentRef.current) detailContentRef.current.scrollTop = 0;
+    setProjectMenuOpen(false);
+    setProjectStatusConfirm("");
+    setProjectStatusError("");
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!projectMenuOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (!projectMenuRef.current?.contains(event.target)) setProjectMenuOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setProjectMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [projectMenuOpen]);
 
   useEffect(() => {
     if (!activityOpen) return undefined;
@@ -404,6 +442,7 @@ export default function CustomersProjectsPage({ companyId }) {
 
     setRequestProcessing(true);
     setRequestError("");
+    setRequestNotice("");
     try {
       const updatedRequest = await updateCustomerRequestStatus({
         companyId,
@@ -432,10 +471,67 @@ export default function CustomersProjectsPage({ companyId }) {
           : project
       )));
       setRequestMemo(updatedRequest.internal_memo || "");
+      if (status === "closed") {
+        setRequestNotice("요청을 완료했습니다.");
+      } else if (
+        ["completed", "rejected"].includes(
+          getCustomerRequestLogicalStatus(selectedRequest.status)
+        )
+      ) {
+        setRequestNotice("요청을 다시 열었습니다.");
+      }
     } catch (updateError) {
-      setRequestError(updateError?.message || "요청 상태를 변경하지 못했습니다.");
+      setRequestError("요청 상태를 변경하지 못했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setRequestProcessing(false);
+    }
+  };
+
+  const handleProjectStatusChange = async (status) => {
+    if (!detailProject?.id || projectStatusProcessing) return;
+
+    const projectId = detailProject.id;
+    setProjectStatusProcessing(true);
+    setProjectStatusError("");
+    setProjectStatusNotice("");
+    try {
+      const result = await updateProjectStatus({
+        companyId,
+        projectId,
+        status,
+      });
+      const nextStatus = result.status || status;
+      const now = new Date().toISOString();
+      const projectPatch = {
+        construction_status: nextStatus,
+        completed_at: nextStatus === "completed" ? now : null,
+        cancelled_at: nextStatus === "cancelled" ? now : null,
+        updated_at: now,
+        recentActivityAt: now,
+      };
+
+      setProjects((current) => current.map((project) => (
+        project.id === projectId ? { ...project, ...projectPatch } : project
+      )));
+      setDetail((current) => ({
+        ...current,
+        project: current.project?.id === projectId
+          ? { ...current.project, ...projectPatch }
+          : current.project,
+      }));
+      setProjectMenuOpen(false);
+      setProjectStatusConfirm("");
+      if (nextStatus === "completed") {
+        setProjectStatusNotice("현장을 완료 처리했습니다.");
+      } else if (nextStatus === "cancelled") {
+        setProjectStatusNotice("현장을 취소 처리했습니다.");
+      } else {
+        setProjectStatusNotice("현장을 다시 진행 상태로 변경했습니다.");
+      }
+    } catch (statusError) {
+      setProjectStatusError("현장 상태를 변경하지 못했습니다. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setProjectStatusProcessing(false);
     }
   };
 
@@ -614,6 +710,7 @@ export default function CustomersProjectsPage({ companyId }) {
               onStatusChange={handleRequestStatusChange}
               processing={requestProcessing}
               error={requestError}
+              notice={requestNotice}
             />
           </div>
         ) : null}
@@ -729,7 +826,7 @@ export default function CustomersProjectsPage({ companyId }) {
     return null;
   };
 
-  const stage = getProjectCurrentStage(detailProject);
+  const lifecycleStatus = getProjectLifecycleStatus(detailProject);
   const projectAddress = getProjectAddressText(detailProject);
 
   return (
@@ -759,6 +856,17 @@ export default function CustomersProjectsPage({ companyId }) {
         </label>
       </section>
 
+      {projectStatusNotice ? (
+        <div className="customer-projects-workspace__status-notice" role="status">
+          {projectStatusNotice}
+        </div>
+      ) : null}
+      {projectStatusError && !projectStatusConfirm ? (
+        <div className="customer-projects-workspace__status-notice is-error" role="alert">
+          {projectStatusError}
+        </div>
+      ) : null}
+
       <section
         className={`customer-projects-workspace__surface ${mobileDetailOpen ? "is-detail-open" : ""}`.trim()}
         aria-label="고객과 현장 기록"
@@ -785,7 +893,7 @@ export default function CustomersProjectsPage({ companyId }) {
             ) : (
               filteredProjects.map((project) => {
                 const customer = getRelationRow(project.customer);
-                const projectStage = getProjectCurrentStage(project);
+                const projectStage = getProjectLifecycleStatus(project);
                 const selected = project.id === selectedProjectId;
                 const address = getProjectAddressText(project);
 
@@ -840,7 +948,7 @@ export default function CustomersProjectsPage({ companyId }) {
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
-                  <StatusText status={stage} />
+                  <StatusText status={lifecycleStatus} />
                 </div>
                 <div className="customer-projects-workspace__detail-actions">
                   {recentEstimate ? (
@@ -864,6 +972,61 @@ export default function CustomersProjectsPage({ companyId }) {
                   >
                     활동
                   </Button>
+                  <div className="customer-projects-workspace__project-menu" ref={projectMenuRef}>
+                    <button
+                      type="button"
+                      className="customer-projects-workspace__project-menu-trigger"
+                      aria-label="현장 상태 메뉴"
+                      aria-haspopup="menu"
+                      aria-expanded={projectMenuOpen}
+                      onClick={() => setProjectMenuOpen((current) => !current)}
+                    >
+                      <MoreHorizontal size={18} strokeWidth={1.5} aria-hidden="true" />
+                    </button>
+                    {projectMenuOpen ? (
+                      <div className="customer-projects-workspace__project-menu-popover" role="menu">
+                        {["completed", "cancelled"].includes(detailProject.construction_status) ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={projectStatusProcessing}
+                            onClick={() => handleProjectStatusChange("in_progress")}
+                          >
+                            <RotateCcw size={16} strokeWidth={1.5} aria-hidden="true" />
+                            다시 진행 처리
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={projectStatusProcessing}
+                              onClick={() => {
+                                setProjectStatusError("");
+                                setProjectStatusConfirm("completed");
+                                setProjectMenuOpen(false);
+                              }}
+                            >
+                              현장 완료 처리
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="is-danger"
+                              disabled={projectStatusProcessing}
+                              onClick={() => {
+                                setProjectStatusError("");
+                                setProjectStatusConfirm("cancelled");
+                                setProjectMenuOpen(false);
+                              }}
+                            >
+                              현장 취소
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                   {copyNotice ? <span role="status">{copyNotice}</span> : null}
                 </div>
               </header>
@@ -945,6 +1108,21 @@ export default function CustomersProjectsPage({ companyId }) {
             </div>
           </aside>
         </div>
+      ) : null}
+
+      {projectStatusConfirm ? (
+        <ProjectStatusConfirmDialog
+          status={projectStatusConfirm}
+          projectName={getProjectTitle(detailProject)}
+          processing={projectStatusProcessing}
+          error={projectStatusError}
+          onClose={() => {
+            if (projectStatusProcessing) return;
+            setProjectStatusConfirm("");
+            setProjectStatusError("");
+          }}
+          onConfirm={() => handleProjectStatusChange(projectStatusConfirm)}
+        />
       ) : null}
     </main>
   );

@@ -6,15 +6,17 @@ import {
   CircleCheck,
   FilePenLine,
   MessageSquareText,
+  Pause,
   Play,
+  RotateCcw,
   Search,
-  XCircle,
 } from "lucide-react";
 import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
 import { fetchCustomerRequests, updateCustomerRequestStatus } from "./api";
 import {
   formatOperationDateTime,
+  getCustomerRequestLogicalStatus,
   getCustomerOperationText,
   getCustomerName,
   getEstimateReference,
@@ -45,8 +47,10 @@ const REQUEST_TYPE_META = {
 const REQUEST_STATUS_META = {
   received: { label: "접수", tone: "received" },
   reviewing: { label: "처리 중", tone: "reviewing" },
+  pricing: { label: "금액 확인 중", tone: "reviewing" },
+  awaiting_customer_approval: { label: "고객 승인 대기", tone: "reviewing" },
   closed: { label: "완료", tone: "closed" },
-  rejected: { label: "반려", tone: "rejected" },
+  rejected: { label: "반려·종료", tone: "rejected" },
   approved: { label: "확정", tone: "approved" },
 };
 
@@ -65,9 +69,10 @@ function getRequestStatusMeta(status) {
 }
 
 function isStatusFilterMatch(status, filter) {
-  if (filter === "attention") return status === "received";
-  if (filter === "reviewing") return status === "reviewing";
-  if (filter === "completed") return ["closed", "rejected", "approved"].includes(status);
+  const logicalStatus = getCustomerRequestLogicalStatus(status);
+  if (filter === "attention") return logicalStatus === "received";
+  if (filter === "reviewing") return logicalStatus === "in_progress";
+  if (filter === "completed") return ["completed", "rejected"].includes(logicalStatus);
   return true;
 }
 
@@ -132,6 +137,7 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [processingError, setProcessingError] = useState("");
+  const [processingNotice, setProcessingNotice] = useState("");
   const [internalMemo, setInternalMemo] = useState("");
   const detailBodyRef = useRef(null);
 
@@ -161,10 +167,14 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
   }, [companyId, reloadKey]);
 
   const statusCounts = useMemo(() => ({
-    attention: requests.filter((request) => request.status === "received").length,
-    reviewing: requests.filter((request) => request.status === "reviewing").length,
+    attention: requests.filter((request) => (
+      getCustomerRequestLogicalStatus(request.status) === "received"
+    )).length,
+    reviewing: requests.filter((request) => (
+      getCustomerRequestLogicalStatus(request.status) === "in_progress"
+    )).length,
     completed: requests.filter((request) => (
-      ["closed", "rejected", "approved"].includes(request.status)
+      ["completed", "rejected"].includes(getCustomerRequestLogicalStatus(request.status))
     )).length,
   }), [requests]);
 
@@ -239,6 +249,7 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
 
     setProcessing(true);
     setProcessingError("");
+    setProcessingNotice("");
     try {
       const updatedRequest = await updateCustomerRequestStatus({
         companyId,
@@ -250,13 +261,27 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
         request.id === updatedRequest.id ? updatedRequest : request
       )));
       setInternalMemo(updatedRequest.internal_memo || "");
+      if (status === "closed") {
+        setProcessingNotice("요청을 완료했습니다.");
+      } else if (
+        ["closed", "approved"].includes(selectedRequest.status)
+        || selectedRequest.status === "rejected"
+      ) {
+        setProcessingNotice("요청을 다시 열었습니다.");
+      } else if (status === "reviewing") {
+        setProcessingNotice("요청 처리를 시작했습니다.");
+      } else if (status === "received") {
+        setProcessingNotice("요청 처리를 보류했습니다.");
+      } else if (status === "rejected") {
+        setProcessingNotice("요청을 반려·종료했습니다.");
+      }
 
       if (!isRequestMatch(updatedRequest, { statusFilter, typeFilter, searchQuery })) {
         selectRequest(nextRequest?.id || "");
         if (!nextRequest) setMobileDetailOpen(false);
       }
     } catch (updateError) {
-      setProcessingError(updateError?.message || "요청 상태를 변경하지 못했습니다.");
+      setProcessingError("요청 상태를 변경하지 못했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setProcessing(false);
     }
@@ -270,32 +295,50 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
 
   const renderDetailActions = () => {
     if (!selectedRequest || !selectedStatus) return null;
+    const logicalStatus = getCustomerRequestLogicalStatus(selectedRequest.status);
 
-    if (selectedRequest.status === "closed") {
-      return <span className="customer-requests-inbox__action-state"><Check /> 처리 완료됨</span>;
+    if (logicalStatus === "completed" || logicalStatus === "rejected") {
+      return (
+        <Button
+          variant="secondary"
+          size="sm"
+          leftIcon={<RotateCcw />}
+          disabled={processing}
+          onClick={() => handleStatusChange(logicalStatus === "completed" ? "reviewing" : "received")}
+        >
+          {processing
+            ? "처리 중..."
+            : logicalStatus === "completed"
+              ? "처리 다시 열기"
+              : "다시 열기"}
+        </Button>
+      );
     }
-    if (selectedRequest.status === "rejected") {
-      return <span className="customer-requests-inbox__action-state is-rejected"><XCircle /> 반려됨</span>;
-    }
-    if (selectedRequest.status === "approved") {
+
+    if (logicalStatus === "in_progress") {
       return (
         <>
-          <span className="customer-requests-inbox__action-state"><CircleCheck /> 견적 확정 완료</span>
           <Button
             variant="secondary"
             size="sm"
+            leftIcon={<Pause />}
+            disabled={processing}
+            onClick={() => handleStatusChange("received")}
+          >
+            처리 보류
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={<Check />}
             disabled={processing}
             onClick={() => handleStatusChange("closed")}
           >
-            처리 완료
+            {processing ? "처리 중..." : "처리 완료"}
           </Button>
         </>
       );
     }
-
-    const primaryStatus = selectedRequest.status === "received" ? "reviewing" : "closed";
-    const primaryLabel = selectedRequest.status === "received" ? "처리 시작" : "처리 완료";
-    const PrimaryIcon = selectedRequest.status === "received" ? Play : Check;
 
     return (
       <>
@@ -311,11 +354,11 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
         <Button
           variant="primary"
           size="sm"
-          leftIcon={<PrimaryIcon />}
+          leftIcon={<Play />}
           disabled={processing}
-          onClick={() => handleStatusChange(primaryStatus)}
+          onClick={() => handleStatusChange("reviewing")}
         >
-          {processing ? "처리 중" : primaryLabel}
+          {processing ? "처리 중..." : "처리 시작"}
         </Button>
       </>
     );
@@ -372,6 +415,12 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
           </label>
         </div>
       </section>
+
+      {processingNotice ? (
+        <div className="customer-requests-inbox__notice" role="status">
+          {processingNotice}
+        </div>
+      ) : null}
 
       <section
         className={`customer-requests-inbox__workspace ${mobileDetailOpen ? "is-detail-open" : ""}`.trim()}
