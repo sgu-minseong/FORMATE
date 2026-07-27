@@ -148,6 +148,7 @@ export async function fetchCustomerRequests(companyId) {
       related_item_label,
       customer_visible,
       internal_memo,
+      completed_at,
       created_at,
       updated_at,
       customer:customers(id, name, phone),
@@ -159,7 +160,14 @@ export async function fetchCustomerRequests(companyId) {
         version_no,
         label,
         status,
+        total_amount,
         estimate:estimates(id, deleted_at)
+      ),
+      request_events:timeline_events(
+        id,
+        event_type,
+        metadata,
+        created_at
       )
     `)
     .eq("company_id", companyId)
@@ -278,6 +286,7 @@ export async function updateCustomerRequestStatus({
       related_item_label,
       customer_visible,
       internal_memo,
+      completed_at,
       created_at,
       updated_at,
       customer:customers(id, name, phone),
@@ -289,7 +298,14 @@ export async function updateCustomerRequestStatus({
         version_no,
         label,
         status,
+        total_amount,
         estimate:estimates(id, deleted_at)
+      ),
+      request_events:timeline_events(
+        id,
+        event_type,
+        metadata,
+        created_at
       )
     `)
     .eq("company_id", companyId)
