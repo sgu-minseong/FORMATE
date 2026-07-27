@@ -117,6 +117,18 @@ import {
   SAVED_ESTIMATE_RESTORE_RESULT,
   SAVED_ESTIMATE_TRASH_RESULT,
 } from "./features/estimates/api";
+import {
+  buildUniqueFlooringOptions,
+  buildSubitemPricePayload,
+  createEmptyFlooringVariantDraft,
+  getFlooringVariantDisplayValues,
+  isFlooringThicknessSelection,
+  patchSubitemPriceById,
+  reconcileFlooringVariantRows,
+  reconcileInsertedSubitems,
+  resolveActiveFlooringVariant,
+  resolveFlooringVariant,
+} from "./features/priceTable/priceTableModel";
 import "./features/customerOperations/customerOperations.css";
 
 const pageFromHash = () => {
@@ -6595,10 +6607,17 @@ function AdminApp() {
     return `${itemId}::${baseName}`;
   }
 
-  function getAdminFlooringActiveThickness(itemId, group) {
+  function getAdminFlooringActiveThickness(itemId, group, options = {}) {
     const optionKeys = Object.keys(group?.options ?? {}).sort(compareFlooringThickness);
-    const savedThickness = activeFlooringThicknessByGroup[getAdminFlooringGroupKey(itemId, group?.baseName)];
+    const groupKey = getAdminFlooringGroupKey(itemId, group?.baseName);
+    const hasSavedThickness = Object.prototype.hasOwnProperty.call(
+      activeFlooringThicknessByGroup,
+      groupKey
+    );
+    const savedThickness = activeFlooringThicknessByGroup[groupKey];
+    if (options.allowEmpty && hasSavedThickness && !savedThickness) return "";
     if (savedThickness && optionKeys.includes(savedThickness)) return savedThickness;
+    if (options.allowEmpty) return "";
     if (optionKeys.includes(DEFAULT_FLOORING_SPEC)) return DEFAULT_FLOORING_SPEC;
     if (optionKeys.includes("1.8")) return "1.8";
     return optionKeys[0] ?? DEFAULT_FLOORING_SPEC;
@@ -6693,18 +6712,38 @@ function AdminApp() {
   }
 
   function selectAdminFlooringThickness(itemId, baseName, nextThickness) {
-    const normalizedThickness = normalizeFlooringThickness(nextThickness);
     const groupKey = getAdminFlooringGroupKey(itemId, baseName);
+    const rawThickness = `${nextThickness ?? ""}`.trim();
+    if (!rawThickness) {
+      setActiveFlooringThicknessByGroup((current) => ({
+        ...current,
+        [groupKey]: "",
+      }));
+      return;
+    }
+
+    const normalizedThickness = normalizeFlooringThickness(rawThickness);
     const parent = adminItems.find((item) => item.id === itemId);
     const group = getFlooringThicknessGroups(parent?.subitems ?? [])
       .find((entry) => entry.baseName === baseName);
+    const resolvedVariant = resolveFlooringVariant(
+      parent?.subitems ?? [],
+      baseName,
+      nextThickness
+    );
 
     setActiveFlooringThicknessByGroup((current) => ({
       ...current,
       [groupKey]: normalizedThickness,
     }));
 
-    if (!parent || group?.options?.[normalizedThickness]) return;
+    if (!parent) return;
+    if (resolvedVariant) {
+      if (resolvedVariant.selected_spec_option) {
+        updateLocalSubitemDraft(resolvedVariant.id, { selected_spec_option: "" });
+      }
+      return;
+    }
     if (!isCommonPriceAdminPage) return;
 
     const canonicalNextName = getCanonicalFlooringSubitemName(
@@ -6719,6 +6758,14 @@ function AdminApp() {
     const nextSortOrder = parent.subitems?.length
       ? Math.max(...parent.subitems.map((subitem) => subitem.sort_order ?? 0)) + 1
       : 0;
+    const localVariant = createEmptyFlooringVariantDraft({
+      id: createLocalId("local-subitem"),
+      itemId,
+      baseName,
+      thickness: normalizedThickness,
+      source,
+      sortOrder: nextSortOrder,
+    });
 
     setAdminItems((current) =>
       current.map((item) =>
@@ -6727,26 +6774,7 @@ function AdminApp() {
               ...item,
               subitems: [
                 ...(item.subitems ?? []),
-                {
-                  id: createLocalId("local-subitem"),
-                  item_id: itemId,
-                  name: canonicalNextName,
-                  option_value: getTemplateOptionValue({ name: canonicalNextName }),
-                  unit: source?.unit ?? "평",
-                  cost_price: "",
-                  cost_unit: normalizeUnitOptionValue(source?.cost_unit),
-                  unit_price: "",
-                  labor_rate: "",
-                  labor_rate_empty: "",
-                  labor_rate_occupied: "",
-                  spec_options: [],
-                  spec_option_draft: "",
-                  selected_spec_option: "",
-                  quantity: "",
-                  labor_count: "",
-                  template_value_id: null,
-                  sort_order: nextSortOrder,
-                },
+                localVariant,
               ],
             }
           : item
@@ -8401,29 +8429,23 @@ function AdminApp() {
   }
 
   function updateLocalSubitemPrice(subitemId, patch) {
-    setAdminItems((current) =>
-      current.map((item) => ({
-        ...item,
-        subitems: item.subitems.map((subitem) =>
-          subitem.id === subitemId
-            ? {
-                ...subitem,
-                ...patch,
-                ...(isLocalSubitemId(subitem.id)
-                  ? {
-                      _dirtyFields: [
-                        ...new Set([
-                          ...(Array.isArray(subitem._dirtyFields) ? subitem._dirtyFields : []),
-                          ...Object.keys(patch),
-                        ]),
-                      ],
-                    }
-                  : {}),
-              }
-            : subitem
-        ),
-      }))
-    );
+    setAdminItems((current) => {
+      const targetSubitem = current
+        .flatMap((item) => item.subitems ?? [])
+        .find((subitem) => subitem.id === subitemId);
+      const nextPatch = isLocalSubitemId(targetSubitem?.id)
+        ? {
+            ...patch,
+            _dirtyFields: [
+              ...new Set([
+                ...(Array.isArray(targetSubitem?._dirtyFields) ? targetSubitem._dirtyFields : []),
+                ...Object.keys(patch),
+              ]),
+            ],
+          }
+        : patch;
+      return patchSubitemPriceById(current, subitemId, nextPatch);
+    });
     markAdminCatalogDirty();
   }
 
@@ -9015,19 +9037,67 @@ function AdminApp() {
     );
   }
 
-  function renderAdminPricePrimarySubitemCells(subitem) {
+  function renderAdminPricePrimarySubitemCells(subitem, flooringContext = null) {
+    const controlSubitem = subitem ?? flooringContext?.referenceSubitem ?? null;
+    const displayValues = getFlooringVariantDisplayValues(subitem);
     return (
       <>
         <label className="spec-options-field">
           <span className="field-label">규격/두께</span>
           {(() => {
-            const specOptions = getSpecSelectOptions(subitem);
-            const specValue = getSpecSelectValue(subitem, specOptions);
+            const optionEntries = flooringContext?.optionEntries ?? [];
+            const sharedSpecOptions = flooringContext
+              ? optionEntries.flatMap((option) => normalizeSpecOptions(option.spec_options))
+              : [];
+            const specOptions = flooringContext
+              ? buildUniqueFlooringOptions({
+                  subitems: optionEntries,
+                  baseName: flooringContext.baseName,
+                  specOptions: sharedSpecOptions,
+                })
+              : getSpecSelectOptions(controlSubitem);
+            const specValue = flooringContext?.activeThickness
+              ? getSpecSelectValue(
+                  controlSubitem,
+                  specOptions,
+                  flooringContext.activeThickness
+                )
+              : "";
             return renderSpecOptionsControl(
-              subitem,
+              controlSubitem,
               specOptions,
               specValue,
-              (event) => updateLocalSubitemDraft(subitem.id, { selected_spec_option: event.target.value }),
+              (event) => {
+                const nextValue = event.target.value;
+                if (flooringContext && !nextValue) {
+                  if (controlSubitem?.id) {
+                    updateLocalSubitemDraft(controlSubitem.id, { selected_spec_option: "" });
+                  }
+                  selectAdminFlooringThickness(
+                    flooringContext.itemId,
+                    flooringContext.baseName,
+                    ""
+                  );
+                  return;
+                }
+                if (
+                  flooringContext
+                  && isFlooringThicknessSelection(nextValue)
+                ) {
+                  if (controlSubitem?.id) {
+                    updateLocalSubitemDraft(controlSubitem.id, { selected_spec_option: "" });
+                  }
+                  selectAdminFlooringThickness(
+                    flooringContext.itemId,
+                    flooringContext.baseName,
+                    nextValue
+                  );
+                  return;
+                }
+                if (controlSubitem?.id) {
+                  updateLocalSubitemDraft(controlSubitem.id, { selected_spec_option: nextValue });
+                }
+              },
               { manageInSelect: true }
             );
           })()}
@@ -9035,10 +9105,14 @@ function AdminApp() {
         <label className="price-unit-field">
           <span className="field-label">단위</span>
           <select
-            value={normalizeUnitOptionValue(subitem.unit)}
-            onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
+            value={normalizeUnitOptionValue(controlSubitem?.unit)}
+            onChange={(event) => {
+              if (controlSubitem?.id) {
+                updateAdminSubitemUnit(controlSubitem.id, event.target.value);
+              }
+            }}
           >
-            {getUnitSelectOptions(subitem.unit).map((unit) => (
+            {getUnitSelectOptions(controlSubitem?.unit).map((unit) => (
               <option key={unit} value={unit}>
                 {unit}
               </option>
@@ -9048,40 +9122,50 @@ function AdminApp() {
         <label>
           <span className="field-label">단가</span>
           <input
-            className={isEmptyOrZeroDisplayValue(subitem.unit_price) ? "items-v2-muted-value" : ""}
+            className={isEmptyOrZeroDisplayValue(displayValues.unit_price) ? "items-v2-muted-value" : ""}
             type="text"
             inputMode="numeric"
-            value={formatMoneyInputValue(subitem.unit_price)}
-            onChange={(event) =>
-              updateLocalSubitemPrice(subitem.id, { unit_price: stripNumberInputFormatting(event.target.value) })
-            }
+            value={formatMoneyInputValue(displayValues.unit_price)}
+            disabled={displayValues.disabled}
+            onChange={(event) => {
+              if (!subitem?.id) return;
+              updateLocalSubitemPrice(subitem.id, {
+                unit_price: stripNumberInputFormatting(event.target.value),
+              });
+            }}
           />
         </label>
         <label className="price-number-field price-sale-field">
           <span className="field-label">인건비(빈집)</span>
           <input
-            className={isEmptyOrZeroDisplayValue(getLaborRateEmptyValue(subitem)) ? "items-v2-muted-value" : ""}
+            className={isEmptyOrZeroDisplayValue(displayValues.labor_rate_empty) ? "items-v2-muted-value" : ""}
             type="text"
             inputMode="numeric"
-            value={formatMoneyInputValue(getLaborRateEmptyValue(subitem))}
-            onChange={(event) =>
+            value={formatMoneyInputValue(displayValues.labor_rate_empty)}
+            disabled={displayValues.disabled}
+            onChange={(event) => {
+              if (!subitem?.id) return;
               updateLocalSubitemPrice(subitem.id, {
                 labor_rate_empty: stripNumberInputFormatting(event.target.value),
                 labor_rate: stripNumberInputFormatting(event.target.value),
-              })
-            }
+              });
+            }}
           />
         </label>
         <label className="price-number-field price-sale-field">
           <span className="field-label">인건비(살림집)</span>
           <input
-            className={isEmptyOrZeroDisplayValue(getLaborRateOccupiedValue(subitem)) ? "items-v2-muted-value" : ""}
+            className={isEmptyOrZeroDisplayValue(displayValues.labor_rate_occupied) ? "items-v2-muted-value" : ""}
             type="text"
             inputMode="numeric"
-            value={formatMoneyInputValue(getLaborRateOccupiedValue(subitem))}
-            onChange={(event) =>
-              updateLocalSubitemPrice(subitem.id, { labor_rate_occupied: stripNumberInputFormatting(event.target.value) })
-            }
+            value={formatMoneyInputValue(displayValues.labor_rate_occupied)}
+            disabled={displayValues.disabled}
+            onChange={(event) => {
+              if (!subitem?.id) return;
+              updateLocalSubitemPrice(subitem.id, {
+                labor_rate_occupied: stripNumberInputFormatting(event.target.value),
+              });
+            }}
           />
         </label>
       </>
@@ -9142,7 +9226,10 @@ function AdminApp() {
   }
 
   function renderAdminPriceRows(item) {
-    const itemSubitems = getVisibleAdminSubitems(item);
+    const visibleSubitems = getVisibleAdminSubitems(item);
+    const itemSubitems = isFlooringThicknessItem(item)
+      ? reconcileFlooringVariantRows(visibleSubitems)
+      : visibleSubitems;
     if (isFlooringThicknessItem(item)) {
       return (
         <div className="price-table-list admin-price-v2-grid-list">
@@ -9150,17 +9237,28 @@ function AdminApp() {
           {getFlooringThicknessGroups(itemSubitems).map((group) => {
             const optionEntries = getFlooringOptionEntries(group);
             const optionIds = optionEntries.map((option) => option.id);
-            const activeThickness = getAdminFlooringActiveThickness(item.id, group);
-            const activeSubitem = group.options[activeThickness] ?? optionEntries[0];
-            if (!activeSubitem) return null;
-            const hasValidationError = adminPriceValidationError?.subitemId === activeSubitem.id;
+            const activeThickness = getAdminFlooringActiveThickness(
+              item.id,
+              group,
+              { allowEmpty: true }
+            );
+            const activeSubitem = activeThickness
+              ? resolveActiveFlooringVariant(
+                  optionEntries,
+                  group.baseName,
+                  activeThickness
+                )
+              : null;
+            const referenceSubitem = activeSubitem ?? optionEntries[0] ?? null;
+            if (!referenceSubitem) return null;
+            const hasValidationError = adminPriceValidationError?.subitemId === referenceSubitem.id;
             return (
               <div
                 key={group.baseName}
-                ref={(node) => setAdminPriceRowRef(activeSubitem.id, node)}
-                className={`admin-value-row flooring-value-row common-price-row price-table-row admin-price-v2-grid ${activeSubitem.expanded ? "expanded" : ""} ${hasValidationError ? "admin-price-v2-row-error" : ""} ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
-                data-subitem-id={activeSubitem.id}
-                onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
+                ref={(node) => setAdminPriceRowRef(referenceSubitem.id, node)}
+                className={`admin-value-row flooring-value-row common-price-row price-table-row admin-price-v2-grid ${referenceSubitem.expanded ? "expanded" : ""} ${hasValidationError ? "admin-price-v2-row-error" : ""} ${newlyAddedSubitemId === referenceSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
+                data-subitem-id={referenceSubitem.id}
+                onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, referenceSubitem.id, group.baseName)}
                 onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
                 onDragEnd={clearAdminDragState}
               >
@@ -9168,7 +9266,7 @@ function AdminApp() {
                   className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
                   title="소재 순서 변경"
                   draggable={canReorderAdminCatalog && !adminSaving}
-                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, activeSubitem.id, group.baseName)}
+                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, referenceSubitem.id, group.baseName)}
                   onDragEnd={clearAdminDragState}
                 >
                   ::
@@ -9180,7 +9278,7 @@ function AdminApp() {
                     placeholder={MATERIAL_NAME_PLACEHOLDER}
                     onChange={(event) => {
                       updateLocalFlooringGroupBaseName(optionIds, event.target.value);
-                      clearAdminPriceValidationErrorForSubitem(activeSubitem.id, event.target.value);
+                      clearAdminPriceValidationErrorForSubitem(referenceSubitem.id, event.target.value);
                     }}
                     onBlur={(event) => renameAdminFlooringGroup(item.id, optionIds, event.target.value)}
                   />
@@ -9188,16 +9286,22 @@ function AdminApp() {
                     <span className="admin-price-validation-helper">{adminPriceValidationError.message}</span>
                   )}
                 </label>
-                {renderAdminPricePrimarySubitemCells(activeSubitem)}
+                {renderAdminPricePrimarySubitemCells(activeSubitem, {
+                  itemId: item.id,
+                  baseName: group.baseName,
+                  optionEntries,
+                  activeThickness,
+                  referenceSubitem,
+                })}
                 <button
                   className="danger-button admin-price-v2-danger-button"
                   disabled={adminSaving}
-                  onClick={() => deleteAdminSubitem(activeSubitem.id)}
+                  onClick={() => deleteAdminSubitem(referenceSubitem.id)}
                 >
                   <Trash2 size={18} strokeWidth={1.5} />
                 </button>
-                {renderAdminPriceExpandButton(activeSubitem)}
-                {renderAdminPriceExpandedRow(activeSubitem)}
+                {renderAdminPriceExpandButton(referenceSubitem)}
+                {renderAdminPriceExpandedRow(referenceSubitem)}
               </div>
             );
           })}
@@ -10147,14 +10251,9 @@ function AdminApp() {
               sort_order: subitem.sort_order ?? 0,
             };
             if (isCommonPriceSave) {
-              const laborRateEmpty = getLaborRateEmptyValue(subitem);
-              const laborRateOccupied = getLaborRateOccupiedValue(subitem);
               payload.cost_price = toNonNegativeNumberOrZero(subitem.cost_price);
               payload.cost_unit = normalizeUnitOptionValue(subitem.cost_unit);
-              payload.unit_price = toNonNegativeNumberOrZero(subitem.unit_price);
-              payload.labor_rate_empty = toNonNegativeNumberOrZero(laborRateEmpty);
-              payload.labor_rate_occupied = toNonNegativeNumberOrZero(laborRateOccupied);
-              payload.labor_rate = toNonNegativeNumberOrZero(laborRateEmpty);
+              Object.assign(payload, buildSubitemPricePayload(subitem));
               payload.spec_options = normalizeSpecOptions(subitem.spec_options);
             }
             return supabase
@@ -10178,23 +10277,47 @@ function AdminApp() {
               unit: normalizeUnitOptionValue(subitem.unit) || "평",
               cost_price: toNonNegativeNumberOrZero(subitem.cost_price),
               cost_unit: normalizeUnitOptionValue(subitem.cost_unit),
-              unit_price: toNonNegativeNumberOrZero(subitem.unit_price),
-              labor_rate_empty: toNonNegativeNumberOrZero(getLaborRateEmptyValue(subitem)),
-              labor_rate_occupied: toNonNegativeNumberOrZero(getLaborRateOccupiedValue(subitem)),
-              labor_rate: toNonNegativeNumberOrZero(getLaborRateEmptyValue(subitem)),
+              ...buildSubitemPricePayload(subitem),
               spec_options: normalizeSpecOptions(subitem.spec_options),
               sort_order: subitem.sort_order ?? 0,
             }))
           )
           .select("*");
         if (insertError) throw insertError;
+        const reconciledLocalSubitems = reconcileInsertedSubitems(
+          localSubitems,
+          insertedSubitems ?? []
+        );
         persistedSubitems = [
           ...existingSubitems,
-          ...localSubitems.map((subitem, index) => ({
-            ...subitem,
-            ...(insertedSubitems?.[index] ?? {}),
-          })),
+          ...reconciledLocalSubitems,
         ];
+        const persistedByLocalId = new Map(
+          localSubitems.map((subitem, index) => [
+            subitem.id,
+            reconciledLocalSubitems[index],
+          ])
+        );
+        setAdminItems((current) =>
+          current.map((item) => {
+            const nextSubitems = (item.subitems ?? []).map((subitem) => {
+              const persisted = persistedByLocalId.get(subitem.id);
+              if (!persisted || persisted.id === subitem.id) return subitem;
+              return {
+                ...subitem,
+                id: persisted.id,
+                created_at: persisted.created_at ?? subitem.created_at,
+                updated_at: persisted.updated_at ?? subitem.updated_at,
+              };
+            });
+            return {
+              ...item,
+              subitems: isFlooringThicknessItem(item)
+                ? reconcileFlooringVariantRows(nextSubitems)
+                : nextSubitems,
+            };
+          })
+        );
       }
 
       if (isCommonPriceSave) {
@@ -14114,9 +14237,11 @@ function AdminApp() {
                       const optionEntries = getFlooringOptionEntries(group);
                       const optionIds = optionEntries.map((option) => option.id);
                       const activeThickness = getAdminFlooringActiveThickness(item.id, group);
-                      const activeSubitem =
-                        group.options[activeThickness] ??
-                        optionEntries[0];
+                      const activeSubitem = resolveActiveFlooringVariant(
+                        optionEntries,
+                        group.baseName,
+                        activeThickness
+                      );
                       if (!activeSubitem) return null;
                       return (
                         <div
@@ -14211,7 +14336,7 @@ function AdminApp() {
                                   );
                                   return renderSpecOptionsControl(activeSubitem, specOptions, specValue, (event) => {
                                     const nextValue = event.target.value;
-                                    if (thicknessOptions.includes(nextValue)) {
+                                    if (isFlooringThicknessSelection(nextValue)) {
                                       updateLocalSubitemDraft(activeSubitem.id, { selected_spec_option: "" });
                                       selectAdminFlooringThickness(item.id, group.baseName, nextValue);
                                       return;
