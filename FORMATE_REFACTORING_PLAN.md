@@ -1,678 +1,662 @@
-# FORMATE 안전 리팩터링 계획
+# FORMATE 구조 리팩터링 실행 계획
 
-> 문서 목적: FORMATE의 대규모 리팩터링을 한 번에 진행하지 않고, 현재 기능과 데이터를 보호하면서 기능별 경계를 단계적으로 분리하기 위한 기준 문서  
-> 적용 대상: React + Vite + Supabase 기반 FORMATE  
-> 현재 기준 브랜치: `feature/post-deploy-ui-polish`
-
----
-
-## 1. 왜 이 작업이 필요한가
-
-현재 FORMATE의 `App.jsx`에는 다음 책임이 한 파일에 함께 들어 있다.
-
-- 로그인 및 회사 세션
-- 화면 전환과 AppShell
-- 단가표 조회·수정·자동 저장
-- 규격/두께 선택
-- 견적 작성과 계산
-- 견적 미리보기
-- 견적 저장
-- PDF 생성
-- 사진 관리
-- 세부 비용 관리
-- AI Excel 초기 설정
-- 많은 전역 CSS
-
-이 구조에서는 UI만 수정하려고 해도 같은 파일 안의 저장 대상, 계산 규칙, 자동 저장 로직이 함께 영향을 받을 수 있다.
-
-이번 바닥재 문제도 다음과 같은 결합 때문에 발생한 것으로 본다.
-
-```text
-규격 선택 UI
-→ 가격 변경 handler
-→ 실제 저장 대상 ID 결정
-→ Supabase 저장
-```
-
-화면과 저장 로직이 가까이 붙어 있으므로, UI를 정리하는 과정에서 저장 대상까지 잘못 바뀔 수 있다.
+> 목적: 현재 React + Vite + Supabase 구조와 사용자 동작을 유지하면서 `src/App.jsx`에 결합된 기능을 Feature 경계로 분리한다.
+> 작업 성격: 구조 리팩터링만 수행한다. UI 재설계·제품 기능 추가·DB 구조 변경은 포함하지 않는다.
+> 실행 브랜치: `refactor/feature-boundaries`
+> 현재 기준 커밋: `25038e5 fix(price-table): preserve prices by flooring variant`
+> 실행 방식: Goal mode에서 첫 번째 `PENDING` Phase부터 순서대로 수행한다.
 
 ---
 
-## 2. 리팩터링의 최종 목표
+## 1. 현재 완료 상태
 
-FORMATE를 마이크로서비스로 전환하지 않는다.
+| Phase | 작업 | 상태 | 기준 |
+|---|---|---:|---|
+| 0 | 안전 기준선·아키텍처 분석·Vitest 도입 | DONE | 분석 완료 |
+| 1 | 규격·두께별 단가·인건비 독립 저장 수정 | DONE | `25038e5` |
+| 2 | 단가표 Feature 분리 | PENDING |  |
+| 3 | 견적 Feature 분리 | PENDING |  |
+| 4 | 고객 운영 Feature 경계 정리 | PENDING |  |
+| 5 | App 소유 잔여 기능 분리 | PENDING |  |
+| 6 | AppShell 축소·아키텍처 경계 고정 | PENDING |  |
+| 7 | 최종 자동 검증·인수인계 보고 | PENDING |  |
 
-현재 React + Supabase 구조는 유지하면서, 다음 형태의 **모듈형 모놀리스**로 정리한다.
+현재 테스트 기준:
 
 ```text
-UI
-↓
-Controller / Feature State
-↓
-Domain Rules
-↓
-Feature API
-↓
-Supabase / RPC / DB
+npm run test
+- priceTable 회귀 테스트 38개 통과
+
+npm run build
+- 통과
+- 기존 대형 chunk 경고는 오류가 아님
 ```
 
-### 각 계층의 역할
+---
 
-#### UI
+## 2. 이번 실행에 포함하지 않는 후속 제품 작업
 
-- 버튼, 입력창, 드롭다운, 표, 레이아웃, CSS
-- 사용자 입력을 Controller에 전달
-- Supabase 테이블명과 저장 payload를 알지 않음
+다음은 구조 리팩터링 완료 후 별도 요청으로 구현한다.
 
-#### Controller
+1. 견적서 미리보기 스크롤 동작과 PDF 화면 개선
+2. 견적 저장과 상담·계약 상태 흐름 변경
+3. AI 초기 세팅 화면 폐지 및 단가표·기본견적 설정의 Excel 업로드/내보내기 통합
+4. 계약서 작성·미리보기·출력 기능 추가
+5. 준비된 새 UI 레퍼런스 적용
+6. AI 분석 시 `1식 공사`, 불명확 항목, 신뢰도 낮은 결과 처리 정책
 
-- 선택 상태
-- 편집 draft
-- dirty 상태
-- 자동 저장
-- loading/error
-- 화면 작업 순서
+견적 Feature를 분리하면서 `EstimatePreviewPage`, `EstimateDocument`, PDF 모듈을 만들 수는 있다. 그러나 화면 동작, 스크롤 방식, 디자인, PDF 결과는 바꾸지 않는다.
 
-#### Domain
+---
+
+## 3. 목표 계층
+
+```text
+UI/Page
+↓
+Controller/Hook
+├─ Domain/Model 순수 함수
+└─ Feature API
+   ↓
+Supabase client / 기존 RPC
+```
+
+원칙:
+
+- UI/Page는 Supabase 테이블명과 payload 세부사항을 모른다.
+- Controller는 화면 state와 작업 순서를 소유한다.
+- Domain/Model은 React·DOM·Supabase에 의존하지 않는다.
+- Feature API만 Supabase 접근을 소유한다.
+- 기존 RPC·DB 계약은 변경하지 않는다.
+- 실제 코드가 단순하면 불필요한 파일을 억지로 만들지 않는다.
+
+---
+
+## 4. 공통 실행 규칙
+
+### 4.1 Phase 실행 순서
+
+각 Phase에서 다음을 수행한다.
+
+1. branch, HEAD, working tree 확인
+2. 기준 `npm run test`, `npm run build`
+3. 기존 동작을 보호할 characterization test 보강
+4. 작은 내부 순서로 코드 이동
+5. 각 내부 이동 후 test/build
+6. Phase 완료 조건 검사
+7. `git diff --check`, 변경 범위 검토
+8. Phase 전용 커밋
+9. 이 문서의 Phase 상태를 `DONE`으로 갱신
+10. 다음 `PENDING` Phase로 자동 진행
+
+별도 전체 분석 보고서를 먼저 작성하거나 사용자 승인을 기다리지 않는다.
+
+### 4.2 Git
+
+허용:
+
+- Phase 전용 `git add`, `git commit`
+- 한 Phase 안에서 테스트 보호 커밋과 구조 이동 커밋을 분리
+- 한 Phase당 최대 2개 커밋
+
+금지:
+
+- `git push`
+- `git reset --hard`
+- `git checkout -- .`
+- 여러 Phase를 하나의 커밋으로 합치기
+- 무관한 파일 포함
+- `npm audit fix`
+
+Phase 시작 전 예상하지 못한 변경이 있으면 중단한다.
+
+### 4.3 공통 검증
+
+각 Phase마다 실행:
+
+```bash
+npm run test
+npm run build
+git diff --check
+git status --short --branch
+git diff --stat
+```
+
+필요 시 추가:
+
+```bash
+rg "supabase\.from|supabase\.rpc|supabase\.storage" src
+rg "items_data|condition_snapshot" src
+rg "supabaseClient" src/features
+```
+
+### 4.4 실패 처리
+
+- test/build 실패 상태에서 다음 Phase로 넘어가지 않는다.
+- 기존 assertion을 삭제·완화하거나 expected 값을 현재 오류에 맞추지 않는다.
+- 현재 Phase 안에서 최대 3회의 집중 보완을 수행한다.
+- 그 후에도 기존 계약을 유지할 수 없으면 중단하여 보고한다.
+- 실패한 Phase를 부분 완료 처리하거나 억지로 커밋하지 않는다.
+
+---
+
+## 5. 공통 변경 금지
+
+Goal 전체에서 다음을 변경하지 않는다.
+
+- DB schema, SQL, migration, 운영 Supabase 데이터
+- RLS와 `company_members` 기반 회사 격리
+- `items_data`, `condition_snapshot`
+- 견적 계산 공식과 반올림 규칙
+- PDF 내용·파일명·페이지 분할 방식
+- 고객 포털 공유 RPC와 반환 계약
+- lifecycle RPC signature와 실제 상태 문자열
+- soft delete·복원 정책
+- 1.2초 단가표 autosave debounce
+- 현재 className·CSS·레이아웃·문구
+- 새 UI·상태관리 라이브러리
+- 제품 기능 추가
+- 라우터 도입
+- 동적 import·code splitting
+- AI 초기 세팅 기능 동작
+
+---
+
+## 6. 공통 즉시 중단 조건
+
+1. SQL 또는 migration이 필요함
+2. 운영 DB 데이터를 바꿔야 검증 가능함
+3. 저장 형식·계산·PDF·상태·RPC 변경이 필요함
+4. 기존 견적을 동일 결과로 복원할 수 없음
+5. 제품 정책·UX 결정이 필요함
+6. 테스트를 약화해야만 통과 가능함
+7. 다른 Feature의 실제 동작 변경이 필요함
+8. 예상하지 못한 사용자 변경이나 다른 작업 diff 발견
+9. 순환 의존을 없애기 위해 전역 state·하드코딩이 필요함
+10. 현재 Phase 범위를 넘어 DB·UI·기능을 함께 고쳐야 함
+
+---
+
+# Phase 2 — 단가표 Feature 분리
+
+## 목적
+
+`App.jsx`의 단가표 UI·state·규격 규칙·autosave·Supabase 접근을 `features/priceTable`로 이동한다.
+
+## 작업 범위
+
+### 2.1 Model
+
+현재 `priceTableModel.js` 회귀 계약을 유지한다.
 
 - 규격 정규화
-- 실제 저장 대상 식별
-- 단가 및 인건비 계산
-- 견적 계산
-- snapshot 생성·복원
-- 상태 전환 규칙
+- 바닥재 base name·두께 해석
+- active variant
+- 빈 선택 상태
+- local/persisted row reconcile
+- DB row → 편집 model
+- 편집 model → save operation
+- insert/update payload
+- 저장 후 ID reconcile
 
-React, DOM, Supabase에 의존하지 않는 순수 함수로 만든다.
+React·DOM·Supabase import 금지.
 
-#### Feature API
+### 2.2 API
 
-- Supabase 조회·저장
-- RPC 호출
-- DB payload 변환
-- DB 오류를 Feature용 오류로 변환
+`priceTableApi.js`로 이동:
 
-#### Supabase / RPC / DB
+- `construction_items`
+- `construction_subitems`
+- `subitem_pyeong_values`
+- `admin_condition_templates`
+- `admin_condition_template_values`
+- `condition_variant_labels`
+- 단가표 조회·update·insert·upsert·재조회
 
-- 실제 데이터 저장
-- RLS
-- unique constraint
-- 중요한 상태 전환 검증
-- 여러 테이블을 동시에 변경하는 작업의 원자성 보장
+기존 select/filter/order/conflict key와 payload를 보존한다. API는 React state setter와 JSX를 모른다.
+
+### 2.3 Controller
+
+`usePriceTableController.js`로 이동:
+
+- `adminItems`, ref
+- 검색·즐겨찾기·선택·접힘·펼침·drag
+- active 규격
+- dirty marker
+- autosave status/error/savedAt/target
+- 1.2초 debounce
+- 저장 중 중복 방지와 queued autosave
+- 수동 저장
+- 조회·저장·재조회 orchestration
+
+회사 ID와 navigation은 props/callback으로 받는다.
+
+### 2.4 Page·Components
+
+실제 V2 경로를 이동한다.
+
+```text
+renderAdminPricesWorkbench
+→ renderAdminPriceRows
+→ renderAdminPricePrimarySubitemCells
+```
+
+목표:
+
+```jsx
+<PriceTablePage companyId={companyId} ... />
+```
+
+현재 UI, className, CSS 문자열, 관리자 gate를 유지한다. 이번 Phase에서 CSS를 이동하지 않는다.
+
+## 테스트
+
+- 기존 priceTable 38개 유지
+- update 대상 ID와 payload
+- local row insert 분류
+- insert 응답 reconcile
+- 선택 상태 save operation 없음
+- dirty 후 autosave 예약
+- 저장 중 변경 시 queued autosave
+- 저장 성공 후 최신 local 입력 유지
+
+React Testing Library/jsdom이 필요하면 설치하지 말고 중단 보고한다.
+
+## 완료 조건
+
+- 단가표 UI에 Supabase import 없음
+- UI가 테이블명·conflict key를 모름
+- 규격·payload는 model/API에 있음
+- autosave timer가 `App.jsx`에 없음
+- 실제 V2 행 렌더 세부 구현이 `App.jsx`에 없음
+- 기존 className·CSS 변경 없음
+- test/build 통과
+
+## Phase 전용 금지
+
+- 견적 catalog·계산 변경
+- 일반 `spec_options` 데이터 모델 변경
+- 단가표 UI 디자인 변경
+- AI Excel 적용 방식 변경
+
+## 커밋
+
+```text
+refactor(price-table): extract price table feature
+```
+
+필요 시:
+
+```text
+test(price-table): protect controller contracts
+refactor(price-table): extract price table feature
+```
 
 ---
 
-## 3. 절대 지켜야 할 원칙
+# Phase 3 — 견적 Feature 분리
 
-### 3.1 UI 작업과 데이터 작업을 섞지 않는다
+## 목적
 
-UI 전용 작업에서 수정 가능:
+견적 작성·계산·snapshot·조회/저장·미리보기·PDF·저장 견적 책임을 `features/estimates`로 이동한다.
 
-```text
-feature UI component
-feature CSS
-shared UI component
-design token
-```
-
-사용자 승인 없이 수정 금지:
-
-```text
-Supabase query
-api/repository
-domain 규칙
-SQL
-migration
-RPC
-저장 payload
-DB 식별 키
-상태 문자열
-```
-
-UI 구현 중 데이터 로직 수정이 필요해 보이면 작업자가 임의로 변경하지 않고 먼저 보고한다.
-
-### 3.2 하드코딩을 추가하지 않는다
-
-다음과 같은 임시 보완을 금지한다.
-
-```text
-1.8T, 2.2T, 3.0T만 별도 조건문으로 처리
-특정 DB ID 직접 입력
-특정 회사 ID 직접 입력
-화면 문자열을 영속 저장 ID처럼 사용
-```
-
-규격이나 조건은 데이터와 공통 helper를 기준으로 처리한다.
-
-### 3.3 App.jsx 전체를 한 번에 분해하지 않는다
-
-한 번에 대량 이동하면 다음 위험이 있다.
-
-- 기존 계산식 변경
-- 저장 snapshot 변경
-- 고객 포털 호환성 손상
-- PDF 누락
-- 자동 저장 회귀
-- 기존 견적 복원 실패
-- CSS 전역 영향
-
-기능 하나씩 테스트를 추가하고 이동한다.
-
-### 3.4 운영 DB를 임의로 변경하지 않는다
-
-- migration 파일 작성과 실제 운영 DB 실행을 분리한다.
-- SQL 실행 전 사용자에게 영향과 실행 순서를 보고한다.
-- 기존 데이터 삭제·초기화 금지
-- 과거 값을 임의 추정하여 채우지 않음
-
-### 3.5 기존 인터페이스를 먼저 고정한다
-
-리팩터링 중에는 다음을 임의로 변경하지 않는다.
-
-- `items_data`
-- `condition_snapshot`
-- 견적 계산 공식
-- 고객 포털 공유 RPC
-- 기존 lifecycle RPC signature
-- 실제 status 문자열
-- RLS와 company membership 검증
-- PDF 파일 내용과 페이지 분할 기준
-
----
-
-## 4. 목표 폴더 구조
-
-```text
-src/
-├─ app/
-│  ├─ App.jsx
-│  ├─ navigation.js
-│  ├─ useAppSession.js
-│  └─ authApi.js
-│
-├─ features/
-│  ├─ priceTable/
-│  │  ├─ PriceTablePage.jsx
-│  │  ├─ usePriceTableController.js
-│  │  ├─ priceTableApi.js
-│  │  ├─ priceTableModel.js
-│  │  ├─ specifications.js
-│  │  ├─ components/
-│  │  └─ tests/
-│  │
-│  ├─ estimates/
-│  │  ├─ EstimateEditorPage.jsx
-│  │  ├─ EstimatePreviewPage.jsx
-│  │  ├─ SavedEstimatesPage.jsx
-│  │  ├─ useEstimateDraft.js
-│  │  ├─ estimateApi.js
-│  │  ├─ calculation.js
-│  │  ├─ snapshot.js
-│  │  ├─ EstimateDocument.jsx
-│  │  ├─ exportEstimatePdf.js
-│  │  └─ tests/
-│  │
-│  ├─ customerOperations/
-│  ├─ customerRequests/
-│  ├─ afterService/
-│  └─ customerPortal/
-│
-├─ components/
-│  ├─ ui/
-│  └─ layout/
-│
-├─ shared/
-│  ├─ constants/
-│  ├─ utils/
-│  └─ lib/
-│
-└─ styles/
-```
-
-모든 Feature에 똑같은 파일을 기계적으로 만들지는 않는다. 복잡한 기능에만 Controller, Domain, API 계층을 모두 둔다.
-
----
-
-## 5. App.jsx의 최종 역할
-
-최종적으로 `App.jsx`에는 다음만 남긴다.
-
-- 로그인 및 회사 세션 연결
-- 고객 포털 route 분기
-- 관리자 gate
-- 현재 page
-- AppShell
-- 각 Feature Page mount
-- 최상위 오류 처리
-
-다음 책임은 기능별 폴더로 이동한다.
-
-- 단가표 조회·저장·자동 저장
-- 규격 식별
-- 견적 계산
-- 견적 snapshot
-- 견적 저장
-- 미리보기
-- PDF 생성
-- 사진 Storage 처리
-- 세부 비용 CRUD
-- 고객·현장 상태 전환
-
----
-
-## 6. 실행 순서
-
-### 0단계 — 안전 기준선 만들기
-
-#### 목적
-
-리팩터링 전 현재 상태를 되돌릴 수 있도록 고정한다.
-
-#### 작업
-
-1. 현재 브랜치와 working tree 확인
-2. 현재 기준 커밋 기록
-3. 별도 리팩터링 브랜치 생성
-4. Supabase 운영 DB 변경 금지 확인
-5. 주요 화면 수동 점검 목록 작성
-6. 테스트 도구 도입 범위를 결정
-7. 현재 저장 payload와 snapshot fixture 수집
-
-권장 브랜치:
-
-```text
-refactor/feature-boundaries
-```
-
-주의: 현재 버그가 있는 동작을 그대로 “정상 동작” 테스트로 고정하면 안 된다.
-
----
-
-### 1단계 — 바닥재 규격별 저장 버그 수정
-
-#### 목적
-
-다른 리팩터링보다 먼저 데이터 손상 가능성을 제거한다.
-
-#### 이번 단계의 범위
-
-- 선택된 바닥재 두께가 실제 어떤 `construction_subitems.id`를 가리키는지 고정
-- 단가, 빈집 인건비, 살림집 인건비가 해당 ID만 수정하도록 변경
-- 저장 payload 테스트
-- 저장 후 재조회 테스트
-- 신규 SQL 구조 도입 여부는 과거 구현과 실제 DB 데이터를 확인한 뒤 결정
-
-#### 반드시 확인할 사례
-
-```text
-1.8T
-- 단가 12,000
-- 빈집 인건비 11,000
-- 살림집 인건비 13,000
-
-2.2T
-- 단가 10,000
-- 빈집 인건비 9,000
-- 살림집 인건비 12,000
-
-3.0T
-- 단가 20,000
-- 빈집 인건비 18,000
-- 살림집 인건비 22,000
-```
-
-검증:
-
-- 3.0T를 수정해도 1.8T와 2.2T 유지
-- 새로고침 후 값 유지
-- 다른 바닥재 항목에도 동일 원칙 적용
-- 규격 없는 일반 소재 저장 유지
-
-#### 이번 단계에서 변경 금지
-
-- 견적 계산식
-- `items_data`
-- `condition_snapshot`
-- 고객·현장 lifecycle
-- PDF 형식
-- App.jsx 전체 구조
-
----
-
-### 2단계 — 단가표 Feature 분리
-
-#### 추출 순서
-
-1. 규격 관련 순수 함수
-2. 저장 payload builder
-3. 단가표 API
-4. 자동 저장 Controller
-5. 단가표 Page와 Components
-
-#### 최소 추출 대상
-
-```text
-normalizeSpecOptions
-parseFlooringThickness
-composeFlooringSubitemName
-resolveFlooringVariant
-buildSubitemPricePayload
-```
-
-#### 목표
-
-```text
-PriceTablePage
-→ usePriceTableController
-→ specifications / priceTableModel
-→ priceTableApi
-→ Supabase
-```
-
-#### 완료 기준
-
-- UI 파일에 Supabase import 없음
-- UI 파일에 DB 테이블명 없음
-- 화면 모양을 변경해도 저장 payload 테스트 통과
-- 자동 저장 상태 유지
-- 검색, 정렬, 펼침, drag 등 기존 기능 유지
-
----
-
-### 3단계 — 견적서 미리보기 스크롤 수정
-
-#### 목표 구조
-
-```text
-EstimatePreviewPage
-└─ Preview Scroll Host
-   └─ EstimateDocument
-```
-
-#### 역할
-
-`Preview Scroll Host`
-
-- 화면 스크롤
-- 화면 여백
-- action button 영역
-
-`EstimateDocument`
-
-- 실제 견적서 내용
-- 읽기 전용
-- PDF 캡처 대상
-
-#### 검증
-
-- 일반 견적서
-- 세부 견적서
-- 긴 견적
-- 화면 배율 100%, 125%, 150%
-- 좁은 노트북 화면
-- PDF 전체 항목 포함
-- 이전 화면 복귀
-
-#### 변경 금지
-
-미리보기 스크롤 수정과 PDF 디자인 개편을 동시에 하지 않는다.
-
----
-
-### 4단계 — 견적 Feature 분리
-
-다음 순서로 하나씩 진행한다.
-
-1. `calculation.js`
-2. `snapshot.js`
-3. `estimateApi.js`
-4. `useEstimateDraft.js`
-5. `EstimateEditorPage.jsx`
-6. `EstimatePreviewPage.jsx`
-7. `EstimateDocument.jsx`
-8. `exportEstimatePdf.js`
-9. `SavedEstimatesPage.jsx`
-
-#### 계산 영역
+## 3.1 Characterization test
 
 - 수량 × 단가
 - 인원 × 인건비
+- 빈집/살림집 인건비
 - 추가금·할인
-- 항목 합계
-- 최종 합계
+- 항목 합계·최종 합계
+- object/legacy array `items_data`
+- `condition_snapshot`
+- 저장 → 복원 round-trip
+- 기존 저장 견적 복원 시 동일 합계
+- estimate payload 필드
+- 미리보기 이동은 저장하지 않음
+- 명시적 저장만 insert/update
+- PDF 파일명 규칙
 
-#### Snapshot 영역
+운영 고객 데이터 대신 synthetic fixture를 사용한다.
 
-- draft → `items_data`
-- condition → `condition_snapshot`
-- 저장 데이터 → draft 복원
-- 기존 배열/객체 형식 호환
+## 3.2 Domain
 
-#### 완료 기준
+- `calculation.js`
+- `snapshot.js`
 
-- 저장 전후 합계 동일
-- 기존 저장 견적 복원 가능
-- 고객 포털 표시 동일
-- 미리보기 이동만으로 DB 저장되지 않음
-- 명시적 저장 시에만 estimate 저장
+React·DOM·Supabase import 금지.
 
----
+## 3.3 API
 
-### 5단계 — 고객 운영 기능 세분화
+`estimateApi.js`로 이동:
 
-현재 `customerOperations/api.js`에 섞인 기능을 점진적으로 나눈다.
+- estimate 목록·draft 저장·조회·복원·복사
+- 기존 trash/restore API와 명확한 공개 경계
+- template read model은 priceTable 공개 경계만 사용
 
-```text
-customerRequestsApi.js
-projectsApi.js
-homeApi.js
-afterServiceApi.js
-estimateShareApi.js
-```
+payload·DB 컬럼 변경 금지.
 
-#### RPC 유지 대상
+## 3.4 Controller
 
-- 고객 포털 링크 생성
-- request/project lifecycle
-- trash/restore
-- 여러 테이블을 함께 변경하는 중요한 작업
+`useEstimateDraft.js`가 소유:
 
-업무 상태의 의미 변경과 파일 분리를 같은 작업으로 진행하지 않는다.
+- 조건
+- 편집 항목
+- 고객·현장 입력
+- 조정금액·메모
+- source/template/saved estimate
+- loading/saving/error
+- 계산 selector
+- 저장·복원 orchestration
 
----
+## 3.5 Page·Document·PDF
 
-### 6단계 — 공통 UI Kit 정리
+- `EstimateEditorPage.jsx`
+- `EstimatePreviewPage.jsx`
+- `SavedEstimatesPage.jsx`
+- `EstimateDocument.jsx`
+- `exportEstimatePdf.js`
 
-기능 경계가 안정된 뒤 진행한다.
+현재 렌더 결과와 CSS를 유지한다. 스크롤 개선·PDF 디자인·계약서 기능은 하지 않는다.
 
-#### 공통화 대상
+## 완료 조건
 
-- Button
-- TextInput
-- NumberInput
-- Select
-- Tabs
-- Modal
-- Table
-- PageHeader
-- SearchField
-- StatusBadge
-- EmptyState
-- LoadingState
-- ErrorState
+- 계산·snapshot이 `App.jsx`에 없음
+- estimate CRUD Supabase 접근이 `App.jsx`에 없음
+- editor/preview/saved estimate 상세 JSX가 Feature에 있음
+- 저장 형식·합계·PDF 결과 유지
+- 기존/legacy snapshot fixture 복원
+- customer portal 표시 유지
+- test/build 통과
 
-#### 성급하게 공통화하지 않을 것
+## 추가 중단 조건
 
-- 받은 요청 전체 workspace
-- 고객·현장 inspector 전체
-- 견적서 항목 표 전체
+- snapshot 형식이 코드 위치별로 충돌해 하나를 선택해야 함
+- 기존 저장 견적을 같은 값으로 복원할 수 없음
+- PDF 결과에 유의미한 차이가 발생함
 
-업무 의미가 강한 화면은 각 Feature가 소유한다.
-
----
-
-### 7단계 — 본격적인 UI 개편 재개
-
-이 단계부터 Figma 시안을 적극 반영한다.
-
-UI 변경 diff에 다음이 포함되면 중단하고 별도 데이터 작업으로 분리한다.
+## 커밋
 
 ```text
-supabase.from
-supabase.rpc
-insert
-update
-upsert
-construction_subitems
-estimates
-projects
-items_data
-condition_snapshot
+test(estimates): protect estimate contracts
+refactor(estimates): extract estimate feature
 ```
 
 ---
 
-## 7. 테스트 도입 순서
+# Phase 4 — 고객 운영 Feature 경계 정리
 
-현재 테스트 설정이 없으므로 한 번에 모든 테스트를 만들지 않는다.
+## 목적
 
-### 1순위
+`customerOperations/api.js`와 페이지에 섞인 요청·현장·홈·사후관리·공유 책임을 분리한다.
 
-- 규격 선택 → 실제 subitem ID
-- 규격별 저장 payload
-- 규격 간 덮어쓰기 방지
+## 작업 순서
 
-### 2순위
+1. request status·filter·visibility 순수 규칙
+2. `customerRequestsApi.js`
+3. `projectsApi.js`
+4. `homeApi.js`
+5. `afterServiceApi.js`
+6. `estimateShareApi.js`
+7. 필요 시 페이지를 `customerRequests`, `afterService` Feature로 이동
+8. public import 정리
 
-- 규격 정규화
-- 바닥재 이름 parse/compose
-- variant grouping
+기존 `customerPortal` 구조는 보존한다.
 
-### 3순위
+## 보호 테스트
 
-- 견적 계산
-- 추가금·할인
-- 최종 합계
+- request 상태 논리 매핑
+- 상태 변경 후 local list/selection
+- project active/deleted visibility
+- estimate/project soft delete visibility
+- 현장 복원 후 하위 row 원상 유지
+- 개별 휴지통 견적 유지
+- 정상/차단 고객 포털 판정
+- 공유 API의 기존 RPC 인자
+- company scope 전달
 
-### 4순위
+## 완료 조건
 
-- draft → snapshot → draft
-- legacy snapshot 호환
+- 하나의 API 파일이 모든 운영 영역을 소유하지 않음
+- 페이지가 Supabase를 직접 import하지 않음
+- lifecycle RPC와 상태 문자열 유지
+- customer portal 동작 유지
+- test/build 통과
 
-### 5순위
+## Phase 전용 금지
 
-- preview scroll
-- PDF 전체 항목
+- 상담·계약 상태 흐름 구현
+- 새 A/S 생성 UX
+- 상태 문자열·RPC·SQL 변경
+- 고객·현장 UI 재설계
 
-### 6순위
-
-- 고객·현장 lifecycle
-- 고객 포털 RPC contract
-
----
-
-## 8. 작업 단위 규칙
-
-각 단계는 가능한 한 작은 커밋으로 나눈다.
-
-```text
-test(price-table): add flooring variant identity fixtures
-fix(price-table): preserve price by flooring subitem id
-refactor(price-table): extract specification helpers
-refactor(price-table): extract save payload builder
-refactor(price-table): extract API
-refactor(price-table): extract autosave controller
-refactor(price-table): extract page components
-```
-
-한 커밋에 다음을 섞지 않는다.
-
-- UI 변경 + DB 변경
-- 리팩터링 + 기능 추가
-- 버그 수정 + 상태 의미 변경
-- CSS 전면 이동 + 화면 구조 변경
-- migration + 기존 데이터 자동 변환
-
----
-
-## 9. 각 단계 완료 보고 형식
-
-Codex는 작업 후 다음을 반드시 보고한다.
-
-1. 변경 이유
-2. 변경 파일 목록
-3. 실제 코드 흐름 변화
-4. DB 및 데이터 영향
-5. 테스트 명령과 결과
-6. build 결과
-7. 수동 검증 항목과 결과
-8. 남은 위험
-9. 되돌리는 방법
-10. SQL 실행 여부
-11. git commit 여부
-
-운영 DB SQL 실행과 자동 커밋은 사용자 지시 없이는 수행하지 않는다.
-
----
-
-## 10. 지금 바로 할 일
-
-### 첫 번째
-
-이 문서를 저장소 루트에 추가한다.
-
-권장 파일명:
+## 커밋
 
 ```text
-FORMATE_REFACTORING_PLAN.md
+test(customer-operations): protect lifecycle contracts
+refactor(customer-operations): split feature API boundaries
 ```
-
-### 두 번째
-
-Codex에게 0단계만 수행시킨다.
-
-- 코드 수정 금지
-- 테스트 도구 후보와 영향 분석
-- 현재 기준 동작 fixture 계획
-- 리팩터링 브랜치 전략
-- 첫 번째 규격 저장 테스트 범위 확정
-
-### 세 번째
-
-0단계 결과를 검토한 후 1단계인 바닥재 규격별 저장 버그 수정에 들어간다.
-
-전체 리팩터링을 바로 시작하지 않는다.
 
 ---
 
-## 11. 최종 완료 상태
+# Phase 5 — App 소유 잔여 기능 분리
+
+## 5A. 인증·세션
+
+목표:
 
 ```text
-App
-= 세션·네비게이션·AppShell
-
-Feature Page
-= 화면 구성
-
-Controller
-= 화면 상태·자동 저장·작업 순서
-
-Domain
-= 규격·계산·snapshot·상태 규칙
-
-Feature API
-= Supabase 조회·저장
-
-RPC
-= 중요한 상태 전환·다중 테이블 작업
-
-DB
-= RLS·unique constraint·최종 데이터 보호
-
-Shared UI
-= 반복되는 시각 요소와 token
-
-Tests
-= UI 변경이 데이터 로직을 깨뜨리는지 감시
+src/app/
+├─ useAppSession.js
+└─ authApi.js
 ```
 
-이 문서의 목적은 폴더를 예쁘게 나누는 것이 아니라, **향후 UI를 계속 수정하더라도 단가·견적·고객 데이터가 함께 깨지지 않도록 변경 경계를 만드는 것**이다.
+이동:
+
+- Supabase Auth 로그인·세션 복원
+- company membership 조회
+- 회사 전환
+- 관리자 재인증 API
+
+보존:
+
+- 업체 코드 → 내부 이메일
+- company 결정
+- local/sessionStorage key
+- sign out/회사 변경
+- 관리자 재인증 session 범위
+
+커밋:
+
+```text
+refactor(app): extract session and auth boundary
+```
+
+## 5B. 사진 관리
+
+`features/photoManagement/`로 metadata·Storage·upload/delete/reorder·Page/state를 이동한다.
+
+bucket·path·metadata·UI 유지.
+
+```text
+refactor(photo-management): extract photo feature
+```
+
+## 5C. 세부 비용
+
+`features/detailCosts/`로 `detail_cost_categories` CRUD·state·Page·API를 이동한다.
+
+견적 계산·마진에 새로 연결하지 않는다.
+
+```text
+refactor(detail-costs): extract detail cost feature
+```
+
+## 5D. AI 초기 세팅
+
+`features/aiSetup/`으로 현재 Excel 분석·mapping·catalog/template 반영을 구조만 이동한다.
+
+금지:
+
+- 별도 화면 폐지
+- 새 Excel 업로드/내보내기 UX
+- AI 모델·prompt·저장 정책 변경
+- `1식 공사` 처리 설계
+
+```text
+refactor(ai-setup): extract AI setup feature
+```
+
+## 완료 조건
+
+- 인증 외 독립 기능의 Supabase/Storage 작업이 `App.jsx`에 없음
+- 각 Feature의 기존 UI·동작 유지
+- test/build 통과
+
+---
+
+# Phase 6 — AppShell 축소·아키텍처 경계 고정
+
+## 목적
+
+`App.jsx`를 앱 조립과 최상위 흐름만 담당하도록 축소하고 자동 경계를 추가한다.
+
+## App에 남길 책임
+
+- 고객 포털 route 분기
+- session 연결
+- page/hash 호환
+- 관리자 gate orchestration
+- AppShell props
+- Feature Page mount
+- 최상위 오류·modal mount
+
+## App에서 제거할 책임
+
+- Feature Supabase query
+- Feature 저장 payload
+- 계산 규칙
+- autosave timer
+- Feature 상세 JSX
+- Storage CRUD
+- PDF 세부 구현
+- lifecycle 상태 해석
+
+## 아키텍처 테스트
+
+새 라이브러리 설치 없이 Vitest/Node로 정적 검사:
+
+- `domain`, `model`은 React/Supabase/DOM import 금지
+- Feature Page/component는 `supabaseClient` 직접 import 금지
+- `shared/ui`는 Feature import 금지
+- `App.jsx`는 Feature DB 세부 함수를 직접 호출하지 않음
+- 명시적 허용 목록 외 순환 import 없음
+
+ESLint 전체 도입은 하지 않는다.
+
+## 완료 조건
+
+- App이 허용 책임 중심으로 축소됨
+- Feature UI에서 직접 Supabase 접근 없음
+- model/domain 순수성 검사 통과
+- 순환 import 검사 통과
+- test/build 통과
+- CSS 디자인 변경 없음
+
+## 커밋
+
+```text
+test(architecture): enforce feature boundaries
+refactor(app): reduce app to composition shell
+```
+
+---
+
+# Phase 7 — 최종 자동 검증·인수인계
+
+## 자동 검증
+
+```bash
+npm run test
+npm run build
+git diff --check
+git status --short --branch
+git log --oneline --decorate -n 20
+rg "supabase\.from|supabase\.rpc|supabase\.storage" src
+```
+
+## 확인 내용
+
+- Supabase 접근 위치
+- `App.jsx` 전후 줄 수와 남은 책임
+- Feature 공개 인터페이스
+- Phase별 커밋
+- working tree clean
+- 계획 상태 모두 갱신
+- 사용자 수동 체크리스트 작성
+
+## 사용자 수동 검증 체크리스트
+
+- 로그인·세션 복원·회사 변경·관리자 재인증
+- 단가표 조회·규격 전환·독립 저장·새로고침
+- 일반 소재·신규 규격·autosave
+- 견적 조건·편집·계산·저장·복원·복사
+- 일반/세부 미리보기와 PDF
+- 저장 견적 휴지통·복원
+- 받은 요청 상태 전환
+- 고객·현장 조회·완료·취소·복원
+- 사후관리·A/S 조회
+- 고객 포털 정상/차단 링크
+- 사진 관리
+- 세부 비용
+- AI 초기 세팅 기존 화면
+
+## 최종 완료 조건
+
+- Phase 2~6 `DONE`
+- 자동 검증 통과
+- DB·SQL 변경 없음
+- push 없음
+- working tree clean
+- 후속 제품 작업 미구현
+- 수동 체크리스트와 위험 보고 완료
+
+## 최종 보고
+
+```text
+A. 완료한 Phase
+B. Phase별 커밋
+C. 생성·이동·삭제 파일
+D. App.jsx 전후 줄 수
+E. App.jsx에 남은 책임
+F. Feature별 공개 인터페이스
+G. 테스트 수와 결과
+H. build 결과
+I. DB·SQL·운영 데이터 영향
+J. 중단·보류 항목
+K. 남은 위험
+L. 사용자 수동 검증 체크리스트
+M. git status와 push 여부
+```
+
+---
+
+## 7. Goal 시작 명령
+
+```text
+기존 AGENTS.md와 FORMATE_REFACTORING_PLAN.md를 끝까지 읽어라.
+
+FORMATE_REFACTORING_PLAN.md를 이번 Goal의 유일한 실행 계획으로 사용한다.
+현재 branch가 refactor/feature-boundaries이고 working tree가 clean인지 확인한 뒤,
+첫 번째 PENDING Phase부터 순서대로 실행한다.
+
+각 Phase는 문서의 테스트·build·완료 조건을 모두 통과해야 DONE으로 갱신하고
+Phase 전용 커밋을 남긴 뒤 다음 Phase로 진행한다.
+
+검증 실패 시 현재 Phase 안에서 최대 3회의 집중 보완을 수행한다.
+공통 또는 Phase별 중단 조건이 발생하면 임의로 우회하지 말고 중단하여 보고한다.
+
+전체 아키텍처를 다시 분석하거나 새 구조를 제안하지 않는다.
+UI·제품 기능·DB 계약을 변경하지 않고 승인된 구조 분리만 수행한다.
+commit은 허용하지만 push는 하지 않는다.
+목표를 달성하거나 중단 조건을 만날 때까지 계속 진행한다.
+```
