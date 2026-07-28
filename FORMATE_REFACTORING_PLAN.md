@@ -15,7 +15,7 @@
 | 0 | 안전 기준선·아키텍처 분석·Vitest 도입 | DONE | 분석 완료 |
 | 1 | 규격·두께별 단가·인건비 독립 저장 수정 | DONE | `25038e5` |
 | 2 | 단가표 Feature 분리 | DONE | 44 tests + build |
-| 3 | 견적 Feature 분리 | PENDING |  |
+| 3 | 견적 Feature 분리 | DONE | 51 tests + build, PDF 시각 검증 대기 |
 | 4 | 고객 운영 Feature 경계 정리 | PENDING |  |
 | 5 | App 소유 잔여 기능 분리 | PENDING |  |
 | 6 | AppShell 축소·아키텍처 경계 고정 | PENDING |  |

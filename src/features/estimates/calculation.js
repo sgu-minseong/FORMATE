@@ -27,10 +27,6 @@ export function calculateEstimateRow(row) {
 
   return {
     ...row,
-    quantity,
-    laborCount,
-    unitPrice,
-    laborRate,
     productAmount,
     laborAmount,
     totalAmount: productAmount + laborAmount,
@@ -77,6 +73,95 @@ export function calculateEstimateTotals(rows, adjustments = []) {
     adjustmentTotal,
     finalTotal: Math.max(0, selectedItemsTotal + adjustmentTotal),
   };
+}
+
+export function buildEstimateSummary(rows, adjustments = []) {
+  const totals = calculateEstimateTotals(rows, adjustments);
+  const constructionDaysTotal = (rows ?? []).reduce(
+    (sum, row) => sum + toConstructionDays(row?.construction_days),
+    0
+  );
+  const constructionDayParts = Object.entries(
+    (rows ?? []).reduce((groups, row) => {
+      const days = toConstructionDays(row?.construction_days);
+      if (!days) return groups;
+      const categoryName = row?.categoryName || "시공 항목";
+      groups[categoryName] = (groups[categoryName] ?? 0) + days;
+      return groups;
+    }, {})
+  ).map(([categoryName, days]) => `${categoryName} ${days}일`);
+  const rowsByCategory = (rows ?? []).reduce((groups, row) => {
+    const key = row?.categoryName || "시공 항목";
+    groups[key] = groups[key] ?? [];
+    groups[key].push(row);
+    return groups;
+  }, {});
+  return {
+    ...totals,
+    constructionDaysTotal,
+    constructionDayParts,
+    rowsByCategory,
+    customerVisibleAdjustments: (adjustments ?? []).filter(
+      (adjustment) => adjustment.visibleToCustomer
+    ),
+  };
+}
+
+export function buildSelectedEstimateRows({
+  items,
+  estimateCatalog,
+  fallbackCategories,
+  conditionPyeong,
+  estimatePyeong,
+  getSpecLabel = () => "",
+}) {
+  return Object.entries(items ?? {}).flatMap(([categoryId, rows]) => {
+    const catalogItem = (estimateCatalog ?? []).find((entry) => entry.id === categoryId);
+    const fallbackCategory = (fallbackCategories ?? []).find((entry) => entry.id === categoryId);
+    return (rows ?? [])
+      .filter((row) => row.selected)
+      .map((row) => {
+        const calculated = calculateEstimateRow(row);
+        const quantity = toNumberOrZero(row?.quantity);
+        const laborCount = toNumberOrZero(row?.laborCount ?? row?.labor_count);
+        const unitPrice = toNonNegativeNumberOrZero(row?.unitPrice ?? row?.unit_price);
+        const laborRate = toNonNegativeNumberOrZero(row?.laborRate ?? row?.labor_rate);
+        return {
+          categoryId,
+          itemId: row.itemId ?? categoryId,
+          categoryName: row.itemName ?? catalogItem?.name ?? fallbackCategory?.name ?? categoryId,
+          itemType: row.itemType ?? catalogItem?.item_type ?? "itemized",
+          subitemId: row.subitemId,
+          material: row.displayMaterial ?? row.material,
+          selectedThickness: row.selectedThickness ?? null,
+          selectedSpecOption: row.selectedSpecOption ?? "",
+          spec: getSpecLabel(row),
+          pyeong: toNumberOrZero(row.pyeong ?? conditionPyeong),
+          conditionPyeong: toNumberOrZero(conditionPyeong),
+          estimatePyeong: toNumberOrZero(estimatePyeong || conditionPyeong),
+          quantity,
+          laborCount,
+          construction_days: toConstructionDays(row.constructionDays ?? row.construction_days),
+          unit: row.unit ?? "평",
+          unitPrice,
+          laborRate,
+          contractor: row.contractor ?? "",
+          baseQuantity: toNumberOrZero(row.baseQuantity),
+          baseUnitPrice: toNonNegativeNumberOrZero(row.baseUnitPrice),
+          baseLaborCount: toNumberOrZero(row.baseLaborCount),
+          baseLaborRate: toNonNegativeNumberOrZero(row.baseLaborRate),
+          modified: isEstimateRowModified(row),
+          productAmount: calculated.productAmount,
+          laborAmount: calculated.laborAmount,
+          totalAmount: calculated.totalAmount,
+          price: calculated.totalAmount,
+        };
+      });
+  });
+}
+
+export function getTemporaryTaxAmount(amount) {
+  return Math.round(toNumberOrZero(amount) * 0.1);
 }
 
 export function getEstimateItemsDataItems(itemsData) {

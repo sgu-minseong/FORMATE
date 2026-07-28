@@ -14,6 +14,7 @@ import {
   getEstimateItemsDataSiteMemo,
   toConstructionDays,
 } from "./calculation";
+import { normalizeSpecOptions } from "../priceTable/priceTableModel";
 
 function isExtendedHouseType(value) {
   return value === "new"
@@ -163,7 +164,7 @@ export function restoreEstimateDraft(estimate) {
       selectedThickness: item.selectedThickness ?? null,
       selectedSpecOption: item.selectedSpecOption ?? "",
       spec: item.spec ?? "",
-      specOptions: Array.isArray(item.specOptions) ? item.specOptions : [],
+      specOptions: normalizeSpecOptions(item.specOptions),
       unit: item.unit ?? "평",
       pyeong: toNumberOrZero(item.pyeong ?? snapshot.estimate_pyeong ?? snapshot.condition_pyeong),
       baseQuantity: item.baseQuantity ?? item.quantity ?? "",

@@ -1,0 +1,61 @@
+import { ArrowLeft, Printer, Save } from "lucide-react";
+import EstimateDocument from "./EstimateDocument";
+
+export default function EstimatePreviewPage({
+  previewType,
+  onPreviewTypeChange,
+  backLabel,
+  onBack,
+  notice,
+  error,
+  saving,
+  onSave,
+  onDownloadPdf,
+  documentProps,
+}) {
+  return (
+    <main className={`panel-page ${previewType === "general" ? "general-preview-page" : "detail-preview-page"}`.trim()}>
+      <section className={`panel wide ${previewType === "general" ? "general-preview-panel" : "detail-preview-panel"}`.trim()}>
+        <div className="editor-header">
+          <div>
+            <h2>{previewType === "detail" ? "세부 견적서 확인" : "일반 견적서 확인"}</h2>
+          </div>
+          <div className="estimate-header-actions">
+            <button
+              type="button"
+              className={`secondary-button preview-type-button ${previewType === "general" ? "active" : ""}`.trim()}
+              onClick={() => onPreviewTypeChange("general")}
+            >
+              일반 견적서
+            </button>
+            <button
+              type="button"
+              className={`secondary-button preview-type-button ${previewType === "detail" ? "active" : ""}`.trim()}
+              onClick={() => onPreviewTypeChange("detail")}
+            >
+              세부 견적서
+            </button>
+            <button className="secondary-button" onClick={onBack}>
+              <ArrowLeft size={18} /> {backLabel}
+            </button>
+          </div>
+        </div>
+
+        {notice && <div className="status-box">{notice}</div>}
+        {error && <div className="error-box">{error}</div>}
+        {saving && <div className="status-box">저장 중...</div>}
+
+        <EstimateDocument previewType={previewType} {...documentProps} />
+
+        <div className="actions">
+          <button className="secondary-button" disabled={saving} onClick={onSave}>
+            <Save size={18} /> 견적 저장
+          </button>
+          <button className="primary-button" onClick={onDownloadPdf}>
+            <Printer size={18} /> PDF 받기
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}

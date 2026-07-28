@@ -1,6 +1,4 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
 import {
   ArrowLeft,
@@ -107,11 +105,41 @@ import CustomerPortalPage from "./features/customerPortal/CustomerPortalPage";
 import { parseCustomerPortalPath } from "./features/customerPortal/customerPortalUtils";
 import DeleteSavedEstimateDialog from "./features/estimates/DeleteSavedEstimateDialog";
 import {
+  fetchSavedEstimateLists,
+  insertEstimate,
   moveSavedEstimateToTrash,
   restoreSavedEstimate,
   SAVED_ESTIMATE_RESTORE_RESULT,
   SAVED_ESTIMATE_TRASH_RESULT,
-} from "./features/estimates/api";
+} from "./features/estimates/estimateApi";
+import {
+  buildSelectedEstimateRows,
+  buildEstimateSummary,
+  calculateEstimateRow,
+  cleanEstimateAdjustments as getCleanEstimateAdjustments,
+  getAdjustmentAmount,
+  getAdjustmentSignedAmount,
+  getEstimateItemsDataAdjustments,
+  getEstimateItemsDataConstructionDaysTotal,
+  getEstimateItemsDataItems,
+  getEstimateItemsDataMeta,
+  getEstimateItemsDataSiteMemo,
+  getLaborRateForResidence,
+  getTemporaryTaxAmount,
+  isEstimateRowModified,
+  toConstructionDays,
+} from "./features/estimates/calculation";
+import {
+  buildConditionSnapshot,
+  buildEstimateInsertPayload,
+  buildEstimateItemsData,
+  restoreEstimateDraft,
+} from "./features/estimates/snapshot";
+import { exportEstimatePdf } from "./features/estimates/exportEstimatePdf";
+import { useEstimateDraft } from "./features/estimates/useEstimateDraft";
+import EstimateEditorPage from "./features/estimates/EstimateEditorPage";
+import EstimatePreviewPage from "./features/estimates/EstimatePreviewPage";
+import SavedEstimatesPage from "./features/estimates/SavedEstimatesPage";
 import {
   buildUniqueFlooringOptions,
   buildConstructionItemSavePayload,
@@ -619,14 +647,6 @@ function findItemByDefaultCatalogName(itemRows, catalogName) {
   return (itemRows ?? []).find((item) => aliases.includes(`${item.name ?? ""}`.trim()));
 }
 
-function getLaborRateForResidence(subitem, residenceStatus) {
-  const isOccupied = residenceStatus === "occupied" || residenceStatus === "살림집";
-  const preferredValue = isOccupied ? subitem?.labor_rate_occupied : subitem?.labor_rate_empty;
-  if (hasNumericInput(preferredValue)) return toNonNegativeNumberOrZero(preferredValue);
-  if (hasNumericInput(subitem?.labor_rate)) return toNonNegativeNumberOrZero(subitem.labor_rate);
-  return 0;
-}
-
 function getBulkTargetValue(subitem, field) {
   if (field === "labor_rate_empty") return getLaborRateEmptyValue(subitem);
   if (field === "labor_rate_occupied") return getLaborRateOccupiedValue(subitem);
@@ -923,29 +943,8 @@ function getFriendlyError(error, fallback = "일시적인 문제가 발생했어
   return getSupabaseFriendlyError(error, fallback);
 }
 
-function toDbCondition(condition, companyId) {
-  const isExtended = isExtendedHouseType(condition.buildType);
-  const conditionVariant = getConditionVariant(condition);
-  return {
-    company_id: companyId,
-    pyeong: toNumberOrZero(condition.size),
-    build_type: isExtended ? "확장형" : "구형",
-    condition_variant: conditionVariant,
-    powder_room: null,
-    dress_room: null,
-    has_extension: isExtended ? false : conditionVariant !== OLD_NO_EXTENSION_VARIANT,
-    extension_areas: null,
-    occupancy_type: condition.occupancy === "empty" ? "빈집" : "살림집",
-  };
-}
-
 function hasTemplateValue(row) {
   return hasNumericInput(row?.quantity) || hasNumericInput(row?.labor_count ?? row?.laborCount);
-}
-
-function toConstructionDays(value) {
-  const numberValue = Number(`${value ?? ""}`.replaceAll(",", ""));
-  return Number.isFinite(numberValue) && numberValue > 0 ? Math.trunc(numberValue) : 0;
 }
 
 function createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus = "empty", patch = {}) {
@@ -956,9 +955,7 @@ function createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus = "
   const unitPrice = toNonNegativeNumberOrZero(subitem.unit_price);
   const laborRate = getLaborRateForResidence(subitem, residenceStatus);
   const specOptions = normalizeSpecOptions(subitem.spec_options);
-  const productAmount = toNumberOrZero(quantity) * unitPrice;
-  const laborAmount = toNumberOrZero(laborCount) * laborRate;
-  return {
+  return calculateEstimateRow({
     itemId: item.id,
     itemName: item.name,
     itemType: item.item_type ?? "itemized",
@@ -978,16 +975,13 @@ function createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus = "
     constructionDays,
     unitPrice,
     laborRate,
-    productAmount,
-    laborAmount,
-    totalAmount: productAmount + laborAmount,
     contractor: "",
     hasTemplateRecord: Boolean(subitem.template_value_id),
     hasTemplateValue: isReady,
     expanded: false,
     selected: false,
     ...patch,
-  };
+  });
 }
 
 function buildEstimateItemsFromTemplate(catalog, pyeong, residenceStatus = "empty") {
@@ -1091,73 +1085,6 @@ function sortPhotosWithPrimaryFirst(photoRows = []) {
   return [primaryPhoto, ...sortedPhotos.filter((photo) => photo.id !== primaryPhoto.id)];
 }
 
-function getAdjustmentAmount(adjustment) {
-  return toNumberOrZero(adjustment?.amount);
-}
-
-function getAdjustmentSignedAmount(adjustment) {
-  const amount = getAdjustmentAmount(adjustment);
-  return adjustment?.type === "discount" ? -amount : amount;
-}
-
-function getTemporaryTaxAmount(amount) {
-  return Math.round(toNumberOrZero(amount) * 0.1);
-}
-
-function getCleanEstimateAdjustments(adjustments) {
-  return (adjustments ?? [])
-    .filter((adjustment) =>
-      `${adjustment.label ?? ""}`.trim() ||
-      `${adjustment.memo ?? ""}`.trim() ||
-      toNumberOrZero(adjustment.amount) !== 0
-    )
-    .map((adjustment) => ({
-      id: adjustment.id ?? createLocalId("adjustment"),
-      label: `${adjustment.label ?? ""}`.trim(),
-      type: adjustment.type === "discount" ? "discount" : "charge",
-      amount: getAdjustmentAmount(adjustment),
-      visibleToCustomer: Boolean(adjustment.visibleToCustomer),
-      memo: `${adjustment.memo ?? ""}`.trim(),
-    }));
-}
-
-function getEstimateItemsDataItems(itemsData) {
-  if (Array.isArray(itemsData)) return itemsData;
-  if (Array.isArray(itemsData?.items)) return itemsData.items;
-  return [];
-}
-
-function getEstimateItemsDataAdjustments(itemsData) {
-  if (Array.isArray(itemsData?.adjustments)) return itemsData.adjustments;
-  return [];
-}
-
-function getEstimateItemsDataSiteMemo(itemsData) {
-  return `${itemsData?.siteMemo ?? ""}`;
-}
-
-function getEstimateItemsDataMeta(itemsData) {
-  return itemsData?.estimateMeta && typeof itemsData.estimateMeta === "object"
-    ? itemsData.estimateMeta
-    : {};
-}
-
-function getEstimateItemsDataConstructionDaysTotal(itemsData) {
-  if (itemsData && typeof itemsData === "object" && !Array.isArray(itemsData)) {
-    if (Object.prototype.hasOwnProperty.call(itemsData, "constructionDaysTotal")) {
-      return toConstructionDays(itemsData.constructionDaysTotal);
-    }
-    if (Object.prototype.hasOwnProperty.call(itemsData, "construction_days_total")) {
-      return toConstructionDays(itemsData.construction_days_total);
-    }
-  }
-
-  return getEstimateItemsDataItems(itemsData).reduce(
-    (sum, item) => sum + toConstructionDays(item?.construction_days ?? item?.constructionDays),
-    0
-  );
-}
-
 function getAiSaveTargetName(target) {
   const categoryName = formatExcelCellValue(target?.selectedCategoryName ?? target?.categoryName ?? target?.sourceCategory).trim();
   const itemName = formatExcelCellValue(target?.selectedSubitemName ?? target?.subitemName ?? target?.sourceItemName).trim();
@@ -1237,16 +1164,6 @@ function HomePlaceholderWidget({ title }) {
         <span>아직 연결된 데이터가 없습니다</span>
       </div>
     </section>
-  );
-}
-
-function isEstimateRowModified(row) {
-  if (!row) return false;
-  return (
-    toNumberOrZero(row.baseQuantity) !== toNumberOrZero(row.quantity) ||
-    toNumberOrZero(row.baseUnitPrice) !== toNumberOrZero(row.unitPrice ?? row.unit_price) ||
-    toNumberOrZero(row.baseLaborCount) !== toNumberOrZero(row.laborCount) ||
-    toNumberOrZero(row.baseLaborRate) !== toNumberOrZero(row.laborRate)
   );
 }
 
@@ -2401,47 +2318,40 @@ function AdminApp() {
   const [pendingAdminPage, setPendingAdminPage] = useState("admin");
   const [page, setPage] = useState(pageFromHash);
   const [step, setStep] = useState(1);
-  const [condition, setCondition] = useState({
-    size: "",
-    buildType: "",
-    powderRoom: false,
-    dressRoom: false,
-    expanded: false,
-    conditionVariant: "",
-    expansionSpaces: [],
-    occupancy: "",
-  });
-  const [items, setItems] = useState({});
-  const [activeCategories, setActiveCategories] = useState([]);
-  const [openCategory, setOpenCategory] = useState("");
-  const [newMaterialName, setNewMaterialName] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [address, setAddress] = useState("");
-  const [workDate, setWorkDate] = useState("");
-  const [estimatePyeong, setEstimatePyeong] = useState("");
-  const [estimateAdjustments, setEstimateAdjustments] = useState([]);
-  const [siteMemo, setSiteMemo] = useState("");
-  const [estimateVatStatus, setEstimateVatStatus] = useState("부가세 별도");
-  const [estimateIssuedAt, setEstimateIssuedAt] = useState(getTodayDateInput);
-  const [estimateConditionVariantLabels, setEstimateConditionVariantLabels] = useState({});
-  const [conditionLabelEditOpen, setConditionLabelEditOpen] = useState(false);
-  const [conditionLabelDrafts, setConditionLabelDrafts] = useState({});
-  const [previewBackPage, setPreviewBackPage] = useState("items");
-  const [estimatePreviewType, setEstimatePreviewType] = useState("general");
-  const [estimateCatalog, setEstimateCatalog] = useState([]);
-  const [estimateLoading, setEstimateLoading] = useState(false);
-  const [estimateSaving, setEstimateSaving] = useState(false);
-  const [estimateError, setEstimateError] = useState("");
-  const [estimateNotice, setEstimateNotice] = useState("");
-  const [estimateDraftSource, setEstimateDraftSource] = useState("template");
-  const [estimateConditionEditMode, setEstimateConditionEditMode] = useState(false);
-  const [estimateConditionDrawerOpen, setEstimateConditionDrawerOpen] = useState(false);
-  const [selectedPhotoSubitemId, setSelectedPhotoSubitemId] = useState("");
-  const [selectedPhotoSubitemName, setSelectedPhotoSubitemName] = useState("");
-  const [estimateItemPhotos, setEstimateItemPhotos] = useState([]);
-  const [isLoadingEstimateItemPhotos, setIsLoadingEstimateItemPhotos] = useState(false);
-  const [estimateItemPhotosError, setEstimateItemPhotosError] = useState("");
+  const {
+    condition, setCondition,
+    items, setItems,
+    activeCategories, setActiveCategories,
+    openCategory, setOpenCategory,
+    newMaterialName, setNewMaterialName,
+    customerName, setCustomerName,
+    customerPhone, setCustomerPhone,
+    address, setAddress,
+    workDate, setWorkDate,
+    estimatePyeong, setEstimatePyeong,
+    estimateAdjustments, setEstimateAdjustments,
+    siteMemo, setSiteMemo,
+    estimateVatStatus, setEstimateVatStatus,
+    estimateIssuedAt, setEstimateIssuedAt,
+    estimateConditionVariantLabels, setEstimateConditionVariantLabels,
+    conditionLabelEditOpen, setConditionLabelEditOpen,
+    conditionLabelDrafts, setConditionLabelDrafts,
+    previewBackPage, setPreviewBackPage,
+    estimatePreviewType, setEstimatePreviewType,
+    estimateCatalog, setEstimateCatalog,
+    estimateLoading, setEstimateLoading,
+    estimateSaving, setEstimateSaving,
+    estimateError, setEstimateError,
+    estimateNotice, setEstimateNotice,
+    estimateDraftSource, setEstimateDraftSource,
+    estimateConditionEditMode, setEstimateConditionEditMode,
+    estimateConditionDrawerOpen, setEstimateConditionDrawerOpen,
+    selectedPhotoSubitemId, setSelectedPhotoSubitemId,
+    selectedPhotoSubitemName, setSelectedPhotoSubitemName,
+    estimateItemPhotos, setEstimateItemPhotos,
+    isLoadingEstimateItemPhotos, setIsLoadingEstimateItemPhotos,
+    estimateItemPhotosError, setEstimateItemPhotosError,
+  } = useEstimateDraft();
   const [photoTab, setPhotoTab] = useState(PHOTO_TYPES.FULL_PROJECT);
   const [photoCollections, setPhotoCollections] = useState([]);
   const [photoCollectionDrafts, setPhotoCollectionDrafts] = useState({});
@@ -2672,87 +2582,29 @@ function AdminApp() {
   const activeEstimateConditionVariantLabel = getConditionVariantLabel(activeEstimateConditionVariant, estimateConditionVariantLabelMap);
 
   const selectedRows = useMemo(() => {
-    return Object.entries(items).flatMap(([categoryId, rows]) => {
-      const catalogItem = estimateCatalog.find((entry) => entry.id === categoryId);
-      const fallbackCategory = categories.find((entry) => entry.id === categoryId);
-      return (rows ?? [])
-        .filter((row) => row.selected)
-        .map((row) => {
-          const quantity = toNumberOrZero(row.quantity);
-          const laborCount = toNumberOrZero(row.laborCount);
-          const unitPrice = toNonNegativeNumberOrZero(row.unitPrice ?? row.unit_price);
-          const laborRate = toNonNegativeNumberOrZero(row.laborRate);
-          const productAmount = unitPrice * quantity;
-          const laborAmount = laborRate * laborCount;
-          const totalAmount = productAmount + laborAmount;
-          return {
-            categoryId,
-            itemId: row.itemId ?? categoryId,
-            categoryName: row.itemName ?? catalogItem?.name ?? fallbackCategory?.name ?? categoryId,
-            itemType: row.itemType ?? catalogItem?.item_type ?? "itemized",
-            subitemId: row.subitemId,
-            material: row.displayMaterial ?? row.material,
-            selectedThickness: row.selectedThickness ?? null,
-            selectedSpecOption: row.selectedSpecOption ?? "",
-            spec: getEstimateRowSpecLabel(row),
-            pyeong: toNumberOrZero(row.pyeong ?? condition.size),
-            conditionPyeong: toNumberOrZero(condition.size),
-            estimatePyeong: toNumberOrZero(estimatePyeong || condition.size),
-            quantity,
-            laborCount,
-            construction_days: toConstructionDays(row.constructionDays ?? row.construction_days),
-            unit: row.unit ?? "평",
-            unitPrice,
-            laborRate,
-            contractor: row.contractor ?? "",
-            baseQuantity: toNumberOrZero(row.baseQuantity),
-            baseUnitPrice: toNonNegativeNumberOrZero(row.baseUnitPrice),
-            baseLaborCount: toNumberOrZero(row.baseLaborCount),
-            baseLaborRate: toNonNegativeNumberOrZero(row.baseLaborRate),
-            modified: isEstimateRowModified(row),
-            productAmount,
-            laborAmount,
-            totalAmount,
-            price: totalAmount,
-          };
-        });
+    return buildSelectedEstimateRows({
+      items,
+      estimateCatalog,
+      fallbackCategories: categories,
+      conditionPyeong: condition.size,
+      estimatePyeong,
+      getSpecLabel: getEstimateRowSpecLabel,
     });
   }, [condition.size, estimateCatalog, estimatePyeong, items]);
 
-  const selectedItemsTotal = selectedRows.reduce((sum, row) => sum + row.price, 0);
-  const selectedConstructionDaysTotal = selectedRows.reduce(
-    (sum, row) => sum + toConstructionDays(row.construction_days),
-    0
-  );
-  const selectedConstructionDayParts = Object.entries(
-    selectedRows.reduce((groups, row) => {
-      const constructionDays = toConstructionDays(row.construction_days);
-      if (!constructionDays) return groups;
-      const categoryName = row.categoryName || "시공 항목";
-      groups[categoryName] = (groups[categoryName] ?? 0) + constructionDays;
-      return groups;
-    }, {})
-  ).map(([categoryName, constructionDays]) => `${categoryName} ${constructionDays}일`);
   const cleanEstimateAdjustments = useMemo(
-    () => getCleanEstimateAdjustments(estimateAdjustments),
+    () => getCleanEstimateAdjustments(estimateAdjustments, () => createLocalId("adjustment")),
     [estimateAdjustments]
   );
-  const adjustmentTotal = cleanEstimateAdjustments.reduce(
-    (sum, adjustment) => sum + getAdjustmentSignedAmount(adjustment),
-    0
-  );
-  const total = Math.max(0, selectedItemsTotal + adjustmentTotal);
-  const customerVisibleAdjustments = cleanEstimateAdjustments.filter(
-    (adjustment) => adjustment.visibleToCustomer
-  );
-  const selectedRowsByCategory = useMemo(() => {
-    return selectedRows.reduce((groups, row) => {
-      const key = row.categoryName || "시공 항목";
-      groups[key] = groups[key] ?? [];
-      groups[key].push(row);
-      return groups;
-    }, {});
-  }, [selectedRows]);
+  const {
+    selectedItemsTotal,
+    adjustmentTotal,
+    finalTotal: total,
+    constructionDaysTotal: selectedConstructionDaysTotal,
+    constructionDayParts: selectedConstructionDayParts,
+    rowsByCategory: selectedRowsByCategory,
+    customerVisibleAdjustments,
+  } = buildEstimateSummary(selectedRows, cleanEstimateAdjustments);
   const visibleEstimates = estimateListView === "trash" ? trashedEstimates : estimates;
   const recentHomeEstimates = useMemo(() =>
     [...estimates]
@@ -5480,36 +5332,9 @@ function AdminApp() {
         throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
       }
       const companyId = requireSelectedCompanyId();
-      const estimateSelect = `
-        *,
-        estimate_versions(
-          id,
-          project_id,
-          project:projects(id, deleted_at)
-        )
-      `;
-
-      const [activeResult, trashResult] = await Promise.all([
-        supabase
-          .from("estimates")
-          .select(estimateSelect)
-          .eq("company_id", companyId)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("estimates")
-          .select(estimateSelect)
-          .eq("company_id", companyId)
-          .not("deleted_at", "is", null)
-          .order("deleted_at", { ascending: false }),
-      ]);
-
-      if (activeResult.error) throw activeResult.error;
-      if (trashResult.error) throw trashResult.error;
+      const { active: activeRows, trash: trashRows } = await fetchSavedEstimateLists(companyId);
       if (estimateListRequestRef.current !== requestId) return;
 
-      const activeRows = (activeResult.data ?? []).filter(isOperationalEstimate);
-      const trashRows = trashResult.data ?? [];
       const filteredActiveRows = activeRows.filter((estimate) => (
         doesSavedEstimateMatchSearch(estimate, searchText)
       ));
@@ -6522,14 +6347,7 @@ function AdminApp() {
   }
 
   function recalculateEstimateRow(row) {
-    const productAmount = toNumberOrZero(row.quantity) * toNonNegativeNumberOrZero(row.unitPrice);
-    const laborAmount = toNumberOrZero(row.laborCount) * toNonNegativeNumberOrZero(row.laborRate);
-    return {
-      ...row,
-      productAmount,
-      laborAmount,
-      totalAmount: productAmount + laborAmount,
-    };
+    return calculateEstimateRow(row);
   }
 
   function applyEstimateRowPatch(row, patch) {
@@ -6983,91 +6801,24 @@ function AdminApp() {
       return;
     }
 
-    const savedItems = getEstimateItemsDataItems(estimate.items_data);
-    const savedAdjustments = getEstimateItemsDataAdjustments(estimate.items_data);
-    const savedSiteMemo = getEstimateItemsDataSiteMemo(estimate.items_data);
-    const savedMeta = getEstimateItemsDataMeta(estimate.items_data);
     const snapshot = estimate.condition_snapshot ?? {};
-    const groupedItems = {};
-    const catalogGroups = [];
+    const restoredDraft = restoreEstimateDraft(estimate);
+    const restoredConditionVariant = restoredDraft.condition.conditionVariant;
 
-    savedItems.forEach((item, index) => {
-      const categoryName = item.categoryName ?? item.category ?? item.itemName ?? "시공 항목";
-      const categoryId = item.categoryId ?? item.itemId ?? `saved-${sanitizeFileNamePart(categoryName, "item")}-${index}`;
-      if (!groupedItems[categoryId]) {
-        groupedItems[categoryId] = [];
-        catalogGroups.push({
-          id: categoryId,
-          name: categoryName,
-          item_type: item.itemType ?? "itemized",
-          subitems: [],
-        });
-      }
-
-      groupedItems[categoryId].push({
-        itemId: item.itemId ?? categoryId,
-        itemName: categoryName,
-        itemType: item.itemType ?? "itemized",
-        subitemId: item.subitemId ?? `${categoryId}-${index}`,
-        material: item.material ?? item.name ?? item.description ?? "소재",
-        displayMaterial: item.material ?? item.name ?? item.description ?? "소재",
-        selectedThickness: item.selectedThickness ?? null,
-        selectedSpecOption: item.selectedSpecOption ?? "",
-        spec: item.spec ?? "",
-        specOptions: normalizeSpecOptions(item.specOptions),
-        unit: item.unit ?? "평",
-        pyeong: toNumberOrZero(item.pyeong ?? snapshot.estimate_pyeong ?? snapshot.condition_pyeong),
-        baseQuantity: item.baseQuantity ?? item.quantity ?? "",
-        baseUnitPrice: toNonNegativeNumberOrZero(item.baseUnitPrice ?? item.unitPrice ?? item.unit_price),
-        baseLaborCount: item.baseLaborCount ?? item.laborCount ?? item.labor_count ?? "",
-        baseLaborRate: toNonNegativeNumberOrZero(item.baseLaborRate ?? item.laborRate ?? item.labor_rate),
-        quantity: item.quantity ?? "",
-        laborCount: item.laborCount ?? item.labor_count ?? "",
-        constructionDays: toConstructionDays(item.construction_days ?? item.constructionDays),
-        unitPrice: toNonNegativeNumberOrZero(item.unitPrice ?? item.unit_price),
-        laborRate: toNonNegativeNumberOrZero(item.laborRate ?? item.labor_rate),
-        contractor: item.contractor ?? item.vendor ?? item.worker ?? "",
-        productAmount: toNumberOrZero(item.productAmount),
-        laborAmount: toNumberOrZero(item.laborAmount),
-        totalAmount: toNumberOrZero(item.totalAmount ?? item.price ?? item.amount),
-        hasTemplateValue: true,
-        expanded: false,
-        selected: true,
-      });
-    });
-
-    const restoredTemplateCondition = buildTemplateCondition({
-      pyeong: snapshot.condition_pyeong ?? snapshot.pyeong,
-      buildType: snapshot.condition_variant || snapshot.build_type,
-      hasExtension: snapshot.has_extension,
-      conditionVariant: snapshot.condition_variant,
-    });
-    const restoredBuildType = restoredTemplateCondition.condition_variant.startsWith("확장형") ? "new" : "old";
-    const nextCondition = {
-      size: `${snapshot.condition_pyeong ?? snapshot.pyeong ?? ""}`,
-      buildType: restoredBuildType,
-      powderRoom: false,
-      dressRoom: false,
-      expanded: restoredBuildType === "old" ? restoredTemplateCondition.has_extension : false,
-      conditionVariant: restoredTemplateCondition.condition_variant,
-      expansionSpaces: [],
-      occupancy: snapshot.occupancy_type === "빈집" ? "empty" : snapshot.occupancy_type === "살림집" ? "occupied" : "",
-    };
-
-    setCondition(nextCondition);
-    setItems(groupedItems);
-    setEstimateCatalog(catalogGroups);
-    setActiveCategories(catalogGroups.map((group) => group.id));
-    setOpenCategory(catalogGroups[0]?.id ?? "");
-    setEstimatePyeong(`${snapshot.estimate_pyeong ?? snapshot.condition_pyeong ?? snapshot.pyeong ?? ""}`);
-    setEstimateAdjustments(savedAdjustments);
-    setSiteMemo(savedSiteMemo);
-    setCustomerName(copy ? "" : `${savedMeta.customerName ?? ""}`);
-    setCustomerPhone(copy ? "" : `${savedMeta.customerPhone ?? ""}`);
+    setCondition(restoredDraft.condition);
+    setItems(restoredDraft.items);
+    setEstimateCatalog(restoredDraft.catalog);
+    setActiveCategories(restoredDraft.catalog.map((group) => group.id));
+    setOpenCategory(restoredDraft.catalog[0]?.id ?? "");
+    setEstimatePyeong(restoredDraft.estimatePyeong);
+    setEstimateAdjustments(restoredDraft.adjustments);
+    setSiteMemo(restoredDraft.siteMemo);
+    setCustomerName(copy ? "" : `${restoredDraft.meta.customerName ?? ""}`);
+    setCustomerPhone(copy ? "" : `${restoredDraft.meta.customerPhone ?? ""}`);
     setAddress(copy ? "" : estimate.address ?? "");
     setWorkDate(copy ? "" : estimate.construction_date ?? "");
-    setEstimateVatStatus(savedMeta.vatStatus ?? "부가세 별도");
-    setEstimateIssuedAt(copy ? getTodayDateInput() : savedMeta.createdDate ?? getDateInputFromValue(estimate.created_at));
+    setEstimateVatStatus(restoredDraft.meta.vatStatus ?? "부가세 별도");
+    setEstimateIssuedAt(copy ? getTodayDateInput() : restoredDraft.meta.createdDate ?? getDateInputFromValue(estimate.created_at));
     const restoredConditionVariantLabel =
       `${snapshot.condition_variant_display_label ?? snapshot.conditionVariantDisplayLabel ?? ""}`.trim();
     const restoredConditionVariantLabelOverrides =
@@ -7076,8 +6827,8 @@ function AdminApp() {
         : {};
     setEstimateConditionVariantLabels({
       ...restoredConditionVariantLabelOverrides,
-      ...(restoredConditionVariantLabel && restoredTemplateCondition.condition_variant
-        ? { [restoredTemplateCondition.condition_variant]: restoredConditionVariantLabel }
+      ...(restoredConditionVariantLabel && restoredConditionVariant
+        ? { [restoredConditionVariant]: restoredConditionVariantLabel }
         : {}),
     });
     setConditionLabelEditOpen(false);
@@ -9208,20 +8959,18 @@ function AdminApp() {
       }
       const companyId = requireSelectedCompanyId();
 
-      const dbCondition = toDbCondition(condition, companyId);
-      const conditionSnapshot = {
-        ...dbCondition,
+      const conditionSnapshot = buildConditionSnapshot({
+        condition,
+        companyId,
         summary: conditionSummary,
-        condition_pyeong: toNumberOrZero(condition.size),
-        estimate_pyeong: toNumberOrZero(estimatePyeong || condition.size),
-        condition_variant_label: activeEstimateConditionVariantLabel,
-        condition_variant_display_label: activeEstimateConditionVariantLabel,
-        condition_variant_label_overrides: estimateConditionVariantLabels,
-      };
-      const itemsData = {
+        estimatePyeong,
+        conditionVariantLabel: activeEstimateConditionVariantLabel,
+        conditionVariantLabelOverrides: estimateConditionVariantLabels,
+      });
+      const itemsData = buildEstimateItemsData({
         items: selectedRows,
         adjustments: cleanEstimateAdjustments,
-        siteMemo: siteMemo.trim(),
+        siteMemo,
         estimateMeta: {
           estimateNumber,
           customerName: customerName.trim(),
@@ -9235,19 +8984,16 @@ function AdminApp() {
         constructionDaysTotal: selectedConstructionDaysTotal,
         adjustmentTotal,
         finalTotal: total,
-      };
-
-      const { error: estimateError } = await supabase.from("estimates").insert({
-        company_id: companyId,
-        address,
-        construction_date: workDate || null,
-        condition_id: null,
-        condition_snapshot: conditionSnapshot,
-        items_data: itemsData,
-        total_amount: total,
       });
-
-      if (estimateError) throw estimateError;
+      const estimatePayload = buildEstimateInsertPayload({
+        companyId,
+        address,
+        workDate,
+        conditionSnapshot,
+        itemsData,
+        total,
+      });
+      await insertEstimate(estimatePayload);
 
       const createdTemplate = await saveBlankEstimateAsTemplate(companyId);
 
@@ -9272,35 +9018,15 @@ function AdminApp() {
 
     setEstimateError("");
     try {
-      const canvas = await html2canvas(previewPdfRef.current, {
-        scale: 2,
-        useCORS: true,
+      await exportEstimatePdf({
+        element: previewPdfRef.current,
+        companyName: selectedCompanyName,
+        customerName,
+        address,
+        issuedAt: estimateIssuedAt,
         backgroundColor:
           getComputedStyle(document.documentElement).getPropertyValue("--bg-surface").trim(),
       });
-      const imageData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 10;
-      const renderWidth = pageWidth - margin * 2;
-      const renderHeight = (canvas.height * renderWidth) / canvas.width;
-
-      let remainingHeight = renderHeight;
-      let position = margin;
-      pdf.addImage(imageData, "PNG", margin, position, renderWidth, renderHeight);
-      remainingHeight -= pageHeight - margin * 2;
-
-      while (remainingHeight > 0) {
-        position = remainingHeight - renderHeight + margin;
-        pdf.addPage();
-        pdf.addImage(imageData, "PNG", margin, position, renderWidth, renderHeight);
-        remainingHeight -= pageHeight - margin * 2;
-      }
-
-      const safeCompany = sanitizeFileNamePart(selectedCompanyName, "업체명");
-      const safeTarget = sanitizeFileNamePart(customerName || address, "고객정보");
-      pdf.save(`견적서_${safeCompany}_${safeTarget}_${estimateIssuedAt}.pdf`);
     } catch (error) {
       setEstimateError(getFriendlyError(error, "PDF를 다운로드하지 못했어요. 다시 시도해주세요."));
     }
@@ -12227,7 +11953,9 @@ function AdminApp() {
         </main>
       )}
 
-      {page === "items" && USE_ITEMS_SCREEN_V2 && renderItemsScreenV2()}
+      {page === "items" && USE_ITEMS_SCREEN_V2 && (
+        <EstimateEditorPage>{renderItemsScreenV2()}</EstimateEditorPage>
+      )}
 
       {page === "items" && !USE_ITEMS_SCREEN_V2 && (
         <main className="workspace estimate-workspace">
@@ -13736,7 +13464,8 @@ function AdminApp() {
       )}
 
       {page === "admin-estimates" && renderAppShell(
-        <main className="panel-page admin-page saved-estimates-page">
+        <SavedEstimatesPage>
+          <main className="panel-page admin-page saved-estimates-page">
           <div className="editor-header">
             <div>
               <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
@@ -14116,203 +13845,51 @@ function AdminApp() {
               onClose={() => setShareEstimateTarget(null)}
             />
           )}
-        </main>
+          </main>
+        </SavedEstimatesPage>
       )}
 
       {page === "preview" && (
-        <main className={`panel-page ${estimatePreviewType === "general" ? "general-preview-page" : "detail-preview-page"}`.trim()}>
-          <section className={`panel wide ${estimatePreviewType === "general" ? "general-preview-panel" : "detail-preview-panel"}`.trim()}>
-            <div className="editor-header">
-              <div>
-                <h2>{estimatePreviewType === "detail" ? "세부 견적서 확인" : "일반 견적서 확인"}</h2>
-              </div>
-              <div className="estimate-header-actions">
-                <button
-                  type="button"
-                  className={`secondary-button preview-type-button ${estimatePreviewType === "general" ? "active" : ""}`.trim()}
-                  onClick={() => setEstimatePreviewType("general")}
-                >
-                  일반 견적서
-                </button>
-                <button
-                  type="button"
-                  className={`secondary-button preview-type-button ${estimatePreviewType === "detail" ? "active" : ""}`.trim()}
-                  onClick={() => setEstimatePreviewType("detail")}
-                >
-                  세부 견적서
-                </button>
-                <button className="secondary-button" onClick={() => setPage(previewBackPage === "admin-estimates" ? "admin-estimates" : "items")}>
-                  <ArrowLeft size={18} /> {previewBackPage === "admin-estimates" ? "저장 견적 보기" : "견적 재생성"}
-                </button>
-              </div>
-            </div>
-
-            {estimateNotice && <div className="status-box">{estimateNotice}</div>}
-            {estimateError && <div className="error-box">{estimateError}</div>}
-            {estimateSaving && <div className="status-box">저장 중...</div>}
-
-            <div
-              className={`pdf-capture-area ${estimatePreviewType === "general" ? "general-estimate-document" : "detail-estimate-document"}`.trim()}
-              ref={previewPdfRef}
-            >
-              <div className="pdf-title-row">
-                <div>
-                  <p className="eyebrow dark">FORMATE 인테리어 견적서</p>
-                  <h3>{selectedCompanyName} 견적서</h3>
-                </div>
-                <PriceText value={total} size="lg" />
-              </div>
-
-              <div className="estimate-meta-grid">
-                <div>
-                  <span>사업자 번호</span>
-                  <strong>000-00-00000</strong>
-                  <em>임의표시</em>
-                </div>
-                <div>
-                  <span>업체명</span>
-                  <strong>{selectedCompanyName}</strong>
-                </div>
-                <div>
-                  <span>작성일</span>
-                  <strong>{estimateCreatedDate}</strong>
-                </div>
-                <div>
-                  <span>유효기간</span>
-                  <strong>{estimateValidUntil}까지</strong>
-                </div>
-                <div>
-                  <span>부가세</span>
-                  <strong>{estimateVatStatus}</strong>
-                </div>
-              </div>
-
-              <div className="form-grid">
-                <label>
-                  고객명
-                  <input
-                    value={customerName}
-                    onChange={(event) => setCustomerName(event.target.value)}
-                    placeholder="예: 홍길동"
-                  />
-                </label>
-                <label>
-                  연락처
-                  <input
-                    value={customerPhone}
-                    onChange={(event) => setCustomerPhone(event.target.value)}
-                    placeholder="예: 010-0000-0000"
-                  />
-                </label>
-                <label>
-                  현장 주소
-                  <input
-                    value={address}
-                    onChange={(event) => setAddress(event.target.value)}
-                    placeholder="예: 서울시 강남구 ..."
-                  />
-                </label>
-                <label>
-                  시공 예정일
-                  <input
-                    type="date"
-                    value={workDate}
-                    onChange={(event) => setWorkDate(event.target.value)}
-                  />
-                </label>
-                <label>
-                  부가세 표시
-                  <select
-                    value={estimateVatStatus}
-                    onChange={(event) => setEstimateVatStatus(event.target.value)}
-                  >
-                    <option value="부가세 별도">부가세 별도</option>
-                    <option value="부가세 포함">부가세 포함</option>
-                    <option value="부가세 없음">부가세 없음</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="key-box compact-key">
-                <span>견적 조건</span>
-                <strong>{conditionSummary}</strong>
-              </div>
-
-              <div className="estimate-pyeong-preview">
-                <div>
-                  <span>조건 평수</span>
-                  <PriceText value={condition.size || 0} unit="평" size="sm" />
-                </div>
-                <div>
-                  <span>견적 기준 평수</span>
-                  <PriceText value={estimatePyeong || condition.size || 0} unit="평" size="sm" />
-                </div>
-              </div>
-
-              {selectedConstructionDaysTotal > 0 && (
-                <div className="estimate-construction-schedule">
-                  <span>예상 공사일정</span>
-                  <strong>{selectedConstructionDaysTotal.toLocaleString("ko-KR")}일</strong>
-                  {selectedConstructionDayParts.length > 0 && (
-                    <p>{selectedConstructionDayParts.join(" + ")}</p>
-                  )}
-                </div>
-              )}
-
-              {estimatePreviewType === "detail" ? renderDetailEstimateTable() : renderGeneralEstimateTable()}
-              <p className="tax-note">세액은 공급가의 10%로 임시 계산했습니다.</p>
-
-              {estimatePreviewType === "general"
-                ? renderEstimateAdjustmentEditor()
-                : renderEstimateAdjustmentSummary()}
-
-              <div className="site-memo-panel preview-site-memo">
-                <label>
-                  현장메모
-                  <textarea
-                    value={siteMemo}
-                    onChange={(event) => setSiteMemo(event.target.value)}
-                    placeholder="고객에게 보여주지 않을 내부 메모를 적어주세요."
-                  />
-                </label>
-              </div>
-
-              <div className="estimate-note-box">
-                <strong>견적 조건</strong>
-                <p>공사 기간: 협의 후 확정</p>
-                <p>결제 조건: 계약금 / 중도금 / 잔금 협의</p>
-                <p>변경 사항: 공사 중 추가 요청 또는 현장 상황 변경 시 추가 비용이 발생할 수 있습니다.</p>
-                <p>보증 조건: 시공 후 하자 보수 기준은 별도 협의합니다.</p>
-              </div>
-
-              <div className="estimate-note-box">
-                <strong>제외 항목</strong>
-                <p>본 견적서에 명시되지 않은 항목은 별도 견적입니다.</p>
-                <p>가전제품, 가구, 관리사무소 비용, 엘리베이터 사용료 등은 별도 협의가 필요할 수 있습니다.</p>
-              </div>
-
-              <div className="estimate-number-footer">
-                견적서 번호 {estimateNumber}
-              </div>
-            </div>
-
-            <div className="actions">
-              <button
-                className="secondary-button"
-                disabled={estimateSaving}
-                onClick={saveEstimateToSupabase}
-              >
-                <Save size={18} /> 견적 저장
-              </button>
-              <button
-                className="primary-button"
-                onClick={downloadEstimatePdf}
-              >
-                <Printer size={18} /> PDF 받기
-              </button>
-            </div>
-          </section>
-        </main>
+        <EstimatePreviewPage
+          previewType={estimatePreviewType}
+          onPreviewTypeChange={setEstimatePreviewType}
+          backLabel={previewBackPage === "admin-estimates" ? "저장 견적 보기" : "견적 재생성"}
+          onBack={() => setPage(previewBackPage === "admin-estimates" ? "admin-estimates" : "items")}
+          notice={estimateNotice}
+          error={estimateError}
+          saving={estimateSaving}
+          onSave={saveEstimateToSupabase}
+          onDownloadPdf={downloadEstimatePdf}
+          documentProps={{
+            documentRef: previewPdfRef,
+            companyName: selectedCompanyName,
+            total,
+            createdDate: estimateCreatedDate,
+            validUntil: estimateValidUntil,
+            vatStatus: estimateVatStatus,
+            customerName,
+            customerPhone,
+            address,
+            workDate,
+            onCustomerNameChange: (event) => setCustomerName(event.target.value),
+            onCustomerPhoneChange: (event) => setCustomerPhone(event.target.value),
+            onAddressChange: (event) => setAddress(event.target.value),
+            onWorkDateChange: (event) => setWorkDate(event.target.value),
+            onVatStatusChange: (event) => setEstimateVatStatus(event.target.value),
+            conditionSummary,
+            conditionPyeong: condition.size,
+            estimatePyeong,
+            constructionDaysTotal: selectedConstructionDaysTotal,
+            constructionDayParts: selectedConstructionDayParts,
+            renderGeneralTable: renderGeneralEstimateTable,
+            renderDetailTable: renderDetailEstimateTable,
+            renderAdjustmentEditor: renderEstimateAdjustmentEditor,
+            renderAdjustmentSummary: renderEstimateAdjustmentSummary,
+            siteMemo,
+            onSiteMemoChange: (event) => setSiteMemo(event.target.value),
+            estimateNumber,
+          }}
+        />
       )}
     </div>
   );
