@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { isSupabaseConfigured } from "../lib/supabaseClient";
 import {
   clearAdminVerifiedCompany,
   clearStoredCompany,
+  isAuthBackendConfigured,
   loginWithCompanyCode,
   restoreAuthSession,
   signOutAppSession,
@@ -11,7 +11,7 @@ import {
 export function useAppSession() {
   const [companySession, setCompanySession] = useState({
     company: null,
-    checking: isSupabaseConfigured,
+    checking: isAuthBackendConfigured,
   });
   const [authUser, setAuthUser] = useState(null);
   const [loginCode, setLoginCode] = useState("");
@@ -33,7 +33,7 @@ export function useAppSession() {
         setCompanySession({ company: session?.company ?? null, checking: false });
         if (!session) {
           clearStoredCompany();
-          if (!isSupabaseConfigured) setLoginError("로그인 정보를 다시 확인해주세요.");
+          if (!isAuthBackendConfigured) setLoginError("로그인 정보를 다시 확인해주세요.");
         }
       })
       .catch(async () => {

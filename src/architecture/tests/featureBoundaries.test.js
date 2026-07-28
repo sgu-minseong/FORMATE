@@ -42,13 +42,14 @@ describe("architecture feature boundaries", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps Feature pages and components away from direct Supabase imports", () => {
-    const uiFiles = sourceFiles.filter((file) => (
-      relative(file).startsWith("features/")
-      && /\.jsx$/.test(file)
+  it("keeps direct Supabase imports inside API modules", () => {
+    const directClientFiles = sourceFiles.filter((file) => (
+      !relative(file).includes("/tests/")
+      && relative(file) !== "lib/supabaseClient.js"
+      && read(file).includes("supabaseClient")
     ));
-    const violations = uiFiles
-      .filter((file) => read(file).includes("supabaseClient"))
+    const violations = directClientFiles
+      .filter((file) => !/(?:api|apiShared)\.js$/i.test(file))
       .map(relative);
     expect(violations).toEqual([]);
   });
@@ -61,10 +62,25 @@ describe("architecture feature boundaries", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps App free of direct Feature DB and Storage access", () => {
+  it("keeps application shells free of direct Feature DB and Storage access", () => {
+    const shellFiles = [
+      path.join(SRC_ROOT, "App.jsx"),
+      path.join(SRC_ROOT, "app", "AdminApp.jsx"),
+    ];
+    const violations = shellFiles.flatMap((file) => {
+      const source = read(file);
+      return /supabase\.(?:from|rpc|storage)|import\s+\{[^}]*\bsupabase\b[^}]*\}\s+from/.test(source)
+        ? [relative(file)]
+        : [];
+    });
+    expect(violations).toEqual([]);
+  });
+
+  it("keeps the App entry point focused on route composition", () => {
     const source = read(path.join(SRC_ROOT, "App.jsx"));
-    expect(source).not.toMatch(/supabase\.(?:from|rpc|storage)/);
-    expect(source).not.toMatch(/import\s+\{[^}]*\bsupabase\b[^}]*\}\s+from/);
+    expect(source.split("\n").length).toBeLessThanOrEqual(25);
+    expect(source).not.toMatch(/\buse(?:Effect|Memo|Ref|State)\b/);
+    expect(source).not.toContain("<style");
   });
 
   it("keeps relative source imports acyclic", () => {

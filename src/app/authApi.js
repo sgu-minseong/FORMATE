@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, supabase } from "../lib/supabaseClient";
 
+export const isAuthBackendConfigured = isSupabaseConfigured;
 export const COMPANY_STORAGE_KEYS = {
   id: "formate.selectedCompanyId",
   name: "formate.selectedCompanyName",

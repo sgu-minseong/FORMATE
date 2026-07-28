@@ -18,14 +18,14 @@
 | 3 | 견적 Feature 분리 | DONE | 51 tests + build, PDF 시각 검증 대기 |
 | 4 | 고객 운영 Feature 경계 정리 | DONE | 56 tests + build |
 | 5 | App 소유 잔여 기능 분리 | DONE | 5A~5D 독립 검증·커밋 |
-| 6 | AppShell 축소·아키텍처 경계 고정 | PENDING |  |
+| 6 | AppShell 축소·아키텍처 경계 고정 | DONE | 72 tests + build, App 13 lines |
 | 7 | 최종 자동 검증·인수인계 보고 | PENDING |  |
 
 현재 테스트 기준:
 
 ```text
 npm run test
-- priceTable 회귀 테스트 44개 통과
+- 전체 회귀·아키텍처 테스트 72개 통과
 
 npm run build
 - 통과
@@ -541,6 +541,8 @@ refactor(ai-setup): extract AI setup feature
 ---
 
 # Phase 6 — AppShell 축소·아키텍처 경계 고정
+
+상태: `DONE` — 72 tests + build, `App.jsx` 13 lines
 
 ## 목적
 
