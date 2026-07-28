@@ -493,6 +493,8 @@ refactor(app): extract session and auth boundary
 
 ## 5B. 사진 관리
 
+상태: `DONE` — 62 tests + build
+
 `features/photoManagement/`로 metadata·Storage·upload/delete/reorder·Page/state를 이동한다.
 
 bucket·path·metadata·UI 유지.

@@ -149,6 +149,15 @@ import { useEstimateDraft } from "./features/estimates/useEstimateDraft";
 import EstimateEditorPage from "./features/estimates/EstimateEditorPage";
 import EstimatePreviewPage from "./features/estimates/EstimatePreviewPage";
 import SavedEstimatesPage from "./features/estimates/SavedEstimatesPage";
+import PhotoManagementPage from "./features/photoManagement/PhotoManagementPage";
+import { usePhotoManagement } from "./features/photoManagement/usePhotoManagement";
+import { fetchPhotosForTarget } from "./features/photoManagement/photoApi";
+import {
+  PHOTO_TYPES,
+  getPhotoImageUrl,
+  getPrimaryPhoto,
+  sortPhotosWithPrimaryFirst,
+} from "./features/photoManagement/photoModel";
 import {
   buildUniqueFlooringOptions,
   buildConstructionItemSavePayload,
@@ -281,21 +290,6 @@ const USE_ADMIN_ITEMS_SCREEN_V2 = true;
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
 const ADMIN_TEMPLATE_ORDER_STORAGE_PREFIX = "formate.adminTemplateOrder";
-const PHOTO_STORAGE_BUCKET = "formate-photos";
-const PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS = 7200;
-const PHOTO_TYPES = {
-  FULL_PROJECT: "full_project",
-  PARTIAL_PROJECT: "partial_project",
-  SUBITEM: "subitem",
-};
-const PHOTO_TAB_OPTIONS = [
-  { key: PHOTO_TYPES.FULL_PROJECT, label: "올공사" },
-  { key: PHOTO_TYPES.PARTIAL_PROJECT, label: "부분공사" },
-  { key: PHOTO_TYPES.SUBITEM, label: "세부항목" },
-];
-const PHOTO_COLLECTION_DEFAULT_NAMES = ["1000만원대", "2000만원대", "3000만원대"];
-const MAX_SUBITEM_PHOTO_COUNT = 10;
-const MAX_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MATERIAL_NAME_PLACEHOLDER = "추가된 항목의 이름을 입력하세요";
 
 function readFavoritePyeongs() {
@@ -918,35 +912,6 @@ function createStorageSafeId() {
   return "00000000-0000-4000-8000-000000000000".replace(/0/g, () =>
     Math.floor(Math.random() * 16).toString(16)
   );
-}
-
-function getPhotoFileExtension(fileName = "") {
-  const extension = `${fileName}`.split(".").pop()?.toLowerCase() ?? "";
-  return ["jpg", "jpeg", "png", "webp", "gif"].includes(extension) ? extension : "jpg";
-}
-
-function getPhotoTargetId(photo) {
-  return photo?.target_id ?? photo?.collection_id ?? "";
-}
-
-function sortPhotos(photoRows = []) {
-  return [...photoRows].sort((a, b) => {
-    const orderDiff = (a.sort_order ?? 0) - (b.sort_order ?? 0);
-    if (orderDiff !== 0) return orderDiff;
-    return `${a.created_at ?? ""}`.localeCompare(`${b.created_at ?? ""}`);
-  });
-}
-
-function getPrimaryPhoto(photoRows = []) {
-  const sortedPhotos = sortPhotos(photoRows);
-  return sortedPhotos.find((photo) => photo.is_primary) ?? sortedPhotos[0] ?? null;
-}
-
-function sortPhotosWithPrimaryFirst(photoRows = []) {
-  const sortedPhotos = sortPhotos(photoRows);
-  const primaryPhoto = sortedPhotos.find((photo) => photo.is_primary);
-  if (!primaryPhoto) return sortedPhotos;
-  return [primaryPhoto, ...sortedPhotos.filter((photo) => photo.id !== primaryPhoto.id)];
 }
 
 function getAiSaveTargetName(target) {
@@ -2215,18 +2180,6 @@ function AdminApp() {
     isLoadingEstimateItemPhotos, setIsLoadingEstimateItemPhotos,
     estimateItemPhotosError, setEstimateItemPhotosError,
   } = useEstimateDraft();
-  const [photoTab, setPhotoTab] = useState(PHOTO_TYPES.FULL_PROJECT);
-  const [photoCollections, setPhotoCollections] = useState([]);
-  const [photoCollectionDrafts, setPhotoCollectionDrafts] = useState({});
-  const [photos, setPhotos] = useState([]);
-  const [photoCatalog, setPhotoCatalog] = useState([]);
-  const [expandedPhotoCategoryIds, setExpandedPhotoCategoryIds] = useState([]);
-  const [photoAutoSaveStatus, setPhotoAutoSaveStatus] = useState("idle");
-  const [photoAutoSaveMessage, setPhotoAutoSaveMessage] = useState("");
-  const [photoLoading, setPhotoLoading] = useState(false);
-  const [photoSaving, setPhotoSaving] = useState(false);
-  const [photoError, setPhotoError] = useState("");
-  const [photoNotice, setPhotoNotice] = useState("");
   const [selectedAdminPyeong, setSelectedAdminPyeong] = useState("");
   const [selectedAdminBuildType, setSelectedAdminBuildType] = useState("");
   const [selectedAdminHasExtension, setSelectedAdminHasExtension] = useState(false);
@@ -2407,6 +2360,20 @@ function AdminApp() {
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
   const selectedCompanyName = selectedCompany?.name ?? "";
+  const photoManagement = usePhotoManagement({
+    companyId: selectedCompanyId,
+    createPhotoId: createStorageSafeId,
+    getFriendlyError,
+  });
+  const {
+    photoTab,
+    photoCatalog,
+    expandedPhotoCategoryIds,
+    setExpandedPhotoCategoryIds,
+    getPhotosForTarget,
+    refresh: fetchPhotoManagementData,
+    reset: resetPhotoManagement,
+  } = photoManagement;
   const authUserMetadata = authUser?.user_metadata ?? {};
   const accountDisplayName = `${authUserMetadata.display_name || authUserMetadata.full_name || authUserMetadata.name || "운영자"}`.trim();
   const accountAvatarUrl = `${authUserMetadata.avatar_url || authUserMetadata.picture || ""}`.trim();
@@ -3953,599 +3920,6 @@ function AdminApp() {
           <p>전체 평수</p>
           {PYEONG_OPTIONS.map((pyeong) => renderPyeongOption(pyeong, selectedValue, onSelect))}
         </div>
-      </div>
-    );
-  }
-
-  function getPhotosForTarget(targetType, targetId) {
-    return sortPhotos(
-      photos.filter((photo) => {
-        const photoTargetType = photo.target_type ?? photo.photo_type;
-        return photoTargetType === targetType && getPhotoTargetId(photo) === targetId;
-      })
-    );
-  }
-
-  function getPhotoImageUrl(photo) {
-    return photo?.signed_url || photo?.signedUrl || "";
-  }
-
-  async function attachSignedPhotoUrls(photoRows = []) {
-    const rows = Array.isArray(photoRows) ? photoRows : [];
-    const storagePaths = Array.from(new Set(rows.map((photo) => photo.storage_path).filter(Boolean)));
-    if (!storagePaths.length) return rows;
-
-    const { data, error } = await supabase.storage
-      .from(PHOTO_STORAGE_BUCKET)
-      .createSignedUrls(storagePaths, PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS);
-    if (error) {
-      console.error("[FORMATE photo signed urls]", error);
-      return rows.map((photo) => ({ ...photo, signed_url: "" }));
-    }
-
-    const signedUrlByPath = new Map(
-      (data ?? [])
-        .filter((entry) => entry?.path && entry?.signedUrl)
-        .map((entry) => [entry.path, entry.signedUrl])
-    );
-
-    return rows.map((photo) => ({
-      ...photo,
-      signed_url: signedUrlByPath.get(photo.storage_path) ?? "",
-    }));
-  }
-
-  function markPhotoAutoSaveSaving(message = "저장 중...") {
-    setPhotoAutoSaveStatus("saving");
-    setPhotoAutoSaveMessage(message);
-  }
-
-  function markPhotoAutoSaveSaved(message = "저장됨") {
-    setPhotoAutoSaveStatus("saved");
-    setPhotoAutoSaveMessage(message);
-  }
-
-  function markPhotoAutoSaveError(message = "저장 실패") {
-    setPhotoAutoSaveStatus("error");
-    setPhotoAutoSaveMessage(message);
-  }
-
-  async function ensureDefaultPhotoCollections(companyId, collectionRows = []) {
-    if (collectionRows.length > 0) return false;
-    const collectionTypes = [PHOTO_TYPES.FULL_PROJECT, PHOTO_TYPES.PARTIAL_PROJECT];
-    const payloads = collectionTypes.flatMap((photoType) =>
-      PHOTO_COLLECTION_DEFAULT_NAMES.map((name, index) => ({
-        company_id: companyId,
-        photo_type: photoType,
-        name,
-        sort_order: index,
-      }))
-    );
-
-    if (!payloads.length) return false;
-    const { error } = await supabase.from("photo_collections").insert(payloads);
-    if (error) throw error;
-    return true;
-  }
-
-  async function fetchPhotoManagementData() {
-    setPhotoLoading(true);
-    setPhotoError("");
-    setPhotoNotice("");
-    try {
-      const companyId = requireSelectedCompanyId();
-      const { data: collectionRows, error: collectionError } = await supabase
-        .from("photo_collections")
-        .select("*")
-        .eq("company_id", companyId)
-        .in("photo_type", [PHOTO_TYPES.FULL_PROJECT, PHOTO_TYPES.PARTIAL_PROJECT])
-        .order("photo_type", { ascending: true })
-        .order("sort_order", { ascending: true });
-      if (collectionError) throw collectionError;
-
-      const createdDefaults = await ensureDefaultPhotoCollections(companyId, collectionRows ?? []);
-      const nextCollectionRows = createdDefaults
-        ? (
-            await supabase
-              .from("photo_collections")
-              .select("*")
-              .eq("company_id", companyId)
-              .in("photo_type", [PHOTO_TYPES.FULL_PROJECT, PHOTO_TYPES.PARTIAL_PROJECT])
-              .order("photo_type", { ascending: true })
-              .order("sort_order", { ascending: true })
-          )
-        : { data: collectionRows ?? [], error: null };
-      if (nextCollectionRows.error) throw nextCollectionRows.error;
-
-      const { data: photoRows, error: photoErrorResult } = await supabase
-        .from("photos")
-        .select("*")
-        .eq("company_id", companyId)
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: true });
-      if (photoErrorResult) throw photoErrorResult;
-      const photoRowsWithSignedUrls = await attachSignedPhotoUrls(photoRows ?? []);
-
-      const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
-      const catalog = normalizeAdminItems(itemRows, subitemRows, []);
-      setPhotoCollections(nextCollectionRows.data ?? []);
-      setPhotoCollectionDrafts(
-        Object.fromEntries((nextCollectionRows.data ?? []).map((collection) => [collection.id, collection.name ?? ""]))
-      );
-      setPhotos(photoRowsWithSignedUrls);
-      setPhotoCatalog(catalog);
-    } catch (error) {
-      console.error("[FORMATE photo management fetch]", error);
-      setPhotoError(getFriendlyError(error, "사진 관리 데이터를 불러오지 못했습니다. supabase/photo_management.sql 적용 여부를 확인해 주세요."));
-    } finally {
-      setPhotoLoading(false);
-    }
-  }
-
-  async function addPhotoCollection(photoType) {
-    if (![PHOTO_TYPES.FULL_PROJECT, PHOTO_TYPES.PARTIAL_PROJECT].includes(photoType)) return;
-    setPhotoSaving(true);
-    markPhotoAutoSaveSaving("분류 저장 중...");
-    setPhotoError("");
-    setPhotoNotice("");
-    try {
-      const companyId = requireSelectedCompanyId();
-      const sameTypeCollections = photoCollections.filter((collection) => collection.photo_type === photoType);
-      const { error } = await supabase.from("photo_collections").insert({
-        company_id: companyId,
-        photo_type: photoType,
-        name: `새 분류 ${sameTypeCollections.length + 1}`,
-        sort_order: sameTypeCollections.length,
-      });
-      if (error) throw error;
-      setPhotoNotice("분류를 추가했습니다.");
-      markPhotoAutoSaveSaved("분류가 저장되었습니다.");
-      await fetchPhotoManagementData();
-    } catch (error) {
-      console.error("[FORMATE photo collection add]", error);
-      setPhotoError(getFriendlyError(error, "사진 분류를 추가하지 못했습니다."));
-      markPhotoAutoSaveError("분류 저장 실패");
-    } finally {
-      setPhotoSaving(false);
-    }
-  }
-
-  async function savePhotoCollectionName(collectionId) {
-    const name = `${photoCollectionDrafts[collectionId] ?? ""}`.trim();
-    if (!name) {
-      setPhotoError("분류명을 입력해 주세요.");
-      return;
-    }
-
-    setPhotoSaving(true);
-    markPhotoAutoSaveSaving("분류명 저장 중...");
-    setPhotoError("");
-    setPhotoNotice("");
-    try {
-      const { error } = await supabase
-        .from("photo_collections")
-        .update({ name })
-        .eq("id", collectionId)
-        .eq("company_id", requireSelectedCompanyId());
-      if (error) throw error;
-      setPhotoNotice("분류명을 저장했습니다.");
-      markPhotoAutoSaveSaved("분류명이 저장되었습니다.");
-      await fetchPhotoManagementData();
-    } catch (error) {
-      console.error("[FORMATE photo collection rename]", error);
-      setPhotoError(getFriendlyError(error, "사진 분류명을 저장하지 못했습니다."));
-      markPhotoAutoSaveError("분류명 저장 실패");
-    } finally {
-      setPhotoSaving(false);
-    }
-  }
-
-  async function deletePhotoCollection(collection) {
-    if (!collection?.id) return;
-    const collectionPhotos = getPhotosForTarget(collection.photo_type, collection.id);
-    if (collectionPhotos.length > 0 && !window.confirm("이 분류의 사진도 함께 삭제됩니다. 계속할까요?")) {
-      return;
-    }
-
-    setPhotoSaving(true);
-    markPhotoAutoSaveSaving("분류 삭제 중...");
-    setPhotoError("");
-    setPhotoNotice("");
-    try {
-      const storagePaths = collectionPhotos.map((photo) => photo.storage_path).filter(Boolean);
-      if (storagePaths.length) {
-        await supabase.storage.from(PHOTO_STORAGE_BUCKET).remove(storagePaths);
-      }
-      const { error } = await supabase
-        .from("photo_collections")
-        .delete()
-        .eq("id", collection.id)
-        .eq("company_id", requireSelectedCompanyId());
-      if (error) throw error;
-      setPhotoNotice("분류를 삭제했습니다.");
-      markPhotoAutoSaveSaved("분류가 삭제되었습니다.");
-      await fetchPhotoManagementData();
-    } catch (error) {
-      console.error("[FORMATE photo collection delete]", error);
-      setPhotoError(getFriendlyError(error, "사진 분류를 삭제하지 못했습니다."));
-      markPhotoAutoSaveError("분류 삭제 실패");
-    } finally {
-      setPhotoSaving(false);
-    }
-  }
-
-  function validatePhotoFile(file) {
-    if (!file) return "업로드할 사진을 선택해 주세요.";
-    if (!file.type.startsWith("image/")) return "이미지 파일만 업로드할 수 있습니다.";
-    if (file.size > MAX_PHOTO_UPLOAD_BYTES) return "사진은 10MB 이하 파일만 업로드해 주세요.";
-    return "";
-  }
-
-  async function uploadPhotoForTarget(targetType, targetId, fileList) {
-    const file = fileList?.[0];
-    const validationError = validatePhotoFile(file);
-    if (validationError) {
-      setPhotoError(validationError);
-      markPhotoAutoSaveError("사진 저장 실패");
-      return;
-    }
-
-    const existingPhotos = getPhotosForTarget(targetType, targetId);
-    if (targetType === PHOTO_TYPES.SUBITEM && existingPhotos.length >= MAX_SUBITEM_PHOTO_COUNT) {
-      setPhotoError(`세부항목 사진은 최대 ${MAX_SUBITEM_PHOTO_COUNT}장까지 등록할 수 있습니다.`);
-      markPhotoAutoSaveError("사진 저장 실패");
-      return;
-    }
-
-    setPhotoSaving(true);
-    markPhotoAutoSaveSaving("사진 저장 중...");
-    setPhotoError("");
-    setPhotoNotice("");
-    try {
-      const companyId = requireSelectedCompanyId();
-      const photoId = createStorageSafeId();
-      const extension = getPhotoFileExtension(file.name);
-      const storagePath = `${companyId}/${targetType}/${targetId}/${photoId}.${extension}`;
-      const { error: uploadError } = await supabase.storage
-        .from(PHOTO_STORAGE_BUCKET)
-        .upload(storagePath, file, { contentType: file.type, upsert: false });
-      if (uploadError) throw uploadError;
-
-      const { error: insertError } = await supabase.from("photos").insert({
-        id: photoId,
-        company_id: companyId,
-        photo_type: targetType,
-        collection_id: targetType === PHOTO_TYPES.SUBITEM ? null : targetId,
-        target_type: targetType,
-        target_id: targetId,
-        storage_bucket: PHOTO_STORAGE_BUCKET,
-        storage_path: storagePath,
-        original_filename: file.name,
-        content_type: file.type,
-        file_size: file.size,
-        is_primary: existingPhotos.length === 0,
-        sort_order: existingPhotos.length,
-      });
-      if (insertError) throw insertError;
-
-      setPhotoNotice("사진을 업로드했습니다.");
-      markPhotoAutoSaveSaved("사진이 저장되었습니다.");
-      await fetchPhotoManagementData();
-    } catch (error) {
-      console.error("[FORMATE photo upload]", error);
-      setPhotoError(getFriendlyError(error, "사진을 업로드하지 못했습니다."));
-      markPhotoAutoSaveError("사진 저장 실패");
-    } finally {
-      setPhotoSaving(false);
-    }
-  }
-
-  async function setPrimaryPhoto(photo) {
-    if (!photo?.id) return;
-    const targetType = photo.target_type ?? photo.photo_type;
-    const targetId = getPhotoTargetId(photo);
-    setPhotoSaving(true);
-    markPhotoAutoSaveSaving("대표사진 저장 중...");
-    setPhotoError("");
-    setPhotoNotice("");
-    try {
-      const companyId = requireSelectedCompanyId();
-      const { error: clearError } = await supabase
-        .from("photos")
-        .update({ is_primary: false })
-        .eq("company_id", companyId)
-        .eq("target_type", targetType)
-        .eq("target_id", targetId);
-      if (clearError) throw clearError;
-      const { error: primaryError } = await supabase
-        .from("photos")
-        .update({ is_primary: true })
-        .eq("id", photo.id)
-        .eq("company_id", companyId);
-      if (primaryError) throw primaryError;
-      setPhotoNotice("대표사진을 변경했습니다.");
-      markPhotoAutoSaveSaved("대표사진이 저장되었습니다.");
-      await fetchPhotoManagementData();
-    } catch (error) {
-      console.error("[FORMATE photo primary]", error);
-      setPhotoError(getFriendlyError(error, "대표사진을 변경하지 못했습니다."));
-      markPhotoAutoSaveError("대표사진 저장 실패");
-    } finally {
-      setPhotoSaving(false);
-    }
-  }
-
-  async function deletePhoto(photo) {
-    if (!photo?.id) return;
-    setPhotoSaving(true);
-    markPhotoAutoSaveSaving("사진 삭제 중...");
-    setPhotoError("");
-    setPhotoNotice("");
-    try {
-      if (photo.storage_path) {
-        await supabase.storage.from(PHOTO_STORAGE_BUCKET).remove([photo.storage_path]);
-      }
-      const { error } = await supabase
-        .from("photos")
-        .delete()
-        .eq("id", photo.id)
-        .eq("company_id", requireSelectedCompanyId());
-      if (error) throw error;
-      setPhotoNotice("사진을 삭제했습니다.");
-      markPhotoAutoSaveSaved("사진이 삭제되었습니다.");
-      await fetchPhotoManagementData();
-    } catch (error) {
-      console.error("[FORMATE photo delete]", error);
-      setPhotoError(getFriendlyError(error, "사진을 삭제하지 못했습니다."));
-      markPhotoAutoSaveError("사진 삭제 실패");
-    } finally {
-      setPhotoSaving(false);
-    }
-  }
-
-  async function movePhoto(photo, direction) {
-    const targetType = photo?.target_type ?? photo?.photo_type;
-    const targetId = getPhotoTargetId(photo);
-    const targetPhotos = getPhotosForTarget(targetType, targetId);
-    const currentIndex = targetPhotos.findIndex((entry) => entry.id === photo.id);
-    const nextIndex = currentIndex + direction;
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= targetPhotos.length) return;
-
-    const sibling = targetPhotos[nextIndex];
-    setPhotoSaving(true);
-    markPhotoAutoSaveSaving("사진 순서 저장 중...");
-    setPhotoError("");
-    setPhotoNotice("");
-    try {
-      const companyId = requireSelectedCompanyId();
-      const updates = [
-        supabase.from("photos").update({ sort_order: sibling.sort_order ?? nextIndex }).eq("id", photo.id).eq("company_id", companyId),
-        supabase.from("photos").update({ sort_order: photo.sort_order ?? currentIndex }).eq("id", sibling.id).eq("company_id", companyId),
-      ];
-      const results = await Promise.all(updates);
-      const failed = results.find((result) => result.error);
-      if (failed?.error) throw failed.error;
-      setPhotoNotice("사진 순서를 변경했습니다.");
-      markPhotoAutoSaveSaved("사진 순서가 저장되었습니다.");
-      await fetchPhotoManagementData();
-    } catch (error) {
-      console.error("[FORMATE photo order]", error);
-      setPhotoError(getFriendlyError(error, "사진 순서를 변경하지 못했습니다."));
-      markPhotoAutoSaveError("사진 순서 저장 실패");
-    } finally {
-      setPhotoSaving(false);
-    }
-  }
-
-  function renderPhotoUploadButton(targetType, targetId, disabled = false) {
-    return (
-      <label className={`photo-upload-button ${disabled ? "disabled" : ""}`.trim()}>
-        <Plus size={18} strokeWidth={1.5} />
-        <span>사진 추가</span>
-        <input
-          type="file"
-          accept="image/*"
-          disabled={disabled || photoSaving}
-          onChange={(event) => {
-            uploadPhotoForTarget(targetType, targetId, event.target.files);
-            event.target.value = "";
-          }}
-        />
-      </label>
-    );
-  }
-
-  function renderPhotoList(targetType, targetId) {
-    const targetPhotos = getPhotosForTarget(targetType, targetId);
-    const primaryPhoto = getPrimaryPhoto(targetPhotos);
-
-    if (!targetPhotos.length) {
-      return (
-        <EmptyState
-          className="photo-empty-state"
-          icon={<Image size={24} strokeWidth={1.5} />}
-          title="등록된 사진 없음"
-          description="이 분류에 사용할 사진을 추가해 주세요."
-        />
-      );
-    }
-
-    return (
-      <div className="photo-thumb-grid">
-        {targetPhotos.map((photo, index) => {
-          const imageUrl = getPhotoImageUrl(photo);
-          const isPrimary = photo.id === primaryPhoto?.id;
-          return (
-            <article className={`photo-thumb-card ${isPrimary ? "primary" : ""}`.trim()} key={photo.id}>
-              <div className="photo-thumb-image">
-                {imageUrl ? <img src={imageUrl} alt={photo.original_filename || "등록 사진"} /> : <Image size={24} strokeWidth={1.5} />}
-                {isPrimary && <span>대표</span>}
-              </div>
-              <div className="photo-thumb-meta">
-                <p title={photo.original_filename || ""}>{photo.original_filename || "사진"}</p>
-                <div className="photo-thumb-actions">
-                  <button type="button" onClick={() => setPrimaryPhoto(photo)} disabled={photoSaving || isPrimary}>
-                    대표
-                  </button>
-                  <button type="button" onClick={() => movePhoto(photo, -1)} disabled={photoSaving || index === 0}>
-                    위
-                  </button>
-                  <button type="button" onClick={() => movePhoto(photo, 1)} disabled={photoSaving || index === targetPhotos.length - 1}>
-                    아래
-                  </button>
-                  <button type="button" className="danger" onClick={() => deletePhoto(photo)} disabled={photoSaving}>
-                    삭제
-                  </button>
-                </div>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    );
-  }
-
-  function renderProjectPhotoTab(photoType) {
-    const collectionsForType = photoCollections.filter((collection) => collection.photo_type === photoType);
-    const tabLabel = PHOTO_TAB_OPTIONS.find((tab) => tab.key === photoType)?.label ?? "사진";
-
-    return (
-      <div className="photo-tab-panel">
-        <div className="photo-section-header">
-          <div>
-            <h3>{tabLabel} 분류</h3>
-            <p className="muted">금액대 같은 분류명은 자유롭게 바꿀 수 있습니다.</p>
-          </div>
-          <Button variant="primary" leftIcon={<Plus />} onClick={() => addPhotoCollection(photoType)} disabled={photoSaving}>
-            분류 추가
-          </Button>
-        </div>
-
-        {collectionsForType.length === 0 ? (
-          <EmptyState
-            className="compact-empty"
-            icon={<Image size={24} strokeWidth={1.5} />}
-            title="분류가 없습니다"
-            description="분류를 추가한 뒤 사진을 업로드하세요."
-          />
-        ) : (
-          <div className="photo-collection-list">
-            {collectionsForType.map((collection) => (
-              <section className="photo-collection-card" key={collection.id}>
-                <div className="photo-collection-title-row">
-                  <input
-                    value={photoCollectionDrafts[collection.id] ?? collection.name ?? ""}
-                    onChange={(event) =>
-                      setPhotoCollectionDrafts((prev) => ({
-                        ...prev,
-                        [collection.id]: event.target.value,
-                      }))
-                    }
-                    aria-label="사진 분류명"
-                  />
-                  <Button variant="secondary" size="sm" onClick={() => savePhotoCollectionName(collection.id)} disabled={photoSaving}>
-                    저장
-                  </Button>
-                  <button
-                    type="button"
-                    className="photo-collection-delete-button"
-                    onClick={() => deletePhotoCollection(collection)}
-                    disabled={photoSaving}
-                    aria-label="분류 삭제"
-                    title="분류 삭제"
-                  >
-                    <Trash2 size={18} strokeWidth={1.5} />
-                  </button>
-                  {renderPhotoUploadButton(photoType, collection.id)}
-                </div>
-                {renderPhotoList(photoType, collection.id)}
-              </section>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function renderSubitemPhotoTab() {
-    const togglePhotoCategory = (itemId) => {
-      setExpandedPhotoCategoryIds((current) =>
-        current.includes(itemId)
-          ? current.filter((id) => id !== itemId)
-          : [...current, itemId]
-      );
-    };
-
-    return (
-      <div className="photo-tab-panel">
-        <div className="photo-section-header">
-          <div>
-            <h3>세부항목 사진</h3>
-            <p className="muted">단가표의 대분류/세부항목 구조를 읽어와 사진만 별도로 관리합니다. 세부항목당 최대 {MAX_SUBITEM_PHOTO_COUNT}장까지 등록할 수 있습니다.</p>
-          </div>
-        </div>
-
-        {photoCatalog.length === 0 ? (
-          <EmptyState
-            className="compact-empty"
-            icon={<Image size={24} strokeWidth={1.5} />}
-            title="세부항목이 없습니다"
-            description="현재 업체의 단가표 세부항목을 먼저 준비해 주세요."
-          />
-        ) : (
-          <div className="photo-subitem-groups">
-            {photoCatalog.map((item) => (
-              <section className={`photo-subitem-group ${expandedPhotoCategoryIds.includes(item.id) ? "expanded" : ""}`.trim()} key={item.id}>
-                <button
-                  type="button"
-                  className="photo-subitem-group-toggle"
-                  onClick={() => togglePhotoCategory(item.id)}
-                  aria-expanded={expandedPhotoCategoryIds.includes(item.id)}
-                >
-                  <span>
-                    <strong>{item.name}</strong>
-                    <em>{(item.subitems ?? []).length}개 세부항목</em>
-                  </span>
-                  {expandedPhotoCategoryIds.includes(item.id) ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
-                </button>
-
-                {expandedPhotoCategoryIds.includes(item.id) && (
-                  <div className="photo-subitem-table">
-                    <div className="photo-subitem-header">
-                      <span>소재명</span>
-                      <span>사진 관리</span>
-                      <span>사진 추가</span>
-                    </div>
-                    {(item.subitems ?? []).map((subitem) => {
-                      const subitemPhotos = getPhotosForTarget(PHOTO_TYPES.SUBITEM, subitem.id);
-                      const primaryPhoto = getPrimaryPhoto(subitemPhotos);
-                      const isLimitReached = subitemPhotos.length >= MAX_SUBITEM_PHOTO_COUNT;
-                      return (
-                        <div className="photo-subitem-row" key={subitem.id}>
-                          <div className="photo-subitem-name">
-                            <strong>{subitem.name}</strong>
-                            <span>{subitem.unit || ""}</span>
-                          </div>
-                          <div className="photo-subitem-manage">
-                            <div className="photo-count-line">
-                              <span>{subitemPhotos.length}/{MAX_SUBITEM_PHOTO_COUNT}장</span>
-                              <span>{primaryPhoto ? "대표사진 지정됨" : "대표사진 없음"}</span>
-                            </div>
-                            {renderPhotoList(PHOTO_TYPES.SUBITEM, subitem.id)}
-                          </div>
-                          <div className="photo-subitem-upload">
-                            {renderPhotoUploadButton(PHOTO_TYPES.SUBITEM, subitem.id, isLimitReached)}
-                            {isLimitReached && <p>최대 {MAX_SUBITEM_PHOTO_COUNT}장까지 등록됩니다.</p>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-            ))}
-          </div>
-        )}
       </div>
     );
   }
@@ -6169,16 +5543,11 @@ function AdminApp() {
     setIsLoadingEstimateItemPhotos(true);
     try {
       const companyId = requireSelectedCompanyId();
-      const { data, error } = await supabase
-        .from("photos")
-        .select("*")
-        .eq("company_id", companyId)
-        .eq("target_type", PHOTO_TYPES.SUBITEM)
-        .eq("target_id", subitemId)
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      const photosWithSignedUrls = await attachSignedPhotoUrls(data ?? []);
+      const photosWithSignedUrls = await fetchPhotosForTarget({
+        companyId,
+        targetType: PHOTO_TYPES.SUBITEM,
+        targetId: subitemId,
+      });
       if (estimatePhotoRequestRef.current === subitemId) {
         setEstimateItemPhotos(sortPhotosWithPrimaryFirst(photosWithSignedUrls));
       }
@@ -6753,18 +6122,7 @@ function AdminApp() {
     setEstimateItemPhotos([]);
     setIsLoadingEstimateItemPhotos(false);
     setEstimateItemPhotosError("");
-    setPhotoTab(PHOTO_TYPES.FULL_PROJECT);
-    setPhotoCollections([]);
-    setPhotoCollectionDrafts({});
-    setPhotos([]);
-    setPhotoCatalog([]);
-    setExpandedPhotoCategoryIds([]);
-    setPhotoAutoSaveStatus("idle");
-    setPhotoAutoSaveMessage("");
-    setPhotoLoading(false);
-    setPhotoSaving(false);
-    setPhotoError("");
-    setPhotoNotice("");
+    resetPhotoManagement();
     setDragItemId("");
     setDragOverItemId("");
     setDragSubitem(null);
@@ -11406,63 +10764,7 @@ function AdminApp() {
       )}
 
       {page === "photo-management" && renderAppShell(
-        <main className="panel-page photo-management-page">
-          <section className="photo-management-panel">
-            <PageHeader
-              eyebrow="사진 관리/확인"
-              title="업체 사진 자료실"
-              description="올공사, 부분공사, 세부항목 사진을 현재 업체 기준으로 관리합니다."
-              actions={
-                <Button variant="secondary" leftIcon={<RefreshCcw />} onClick={fetchPhotoManagementData} disabled={photoLoading || photoSaving}>
-                  새로고침
-                </Button>
-              }
-            />
-
-            <div className="photo-storage-note">
-              <Image size={18} />
-              <span>Storage bucket: {PHOTO_STORAGE_BUCKET}</span>
-              <span>업로드 제한: 이미지 파일, 10MB 이하</span>
-            </div>
-
-            {photoAutoSaveStatus !== "idle" && (
-              <div className={`photo-autosave-status ${photoAutoSaveStatus}`.trim()}>
-                <span>{photoAutoSaveStatus === "saving" ? "저장 중..." : photoAutoSaveStatus === "error" ? "저장 실패" : "저장됨"}</span>
-                <strong>{photoAutoSaveMessage}</strong>
-              </div>
-            )}
-
-            <div className="photo-tabs" role="tablist" aria-label="사진 관리 탭">
-              {PHOTO_TAB_OPTIONS.map((tab) => (
-                <button
-                  type="button"
-                  key={tab.key}
-                  className={photoTab === tab.key ? "active" : ""}
-                  onClick={() => {
-                    setPhotoTab(tab.key);
-                    setPhotoError("");
-                    setPhotoNotice("");
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {photoLoading && <div className="info-box">사진 데이터를 불러오는 중입니다.</div>}
-            {photoSaving && <div className="info-box">사진 정보를 저장하는 중입니다.</div>}
-            {photoNotice && <div className="success-box">{photoNotice}</div>}
-            {photoError && <div className="error-box">{photoError}</div>}
-
-            {!photoLoading && (
-              <>
-                {photoTab === PHOTO_TYPES.FULL_PROJECT && renderProjectPhotoTab(PHOTO_TYPES.FULL_PROJECT)}
-                {photoTab === PHOTO_TYPES.PARTIAL_PROJECT && renderProjectPhotoTab(PHOTO_TYPES.PARTIAL_PROJECT)}
-                {photoTab === PHOTO_TYPES.SUBITEM && renderSubitemPhotoTab()}
-              </>
-            )}
-          </section>
-        </main>
+        <PhotoManagementPage controller={photoManagement} />
       )}
 
       {page === "ready" && renderAppShell(
