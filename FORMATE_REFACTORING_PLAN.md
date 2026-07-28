@@ -66,7 +66,8 @@ Supabase client / 기존 RPC
 - UI/Page는 Supabase 테이블명과 payload 세부사항을 모른다.
 - Controller는 화면 state와 작업 순서를 소유한다.
 - Domain/Model은 React·DOM·Supabase에 의존하지 않는다.
-- Feature API만 Supabase 접근을 소유한다.
+- Feature API와 문서에 명시된 `app/authApi.js`, `customerPortalApi.js` 등의 API 모듈만 Supabase 접근을 소유한다.
+- UI, Page, Component, Domain, Model은 Supabase를 직접 접근하지 않는다.
 - 기존 RPC·DB 계약은 변경하지 않는다.
 - 실제 코드가 단순하면 불필요한 파일을 억지로 만들지 않는다.
 
@@ -98,6 +99,7 @@ Supabase client / 기존 RPC
 - Phase 전용 `git add`, `git commit`
 - 한 Phase 안에서 테스트 보호 커밋과 구조 이동 커밋을 분리
 - 한 Phase당 최대 2개 커밋
+- 단, Phase 5는 5A·5B·5C·5D 각각을 독립 Subphase로 보고 Subphase당 최대 2개 커밋
 
 금지:
 
@@ -357,6 +359,7 @@ payload·DB 컬럼 변경 금지.
 - `exportEstimatePdf.js`
 
 현재 렌더 결과와 CSS를 유지한다. 스크롤 개선·PDF 디자인·계약서 기능은 하지 않는다.
+PDF 데이터 계약과 생성 코드는 자동 검증한다. 실제 시각적 동일성은 자동 검증 완료로 간주하지 않고 최종 보고서에 사용자 수동 검증 대기로 명시한다.
 
 ## 완료 조건
 
@@ -439,6 +442,21 @@ refactor(customer-operations): split feature API boundaries
 ---
 
 # Phase 5 — App 소유 잔여 기능 분리
+
+5A·5B·5C·5D는 각각 독립 Subphase로 수행한다.
+
+각 Subphase에서 다음을 별도로 수행한다.
+
+1. 시작 전 branch, HEAD, working tree 확인
+2. characterization test 보강
+3. 해당 Subphase 범위만 구조 이동
+4. `npm run test`
+5. `npm run build`
+6. `git diff --check`, 변경 범위 검토
+7. Subphase 전용 커밋
+
+“한 Phase당 최대 2개 커밋” 규칙은 Phase 5 전체가 아니라 각 Subphase에 적용한다.
+한 Subphase의 검증이 실패하면 다음 Subphase로 넘어가지 않는다.
 
 ## 5A. 인증·세션
 
@@ -601,6 +619,7 @@ rg "supabase\.from|supabase\.rpc|supabase\.storage" src
 - 일반 소재·신규 규격·autosave
 - 견적 조건·편집·계산·저장·복원·복사
 - 일반/세부 미리보기와 PDF
+- PDF 실제 시각적 동일성은 자동 완료 처리하지 않고 사용자 수동 검증 대기로 유지
 - 저장 견적 휴지통·복원
 - 받은 요청 상태 전환
 - 고객·현장 조회·완료·취소·복원
@@ -619,6 +638,7 @@ rg "supabase\.from|supabase\.rpc|supabase\.storage" src
 - working tree clean
 - 후속 제품 작업 미구현
 - 수동 체크리스트와 위험 보고 완료
+- PDF 실제 시각적 동일성의 사용자 수동 검증 대기 상태 명시
 
 ## 최종 보고
 
