@@ -158,6 +158,8 @@ import {
   getPrimaryPhoto,
   sortPhotosWithPrimaryFirst,
 } from "./features/photoManagement/photoModel";
+import DetailCostsPage from "./features/detailCosts/DetailCostsPage";
+import { useDetailCosts } from "./features/detailCosts/useDetailCosts";
 import {
   buildUniqueFlooringOptions,
   buildConstructionItemSavePayload,
@@ -2295,16 +2297,6 @@ function AdminApp() {
       }
     },
   });
-  const [detailSubitems, setDetailSubitems] = useState([]);
-  const [selectedDetailSubitemId, setSelectedDetailSubitemId] = useState("");
-  const [expandedDetailItemIds, setExpandedDetailItemIds] = useState([]);
-  const [detailCosts, setDetailCosts] = useState([]);
-  const [newDetailCost, setNewDetailCost] = useState({
-    name: "",
-    cost: "",
-    category_type: "basic",
-  });
-  const [detailCostBulkInput, setDetailCostBulkInput] = useState({ cost: "" });
   const [estimates, setEstimates] = useState([]);
   const [trashedEstimates, setTrashedEstimates] = useState([]);
   const [estimateSearch, setEstimateSearch] = useState("");
@@ -2374,6 +2366,16 @@ function AdminApp() {
     refresh: fetchPhotoManagementData,
     reset: resetPhotoManagement,
   } = photoManagement;
+  const detailCostsController = useDetailCosts({
+    companyId: selectedCompanyId,
+    getFriendlyError,
+  });
+  const {
+    selectedSubitemId: selectedDetailSubitemId,
+    loadSubitems: fetchDetailSubitems,
+    loadCosts: fetchDetailCosts,
+    reset: resetDetailCosts,
+  } = detailCostsController;
   const authUserMetadata = authUser?.user_metadata ?? {};
   const accountDisplayName = `${authUserMetadata.display_name || authUserMetadata.full_name || authUserMetadata.name || "운영자"}`.trim();
   const accountAvatarUrl = `${authUserMetadata.avatar_url || authUserMetadata.picture || ""}`.trim();
@@ -2640,35 +2642,6 @@ function AdminApp() {
     aiSetupImportApplyPlanSummary.validationRows +
     aiSetupImportApplyPlanSummary.reviewRows +
     aiSetupImportApplyPlanSummary.ignoredRows;
-  const detailSubitemGroups = useMemo(() => {
-    const groupMap = new Map();
-    detailSubitems.forEach((subitem) => {
-      const itemId = subitem.item_id ?? "unknown";
-      if (!groupMap.has(itemId)) {
-        groupMap.set(itemId, {
-          id: itemId,
-          name: subitem.item_name ?? "시공 항목",
-          sort_order: subitem.item_sort_order ?? 0,
-          is_favorite: Boolean(subitem.item_is_favorite),
-          subitems: [],
-        });
-      }
-      groupMap.get(itemId).subitems.push(subitem);
-    });
-    return Array.from(groupMap.values())
-      .map((group) => ({
-        ...group,
-        subitems: [...group.subitems].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
-      }))
-      .sort((a, b) => {
-        if (a.is_favorite !== b.is_favorite) return a.is_favorite ? -1 : 1;
-        return (a.sort_order ?? 0) - (b.sort_order ?? 0);
-      });
-  }, [detailSubitems]);
-  const selectedDetailSubitem = detailSubitems.find((subitem) => subitem.id === selectedDetailSubitemId) ?? null;
-  const selectedDetailGroup = selectedDetailSubitem
-    ? detailSubitemGroups.find((group) => group.id === selectedDetailSubitem.item_id) ?? null
-    : null;
   const currentAdminTemplateCondition = getAdminTemplateCondition();
   const currentAdminConditionLabel = currentAdminTemplateCondition
     ? makeTemplateLabel(currentAdminTemplateCondition, conditionVariantLabelMap)
@@ -2835,18 +2808,6 @@ function AdminApp() {
       fetchDetailCosts(selectedDetailSubitemId);
     }
   }, [page, selectedDetailSubitemId, selectedCompanyId]);
-
-  useEffect(() => {
-    if (page !== "admin-detail-costs") return;
-    setExpandedDetailItemIds((current) => {
-      const validIds = new Set(detailSubitemGroups.map((group) => group.id));
-      const selectedItemId = selectedDetailSubitem?.item_id ?? "";
-      const nextIds = current.filter((id) => validIds.has(id));
-      if (selectedItemId && !nextIds.includes(selectedItemId)) return [...nextIds, selectedItemId];
-      if (nextIds.length > 0) return nextIds;
-      return detailSubitemGroups[0]?.id ? [detailSubitemGroups[0].id] : [];
-    });
-  }, [detailSubitemGroups, page, selectedDetailSubitem]);
 
   useEffect(() => {
     if (page !== "photo-management" || photoTab !== PHOTO_TYPES.SUBITEM) return;
@@ -4370,70 +4331,6 @@ function AdminApp() {
       setAdminItems(normalizeAdminItems(itemRows, subitemRows, templateValueRows));
     } catch (error) {
       setAdminError(getFriendlyError(error, "데이터를 불러오지 못했어요. 다시 시도해주세요."));
-    } finally {
-      setAdminLoading(false);
-    }
-  }
-
-  async function fetchDetailSubitems() {
-    setAdminLoading(true);
-    setAdminError("");
-    try {
-      if (!isSupabaseConfigured) {
-        throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
-      }
-      const companyId = requireSelectedCompanyId();
-      const { itemRows, subitemRows } =
-        await fetchConstructionCatalogRows(companyId);
-
-      const itemIds = (itemRows ?? []).map((item) => item.id);
-      if (!itemIds.length) {
-        setDetailSubitems([]);
-        setSelectedDetailSubitemId("");
-        setDetailCosts([]);
-        return;
-      }
-
-      const itemById = Object.fromEntries((itemRows ?? []).map((item) => [item.id, item]));
-      const nextSubitems = (subitemRows ?? []).map((subitem) => ({
-        ...subitem,
-        item_name: itemById[subitem.item_id]?.name ?? "시공 항목",
-        item_sort_order: itemById[subitem.item_id]?.sort_order ?? 0,
-        item_is_favorite: Boolean(itemById[subitem.item_id]?.is_favorite),
-      }));
-
-      setDetailSubitems(nextSubitems);
-      setSelectedDetailSubitemId((current) => {
-        if (current && nextSubitems.some((subitem) => subitem.id === current)) return current;
-        return nextSubitems[0]?.id ?? "";
-      });
-    } catch (error) {
-      setAdminError(getFriendlyError(error, "소재 목록을 불러오지 못했어요. 다시 시도해주세요."));
-    } finally {
-      setAdminLoading(false);
-    }
-  }
-
-  async function fetchDetailCosts(subitemId = selectedDetailSubitemId) {
-    if (!subitemId) {
-      setDetailCosts([]);
-      return;
-    }
-
-    setAdminLoading(true);
-    setAdminError("");
-    try {
-      const { data, error } = await supabase
-        .from("detail_cost_categories")
-        .select("*")
-        .eq("company_id", requireSelectedCompanyId())
-        .eq("subitem_id", subitemId)
-        .order("sort_order", { ascending: true });
-
-      if (error) throw error;
-      setDetailCosts(data ?? []);
-    } catch (error) {
-      setAdminError(getFriendlyError(error, "세부비용 항목을 불러오지 못했어요. 다시 시도해주세요."));
     } finally {
       setAdminLoading(false);
     }
@@ -6095,16 +5992,7 @@ function AdminApp() {
     setSelectedAdminBuildType("");
     setSelectedAdminHasExtension(false);
     setSelectedAdminConditionVariant("");
-    setDetailSubitems([]);
-    setSelectedDetailSubitemId("");
-    setExpandedDetailItemIds([]);
-    setDetailCosts([]);
-    setNewDetailCost({
-      name: "",
-      cost: "",
-      category_type: "basic",
-    });
-    setDetailCostBulkInput({ cost: "" });
+    resetDetailCosts();
     setEstimates([]);
     setTrashedEstimates([]);
     setEstimateSearch("");
@@ -6190,142 +6078,6 @@ function AdminApp() {
       markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "대분류를 추가하지 못했어요. 다시 시도해주세요."));
-    } finally {
-      setAdminSaving(false);
-    }
-  }
-
-  async function addDetailCost() {
-    if (!selectedDetailSubitemId || !newDetailCost.name.trim()) return;
-
-    setAdminSaving(true);
-    setAdminError("");
-    try {
-      const nextSortOrder = detailCosts.length
-        ? Math.max(...detailCosts.map((cost) => cost.sort_order ?? 0)) + 1
-        : 0;
-      const { error } = await supabase.from("detail_cost_categories").insert({
-        company_id: requireSelectedCompanyId(),
-        subitem_id: selectedDetailSubitemId,
-        name: newDetailCost.name.trim(),
-        cost: toNumberOrZero(newDetailCost.cost),
-        category_type: newDetailCost.category_type,
-        sort_order: nextSortOrder,
-      });
-
-      if (error) throw error;
-      setNewDetailCost({ name: "", cost: "", category_type: "basic" });
-      await fetchDetailCosts(selectedDetailSubitemId);
-      setAdminNotice("세부비용을 추가했습니다.");
-    } catch (error) {
-      setAdminError(getFriendlyError(error, "세부비용을 추가하지 못했어요. 다시 시도해주세요."));
-    } finally {
-      setAdminSaving(false);
-    }
-  }
-
-  function updateLocalDetailCost(costId, patch) {
-    setDetailCosts((current) =>
-      current.map((cost) => (cost.id === costId ? { ...cost, ...patch } : cost))
-    );
-  }
-
-  async function updateDetailCost(costId, patch) {
-    setAdminSaving(true);
-    setAdminError("");
-    try {
-      const payload = { ...patch };
-      if (Object.prototype.hasOwnProperty.call(payload, "name")) {
-        payload.name = payload.name.trim();
-        if (!payload.name) return fetchDetailCosts(selectedDetailSubitemId);
-      }
-      if (Object.prototype.hasOwnProperty.call(payload, "cost")) {
-        payload.cost = toNumberOrZero(payload.cost);
-      }
-
-      const { error } = await supabase
-        .from("detail_cost_categories")
-        .update(payload)
-        .eq("id", costId)
-        .eq("company_id", requireSelectedCompanyId());
-
-      if (error) throw error;
-      await fetchDetailCosts(selectedDetailSubitemId);
-      setAdminNotice("세부비용을 저장했습니다.");
-    } catch (error) {
-      setAdminError(getFriendlyError(error, "세부비용을 수정하지 못했어요. 다시 시도해주세요."));
-      await fetchDetailCosts(selectedDetailSubitemId);
-    } finally {
-      setAdminSaving(false);
-    }
-  }
-
-  async function deleteDetailCost(costId) {
-    setAdminSaving(true);
-    setAdminError("");
-    try {
-      const { error } = await supabase
-        .from("detail_cost_categories")
-        .delete()
-        .eq("id", costId)
-        .eq("company_id", requireSelectedCompanyId());
-
-      if (error) throw error;
-      await fetchDetailCosts(selectedDetailSubitemId);
-      setAdminNotice("세부비용을 삭제했습니다.");
-    } catch (error) {
-      setAdminError(getFriendlyError(error, "세부비용을 삭제하지 못했어요. 다시 시도해주세요."));
-    } finally {
-      setAdminSaving(false);
-    }
-  }
-
-  function toggleDetailItemExpanded(itemId) {
-    setExpandedDetailItemIds((current) =>
-      current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]
-    );
-  }
-
-  async function applyDetailCostBulkInput(mode = "empty") {
-    const rawCost = `${detailCostBulkInput.cost ?? ""}`.trim();
-    if (!selectedDetailSubitemId || !rawCost) {
-      setAdminError("일괄 적용할 단가를 입력하세요.");
-      return;
-    }
-    if (mode === "overwrite") {
-      const confirmed = window.confirm("현재 소재의 세부비용 단가를 모두 덮어쓸까요?");
-      if (!confirmed) return;
-    }
-
-    const targetCosts = detailCosts.filter((cost) =>
-      mode === "overwrite" ? true : isEmptyBulkTargetValue(cost.cost)
-    );
-    if (!targetCosts.length) {
-      setAdminNotice("적용할 빈 단가가 없습니다.");
-      return;
-    }
-
-    setAdminSaving(true);
-    setAdminError("");
-    try {
-      const nextCost = toNumberOrZero(rawCost);
-      await Promise.all(
-        targetCosts.map((cost) =>
-          supabase
-            .from("detail_cost_categories")
-            .update({ cost: nextCost })
-            .eq("id", cost.id)
-            .eq("company_id", requireSelectedCompanyId())
-        )
-      ).then((results) => {
-        const failed = results.find((result) => result.error);
-        if (failed?.error) throw failed.error;
-      });
-      await fetchDetailCosts(selectedDetailSubitemId);
-      setAdminNotice(`${targetCosts.length}개 세부비용 단가를 일괄 적용했습니다.`);
-    } catch (error) {
-      setAdminError(getFriendlyError(error, "세부비용 단가를 일괄 적용하지 못했어요. 다시 시도해주세요."));
-      await fetchDetailCosts(selectedDetailSubitemId);
     } finally {
       setAdminSaving(false);
     }
@@ -12278,243 +12030,7 @@ function AdminApp() {
       )}
 
       {page === "admin-detail-costs" && adminVerified && renderAppShell(
-        <main className="panel-page admin-page detail-cost-page">
-          <div className="editor-header">
-            <div>
-              <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("admin")}>
-                관리자 홈
-              </Button>
-              <h2>세부견적 관리</h2>
-              <p className="muted caption">고객용 견적서에는 표시하지 않는 내부 비용입니다.</p>
-            </div>
-            <div className="admin-actions">
-              <Button
-                variant="secondary"
-                leftIcon={<RefreshCcw />}
-                disabled={adminLoading || adminSaving}
-                onClick={() => {
-                  fetchDetailSubitems();
-                  if (selectedDetailSubitemId) fetchDetailCosts(selectedDetailSubitemId);
-                }}
-              >
-                되돌리기
-              </Button>
-            </div>
-          </div>
-
-          {adminLoading && <div className="status-box">불러오는 중...</div>}
-          {adminSaving && <div className="status-box">저장 중...</div>}
-          {adminError && <div className="error-box">{adminError}</div>}
-
-          <section className="detail-cost-layout">
-            <div className="detail-cost-sidebar">
-              <CategorySidebar
-                title="대분류/소재"
-                aria-label="세부견적 소재 선택"
-                items={detailSubitemGroups.flatMap((group) =>
-                  group.subitems.map((subitem) => ({
-                    id: subitem.id,
-                    label: `${group.name} · ${subitem.name}`,
-                    active: selectedDetailSubitemId === subitem.id,
-                  }))
-                )}
-                onSelect={(subitemId) => setSelectedDetailSubitemId(subitemId)}
-              />
-              <p className="muted caption detail-cost-sidebar-hint">소재를 선택하면 오른쪽에서 내부 비용을 관리합니다.</p>
-                {!adminLoading && !detailSubitems.length && (
-                <EmptyState
-                  className="detail-cost-empty"
-                  title="등록된 소재가 없습니다."
-                  description="먼저 시공항목 수정에서 소재를 추가하세요."
-                />
-                )}
-            </div>
-
-            <section className="detail-cost-panel">
-              <div className="detail-cost-title">
-                <div>
-                  <p className="eyebrow dark">내부 비용 관리</p>
-                  <h3>{selectedDetailSubitem ? selectedDetailSubitem.name : "부자재 및 기타 비용 관리"}</h3>
-                  {selectedDetailGroup && (
-                    <p className="muted caption">{selectedDetailGroup.name} / {selectedDetailSubitem?.unit || "단위 미지정"}</p>
-                  )}
-                </div>
-                <span>고객용 견적서에는 표시하지 않는 내부 비용</span>
-              </div>
-
-              <div className="detail-add-row">
-                <Input
-                  value={newDetailCost.name}
-                  onChange={(event) => setNewDetailCost((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="항목명 예: 풀, 아크졸, 부직포"
-                  disabled={!selectedDetailSubitemId}
-                />
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  value={formatMoneyInputValue(newDetailCost.cost)}
-                  onChange={(event) => setNewDetailCost((current) => ({ ...current, cost: stripNumberInputFormatting(event.target.value) }))}
-                  placeholder="단가"
-                  disabled={!selectedDetailSubitemId}
-                />
-                <select
-                  value={newDetailCost.category_type}
-                  onChange={(event) =>
-                    setNewDetailCost((current) => ({ ...current, category_type: event.target.value }))
-                  }
-                  disabled={!selectedDetailSubitemId}
-                >
-                  <option value="basic">기본에 포함</option>
-                  <option value="full">전체에만 포함</option>
-                </select>
-                <Button
-                  variant="primary"
-                  leftIcon={<Plus />}
-                  disabled={!selectedDetailSubitemId || adminSaving || !newDetailCost.name.trim()}
-                  onClick={addDetailCost}
-                >
-                  추가
-                </Button>
-              </div>
-
-              <div className="detail-bulk-panel">
-                <div>
-                  <strong>현재 소재 단가 일괄입력</strong>
-                  <span>현재 선택한 소재의 세부 비용에만 적용합니다. 인건비/메모는 현재 DB 컬럼이 없어 저장하지 않습니다.</span>
-                </div>
-                <label>
-                  단가
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    value={formatMoneyInputValue(detailCostBulkInput.cost)}
-                    onChange={(event) => setDetailCostBulkInput({ cost: stripNumberInputFormatting(event.target.value) })}
-                    placeholder="예: 12000"
-                    disabled={!selectedDetailSubitemId}
-                  />
-                </label>
-                <div className="detail-bulk-actions">
-                  <Button
-                    variant="secondary"
-                    disabled={!selectedDetailSubitemId || adminSaving}
-                    onClick={() => applyDetailCostBulkInput("empty")}
-                  >
-                    빈/0 단가에 적용
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    disabled={!selectedDetailSubitemId || adminSaving}
-                    onClick={() => applyDetailCostBulkInput("overwrite")}
-                  >
-                    전체 단가 덮어쓰기
-                  </Button>
-                </div>
-              </div>
-
-              <div className="detail-cost-list">
-                {detailCosts.length > 0 && (
-                  <Table
-                    className="detail-cost-table"
-                    columns={[
-                      { key: "name", label: "비용명/부자재명", width: "36%" },
-                      { key: "cost", label: "단가", align: "right", width: "20%" },
-                      { key: "categoryType", label: "구분", width: "30%" },
-                      { key: "actions", label: "삭제", align: "right", width: "14%" },
-                    ]}
-                    rows={detailCosts.map((cost) => ({
-                      id: cost.id,
-                      detailCost: cost,
-                      name: cost.name,
-                      cost: cost.cost,
-                      categoryType: cost.category_type,
-                    }))}
-                    emptyAsZeroMuted
-                    renderCell={({ row, column }) => {
-                      const cost = row.detailCost;
-
-                      if (column.key === "name") {
-                        return (
-                          <input
-                            className="detail-cost-table-input"
-                            value={cost.name}
-                            onChange={(event) => updateLocalDetailCost(cost.id, { name: event.target.value })}
-                            onBlur={(event) => updateDetailCost(cost.id, { name: event.target.value })}
-                          />
-                        );
-                      }
-
-                      if (column.key === "cost") {
-                        return (
-                          <input
-                            className="detail-cost-table-input numeric"
-                            type="text"
-                            inputMode="numeric"
-                            value={formatMoneyInputValue(cost.cost)}
-                            onChange={(event) => updateLocalDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
-                            onBlur={(event) => updateDetailCost(cost.id, { cost: stripNumberInputFormatting(event.target.value) })}
-                          />
-                        );
-                      }
-
-                      if (column.key === "categoryType") {
-                        return (
-                          <div className="detail-type-toggle">
-                            <label className={cost.category_type === "basic" ? "selected" : ""}>
-                              <input
-                                type="radio"
-                                name={`detail-type-${cost.id}`}
-                                checked={cost.category_type === "basic"}
-                                onChange={() => updateDetailCost(cost.id, { category_type: "basic" })}
-                              />
-                              기본에 포함
-                            </label>
-                            <label className={cost.category_type === "full" ? "selected" : ""}>
-                              <input
-                                type="radio"
-                                name={`detail-type-${cost.id}`}
-                                checked={cost.category_type === "full"}
-                                onChange={() => updateDetailCost(cost.id, { category_type: "full" })}
-                              />
-                              전체에만 포함
-                            </label>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          leftIcon={<Trash2 />}
-                          disabled={adminSaving}
-                          onClick={() => deleteDetailCost(cost.id)}
-                        >
-                          삭제
-                        </Button>
-                      );
-                    }}
-                  />
-                )}
-
-                {!adminLoading && selectedDetailSubitemId && !detailCosts.length && (
-                  <EmptyState
-                    className="detail-cost-empty"
-                    title="등록된 내부 비용이 없습니다."
-                    description="상단 입력 영역에서 부자재나 기타 비용을 추가하세요."
-                  />
-                )}
-                {!selectedDetailSubitemId && (
-                  <EmptyState
-                    className="detail-cost-empty"
-                    title="소재를 선택하세요."
-                    description="왼쪽에서 소재를 선택하면 세부견적 항목을 관리할 수 있습니다."
-                  />
-                )}
-              </div>
-            </section>
-          </section>
-        </main>
+        <DetailCostsPage controller={detailCostsController} onBack={() => setPage("admin")} />
       )}
 
       {page === "admin-estimates" && renderAppShell(

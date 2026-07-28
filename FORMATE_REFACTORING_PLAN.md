@@ -505,6 +505,8 @@ refactor(photo-management): extract photo feature
 
 ## 5C. 세부 비용
 
+상태: `DONE` — 64 tests + build
+
 `features/detailCosts/`로 `detail_cost_categories` CRUD·state·Page·API를 이동한다.
 
 견적 계산·마진에 새로 연결하지 않는다.
