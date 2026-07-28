@@ -460,6 +460,8 @@ refactor(customer-operations): split feature API boundaries
 
 ## 5A. 인증·세션
 
+상태: `DONE` — 59 tests + build
+
 목표:
 
 ```text

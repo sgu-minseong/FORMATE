@@ -27,6 +27,15 @@ import {
   Wrench,
 } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "./lib/supabaseClient";
+import {
+  getCurrentAccessToken,
+  isAdminVerifiedForCompany,
+  isValidUuid,
+  normalizeCompanyCode,
+  reauthenticateCompany,
+  writeAdminVerifiedCompany,
+} from "./app/authApi";
+import { useAppSession } from "./app/useAppSession";
 import PriceText from "./components/PriceText.jsx";
 import AppShell from "./components/layout/AppShell.jsx";
 import Button from "./components/ui/Button.jsx";
@@ -224,13 +233,6 @@ const pageFromHash = () => {
   ].includes(page) ? page : "landing";
 };
 
-const COMPANY_STORAGE_KEYS = {
-  id: "formate.selectedCompanyId",
-  name: "formate.selectedCompanyName",
-  code: "formate.selectedCompanyCode",
-};
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ADMIN_VERIFIED_STORAGE_KEY = "formate.adminVerifiedCompanyId";
 const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
 const APP_SHELL_NAV_ITEMS = [
   {
@@ -295,144 +297,6 @@ const PHOTO_COLLECTION_DEFAULT_NAMES = ["1000만원대", "2000만원대", "3000�
 const MAX_SUBITEM_PHOTO_COUNT = 10;
 const MAX_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MATERIAL_NAME_PLACEHOLDER = "추가된 항목의 이름을 입력하세요";
-
-function readStoredCompany() {
-  if (typeof window === "undefined") return null;
-
-  const id = window.localStorage.getItem(COMPANY_STORAGE_KEYS.id);
-  const name = window.localStorage.getItem(COMPANY_STORAGE_KEYS.name);
-  const code = window.localStorage.getItem(COMPANY_STORAGE_KEYS.code);
-  const lookupCode = (!isValidUuid(id) && id) ? id : code;
-
-  if (!id && !lookupCode) return null;
-  return { id: id ?? "", name: name ?? "", code: lookupCode ?? "", company_code: lookupCode ?? "" };
-}
-
-function writeStoredCompany(company) {
-  if (typeof window === "undefined") return;
-
-  const normalizedCompany = normalizeCompanySession(company);
-  window.localStorage.setItem(COMPANY_STORAGE_KEYS.id, normalizedCompany.id);
-  window.localStorage.setItem(COMPANY_STORAGE_KEYS.name, normalizedCompany.name);
-  window.localStorage.setItem(COMPANY_STORAGE_KEYS.code, normalizedCompany.company_code);
-}
-
-function clearStoredCompany() {
-  if (typeof window === "undefined") return;
-
-  window.localStorage.removeItem(COMPANY_STORAGE_KEYS.id);
-  window.localStorage.removeItem(COMPANY_STORAGE_KEYS.name);
-  window.localStorage.removeItem(COMPANY_STORAGE_KEYS.code);
-}
-
-function isAdminVerifiedForCompany(companyId) {
-  if (typeof window === "undefined" || !companyId) return false;
-  return window.sessionStorage.getItem(ADMIN_VERIFIED_STORAGE_KEY) === companyId;
-}
-
-function writeAdminVerifiedCompany(companyId) {
-  if (typeof window === "undefined" || !companyId) return;
-  window.sessionStorage.setItem(ADMIN_VERIFIED_STORAGE_KEY, companyId);
-}
-
-function isValidUuid(value) {
-  return UUID_PATTERN.test(`${value ?? ""}`.trim());
-}
-
-function normalizeCompanySession(company) {
-  return {
-    id: `${company?.id ?? ""}`.trim(),
-    name: `${company?.name ?? ""}`.trim(),
-    company_code: `${company?.company_code ?? company?.code ?? ""}`.trim(),
-    code: `${company?.company_code ?? company?.code ?? ""}`.trim(),
-  };
-}
-
-function normalizeCompanyCode(code) {
-  return `${code ?? ""}`.trim();
-}
-
-function bytesToBase64Url(bytes) {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    const chunk = bytes.slice(index, index + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-
-  return globalThis.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function companyCodeToAuthEmail(companyCode) {
-  const normalizedCode = normalizeCompanyCode(companyCode);
-  if (!normalizedCode) return "";
-
-  const bytes = new TextEncoder().encode(normalizedCode);
-  return `company-${bytesToBase64Url(bytes)}@formate.local`.toLowerCase();
-}
-
-async function fetchCompanyForAuthUser(userId) {
-  if (!isValidUuid(userId)) {
-    throw new Error("로그인 세션이 올바르지 않습니다.");
-  }
-
-  const { data: membership, error: membershipError } = await supabase
-    .from("company_members")
-    .select("company_id, user_id, role")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (membershipError) {
-    console.error("[FORMATE auth] company_members lookup failed");
-    throw membershipError;
-  }
-  if (!membership?.company_id || !isValidUuid(membership.company_id)) {
-    console.error("[FORMATE auth] no company_members row for auth user");
-    throw new Error("로그인된 계정에 연결된 업체가 없습니다.");
-  }
-
-  const { data: company, error: companyError } = await supabase
-    .from("companies")
-    .select("id, name, company_code")
-    .eq("id", membership.company_id)
-    .maybeSingle();
-
-  if (companyError) {
-    console.error("[FORMATE auth] company lookup failed");
-    throw companyError;
-  }
-  if (!company?.id || !isValidUuid(company.id)) {
-    console.error("[FORMATE auth] invalid company row for auth user");
-    throw new Error("업체 정보를 확인할 수 없습니다.");
-  }
-
-  return normalizeCompanySession(company);
-}
-
-async function fetchCompanyFromAuthSession() {
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError) throw sessionError;
-
-  const sessionUser = sessionData?.session?.user;
-  if (sessionUser?.id) {
-    return fetchCompanyForAuthUser(sessionUser.id);
-  }
-
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError) throw userError;
-  if (!userData?.user?.id) return null;
-
-  return fetchCompanyForAuthUser(userData.user.id);
-}
-
-function getStoredCompanyLookupCode(company) {
-  return `${(!isValidUuid(company?.id) && company?.id) ? company.id : company?.company_code ?? company?.code ?? ""}`.trim();
-}
-
-function clearAdminVerifiedCompany() {
-  if (typeof window === "undefined") return;
-  window.sessionStorage.removeItem(ADMIN_VERIFIED_STORAGE_KEY);
-}
 
 function readFavoritePyeongs() {
   if (typeof window === "undefined") return [];
@@ -2299,22 +2163,21 @@ function AdminApp() {
   const estimateListRequestRef = useRef(0);
   const estimateDeleteTriggerRef = useRef(null);
   const currentAdminTemplateConditionRef = useRef(null);
-  const [companySession, setCompanySession] = useState(() => {
-    return {
-      company: null,
-      checking: isSupabaseConfigured,
-    };
-  });
-  const [authUser, setAuthUser] = useState(null);
-  const [loginCode, setLoginCode] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [loginError, setLoginError] = useState("");
-  const [authScreenMode, setAuthScreenMode] = useState("landing");
-  const [adminVerifyOpen, setAdminVerifyOpen] = useState(false);
-  const [adminVerifyPassword, setAdminVerifyPassword] = useState("");
-  const [adminVerifyLoading, setAdminVerifyLoading] = useState(false);
-  const [adminVerifyError, setAdminVerifyError] = useState("");
+  const {
+    companySession,
+    authUser,
+    loginCode, setLoginCode,
+    loginPassword, setLoginPassword,
+    loginLoading,
+    loginError, setLoginError,
+    authScreenMode, setAuthScreenMode,
+    adminVerifyOpen, setAdminVerifyOpen,
+    adminVerifyPassword, setAdminVerifyPassword,
+    adminVerifyLoading, setAdminVerifyLoading,
+    adminVerifyError, setAdminVerifyError,
+    login: loginAppSession,
+    logout: logoutAppSession,
+  } = useAppSession();
   const [pendingAdminPage, setPendingAdminPage] = useState("admin");
   const [page, setPage] = useState(pageFromHash);
   const [step, setStep] = useState(1);
@@ -2884,61 +2747,6 @@ function AdminApp() {
   }, [adminPriceValidationError, adminFavoriteOnly, adminSearch, isCommonPriceAdminPage, selectedAdminCategoryId]);
 
   useEffect(() => {
-    let active = true;
-
-    async function restoreCompanySession() {
-      if (!isSupabaseConfigured) {
-        clearStoredCompany();
-        if (active) {
-          setAuthUser(null);
-          setLoginError("로그인 정보를 다시 확인해주세요.");
-          setCompanySession({ company: null, checking: false });
-        }
-        return;
-      }
-
-      try {
-        const authenticatedCompany = await fetchCompanyFromAuthSession();
-
-        if (!authenticatedCompany) {
-          clearStoredCompany();
-          if (active) {
-            setAuthUser(null);
-            setCompanySession({ company: null, checking: false });
-          }
-          return;
-        }
-
-        const { data: authUserData } = await supabase.auth.getUser();
-        writeStoredCompany(authenticatedCompany);
-        if (active) {
-          setAuthUser(authUserData?.user ?? null);
-          setCompanySession({ company: authenticatedCompany, checking: false });
-        }
-      } catch (error) {
-        console.error("[FORMATE company session] restore failed");
-        try {
-          await supabase.auth.signOut();
-        } catch (signOutError) {
-          console.error("[FORMATE auth sign out] failed");
-        }
-        clearStoredCompany();
-        clearAdminVerifiedCompany();
-        if (active) {
-          setAuthUser(null);
-          setLoginError("로그인 정보를 다시 확인해주세요.");
-          setCompanySession({ company: null, checking: false });
-        }
-      }
-    }
-
-    restoreCompanySession();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!selectedCompanyId) return;
     fetchConditionVariantLabels({ silent: true });
   }, [selectedCompanyId]);
@@ -3112,19 +2920,6 @@ function AdminApp() {
     setAiSetupColumnMappings([]);
   }, [aiSetupAutoMappingAnalysis, selectedAiSetupSheet]);
 
-  async function loadCurrentCompanyFromAuth(userId = "") {
-    const authenticatedCompany = userId
-      ? await fetchCompanyForAuthUser(userId)
-      : await fetchCompanyFromAuthSession();
-    if (!authenticatedCompany?.id || !isValidUuid(authenticatedCompany.id)) {
-      throw new Error("로그인된 계정에 연결된 업체가 없습니다.");
-    }
-
-    writeStoredCompany(authenticatedCompany);
-    setCompanySession({ company: authenticatedCompany, checking: false });
-    return authenticatedCompany;
-  }
-
   function requireSelectedCompanyId() {
     if (!selectedCompanyId) {
       throw new Error("업체 로그인 후 이용해주세요.");
@@ -3154,50 +2949,24 @@ function AdminApp() {
       return;
     }
 
-    setLoginLoading(true);
     setLoginError("");
     try {
-      const email = companyCodeToAuthEmail(companyCode);
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        setLoginError("업체 코드 또는 비밀번호를 확인해주세요.");
-        return;
-      }
-
-      const authUserId = data?.user?.id ?? data?.session?.user?.id ?? "";
-      clearAdminVerifiedCompany();
       clearCompanyScopedState();
-      await loadCurrentCompanyFromAuth(authUserId);
-      setAuthUser(data?.user ?? data?.session?.user ?? null);
-      setLoginCode("");
-      setLoginPassword("");
+      await loginAppSession(companyCode, password);
       setLoginError("");
     } catch (error) {
       console.error("[FORMATE company login] login failed");
       setLoginError("업체 코드 또는 비밀번호를 확인해주세요.");
-    } finally {
-      setLoginLoading(false);
     }
   }
 
   async function handleChangeCompany() {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.auth.signOut();
-      } catch (error) {
-        console.error("[FORMATE auth sign out] failed");
-      }
-    }
-
-    clearStoredCompany();
-    clearAdminVerifiedCompany();
     clearCompanyScopedState();
-    setAuthUser(null);
-    setCompanySession({ company: null, checking: false });
+    try {
+      await logoutAppSession();
+    } catch (error) {
+      console.error("[FORMATE auth sign out] failed");
+    }
     setLoginCode("");
     setLoginPassword("");
     setLoginError("");
@@ -3463,8 +3232,8 @@ function AdminApp() {
         });
       });
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData?.session?.access_token) {
+      const accessToken = await getCurrentAccessToken();
+      if (!accessToken) {
         throw new Error("AI 분석을 사용하려면 다시 로그인해 주세요.");
       }
 
@@ -3472,7 +3241,7 @@ function AdminApp() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${sessionData.session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           rows,
@@ -4111,18 +3880,9 @@ function AdminApp() {
     setAdminVerifyLoading(true);
     setAdminVerifyError("");
     try {
-      const email = companyCodeToAuthEmail(selectedCompany?.company_code ?? selectedCompany?.code ?? "");
-      if (!email) {
-        setAdminVerifyError("업체 정보를 다시 확인해주세요.");
-        return;
-      }
-
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
+      try {
+        await reauthenticateCompany({ company: selectedCompany, password });
+      } catch {
         setAdminVerifyError("비밀번호를 확인해주세요.");
         return;
       }
@@ -5125,17 +4885,9 @@ function AdminApp() {
 
     try {
       const companyId = requireSelectedCompanyId();
-      const email = companyCodeToAuthEmail(selectedCompany?.company_code ?? selectedCompany?.code ?? "");
-      if (!email) {
-        throw new Error("업체 정보를 다시 확인해주세요.");
-      }
-
-      const { error: verifyError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (verifyError) {
+      try {
+        await reauthenticateCompany({ company: selectedCompany, password });
+      } catch {
         setTemplateDeleteError("비밀번호를 확인해주세요.");
         return;
       }
