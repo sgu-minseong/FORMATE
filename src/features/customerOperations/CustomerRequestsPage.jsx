@@ -22,6 +22,7 @@ import {
   isDeletedEstimate,
   operationStatusViews,
 } from "./utils";
+import { replaceRequestInCollection } from "./lifecycleContracts";
 
 const STATUS_FILTERS = [
   { key: "attention", label: "처리 필요" },
@@ -357,9 +358,7 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
         status,
         internalMemo,
       });
-      setRequests((current) => current.map((request) => (
-        request.id === updatedRequest.id ? updatedRequest : request
-      )));
+      setRequests((current) => replaceRequestInCollection(current, updatedRequest));
       setInternalMemo(updatedRequest.internal_memo || "");
       if (status === "closed") {
         setProcessingNotice("요청을 완료했습니다.");
