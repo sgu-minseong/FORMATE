@@ -14,7 +14,7 @@
 |---|---|---:|---|
 | 0 | 안전 기준선·아키텍처 분석·Vitest 도입 | DONE | 분석 완료 |
 | 1 | 규격·두께별 단가·인건비 독립 저장 수정 | DONE | `25038e5` |
-| 2 | 단가표 Feature 분리 | PENDING |  |
+| 2 | 단가표 Feature 분리 | DONE | 44 tests + build |
 | 3 | 견적 Feature 분리 | PENDING |  |
 | 4 | 고객 운영 Feature 경계 정리 | PENDING |  |
 | 5 | App 소유 잔여 기능 분리 | PENDING |  |
@@ -25,7 +25,7 @@
 
 ```text
 npm run test
-- priceTable 회귀 테스트 38개 통과
+- priceTable 회귀 테스트 44개 통과
 
 npm run build
 - 통과

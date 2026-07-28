@@ -92,6 +92,24 @@ export function createPriceTableAutosave({
     });
   };
 
+  const markSaving = (target = snapshot.target) => {
+    clearTimer();
+    emit({
+      status: "saving",
+      target,
+      error: "",
+    });
+  };
+
+  const markError = (error, target = snapshot.target) => {
+    clearTimer();
+    emit({
+      status: "error",
+      target,
+      error: error?.message || `${error ?? ""}` || "자동 저장에 실패했습니다.",
+    });
+  };
+
   const reset = () => {
     clearTimer();
     snapshot = createInitialSnapshot();
@@ -102,7 +120,9 @@ export function createPriceTableAutosave({
     clearTimer,
     getSnapshot: () => ({ ...snapshot }),
     markDirty,
+    markError,
     markSaved,
+    markSaving,
     reset,
     run,
   };

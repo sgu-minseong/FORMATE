@@ -66,13 +66,11 @@ import {
   createExcelPreviewColumns,
 } from "./features/aiExcelImport/excelMapping";
 import {
-  UNIT_OPTIONS,
   PYEONG_OPTIONS,
   FLOORING_THICKNESS_OPTIONS,
   DEFAULT_FLOORING_SPEC,
   DEFAULT_FLOORING_AUTO_SPECS,
   FLOORING_NAME_KEYWORDS,
-  FLOORING_MATERIAL_KEYWORDS,
 } from "./shared/constants/estimateOptions";
 import {
   EXTENDED_VARIANTS,
@@ -80,10 +78,7 @@ import {
   OLD_NO_EXTENSION_VARIANT,
   CONDITION_VARIANT_KEYS,
 } from "./shared/constants/conditionVariants";
-import {
-  CATEGORY_DISPLAY_TARGETS,
-  DEFAULT_CONSTRUCTION_CATALOG,
-} from "./shared/constants/defaultConstructionCatalog";
+import { DEFAULT_CONSTRUCTION_CATALOG } from "./shared/constants/defaultConstructionCatalog";
 import {
   toNumberOrZero,
   toNullableNumber,
@@ -119,16 +114,68 @@ import {
 } from "./features/estimates/api";
 import {
   buildUniqueFlooringOptions,
-  buildSubitemPricePayload,
+  buildConstructionItemSavePayload,
+  buildConstructionSubitemInsertPayload,
+  buildConstructionSubitemSavePayload,
+  compareFlooringThickness,
+  composeFlooringSubitemName,
   createEmptyFlooringVariantDraft,
+  formatFlooringThickness,
+  getCanonicalFlooringSubitemName,
   getFlooringVariantDisplayValues,
+  getFlooringThicknessGroups,
+  getLaborRateEmptyValue,
+  getLaborRateOccupiedValue,
+  getTemplateOptionValue,
+  getUnitSelectOptions,
+  isEmptyLocalPriceTableSubitemPlaceholder as isEmptyLocalAdminSubitemPlaceholder,
+  isFlooringMaterialName,
+  isFlooringThicknessItem,
   isFlooringThicknessSelection,
+  isLocalPriceTableSubitem as isLocalSubitemId,
+  normalizeAdminItems,
+  normalizeFlooringThickness,
   patchSubitemPriceById,
+  parseFlooringThicknessName,
   reconcileFlooringVariantRows,
   reconcileInsertedSubitems,
+  normalizeSpecOptions,
+  normalizeUnitOptionValue,
   resolveActiveFlooringVariant,
   resolveFlooringVariant,
 } from "./features/priceTable/priceTableModel";
+import usePriceTableController from "./features/priceTable/usePriceTableController";
+import PriceTablePage from "./features/priceTable/PriceTablePage";
+import {
+  deleteAdminTemplate,
+  deleteAdminTemplateValues,
+  deleteConstructionItem,
+  deleteConstructionSubitem,
+  deleteConstructionSubitems,
+  fetchAdminTemplateValueCandidate,
+  fetchAdminTemplateCandidates,
+  fetchAdminTemplateRows,
+  fetchAdminTemplateValues,
+  fetchConditionVariantLabelRows,
+  fetchAiSetupCatalogRows,
+  fetchConstructionCatalogRows,
+  fetchConstructionSubitems,
+  insertAdminTemplate,
+  insertAdminTemplateValue,
+  insertConstructionItem,
+  insertConstructionItemRow,
+  insertConstructionItems,
+  insertConstructionSubitems,
+  insertConstructionSubitemRow,
+  updateAdminTemplate,
+  updateAdminTemplateValue,
+  updateConstructionItem,
+  updateConstructionSubitem,
+  updateConstructionSubitemForItem,
+  upsertAdminTemplateValues,
+  upsertConditionVariantLabelRows,
+  upsertSubitemPyeongValues,
+} from "./features/priceTable/priceTableApi";
 import "./features/customerOperations/customerOperations.css";
 
 const pageFromHash = () => {
@@ -204,7 +251,6 @@ const USE_ADMIN_ITEMS_SCREEN_V2 = true;
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
 const ADMIN_TEMPLATE_ORDER_STORAGE_PREFIX = "formate.adminTemplateOrder";
-const ADMIN_AUTOSAVE_DELAY_MS = 1200;
 const PHOTO_STORAGE_BUCKET = "formate-photos";
 const PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS = 7200;
 const PHOTO_TYPES = {
@@ -564,25 +610,6 @@ function createEmptyItems() {
   return seedItemsFromSaved(null);
 }
 
-function sortAdminItems(rows) {
-  return [...rows].sort((a, b) => {
-    if (a.is_favorite !== b.is_favorite) return a.is_favorite ? -1 : 1;
-    return (a.sort_order ?? 0) - (b.sort_order ?? 0);
-  });
-}
-
-function getCategoryDisplayName(name) {
-  const trimmed = `${name ?? ""}`.trim();
-  return CATEGORY_DISPLAY_TARGETS[trimmed] ?? trimmed;
-}
-
-function getCategoryPersistName(item) {
-  const displayName = `${item?.name ?? ""}`.trim();
-  const sourceName = `${item?._sourceName ?? ""}`.trim();
-  if (sourceName && displayName === getCategoryDisplayName(sourceName)) return sourceName;
-  return displayName;
-}
-
 function getDefaultCatalogItemAliases(name) {
   return name === "도장/페인트" ? ["도장/페인트", "도장"] : [name];
 }
@@ -590,135 +617,6 @@ function getDefaultCatalogItemAliases(name) {
 function findItemByDefaultCatalogName(itemRows, catalogName) {
   const aliases = getDefaultCatalogItemAliases(catalogName);
   return (itemRows ?? []).find((item) => aliases.includes(`${item.name ?? ""}`.trim()));
-}
-
-function getCategorySourceRank(sourceName, displayName) {
-  const trimmed = `${sourceName ?? ""}`.trim();
-  if (trimmed === displayName) return 0;
-  if (displayName === "도장/페인트" && trimmed === "도장") return 1;
-  return 2;
-}
-
-function mergeDisplayCategoryItems(items) {
-  const mergedByName = new Map();
-
-  sortAdminItems(items).forEach((item) => {
-    const sourceName = `${item.name ?? ""}`.trim();
-    const displayName = getCategoryDisplayName(sourceName);
-    const normalizedItem = {
-      ...item,
-      name: displayName,
-      item_type: sourceName === displayName ? item.item_type ?? "itemized" : "itemized",
-      _sourceName: sourceName,
-    };
-    const existing = mergedByName.get(displayName);
-
-    if (!existing) {
-      mergedByName.set(displayName, normalizedItem);
-      return;
-    }
-
-    const existingRank = getCategorySourceRank(existing._sourceName, displayName);
-    const currentRank = getCategorySourceRank(sourceName, displayName);
-    const useCurrentAsParent = currentRank < existingRank;
-    const parent = useCurrentAsParent ? normalizedItem : existing;
-    const other = useCurrentAsParent ? existing : normalizedItem;
-    mergedByName.set(displayName, {
-      ...parent,
-      is_favorite: Boolean(parent.is_favorite || other.is_favorite),
-      sort_order: Math.min(parent.sort_order ?? 0, other.sort_order ?? 0),
-      subitems: [...(existing.subitems ?? []), ...(normalizedItem.subitems ?? [])]
-        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
-      _sourceName: parent._sourceName,
-    });
-  });
-
-  return sortAdminItems(
-    [...mergedByName.values()]
-  );
-}
-
-function normalizeAdminItems(itemsRows, subitemRows, templateValueRows = []) {
-  const subitemsByItemId = subitemRows.reduce((acc, row) => {
-    acc[row.item_id] = acc[row.item_id] ?? [];
-    acc[row.item_id].push(row);
-    return acc;
-  }, {});
-  const templateValueBySubitemId = Object.fromEntries(
-    templateValueRows.map((row) => [row.subitem_id, row])
-  );
-
-  return mergeDisplayCategoryItems(
-    itemsRows.map((item) => ({
-      ...item,
-      item_type: item.item_type ?? "itemized",
-      subitems: [...(subitemsByItemId[item.id] ?? [])]
-        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-        .map((subitem) => {
-          const templateValue = templateValueBySubitemId[subitem.id];
-          return {
-            ...subitem,
-            option_value: getTemplateOptionValue(subitem),
-            cost_price: subitem.cost_price ?? "",
-            cost_unit: normalizeUnitOptionValue(subitem.cost_unit),
-            unit_price: subitem.unit_price ?? "",
-            labor_rate: subitem.labor_rate ?? "",
-            labor_rate_empty: subitem.labor_rate_empty ?? subitem.labor_rate ?? "",
-            labor_rate_occupied: subitem.labor_rate_occupied ?? subitem.labor_rate ?? "",
-            spec_options: normalizeSpecOptions(subitem.spec_options),
-            spec_option_draft: "",
-            selected_spec_option: "",
-            quantity: templateValue?.quantity ?? "",
-            labor_count: templateValue?.labor_count ?? "",
-            construction_days: toConstructionDays(templateValue?.construction_days) || "",
-            template_value_id: templateValue?.id ?? null,
-          };
-        }),
-    }))
-  );
-}
-
-function normalizeUnitOptionValue(value) {
-  const rawValue = `${value ?? ""}`.trim();
-  if (rawValue === "㎡") return "m²";
-  if (rawValue === "미터") return "m";
-  return rawValue;
-}
-
-function getUnitSelectOptions(currentUnit = "") {
-  const normalizedCurrent = normalizeUnitOptionValue(currentUnit);
-  if (normalizedCurrent && !UNIT_OPTIONS.includes(normalizedCurrent)) {
-    return [normalizedCurrent, ...UNIT_OPTIONS];
-  }
-  return UNIT_OPTIONS;
-}
-
-function normalizeSpecOptions(value) {
-  let rawOptions = value;
-  if (typeof rawOptions === "string") {
-    try {
-      rawOptions = JSON.parse(rawOptions);
-    } catch {
-      rawOptions = [];
-    }
-  }
-  if (!Array.isArray(rawOptions)) return [];
-
-  return [
-    ...new Set(
-      rawOptions
-        .map((entry) => `${entry ?? ""}`.trim())
-        .filter((entry) => entry && entry !== DEFAULT_FLOORING_SPEC && entry !== "기본(삭제예정)")
-    ),
-  ];
-}
-
-function getLaborRateEmptyValue(subitem) {
-  return subitem?.labor_rate_empty ?? subitem?.labor_rate ?? "";
-}
-
-function getLaborRateOccupiedValue(subitem) {
-  return subitem?.labor_rate_occupied ?? subitem?.labor_rate ?? "";
 }
 
 function getLaborRateForResidence(subitem, residenceStatus) {
@@ -885,37 +783,9 @@ function makeTemplateLabel(template, variantLabels = {}) {
   return parts.join(" · ");
 }
 
-function getTemplateOptionValue(subitem) {
-  const thickness = parseFlooringThicknessName(subitem?.name)?.thickness;
-  return thickness && thickness !== DEFAULT_FLOORING_SPEC ? thickness : "";
-}
-
 function isFlooringCategoryName(name) {
   const normalized = `${name ?? ""}`.trim();
   return FLOORING_NAME_KEYWORDS.some((keyword) => normalized.includes(keyword));
-}
-
-function isFlooringMaterialName(name) {
-  const normalized = `${name ?? ""}`.trim();
-  return FLOORING_MATERIAL_KEYWORDS.some((keyword) => normalized.includes(keyword));
-}
-
-function normalizeFlooringThickness(value) {
-  const raw = `${value ?? ""}`.trim();
-  if (!raw || raw === DEFAULT_FLOORING_SPEC) return DEFAULT_FLOORING_SPEC;
-  const withoutSuffix = raw.replace(/t$/i, "");
-  const numberValue = Number(withoutSuffix);
-  if (!Number.isFinite(numberValue)) return DEFAULT_FLOORING_SPEC;
-  const normalized = numberValue.toFixed(1);
-  return FLOORING_THICKNESS_OPTIONS.includes(normalized) ? normalized : DEFAULT_FLOORING_SPEC;
-}
-
-function formatFlooringThickness(thickness) {
-  const normalized = normalizeFlooringThickness(thickness);
-  if (normalized === DEFAULT_FLOORING_SPEC) return DEFAULT_FLOORING_SPEC;
-  const numberValue = Number(normalized);
-  const displayValue = Number.isInteger(numberValue) ? String(numberValue) : normalized;
-  return `${displayValue}T`;
 }
 
 function getEstimateRowSpecLabel(row) {
@@ -973,13 +843,6 @@ function getEstimateRowSpecPatchFromChoice(value) {
   return { selectedSpecOption: "", selectedThickness: "" };
 }
 
-function composeFlooringSubitemName(baseName, thickness) {
-  const nextBaseName = `${baseName ?? ""}`.trim() || "장판";
-  const normalizedThickness = normalizeFlooringThickness(thickness);
-  if (normalizedThickness === DEFAULT_FLOORING_SPEC) return nextBaseName;
-  return `${nextBaseName} ${formatFlooringThickness(normalizedThickness)}`;
-}
-
 function getFlooringThicknessSelectOptions(currentThickness) {
   return [
     ...new Set([
@@ -998,118 +861,6 @@ function getExistingFlooringThicknessSelectOptions(optionEntries = [], currentTh
       ...optionEntries.map((option) => normalizeFlooringThickness(option.thickness)),
     ]),
   ].filter((thickness) => thickness && thickness !== DEFAULT_FLOORING_SPEC).sort(compareFlooringThickness);
-}
-
-function compareFlooringThickness(a, b) {
-  if (a === b) return 0;
-  if (a === DEFAULT_FLOORING_SPEC) return -1;
-  if (b === DEFAULT_FLOORING_SPEC) return 1;
-  return Number(a) - Number(b);
-}
-
-function parseFlooringThicknessName(name) {
-  const normalized = `${name ?? ""}`.trim();
-  const directThickness = normalized.match(/^([1-4](?:\.\d)?)T?$/i);
-  if (directThickness) {
-    return {
-      baseName: "장판",
-      thickness: normalizeFlooringThickness(directThickness[1]),
-    };
-  }
-
-  const match = normalized.match(/^(.+?)\s+(기본|[1-4](?:\.\d)?T?)$/i);
-  if (match) {
-    const thickness = match[2] === DEFAULT_FLOORING_SPEC ? DEFAULT_FLOORING_SPEC : normalizeFlooringThickness(match[2]);
-    if (thickness === DEFAULT_FLOORING_SPEC && match[2] !== DEFAULT_FLOORING_SPEC) return null;
-    return {
-      baseName: match[1].trim(),
-      thickness,
-    };
-  }
-
-  if (!isFlooringMaterialName(normalized)) return null;
-  return {
-    baseName: normalized,
-    thickness: DEFAULT_FLOORING_SPEC,
-  };
-}
-
-function getCanonicalFlooringSubitemName(name) {
-  const parsed = parseFlooringThicknessName(name);
-  if (!parsed) return `${name ?? ""}`.trim();
-  return composeFlooringSubitemName(parsed.baseName, parsed.thickness);
-}
-
-function isLocalSubitemId(subitemId) {
-  return `${subitemId ?? ""}`.startsWith("local-subitem-");
-}
-
-function hasMeaningfulAdminSubitemNumericValue(value) {
-  return hasNumericInput(value) && toNumberOrZero(value) !== 0;
-}
-
-function isEmptyLocalAdminSubitemPlaceholder(subitem) {
-  if (!isLocalSubitemId(subitem?.id)) return false;
-  const name = `${subitem?.name ?? ""}`.trim();
-  if (name && name !== MATERIAL_NAME_PLACEHOLDER) return false;
-
-  const numericFields = [
-    "cost_price",
-    "unit_price",
-    "labor_rate",
-    "labor_rate_empty",
-    "labor_rate_occupied",
-    "quantity",
-    "labor_count",
-  ];
-  if (numericFields.some((field) => hasMeaningfulAdminSubitemNumericValue(subitem?.[field]))) {
-    return false;
-  }
-
-  if (`${subitem?.selected_spec_option ?? ""}`.trim()) return false;
-  if (`${subitem?.spec_option_draft ?? ""}`.trim()) return false;
-  if (normalizeSpecOptions(subitem?.spec_options).length) return false;
-
-  const dirtyFields = new Set(Array.isArray(subitem?._dirtyFields) ? subitem._dirtyFields : []);
-  if (["unit", "cost_unit", "selected_spec_option", "spec_option_draft", "spec_options"].some((field) => dirtyFields.has(field))) {
-    return false;
-  }
-
-  return true;
-}
-
-function isFlooringThicknessItem(item) {
-  return isFlooringCategoryName(item?.name);
-}
-
-function getFlooringThicknessGroups(subitems = []) {
-  const groupsByName = new Map();
-
-  subitems.forEach((subitem) => {
-    const parsed = parseFlooringThicknessName(subitem.name);
-    const baseName = parsed?.baseName ?? subitem.name;
-    const thickness = parsed?.thickness ?? DEFAULT_FLOORING_SPEC;
-
-    if (!groupsByName.has(baseName)) {
-      groupsByName.set(baseName, {
-        baseName,
-        sort_order: subitem.sort_order ?? 0,
-        options: {},
-      });
-    }
-
-    const group = groupsByName.get(baseName);
-    group.sort_order = Math.min(group.sort_order, subitem.sort_order ?? group.sort_order);
-    if (!group.options[thickness]) {
-      group.options[thickness] = {
-        ...subitem,
-        baseName,
-        thickness,
-      };
-    }
-  });
-
-  return [...groupsByName.values()].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 }
 
 function getSupabaseFriendlyError(error, fallback = "일시적인 문제가 발생했어요. 다시 시도해주세요.") {
@@ -2626,19 +2377,10 @@ function getAiSetupFlowState({
 
 function AdminApp() {
   const previewPdfRef = useRef(null);
-  const autoSaveTimerRef = useRef(null);
-  const autoSaveRunningRef = useRef(false);
-  const autoSaveQueuedRef = useRef(false);
-  const autoSaveTargetRef = useRef("");
-  const pendingAdminLeaveActionRef = useRef(null);
-  const adminItemsRef = useRef([]);
-  const adminPriceRowRefs = useRef(new Map());
   const estimatePhotoRequestRef = useRef("");
   const estimateBlankCatalogRequestRef = useRef(0);
   const estimateListRequestRef = useRef(0);
   const estimateDeleteTriggerRef = useRef(null);
-  const pageRef = useRef("");
-  const adminConditionStepRef = useRef("select");
   const currentAdminTemplateConditionRef = useRef(null);
   const [companySession, setCompanySession] = useState(() => {
     return {
@@ -2712,15 +2454,6 @@ function AdminApp() {
   const [photoSaving, setPhotoSaving] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const [photoNotice, setPhotoNotice] = useState("");
-  const [adminItems, setAdminItems] = useState([]);
-  const [adminLoading, setAdminLoading] = useState(false);
-  const [adminSaving, setAdminSaving] = useState(false);
-  const [adminError, setAdminError] = useState("");
-  const [adminNotice, setAdminNotice] = useState("");
-  const [adminSearch, setAdminSearch] = useState("");
-  const [adminFavoriteOnly, setAdminFavoriteOnly] = useState(false);
-  const [expandedAdminItemIds, setExpandedAdminItemIds] = useState([]);
-  const [selectedAdminCategoryId, setSelectedAdminCategoryId] = useState("");
   const [selectedAdminPyeong, setSelectedAdminPyeong] = useState("");
   const [selectedAdminBuildType, setSelectedAdminBuildType] = useState("");
   const [selectedAdminHasExtension, setSelectedAdminHasExtension] = useState(false);
@@ -2739,24 +2472,103 @@ function AdminApp() {
   const [adminTemplateConditionDrawerOpen, setAdminTemplateConditionDrawerOpen] = useState(false);
   const [adminTemplateConditionDraft, setAdminTemplateConditionDraft] = useState(createEmptyAdminTemplateConditionDraft);
   const [newlyCreatedAdminTemplateKey, setNewlyCreatedAdminTemplateKey] = useState("");
-  const [adminCommonPriceSavedAt, setAdminCommonPriceSavedAt] = useState("");
   const [conditionVariantLabels, setConditionVariantLabels] = useState(() => createConditionVariantLabelRows());
-  const [adminBulkInputs, setAdminBulkInputs] = useState({});
-  const [activeFlooringThicknessByGroup, setActiveFlooringThicknessByGroup] = useState({});
-  const [activeSpecOptionsPopoverId, setActiveSpecOptionsPopoverId] = useState("");
-  const [newlyAddedSubitemId, setNewlyAddedSubitemId] = useState("");
-  const [adminPriceValidationError, setAdminPriceValidationError] = useState(null);
-  const [dragItemId, setDragItemId] = useState("");
-  const [dragOverItemId, setDragOverItemId] = useState("");
-  const [dragSubitem, setDragSubitem] = useState(null);
-  const [dragOverSubitem, setDragOverSubitem] = useState(null);
-  const [autoSaveStatus, setAutoSaveStatus] = useState("idle");
-  const [autoSaveTarget, setAutoSaveTarget] = useState("");
-  const [autoSaveSavedAt, setAutoSaveSavedAt] = useState("");
-  const [autoSaveError, setAutoSaveError] = useState("");
-  const [adminUnsavedLeaveOpen, setAdminUnsavedLeaveOpen] = useState(false);
-  const [adminUnsavedLeaveSaving, setAdminUnsavedLeaveSaving] = useState(false);
-  const [adminUnsavedLeaveError, setAdminUnsavedLeaveError] = useState("");
+  const {
+    activeFlooringThicknessByGroup,
+    activeSpecOptionsPopoverId,
+    adminBulkInputs,
+    adminCommonPriceSavedAt,
+    adminError,
+    adminFavoriteOnly,
+    adminItems,
+    adminItemsRef,
+    adminLoading,
+    adminNotice,
+    adminPriceValidationError,
+    adminSaving,
+    adminSearch,
+    adminSearchTerm,
+    adminUnsavedLeaveError,
+    adminUnsavedLeaveOpen,
+    adminUnsavedLeaveSaving,
+    autoSaveError,
+    autoSaveSavedAt,
+    autoSaveStatus,
+    autoSaveTargetRef,
+    clearAutoSaveTimer,
+    dragItemId,
+    dragOverItemId,
+    dragOverSubitem,
+    dragSubitem,
+    expandedAdminItemIds,
+    filteredAdminItems,
+    getAutoSaveStatusLabel,
+    getCurrentAutoSaveTarget,
+    hasUnsavedAdminCatalogChanges,
+    markAdminCatalogDirty,
+    markAdminCatalogError,
+    markAdminCatalogSavedNow,
+    markAdminCatalogSaving,
+    newlyAddedSubitemId,
+    normalizeAdminSaveTarget,
+    pendingAdminLeaveActionRef,
+    resetAdminAutoSave,
+    scrollToAdminPriceRow,
+    selectedAdminCategoryId,
+    setActiveFlooringThicknessByGroup,
+    setActiveSpecOptionsPopoverId,
+    setAdminBulkInputs,
+    setAdminCommonPriceSavedAt,
+    setAdminError,
+    setAdminFavoriteOnly,
+    setAdminItems,
+    setAdminLoading,
+    setAdminNotice,
+    setAdminPriceRowRef,
+    setAdminPriceValidationError,
+    setAdminSaving,
+    setAdminSearch,
+    setAdminUnsavedLeaveError,
+    setAdminUnsavedLeaveOpen,
+    setAdminUnsavedLeaveSaving,
+    setDragItemId,
+    setDragOverItemId,
+    setDragOverSubitem,
+    setDragSubitem,
+    setExpandedAdminItemIds,
+    setNewlyAddedSubitemId,
+    setSelectedAdminCategoryId,
+  } = usePriceTableController({
+    page,
+    adminConditionStep,
+    isCatalogEditing:
+      page === "admin-prices"
+      || (page === "admin-items" && adminConditionStep === "edit"),
+    canSelectCategory:
+      page === "admin-prices"
+      || (
+        USE_ADMIN_ITEMS_SCREEN_V2
+        && page === "admin-items"
+        && adminConditionStep === "edit"
+      ),
+    onAutoSave: async (target) => {
+      try {
+        return await saveAdminPrices({
+          auto: true,
+          target,
+          stayOnPage: true,
+          refetch: false,
+        });
+      } catch (error) {
+        throw new Error(
+          getFriendlyError(
+            error,
+            "자동 저장에 실패했습니다. 저장하기 버튼을 눌러주세요."
+          )
+        );
+      }
+    },
+  });
   const [detailSubitems, setDetailSubitems] = useState([]);
   const [selectedDetailSubitemId, setSelectedDetailSubitemId] = useState("");
   const [expandedDetailItemIds, setExpandedDetailItemIds] = useState([]);
@@ -3146,18 +2958,6 @@ function AdminApp() {
     aiSetupImportApplyPlanSummary.validationRows +
     aiSetupImportApplyPlanSummary.reviewRows +
     aiSetupImportApplyPlanSummary.ignoredRows;
-  const adminSearchTerm = adminSearch.trim().toLowerCase();
-  const filteredAdminItems = useMemo(() => {
-    return adminItems.filter((item) => {
-      if (adminFavoriteOnly && !item.is_favorite) return false;
-      if (!adminSearchTerm) return true;
-      const itemMatches = item.name.toLowerCase().includes(adminSearchTerm);
-      const subitemMatches = (item.subitems ?? []).some((subitem) =>
-        subitem.name.toLowerCase().includes(adminSearchTerm)
-      );
-      return itemMatches || subitemMatches;
-    });
-  }, [adminFavoriteOnly, adminItems, adminSearchTerm]);
   const detailSubitemGroups = useMemo(() => {
     const groupMap = new Map();
     detailSubitems.forEach((subitem) => {
@@ -3215,8 +3015,6 @@ function AdminApp() {
   const showAdminCatalogEditor = isCommonPriceAdminPage || showAdminConditionEditor;
   const adminCommonPriceSavedLabel = adminCommonPriceSavedAt ? formatDisplayDateTime(adminCommonPriceSavedAt) : "";
   const isAdminCatalogEditing = isCommonPriceAdminPage || showAdminConditionEditor;
-  const hasUnsavedAdminCatalogChanges =
-    isAdminCatalogEditing && ["dirty", "saving", "error"].includes(autoSaveStatus);
   const selectedAdminPriceItem =
     isCommonPriceAdminPage
       ? filteredAdminItems.find((item) => item.id === selectedAdminCategoryId) ?? filteredAdminItems[0] ?? null
@@ -3226,27 +3024,7 @@ function AdminApp() {
       ? filteredAdminItems.find((item) => item.id === selectedAdminCategoryId) ?? filteredAdminItems[0] ?? null
       : null;
 
-  adminItemsRef.current = adminItems;
-  pageRef.current = page;
-  adminConditionStepRef.current = adminConditionStep;
   currentAdminTemplateConditionRef.current = currentAdminTemplateCondition;
-
-  useEffect(() => {
-    const shouldSyncSelectedAdminCategory =
-      isCommonPriceAdminPage || (USE_ADMIN_ITEMS_SCREEN_V2 && canEditConditionQuantities);
-    if (!shouldSyncSelectedAdminCategory) return;
-
-    const firstVisibleItemId = filteredAdminItems[0]?.id ?? "";
-    if (!firstVisibleItemId) {
-      if (selectedAdminCategoryId) setSelectedAdminCategoryId("");
-      return;
-    }
-
-    const selectedItemVisible = filteredAdminItems.some((item) => item.id === selectedAdminCategoryId);
-    if (!selectedItemVisible) {
-      setSelectedAdminCategoryId(firstVisibleItemId);
-    }
-  }, [canEditConditionQuantities, filteredAdminItems, isCommonPriceAdminPage, selectedAdminCategoryId]);
 
   useEffect(() => {
     if (!isCommonPriceAdminPage || !adminPriceValidationError?.subitemId) return;
@@ -3452,31 +3230,6 @@ function AdminApp() {
       return photoCatalog[0]?.id ? [photoCatalog[0].id] : [];
     });
   }, [page, photoCatalog, photoTab]);
-
-  useEffect(() => {
-    if (isAdminCatalogEditing) return;
-    clearAutoSaveTimer();
-    autoSaveRunningRef.current = false;
-    autoSaveQueuedRef.current = false;
-    autoSaveTargetRef.current = "";
-    pendingAdminLeaveActionRef.current = null;
-    setAutoSaveStatus("idle");
-    setAutoSaveTarget("");
-    setAutoSaveError("");
-    setAdminUnsavedLeaveOpen(false);
-    setAdminUnsavedLeaveError("");
-  }, [isAdminCatalogEditing]);
-
-  useEffect(() => {
-    if (!hasUnsavedAdminCatalogChanges) return undefined;
-    const handleBeforeUnload = (event) => {
-      event.preventDefault();
-      event.returnValue = "";
-      return "";
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [hasUnsavedAdminCatalogChanges]);
 
   useEffect(() => {
     if (!selectedCompanyId || page !== "admin-estimates") return;
@@ -3771,31 +3524,15 @@ function AdminApp() {
     setAiSetupCatalogError("");
     try {
       const companyId = requireSelectedCompanyId();
-      const { data: itemRows, error: itemError } = await supabase
-        .from("construction_items")
-        .select("id, name, sort_order, is_favorite")
-        .eq("company_id", companyId)
-        .order("sort_order", { ascending: true })
-        .order("name", { ascending: true });
-
-      if (itemError) throw itemError;
-
-      const itemIds = (itemRows ?? []).map((item) => item.id);
-      const { data: subitemRows, error: subitemError } = itemIds.length > 0
-        ? await supabase
-            .from("construction_subitems")
-            .select("*")
-            .in("item_id", itemIds)
-            .order("sort_order", { ascending: true })
-            .order("name", { ascending: true })
-        : { data: [], error: null };
-
-      if (subitemError) throw subitemError;
+      const { itemRows, subitemRows } =
+        await fetchAiSetupCatalogRows(companyId);
 
       setAiSetupCatalogItems(
-        (itemRows ?? []).map((item) => ({
+        itemRows.map((item) => ({
           ...item,
-          subitems: (subitemRows ?? []).filter((subitem) => subitem.item_id === item.id),
+          subitems: subitemRows.filter(
+            (subitem) => subitem.item_id === item.id
+          ),
         }))
       );
     } catch (error) {
@@ -4023,19 +3760,19 @@ function AdminApp() {
           continue;
         }
 
-        const { data, error } = await supabase
-          .from("construction_subitems")
-          .update(payload)
-          .eq("id", target.matchedSubitemId)
-          .eq("item_id", target.matchedItemId)
-          .select("id");
-
-        if (error) {
+        try {
+          const updatedRows = await updateConstructionSubitemForItem(
+            target.matchedSubitemId,
+            target.matchedItemId,
+            payload
+          );
+          if (!updatedRows.length) {
+            results.push({ status: "rejected", target, reason: "업데이트된 항목이 없습니다. 권한 또는 항목 소속을 확인해주세요." });
+          } else {
+            results.push({ status: "fulfilled", target, payload });
+          }
+        } catch (error) {
           results.push({ status: "rejected", target, reason: error.message || "저장 실패" });
-        } else if (!data || data.length === 0) {
-          results.push({ status: "rejected", target, reason: "업데이트된 항목이 없습니다. 권한 또는 항목 소속을 확인해주세요." });
-        } else {
-          results.push({ status: "fulfilled", target, payload });
         }
       }
 
@@ -4158,52 +3895,48 @@ function AdminApp() {
       let templateRow = await fetchTemplateRowByCondition(companyId, templateCondition);
       let createdTemplate = false;
       if (!templateRow?.id) {
-        const { data: insertedTemplate, error: insertTemplateError } = await supabase
-          .from("admin_condition_templates")
-          .insert({
+        templateRow = await insertAdminTemplate(
+          {
             company_id: companyId,
             ...templateCondition,
-          })
-          .select("id")
-          .single();
-        if (insertTemplateError) throw insertTemplateError;
-        templateRow = insertedTemplate;
+          },
+          { idOnly: true }
+        );
         createdTemplate = true;
       }
 
       const results = [...preflightResults];
       for (const target of preparedTargets) {
         const optionValue = target.optionValue ?? "";
-        const { data: existingRows, error: existingError } = await supabase
-          .from("admin_condition_template_values")
-          .select("id, quantity, labor_count")
-          .eq("template_id", templateRow.id)
-          .eq("subitem_id", target.matchedSubitemId)
-          .eq("option_value", optionValue)
-          .limit(1);
-        if (existingError) {
-          results.push({ status: "rejected", target, reason: existingError.message || "기존 템플릿 값 확인 실패" });
+        let existingValue;
+        try {
+          existingValue = await fetchAdminTemplateValueCandidate(
+            templateRow.id,
+            target.matchedSubitemId,
+            optionValue
+          );
+        } catch (error) {
+          results.push({ status: "rejected", target, reason: error.message || "기존 템플릿 값 확인 실패" });
           continue;
         }
 
-        const existingValue = existingRows?.[0] ?? null;
         if (existingValue?.id) {
           const updatePayload = {};
           if (target.hasQuantity) updatePayload.quantity = target.quantity;
           if (target.hasLaborCount) updatePayload.labor_count = target.laborCount;
 
-          const { data: updatedRows, error: updateError } = await supabase
-            .from("admin_condition_template_values")
-            .update(updatePayload)
-            .eq("id", existingValue.id)
-            .select("id");
-
-          if (updateError) {
-            results.push({ status: "rejected", target, reason: updateError.message || "템플릿 값 업데이트 실패" });
-          } else if (!updatedRows?.length) {
-            results.push({ status: "rejected", target, reason: "업데이트된 템플릿 값이 없습니다." });
-          } else {
-            results.push({ status: "fulfilled", target, mode: "updated" });
+          try {
+            const updatedRows = await updateAdminTemplateValue(
+              existingValue.id,
+              updatePayload
+            );
+            if (!updatedRows.length) {
+              results.push({ status: "rejected", target, reason: "업데이트된 템플릿 값이 없습니다." });
+            } else {
+              results.push({ status: "fulfilled", target, mode: "updated" });
+            }
+          } catch (error) {
+            results.push({ status: "rejected", target, reason: error.message || "템플릿 값 업데이트 실패" });
           }
           continue;
         }
@@ -4217,17 +3950,15 @@ function AdminApp() {
           labor_count: target.hasLaborCount ? target.laborCount : null,
         };
 
-        const { data: insertedRows, error: insertValueError } = await supabase
-          .from("admin_condition_template_values")
-          .insert(insertPayload)
-          .select("id");
-
-        if (insertValueError) {
-          results.push({ status: "rejected", target, reason: insertValueError.message || "템플릿 값 추가 실패" });
-        } else if (!insertedRows?.length) {
-          results.push({ status: "rejected", target, reason: "추가된 템플릿 값이 없습니다." });
-        } else {
-          results.push({ status: "fulfilled", target, mode: "inserted" });
+        try {
+          const insertedRows = await insertAdminTemplateValue(insertPayload);
+          if (!insertedRows.length) {
+            results.push({ status: "rejected", target, reason: "추가된 템플릿 값이 없습니다." });
+          } else {
+            results.push({ status: "fulfilled", target, mode: "inserted" });
+          }
+        } catch (error) {
+          results.push({ status: "rejected", target, reason: error.message || "템플릿 값 추가 실패" });
         }
       }
 
@@ -4346,23 +4077,19 @@ function AdminApp() {
 
         let categoryCreated = false;
         if (!category) {
-          const { data: insertedCategory, error: categoryError } = await supabase
-            .from("construction_items")
-            .insert({
+          try {
+            category = await insertConstructionItemRow({
               company_id: companyId,
               name: categoryName,
               item_type: "itemized",
               is_favorite: false,
               sort_order: nextItemSortOrder,
-            })
-            .select("*")
-            .single();
-          if (categoryError) {
-            results.push({ status: "rejected", target, reason: categoryError.message || "대분류 추가 실패" });
+            });
+          } catch (error) {
+            results.push({ status: "rejected", target, reason: error.message || "대분류 추가 실패" });
             continue;
           }
           nextItemSortOrder += 1;
-          category = insertedCategory;
           categoryCreated = true;
           categoriesById.set(category.id, { ...category });
           const normalizedCategoryName = normalizeCatalogMatchText(category.name);
@@ -4388,21 +4115,18 @@ function AdminApp() {
         }
 
         const sortOrder = nextSubitemSortOrders.get(category.id) ?? 0;
-        const { data: insertedSubitem, error: subitemError } = await supabase
-          .from("construction_subitems")
-          .insert({
+        let insertedSubitem;
+        try {
+          insertedSubitem = await insertConstructionSubitemRow({
             item_id: category.id,
             name: subitemName,
             unit: target.unit || "평",
             unit_price: unitPrice,
             labor_rate: laborRate,
             sort_order: sortOrder,
-          })
-          .select("*")
-          .single();
-
-        if (subitemError) {
-          results.push({ status: "rejected", target, reason: subitemError.message || "세부항목 추가 실패" });
+          });
+        } catch (error) {
+          results.push({ status: "rejected", target, reason: error.message || "세부항목 추가 실패" });
           continue;
         }
 
@@ -4619,31 +4343,6 @@ function AdminApp() {
         </div>
       </div>
     );
-  }
-
-  async function fetchConstructionCatalogRows(companyId) {
-    const { data: itemRows, error: itemError } = await supabase
-      .from("construction_items")
-      .select("*")
-      .eq("company_id", companyId)
-      .order("is_favorite", { ascending: false })
-      .order("sort_order", { ascending: true });
-
-    if (itemError) throw itemError;
-
-    const itemIds = (itemRows ?? []).map((item) => item.id);
-    if (!itemIds.length) {
-      return { itemRows: itemRows ?? [], subitemRows: [] };
-    }
-
-    const { data: subitemRows, error: subitemError } = await supabase
-      .from("construction_subitems")
-      .select("*")
-      .in("item_id", itemIds)
-      .order("sort_order", { ascending: true });
-
-    if (subitemError) throw subitemError;
-    return { itemRows: itemRows ?? [], subitemRows: subitemRows ?? [] };
   }
 
   function getPhotosForTarget(targetType, targetId) {
@@ -5268,25 +4967,15 @@ function AdminApp() {
 
     let changed = false;
     if (missingItemPayloads.length) {
-      const { data: insertedItems, error } = await supabase
-        .from("construction_items")
-        .insert(missingItemPayloads)
-        .select("*");
-      if (error) throw error;
-      nextItemRows = [...nextItemRows, ...(insertedItems ?? [])];
+      const insertedItems = await insertConstructionItems(missingItemPayloads);
+      nextItemRows = [...nextItemRows, ...insertedItems];
       changed = true;
     }
 
     const itemIds = nextItemRows.map((item) => item.id);
     let nextSubitemRows = [...subitemRows];
     if (changed && itemIds.length) {
-      const { data, error } = await supabase
-        .from("construction_subitems")
-        .select("*")
-        .in("item_id", itemIds)
-        .order("sort_order", { ascending: true });
-      if (error) throw error;
-      nextSubitemRows = data ?? [];
+      nextSubitemRows = await fetchConstructionSubitems(itemIds);
     }
 
     const subitemsByItemId = nextSubitemRows.reduce((acc, subitem) => {
@@ -5311,8 +5000,7 @@ function AdminApp() {
     });
 
     if (missingSubitemPayloads.length) {
-      const { error } = await supabase.from("construction_subitems").insert(missingSubitemPayloads);
-      if (error) throw error;
+      await insertConstructionSubitems(missingSubitemPayloads);
       changed = true;
     }
 
@@ -5336,7 +5024,7 @@ function AdminApp() {
       );
 
       if (!subitems.length) {
-        const { error } = await supabase.from("construction_subitems").insert({
+        await insertConstructionSubitems({
           item_id: item.id,
           name: item.name,
           unit: "식",
@@ -5344,27 +5032,23 @@ function AdminApp() {
           labor_rate: 0,
           sort_order: 0,
         });
-        if (error) throw error;
         changed = true;
         continue;
       }
 
       const [primary, ...extras] = subitems;
       if (primary.name !== item.name || (primary.sort_order ?? 0) !== 0) {
-        const { error } = await supabase
-          .from("construction_subitems")
-          .update({ name: item.name, sort_order: 0 })
-          .eq("id", primary.id);
-        if (error) throw error;
+        await updateConstructionSubitem(primary.id, {
+          name: item.name,
+          sort_order: 0,
+        });
         changed = true;
       }
 
       if (extras.length) {
-        const { error } = await supabase
-          .from("construction_subitems")
-          .delete()
-          .in("id", extras.map((subitem) => subitem.id));
-        if (error) throw error;
+        await deleteConstructionSubitems(
+          extras.map((subitem) => subitem.id)
+        );
         changed = true;
       }
     }
@@ -5406,8 +5090,7 @@ function AdminApp() {
 
     if (!payloads.length) return false;
 
-    const { error } = await supabase.from("construction_subitems").insert(payloads);
-    if (error) throw error;
+    await insertConstructionSubitems(payloads);
     return true;
   }
 
@@ -5427,14 +5110,7 @@ function AdminApp() {
 
     if (!missingPayloads.length) return false;
 
-    const { error } = await supabase
-      .from("subitem_pyeong_values")
-      .upsert(missingPayloads, {
-        onConflict: "subitem_id,pyeong",
-        ignoreDuplicates: true,
-      });
-
-    if (error) throw error;
+    await upsertSubitemPyeongValues(missingPayloads);
     return true;
   }
 
@@ -5471,13 +5147,10 @@ function AdminApp() {
     }
 
     try {
-      const { data, error } = await supabase
-        .from("condition_variant_labels")
-        .select("*")
-        .eq("company_id", selectedCompanyId)
-        .order("variant_key", { ascending: true });
-
-      if (error) {
+      let rows;
+      try {
+        rows = await fetchConditionVariantLabelRows(selectedCompanyId);
+      } catch (error) {
         if (isMissingConditionVariantLabelsTable(error)) {
           setConditionVariantLabels(createConditionVariantLabelRows());
           if (!options.silent) {
@@ -5488,7 +5161,7 @@ function AdminApp() {
         throw error;
       }
 
-      setConditionVariantLabels(createConditionVariantLabelRows(data ?? []));
+      setConditionVariantLabels(createConditionVariantLabelRows(rows));
       if (!options.silent && page === "admin-condition-labels") {
         setAdminNotice("확장형/구형 설명을 불러왔습니다.");
       }
@@ -5524,19 +5197,17 @@ function AdminApp() {
         description: `${row.description ?? ""}`.trim(),
       }));
 
-      const { data, error } = await supabase
-        .from("condition_variant_labels")
-        .upsert(payloads, { onConflict: "company_id,variant_key" })
-        .select("*");
-
-      if (error) {
+      let rows;
+      try {
+        rows = await upsertConditionVariantLabelRows(payloads);
+      } catch (error) {
         if (isMissingConditionVariantLabelsTable(error)) {
           throw new Error("condition_variant_labels 테이블이 아직 없습니다. supabase/schema.sql의 SQL을 Supabase SQL Editor에 적용한 뒤 다시 저장해주세요.");
         }
         throw error;
       }
 
-      setConditionVariantLabels(createConditionVariantLabelRows(data ?? payloads));
+      setConditionVariantLabels(createConditionVariantLabelRows(rows));
       setAdminNotice("확장형/구형 설명을 저장했습니다.");
       setPage("admin-items");
     } catch (error) {
@@ -5548,33 +5219,15 @@ function AdminApp() {
 
   async function fetchAdminTemplateList() {
     const companyId = requireSelectedCompanyId();
-    const { data, error } = await supabase
-      .from("admin_condition_templates")
-      .select("*")
-      .eq("company_id", companyId)
-      .order("pyeong", { ascending: true })
-      .order("build_type", { ascending: true })
-      .order("condition_variant", { ascending: true })
-      .order("has_extension", { ascending: true });
-
-    if (error) throw error;
-    setAdminTemplates(dedupeTemplatesByCondition(data ?? []));
+    const rows = await fetchAdminTemplateRows(companyId);
+    setAdminTemplates(dedupeTemplatesByCondition(rows));
   }
 
   async function fetchTemplateRowByCondition(companyId, condition) {
     const candidates = [condition, ...getLegacyTemplateConditions(condition)].filter(Boolean);
     for (const candidate of candidates) {
-      const { data, error } = await supabase
-        .from("admin_condition_templates")
-        .select("*")
-        .eq("company_id", companyId)
-        .eq("pyeong", candidate.pyeong)
-        .eq("build_type", candidate.build_type)
-        .eq("has_extension", candidate.has_extension)
-        .eq("condition_variant", candidate.condition_variant);
-
-      if (error) throw error;
-      const representative = pickRepresentativeTemplate(data ?? []);
+      const rows = await fetchAdminTemplateCandidates(companyId, candidate);
+      const representative = pickRepresentativeTemplate(rows);
       if (representative?.id) return representative;
     }
     return null;
@@ -5635,21 +5288,11 @@ function AdminApp() {
         return;
       }
 
-      const { error: valuesDeleteError } = await supabase
-        .from("admin_condition_template_values")
-        .delete()
-        .eq("template_id", templateDeleteTarget.id);
-
-      if (valuesDeleteError) throw valuesDeleteError;
-
-      const { data: deletedTemplates, error: templateDeleteError } = await supabase
-        .from("admin_condition_templates")
-        .delete()
-        .eq("id", templateDeleteTarget.id)
-        .eq("company_id", companyId)
-        .select("id");
-
-      if (templateDeleteError) throw templateDeleteError;
+      await deleteAdminTemplateValues(templateDeleteTarget.id);
+      const deletedTemplates = await deleteAdminTemplate(
+        templateDeleteTarget.id,
+        companyId
+      );
       if (!deletedTemplates?.length) {
         throw new Error("삭제할 템플릿을 찾지 못했습니다.");
       }
@@ -5725,13 +5368,7 @@ function AdminApp() {
         setAdminConditionLoaded(true);
 
         if (templateRow?.id) {
-          const { data: values, error: valuesError } = await supabase
-            .from("admin_condition_template_values")
-            .select("id, template_id, item_id, subitem_id, option_value, quantity, labor_count, construction_days")
-            .eq("template_id", templateRow.id);
-
-          if (valuesError) throw valuesError;
-          templateValueRows = values ?? [];
+          templateValueRows = await fetchAdminTemplateValues(templateRow.id);
           setAdminNotice("");
         } else {
           setAdminNotice("아직 이 조건의 견적 템플릿이 없습니다. 기본 수량과 기본 인원을 입력한 뒤 저장하세요.");
@@ -5768,15 +5405,8 @@ function AdminApp() {
         throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
       }
       const companyId = requireSelectedCompanyId();
-
-      const { data: itemRows, error: itemError } = await supabase
-        .from("construction_items")
-        .select("id, name, sort_order, is_favorite")
-        .eq("company_id", companyId)
-        .order("is_favorite", { ascending: false })
-        .order("sort_order", { ascending: true });
-
-      if (itemError) throw itemError;
+      const { itemRows, subitemRows } =
+        await fetchConstructionCatalogRows(companyId);
 
       const itemIds = (itemRows ?? []).map((item) => item.id);
       if (!itemIds.length) {
@@ -5785,14 +5415,6 @@ function AdminApp() {
         setDetailCosts([]);
         return;
       }
-
-      const { data: subitemRows, error: subitemError } = await supabase
-        .from("construction_subitems")
-        .select("*")
-        .in("item_id", itemIds)
-        .order("sort_order", { ascending: true });
-
-      if (subitemError) throw subitemError;
 
       const itemById = Object.fromEntries((itemRows ?? []).map((item) => [item.id, item]));
       const nextSubitems = (subitemRows ?? []).map((subitem) => ({
@@ -6049,125 +5671,6 @@ function AdminApp() {
     }
   }
 
-  function clearAutoSaveTimer() {
-    if (autoSaveTimerRef.current) {
-      window.clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
-  }
-
-  function getCurrentAutoSaveTarget() {
-    if (pageRef.current === "admin-prices") return "prices";
-    if (pageRef.current === "admin-items" && adminConditionStepRef.current === "edit") return "quantities";
-    return "";
-  }
-
-  function normalizeAdminSaveTarget(requestedTarget = "") {
-    const pageTarget = getCurrentAutoSaveTarget();
-    if (pageTarget) return pageTarget;
-    return requestedTarget === "prices" || requestedTarget === "quantities" ? requestedTarget : "";
-  }
-
-  function markAdminCatalogDirty(target = getCurrentAutoSaveTarget()) {
-    const saveTarget = normalizeAdminSaveTarget(target);
-    if (!saveTarget) return;
-    autoSaveTargetRef.current = saveTarget;
-    setAutoSaveTarget(saveTarget);
-    setAutoSaveStatus("dirty");
-    setAutoSaveError("");
-
-    clearAutoSaveTimer();
-    autoSaveTimerRef.current = window.setTimeout(() => {
-      runAdminAutoSave(saveTarget);
-    }, ADMIN_AUTOSAVE_DELAY_MS);
-  }
-
-  async function runAdminAutoSave(target = autoSaveTargetRef.current) {
-    const saveTarget = normalizeAdminSaveTarget(target);
-    if (!saveTarget) return;
-    clearAutoSaveTimer();
-    if (autoSaveRunningRef.current) {
-      autoSaveQueuedRef.current = true;
-      return;
-    }
-
-    autoSaveRunningRef.current = true;
-    setAutoSaveStatus("saving");
-    autoSaveTargetRef.current = saveTarget;
-    setAutoSaveTarget(saveTarget);
-    setAutoSaveError("");
-    try {
-      const saved = await saveAdminPrices({
-        auto: true,
-        target: saveTarget,
-        stayOnPage: true,
-        refetch: false,
-      });
-      if (saved) {
-        const savedAt = new Date().toISOString();
-        setAutoSaveSavedAt(savedAt);
-        setAutoSaveStatus("saved");
-        setAutoSaveError("");
-      }
-    } catch (error) {
-      setAutoSaveStatus("error");
-      setAutoSaveError(getFriendlyError(error, "자동 저장에 실패했습니다. 저장하기 버튼을 눌러주세요."));
-    } finally {
-      autoSaveRunningRef.current = false;
-      if (autoSaveQueuedRef.current) {
-        autoSaveQueuedRef.current = false;
-        markAdminCatalogDirty(saveTarget);
-      }
-    }
-  }
-
-  function getAutoSaveStatusLabel() {
-    if (autoSaveStatus === "dirty") return "변경사항 있음";
-    if (autoSaveStatus === "saving") return "자동 저장 중...";
-    if (autoSaveStatus === "error") return "자동 저장 실패";
-    if (autoSaveStatus === "saved" && autoSaveSavedAt) {
-      const savedDate = new Date(autoSaveSavedAt);
-      const savedTime = Number.isNaN(savedDate.getTime())
-        ? ""
-        : savedDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
-      return savedTime ? `자동 저장됨 · ${savedTime}` : "자동 저장됨";
-    }
-    return "자동 저장 대기";
-  }
-
-  function markAdminCatalogSavedNow(target = getCurrentAutoSaveTarget()) {
-    const saveTarget = normalizeAdminSaveTarget(target);
-    clearAutoSaveTimer();
-    autoSaveQueuedRef.current = false;
-    autoSaveTargetRef.current = saveTarget;
-    setAutoSaveTarget(saveTarget);
-    setAutoSaveStatus("saved");
-    setAutoSaveSavedAt(new Date().toISOString());
-    setAutoSaveError("");
-    setAdminPriceValidationError(null);
-  }
-
-  function setAdminPriceRowRef(subitemId, node) {
-    if (!subitemId) return;
-    if (node) {
-      adminPriceRowRefs.current.set(subitemId, node);
-    } else {
-      adminPriceRowRefs.current.delete(subitemId);
-    }
-  }
-
-  function scrollToAdminPriceRow(subitemId) {
-    if (!subitemId) return;
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        adminPriceRowRefs.current.get(subitemId)?.scrollIntoView({
-          block: "center",
-          behavior: "smooth",
-        });
-      });
-    });
-  }
-
   function clearAdminPriceValidationErrorForSubitem(subitemId, nextName = "") {
     if (!`${nextName ?? ""}`.trim()) return;
     setAdminPriceValidationError((current) =>
@@ -6255,12 +5758,7 @@ function AdminApp() {
         refetch: false,
       });
       if (!saved) throw new Error("저장하지 못했습니다.");
-      clearAutoSaveTimer();
-      autoSaveRunningRef.current = false;
-      autoSaveQueuedRef.current = false;
-      setAutoSaveStatus("saved");
-      setAutoSaveSavedAt(new Date().toISOString());
-      setAutoSaveError("");
+      markAdminCatalogSavedNow(target);
       const action = pendingAdminLeaveActionRef.current;
       closeAdminUnsavedLeaveDialog();
       if (action) action();
@@ -6492,16 +5990,10 @@ function AdminApp() {
       const companyId = requireSelectedCompanyId();
       let templateRow = await fetchTemplateRowByCondition(companyId, adminTemplateConditionDraftValue);
       if (!templateRow?.id) {
-        const { data: insertedTemplate, error: insertTemplateError } = await supabase
-          .from("admin_condition_templates")
-          .insert({
+        templateRow = await insertAdminTemplate({
             company_id: companyId,
             ...adminTemplateConditionDraftValue,
-          })
-          .select("*")
-          .single();
-        if (insertTemplateError) throw insertTemplateError;
-        templateRow = insertedTemplate;
+          });
       }
 
       if (templateRow?.id) {
@@ -6696,15 +6188,9 @@ function AdminApp() {
             thickness: DEFAULT_FLOORING_SPEC,
           };
           const name = composeFlooringSubitemName(trimmedBaseName, parsed.thickness);
-          return supabase
-            .from("construction_subitems")
-            .update({ name })
-            .eq("id", subitem.id);
+          return updateConstructionSubitem(subitem.id, { name });
         })
-      ).then((results) => {
-        const failed = results.find((result) => result.error);
-        if (failed?.error) throw failed.error;
-      });
+      );
     } catch (error) {
       setAdminError(getFriendlyError(error, "소재명을 수정하지 못했어요. 다시 시도해주세요."));
       await fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" });
@@ -6959,13 +6445,7 @@ function AdminApp() {
 
         if (templateRow?.id) {
           templateFound = true;
-          const { data: values, error: valuesError } = await supabase
-            .from("admin_condition_template_values")
-            .select("id, template_id, item_id, subitem_id, option_value, quantity, labor_count, construction_days")
-            .eq("template_id", templateRow.id);
-
-          if (valuesError) throw valuesError;
-          templateValueRows = values ?? [];
+          templateValueRows = await fetchAdminTemplateValues(templateRow.id);
           if (defaultCatalogPrepared) {
             setEstimateNotice("기본 시공항목이 준비되었습니다. 단가표와 견적 템플릿을 바탕으로 견적서를 작성할 수 있습니다.");
           } else if (templateValueRows.length) {
@@ -7477,25 +6957,20 @@ function AdminApp() {
     const pendingTemplateValues = getEstimateTemplateValuePayloads();
     if (!pendingTemplateValues.length) return false;
 
-    const { data: insertedTemplate, error: insertTemplateError } = await supabase
-      .from("admin_condition_templates")
-      .insert({
+    const insertedTemplate = await insertAdminTemplate(
+      {
         company_id: companyId,
         ...templateCondition,
-      })
-      .select("id")
-      .single();
-    if (insertTemplateError) throw insertTemplateError;
+      },
+      { idOnly: true }
+    );
 
     const templateValuePayloads = pendingTemplateValues.map((row) => ({
       ...row,
       template_id: insertedTemplate.id,
     }));
     if (templateValuePayloads.length) {
-      const { error: valuesError } = await supabase
-        .from("admin_condition_template_values")
-        .upsert(templateValuePayloads, { onConflict: "template_id,subitem_id,option_value" });
-      if (valuesError) throw valuesError;
+      await upsertAdminTemplateValues(templateValuePayloads);
     }
 
     return true;
@@ -7791,15 +7266,8 @@ function AdminApp() {
     setDragOverItemId("");
     setDragSubitem(null);
     setDragOverSubitem(null);
-    clearAutoSaveTimer();
-    autoSaveRunningRef.current = false;
-    autoSaveQueuedRef.current = false;
-    autoSaveTargetRef.current = "";
+    resetAdminAutoSave();
     pendingAdminLeaveActionRef.current = null;
-    setAutoSaveStatus("idle");
-    setAutoSaveTarget("");
-    setAutoSaveSavedAt("");
-    setAutoSaveError("");
     setAdminUnsavedLeaveOpen(false);
     setAdminUnsavedLeaveSaving(false);
     setAdminUnsavedLeaveError("");
@@ -7848,18 +7316,13 @@ function AdminApp() {
       const nextSortOrder = adminItems.length
         ? Math.max(...adminItems.map((item) => item.sort_order ?? 0)) + 1
         : 0;
-      const { data: item, error } = await supabase
-        .from("construction_items")
-        .insert({
-          company_id: requireSelectedCompanyId(),
-          name,
-          item_type: "itemized",
-          is_favorite: false,
-          sort_order: nextSortOrder,
-        })
-        .select("id, name")
-        .single();
-      if (error) throw error;
+      const item = await insertConstructionItem({
+        company_id: requireSelectedCompanyId(),
+        name,
+        item_type: "itemized",
+        is_favorite: false,
+        sort_order: nextSortOrder,
+      });
       await fetchAdminItems();
       setExpandedAdminItemIds((current) => [...new Set([...current, item.id])]);
       setAdminNotice("새 대분류를 추가했습니다. 대분류명을 수정하고 하단의 소재 추가 버튼으로 소재를 넣어주세요.");
@@ -8069,12 +7532,7 @@ function AdminApp() {
     setAdminSaving(true);
     setAdminError("");
     try {
-      const { error } = await supabase
-        .from("construction_items")
-        .delete()
-        .eq("id", itemId)
-        .eq("company_id", requireSelectedCompanyId());
-      if (error) throw error;
+      await deleteConstructionItem(itemId, requireSelectedCompanyId());
       await fetchAdminItems();
       markAdminCatalogSavedNow();
     } catch (error) {
@@ -8103,8 +7561,7 @@ function AdminApp() {
     setAdminSaving(true);
     setAdminError("");
     try {
-      const { error } = await supabase.from("construction_subitems").delete().eq("id", subitemId);
-      if (error) throw error;
+      await deleteConstructionSubitem(subitemId);
       await fetchAdminItems();
       markAdminCatalogSavedNow();
     } catch (error) {
@@ -8118,12 +7575,11 @@ function AdminApp() {
     setAdminSaving(true);
     setAdminError("");
     try {
-      const { error } = await supabase
-        .from("construction_items")
-        .update({ is_favorite: !item.is_favorite })
-        .eq("id", item.id)
-        .eq("company_id", requireSelectedCompanyId());
-      if (error) throw error;
+      await updateConstructionItem(
+        item.id,
+        requireSelectedCompanyId(),
+        { is_favorite: !item.is_favorite }
+      );
       await fetchAdminItems();
     } catch (error) {
       setAdminError(getFriendlyError(error, "즐겨찾기를 변경하지 못했어요. 다시 시도해주세요."));
@@ -8139,18 +7595,16 @@ function AdminApp() {
 
     setAdminError("");
     try {
-      const { error } = await supabase
-        .from("construction_items")
-        .update({ name: nextName })
-        .eq("id", itemId)
-        .eq("company_id", requireSelectedCompanyId());
-      if (error) throw error;
+      await updateConstructionItem(
+        itemId,
+        requireSelectedCompanyId(),
+        { name: nextName }
+      );
       if ((currentItem?.item_type ?? "itemized") === "flat" && currentItem?.subitems?.[0]) {
-        const { error: subitemError } = await supabase
-          .from("construction_subitems")
-          .update({ name: nextName })
-          .eq("id", currentItem.subitems[0].id);
-        if (subitemError) throw subitemError;
+        await updateConstructionSubitem(
+          currentItem.subitems[0].id,
+          { name: nextName }
+        );
       }
       setAdminItems((current) =>
         current.map((item) =>
@@ -8185,11 +7639,7 @@ function AdminApp() {
 
     setAdminError("");
     try {
-      const { error } = await supabase
-        .from("construction_subitems")
-        .update({ name: nextName })
-        .eq("id", subitemId);
-      if (error) throw error;
+      await updateConstructionSubitem(subitemId, { name: nextName });
       setAdminItems((current) =>
         current.map((item) => ({
           ...item,
@@ -8274,27 +7724,24 @@ function AdminApp() {
     setDragOverItemId("");
 
     setAdminSaving(true);
-    setAutoSaveStatus("saving");
+    markAdminCatalogSaving();
     setAdminError("");
     try {
+      const companyId = requireSelectedCompanyId();
       await Promise.all(
         reordered.map((item) =>
-          supabase
-            .from("construction_items")
-            .update({ sort_order: item.sort_order })
-            .eq("id", item.id)
-            .eq("company_id", requireSelectedCompanyId())
+          updateConstructionItem(
+            item.id,
+            companyId,
+            { sort_order: item.sort_order }
+          )
         )
-      ).then((results) => {
-        const failed = results.find((result) => result.error);
-        if (failed?.error) throw failed.error;
-      });
+      );
       await fetchAdminItems();
       markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "항목 순서를 저장하지 못했어요. 다시 시도해주세요."));
-      setAutoSaveStatus("error");
-      setAutoSaveError(error?.message || "순서 저장 실패");
+      markAdminCatalogError(error?.message || "순서 저장 실패");
       await fetchAdminItems();
     } finally {
       setAdminSaving(false);
@@ -8337,26 +7784,22 @@ function AdminApp() {
     setDragOverSubitem(null);
 
     setAdminSaving(true);
-    setAutoSaveStatus("saving");
+    markAdminCatalogSaving();
     setAdminError("");
     try {
       await Promise.all(
         reorderedSubitems.map((subitem) =>
-          supabase
-            .from("construction_subitems")
-            .update({ sort_order: subitem.sort_order })
-            .eq("id", subitem.id)
+          updateConstructionSubitem(
+            subitem.id,
+            { sort_order: subitem.sort_order }
+          )
         )
-      ).then((results) => {
-        const failed = results.find((result) => result.error);
-        if (failed?.error) throw failed.error;
-      });
+      );
       await fetchAdminItems();
       markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "소재 순서를 저장하지 못했어요. 다시 시도해주세요."));
-      setAutoSaveStatus("error");
-      setAutoSaveError(error?.message || "순서 저장 실패");
+      markAdminCatalogError(error?.message || "순서 저장 실패");
       await fetchAdminItems();
     } finally {
       setAdminSaving(false);
@@ -8393,26 +7836,22 @@ function AdminApp() {
     setDragOverSubitem(null);
 
     setAdminSaving(true);
-    setAutoSaveStatus("saving");
+    markAdminCatalogSaving();
     setAdminError("");
     try {
       await Promise.all(
         reorderedSubitems.map((subitem) =>
-          supabase
-            .from("construction_subitems")
-            .update({ sort_order: subitem.sort_order })
-            .eq("id", subitem.id)
+          updateConstructionSubitem(
+            subitem.id,
+            { sort_order: subitem.sort_order }
+          )
         )
-      ).then((results) => {
-        const failed = results.find((result) => result.error);
-        if (failed?.error) throw failed.error;
-      });
+      );
       await fetchAdminItems();
       markAdminCatalogSavedNow();
     } catch (error) {
       setAdminError(getFriendlyError(error, "소재 순서를 저장하지 못했어요. 다시 시도해주세요."));
-      setAutoSaveStatus("error");
-      setAutoSaveError(error?.message || "순서 저장 실패");
+      markAdminCatalogError(error?.message || "순서 저장 실패");
       await fetchAdminItems();
     } finally {
       setAdminSaving(false);
@@ -8823,676 +8262,70 @@ function AdminApp() {
     );
   }
 
-  function renderAdminPriceCategorySidebar() {
-    return (
-      <aside className="admin-price-v2-sidebar formate-scroll-light" aria-label="단가표 대분류">
-        <div className="admin-price-v2-sidebar-header">
-          <span>대분류</span>
-          <strong>{filteredAdminItems.length}개</strong>
-        </div>
-        <div className="admin-price-v2-category-list">
-          {filteredAdminItems.map((item) => {
-            const active = selectedAdminPriceItem?.id === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`admin-price-v2-category-item ${active ? "active" : ""} ${dragItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drop-target" : ""}`.trim()}
-                onClick={() => setSelectedAdminCategoryId(item.id)}
-                onDragOver={(event) => handleAdminItemDragOver(event, item.id)}
-                onDrop={() => reorderAdminItems(item.id)}
-                onDragEnd={clearAdminDragState}
-              >
-                <span
-                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
-                  title="대분류 순서 변경"
-                  draggable={canReorderAdminCatalog && !adminSaving}
-                  onDragStart={(event) => handleAdminItemDragStart(event, item.id)}
-                  onDragEnd={clearAdminDragState}
-                >
-                  ::
-                </span>
-                <span className="admin-price-v2-category-name">
-                  {item.is_favorite && <Star size={14} fill="currentColor" />}
-                  <span>{item.name}</span>
-                </span>
-                <span className="admin-price-v2-category-count">{(item.subitems ?? []).length}개</span>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-    );
-  }
 
-  function renderAdminPriceContext(item) {
-    if (!item) return null;
-    return (
-      <div className="admin-price-v2-context">
-        <div className="admin-price-v2-context-main">
-          <span className="admin-price-v2-context-label">선택 대분류</span>
-          <input
-            value={item.name}
-            aria-label="대분류명"
-            onChange={(event) =>
-              setAdminItems((current) =>
-                current.map((entry) =>
-                  entry.id === item.id ? { ...entry, name: event.target.value } : entry
-                )
-              )
-            }
-            onInput={() => markAdminCatalogDirty()}
-            onBlur={(event) => renameAdminItem(item.id, event.target.value)}
-          />
-          <span className="items-v2-badge items-v2-badge--muted">
-            {item.item_type === "flat" ? "단일 항목" : "소재형"}
-          </span>
-          <span className="items-v2-badge items-v2-badge--muted">{(item.subitems ?? []).length}개 소재</span>
-        </div>
-        <div className="admin-price-v2-context-actions">
-          <button
-            type="button"
-            className={`items-v2-icon-button ${item.is_favorite ? "active" : ""}`.trim()}
-            title="즐겨찾기"
-            disabled={adminSaving}
-            onClick={() => toggleAdminFavorite(item)}
-          >
-            <Star size={18} strokeWidth={1.5} fill={item.is_favorite ? "currentColor" : "none"} />
-          </button>
-          <button
-            type="button"
-            className="danger-button admin-price-v2-danger-button"
-            title="대분류 삭제"
-            disabled={adminSaving}
-            onClick={() => deleteAdminItem(item.id)}
-          >
-            <Trash2 size={18} strokeWidth={1.5} />
-          </button>
-        </div>
-      </div>
-    );
-  }
 
-  function renderAdminPriceHeader(item, isFlooring = false) {
-    return (
-      <div className={`admin-price-table-header price-table-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"} ${isFlooring ? "flooring-price-table-header" : ""}`.trim()}>
-        {item.item_type !== "flat" && <span />}
-        <span>소재명</span>
-        <span>원가</span>
-        <span>원가 단위</span>
-        <span>규격/두께</span>
-        <span>단위</span>
-        <span>단가</span>
-        <span>인건비(빈집)</span>
-        <span>인건비(살림집)</span>
-        {item.item_type !== "flat" && <span>삭제</span>}
-      </div>
-    );
-  }
 
-  function renderAdminPriceSubitemCells(subitem) {
-    return (
-      <>
-        <label className="price-internal-field price-number-field">
-          <span className="field-label">원가</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={formatMoneyInputValue(subitem.cost_price)}
-            onChange={(event) =>
-              updateLocalSubitemPrice(subitem.id, { cost_price: stripNumberInputFormatting(event.target.value) })
-            }
-          />
-        </label>
-        <label className="price-internal-field price-unit-field">
-          <span className="field-label">원가 단위</span>
-          <select
-            value={normalizeUnitOptionValue(subitem.cost_unit)}
-            onChange={(event) => updateLocalSubitemPrice(subitem.id, { cost_unit: normalizeUnitOptionValue(event.target.value) })}
-          >
-            <option value="">선택</option>
-            {getUnitSelectOptions(subitem.cost_unit).map((unit) => (
-              <option key={unit} value={unit}>
-                {unit}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="spec-options-field">
-          <span className="field-label">규격/두께</span>
-          {(() => {
-            const specOptions = getSpecSelectOptions(subitem);
-            const specValue = getSpecSelectValue(subitem, specOptions);
-            return renderSpecOptionsControl(subitem, specOptions, specValue, (event) =>
-              updateLocalSubitemDraft(subitem.id, { selected_spec_option: event.target.value })
-            );
-          })()}
-        </label>
-        <label className="price-unit-field">
-          <span className="field-label">단위</span>
-          <select
-            value={normalizeUnitOptionValue(subitem.unit)}
-            onChange={(event) => updateAdminSubitemUnit(subitem.id, event.target.value)}
-          >
-            {getUnitSelectOptions(subitem.unit).map((unit) => (
-              <option key={unit} value={unit}>
-                {unit}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span className="field-label">단가</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={formatMoneyInputValue(subitem.unit_price)}
-            onChange={(event) =>
-              updateLocalSubitemPrice(subitem.id, { unit_price: stripNumberInputFormatting(event.target.value) })
-            }
-          />
-        </label>
-        <label className="price-number-field price-sale-field">
-          <span className="field-label">인건비(빈집)</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={formatMoneyInputValue(getLaborRateEmptyValue(subitem))}
-            onChange={(event) =>
-              updateLocalSubitemPrice(subitem.id, {
-                labor_rate_empty: stripNumberInputFormatting(event.target.value),
-                labor_rate: stripNumberInputFormatting(event.target.value),
-              })
-            }
-          />
-        </label>
-        <label className="price-number-field price-sale-field">
-          <span className="field-label">인건비(살림집)</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={formatMoneyInputValue(getLaborRateOccupiedValue(subitem))}
-            onChange={(event) =>
-              updateLocalSubitemPrice(subitem.id, { labor_rate_occupied: stripNumberInputFormatting(event.target.value) })
-            }
-          />
-        </label>
-      </>
-    );
-  }
 
-  function renderAdminPriceHeaderV2(item, isFlooring = false) {
-    return (
-      <div className={`admin-price-table-header admin-price-v2-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"} ${isFlooring ? "flooring-price-table-header" : ""}`.trim()}>
-        {item.item_type !== "flat" && <span />}
-        <span>소재명</span>
-        <span>규격/두께</span>
-        <span>단위</span>
-        <span>단가</span>
-        <span>인건비(빈집)</span>
-        <span>인건비(살림집)</span>
-        {item.item_type !== "flat" && <span>삭제</span>}
-        <span />
-      </div>
-    );
-  }
 
-  function renderAdminPricePrimarySubitemCells(subitem, flooringContext = null) {
-    const controlSubitem = subitem ?? flooringContext?.referenceSubitem ?? null;
-    const displayValues = getFlooringVariantDisplayValues(subitem);
-    return (
-      <>
-        <label className="spec-options-field">
-          <span className="field-label">규격/두께</span>
-          {(() => {
-            const optionEntries = flooringContext?.optionEntries ?? [];
-            const sharedSpecOptions = flooringContext
-              ? optionEntries.flatMap((option) => normalizeSpecOptions(option.spec_options))
-              : [];
-            const specOptions = flooringContext
-              ? buildUniqueFlooringOptions({
-                  subitems: optionEntries,
-                  baseName: flooringContext.baseName,
-                  specOptions: sharedSpecOptions,
-                })
-              : getSpecSelectOptions(controlSubitem);
-            const specValue = flooringContext?.activeThickness
-              ? getSpecSelectValue(
-                  controlSubitem,
-                  specOptions,
-                  flooringContext.activeThickness
-                )
-              : "";
-            return renderSpecOptionsControl(
-              controlSubitem,
-              specOptions,
-              specValue,
-              (event) => {
-                const nextValue = event.target.value;
-                if (flooringContext && !nextValue) {
-                  if (controlSubitem?.id) {
-                    updateLocalSubitemDraft(controlSubitem.id, { selected_spec_option: "" });
-                  }
-                  selectAdminFlooringThickness(
-                    flooringContext.itemId,
-                    flooringContext.baseName,
-                    ""
-                  );
-                  return;
-                }
-                if (
-                  flooringContext
-                  && isFlooringThicknessSelection(nextValue)
-                ) {
-                  if (controlSubitem?.id) {
-                    updateLocalSubitemDraft(controlSubitem.id, { selected_spec_option: "" });
-                  }
-                  selectAdminFlooringThickness(
-                    flooringContext.itemId,
-                    flooringContext.baseName,
-                    nextValue
-                  );
-                  return;
-                }
-                if (controlSubitem?.id) {
-                  updateLocalSubitemDraft(controlSubitem.id, { selected_spec_option: nextValue });
-                }
-              },
-              { manageInSelect: true }
-            );
-          })()}
-        </label>
-        <label className="price-unit-field">
-          <span className="field-label">단위</span>
-          <select
-            value={normalizeUnitOptionValue(controlSubitem?.unit)}
-            onChange={(event) => {
-              if (controlSubitem?.id) {
-                updateAdminSubitemUnit(controlSubitem.id, event.target.value);
-              }
-            }}
-          >
-            {getUnitSelectOptions(controlSubitem?.unit).map((unit) => (
-              <option key={unit} value={unit}>
-                {unit}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span className="field-label">단가</span>
-          <input
-            className={isEmptyOrZeroDisplayValue(displayValues.unit_price) ? "items-v2-muted-value" : ""}
-            type="text"
-            inputMode="numeric"
-            value={formatMoneyInputValue(displayValues.unit_price)}
-            disabled={displayValues.disabled}
-            onChange={(event) => {
-              if (!subitem?.id) return;
-              updateLocalSubitemPrice(subitem.id, {
-                unit_price: stripNumberInputFormatting(event.target.value),
-              });
-            }}
-          />
-        </label>
-        <label className="price-number-field price-sale-field">
-          <span className="field-label">인건비(빈집)</span>
-          <input
-            className={isEmptyOrZeroDisplayValue(displayValues.labor_rate_empty) ? "items-v2-muted-value" : ""}
-            type="text"
-            inputMode="numeric"
-            value={formatMoneyInputValue(displayValues.labor_rate_empty)}
-            disabled={displayValues.disabled}
-            onChange={(event) => {
-              if (!subitem?.id) return;
-              updateLocalSubitemPrice(subitem.id, {
-                labor_rate_empty: stripNumberInputFormatting(event.target.value),
-                labor_rate: stripNumberInputFormatting(event.target.value),
-              });
-            }}
-          />
-        </label>
-        <label className="price-number-field price-sale-field">
-          <span className="field-label">인건비(살림집)</span>
-          <input
-            className={isEmptyOrZeroDisplayValue(displayValues.labor_rate_occupied) ? "items-v2-muted-value" : ""}
-            type="text"
-            inputMode="numeric"
-            value={formatMoneyInputValue(displayValues.labor_rate_occupied)}
-            disabled={displayValues.disabled}
-            onChange={(event) => {
-              if (!subitem?.id) return;
-              updateLocalSubitemPrice(subitem.id, {
-                labor_rate_occupied: stripNumberInputFormatting(event.target.value),
-              });
-            }}
-          />
-        </label>
-      </>
-    );
-  }
 
-  function renderAdminPriceExpandButton(subitem) {
-    return (
-      <button
-        type="button"
-        className="items-v2-icon-button admin-price-v2-expand-button"
-        aria-label={subitem.expanded ? "원가 정보 닫기" : "원가 정보 열기"}
-        title={subitem.expanded ? "원가 정보 닫기" : "원가 정보 열기"}
-        onClick={() => updateLocalSubitemDraft(subitem.id, { expanded: !subitem.expanded })}
-      >
-        {subitem.expanded ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
-      </button>
-    );
-  }
 
-  function renderAdminPriceExpandedRow(subitem, itemType = "itemized") {
-    if (!subitem?.expanded) return null;
-    return (
-      <div className={`admin-price-v2-expanded-row ${itemType === "flat" ? "flat-price-table-header" : ""}`.trim()}>
-        <div className="items-v2-detail-panel admin-price-v2-detail-panel">
-          <label>
-            <span>원가</span>
-            <div className="items-v2-money-field">
-              <input
-                type="text"
-                inputMode="numeric"
-                value={formatMoneyInputValue(subitem.cost_price)}
-                onChange={(event) =>
-                  updateLocalSubitemPrice(subitem.id, { cost_price: stripNumberInputFormatting(event.target.value) })
-                }
-              />
-              <em>원</em>
-            </div>
-          </label>
-          <label>
-            <span>원가 단위</span>
-            <select
-              className="items-v2-inline-select admin-price-v2-detail-select"
-              value={normalizeUnitOptionValue(subitem.cost_unit)}
-              onChange={(event) => updateLocalSubitemPrice(subitem.id, { cost_unit: normalizeUnitOptionValue(event.target.value) })}
-            >
-              <option value="">선택</option>
-              {getUnitSelectOptions(subitem.cost_unit).map((unit) => (
-                <option key={unit} value={unit}>
-                  {unit}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </div>
-    );
-  }
 
-  function renderAdminPriceRows(item) {
-    const visibleSubitems = getVisibleAdminSubitems(item);
-    const itemSubitems = isFlooringThicknessItem(item)
-      ? reconcileFlooringVariantRows(visibleSubitems)
-      : visibleSubitems;
-    if (isFlooringThicknessItem(item)) {
-      return (
-        <div className="price-table-list admin-price-v2-grid-list">
-          {renderAdminPriceHeaderV2(item, true)}
-          {getFlooringThicknessGroups(itemSubitems).map((group) => {
-            const optionEntries = getFlooringOptionEntries(group);
-            const optionIds = optionEntries.map((option) => option.id);
-            const activeThickness = getAdminFlooringActiveThickness(
-              item.id,
-              group,
-              { allowEmpty: true }
-            );
-            const activeSubitem = activeThickness
-              ? resolveActiveFlooringVariant(
-                  optionEntries,
-                  group.baseName,
-                  activeThickness
-                )
-              : null;
-            const referenceSubitem = activeSubitem ?? optionEntries[0] ?? null;
-            if (!referenceSubitem) return null;
-            const hasValidationError = adminPriceValidationError?.subitemId === referenceSubitem.id;
-            return (
-              <div
-                key={group.baseName}
-                ref={(node) => setAdminPriceRowRef(referenceSubitem.id, node)}
-                className={`admin-value-row flooring-value-row common-price-row price-table-row admin-price-v2-grid ${referenceSubitem.expanded ? "expanded" : ""} ${hasValidationError ? "admin-price-v2-row-error" : ""} ${newlyAddedSubitemId === referenceSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
-                data-subitem-id={referenceSubitem.id}
-                onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, referenceSubitem.id, group.baseName)}
-                onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
-                onDragEnd={clearAdminDragState}
-              >
-                <span
-                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
-                  title="소재 순서 변경"
-                  draggable={canReorderAdminCatalog && !adminSaving}
-                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, referenceSubitem.id, group.baseName)}
-                  onDragEnd={clearAdminDragState}
-                >
-                  ::
-                </span>
-                <label className={`admin-material-name-field ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
-                  <span className="field-label">소재명</span>
-                  <input
-                    value={group.baseName}
-                    placeholder={MATERIAL_NAME_PLACEHOLDER}
-                    onChange={(event) => {
-                      updateLocalFlooringGroupBaseName(optionIds, event.target.value);
-                      clearAdminPriceValidationErrorForSubitem(referenceSubitem.id, event.target.value);
-                    }}
-                    onBlur={(event) => renameAdminFlooringGroup(item.id, optionIds, event.target.value)}
-                  />
-                  {hasValidationError && (
-                    <span className="admin-price-validation-helper">{adminPriceValidationError.message}</span>
-                  )}
-                </label>
-                {renderAdminPricePrimarySubitemCells(activeSubitem, {
-                  itemId: item.id,
-                  baseName: group.baseName,
-                  optionEntries,
-                  activeThickness,
-                  referenceSubitem,
-                })}
-                <button
-                  className="danger-button admin-price-v2-danger-button"
-                  disabled={adminSaving}
-                  onClick={() => deleteAdminSubitem(referenceSubitem.id)}
-                >
-                  <Trash2 size={18} strokeWidth={1.5} />
-                </button>
-                {renderAdminPriceExpandButton(referenceSubitem)}
-                {renderAdminPriceExpandedRow(referenceSubitem)}
-              </div>
-            );
-          })}
-          {!itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
-          {item.item_type !== "flat" && (
-            <div className="admin-add-subitem-row admin-price-v2-add-row">
-              <span>{item.name}에 소재 추가</span>
-              <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
-                <Plus size={18} /> 소재 추가
-              </button>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    return (
-      <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} price-table-list admin-price-v2-grid-list`.trim()}>
-        {renderAdminPriceHeaderV2(item)}
-        {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => {
-          const hasValidationError = adminPriceValidationError?.subitemId === subitem.id;
-          return (
-          <div
-            key={subitem.id}
-            ref={(node) => setAdminPriceRowRef(subitem.id, node)}
-            className={`admin-value-row common-price-row price-table-row admin-price-v2-grid ${subitem.expanded ? "expanded" : ""} ${hasValidationError ? "admin-price-v2-row-error" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
-            data-subitem-id={subitem.id}
-            onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
-            onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
-            onDragEnd={clearAdminDragState}
-          >
-            {item.item_type === "flat" ? (
-              <strong className={`flat-subitem-name ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
-                {item.name}
-                {hasValidationError && (
-                  <span className="admin-price-validation-helper">{adminPriceValidationError.message}</span>
-                )}
-              </strong>
-            ) : (
-              <>
-                <span
-                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
-                  title="소재 순서 변경"
-                  draggable={canReorderAdminCatalog && !adminSaving}
-                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, subitem.id)}
-                  onDragEnd={clearAdminDragState}
-                >
-                  ::
-                </span>
-                <label className={`admin-material-name-field ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
-                  <span className="field-label">소재명</span>
-                  <input
-                    value={subitem.name}
-                    placeholder={MATERIAL_NAME_PLACEHOLDER}
-                    onChange={(event) => {
-                      setAdminItems((current) =>
-                        current.map((entry) =>
-                          entry.id === item.id
-                            ? {
-                                ...entry,
-                                subitems: entry.subitems.map((entrySubitem) =>
-                                  entrySubitem.id === subitem.id
-                                    ? { ...entrySubitem, name: event.target.value }
-                                    : entrySubitem
-                                ),
-                              }
-                            : entry
-                        )
-                      );
-                      clearAdminPriceValidationErrorForSubitem(subitem.id, event.target.value);
-                    }}
-                    onInput={() => markAdminCatalogDirty()}
-                    onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
-                  />
-                  {hasValidationError && (
-                    <span className="admin-price-validation-helper">{adminPriceValidationError.message}</span>
-                  )}
-                </label>
-              </>
-            )}
-            {renderAdminPricePrimarySubitemCells(subitem)}
-            {item.item_type !== "flat" && (
-              <button
-                className="danger-button admin-price-v2-danger-button"
-                disabled={adminSaving}
-                onClick={() => deleteAdminSubitem(subitem.id)}
-              >
-                <Trash2 size={18} strokeWidth={1.5} />
-              </button>
-            )}
-            {renderAdminPriceExpandButton(subitem)}
-            {renderAdminPriceExpandedRow(subitem, item.item_type)}
-          </div>
-          );
-        })}
-        {item.item_type !== "flat" && !itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
-        {item.item_type !== "flat" && (
-          <div className="admin-add-subitem-row admin-price-v2-add-row">
-            <span>{item.name}에 소재 추가</span>
-            <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
-              <Plus size={18} /> 소재 추가
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  }
 
   function renderAdminPricesWorkbench() {
-    const item = selectedAdminPriceItem;
-
     return renderAppShell(
-      <main className="admin-price-v2-page">
-        {renderAdminPriceCategorySidebar()}
-        <section className="admin-price-v2-workspace">
-          <header className="admin-price-v2-header">
-            <div className="items-v2-titleline">
-              <h1>단가표 관리</h1>
-              <span>업체 공통 단가와 인건비 기준</span>
-            </div>
-            <div className="items-v2-header-actions">
-              <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
-                {getAutoSaveStatusLabel()}
-              </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                leftIcon={<RefreshCcw />}
-                disabled={adminLoading || adminSaving}
-                onClick={() => requestAdminCatalogLeave(() => fetchAdminItems({ mode: "prices" }))}
-              >
-                되돌리기
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                leftIcon={<Save />}
-                disabled={adminLoading || adminSaving}
-                onClick={() => saveAdminPrices({ target: "prices" })}
-              >
-                저장하기
-              </Button>
-            </div>
-          </header>
-
-          <div className="items-v2-toolbar admin-price-v2-toolbar">
-            <label className="admin-search-field admin-price-v2-search">
-              <Search size={17} />
-              <input
-                value={adminSearch}
-                onChange={(event) => setAdminSearch(event.target.value)}
-                placeholder="대분류 또는 소재 검색"
-              />
-            </label>
-            <label className="admin-favorite-filter admin-price-v2-favorite">
-              <input
-                type="checkbox"
-                checked={adminFavoriteOnly}
-                onChange={(event) => setAdminFavoriteOnly(event.target.checked)}
-              />
-              즐겨찾기만 보기
-            </label>
-          </div>
-
-          {adminLoading && <div className="status-box">불러오는 중...</div>}
-          {adminSaving && <div className="status-box">저장 중...</div>}
-          {adminNotice && <div className="status-box">{adminNotice}</div>}
-          {adminError && <div className="error-box">{adminError}</div>}
-
-          {item ? (
-            <section className="items-v2-table-section admin-price-v2-table-section">
-              <div className="admin-price-v2-table-scroll formate-scroll-light">
-                {renderAdminPriceRows(item)}
-              </div>
-            </section>
-          ) : (
-            <section className="items-v2-table-section admin-price-v2-table-section">
-              <div className="items-v2-section-header admin-price-v2-section-header">
-                <div>
-                  <h2>단가표</h2>
-                  <p>표시할 대분류가 없습니다.</p>
-                </div>
-              </div>
-              <EmptyState
-                title="표시할 대분류가 없습니다."
-                description="검색 조건을 바꾸거나 대분류를 추가하세요."
-              />
-            </section>
-          )}
-        </section>
-      </main>,
+      <PriceTablePage
+        companyId={selectedCompanyId}
+        addAdminSubitem={addAdminSubitem}
+        adminError={adminError}
+        adminFavoriteOnly={adminFavoriteOnly}
+        adminLoading={adminLoading}
+        adminNotice={adminNotice}
+        adminPriceValidationError={adminPriceValidationError}
+        adminSaving={adminSaving}
+        adminSearch={adminSearch}
+        autoSaveError={autoSaveError}
+        autoSaveStatus={autoSaveStatus}
+        canReorderAdminCatalog={canReorderAdminCatalog}
+        clearAdminDragState={clearAdminDragState}
+        clearAdminPriceValidationErrorForSubitem={clearAdminPriceValidationErrorForSubitem}
+        deleteAdminSubitem={deleteAdminSubitem}
+        dragItemId={dragItemId}
+        dragOverItemId={dragOverItemId}
+        dragOverSubitem={dragOverSubitem}
+        dragSubitem={dragSubitem}
+        fetchAdminItems={fetchAdminItems}
+        filteredAdminItems={filteredAdminItems}
+        getAdminFlooringActiveThickness={getAdminFlooringActiveThickness}
+        getAutoSaveStatusLabel={getAutoSaveStatusLabel}
+        getFlooringOptionEntries={getFlooringOptionEntries}
+        getVisibleAdminSubitems={getVisibleAdminSubitems}
+        handleAdminItemDragOver={handleAdminItemDragOver}
+        handleAdminItemDragStart={handleAdminItemDragStart}
+        handleAdminSubitemDragOver={handleAdminSubitemDragOver}
+        handleAdminSubitemDragStart={handleAdminSubitemDragStart}
+        markAdminCatalogDirty={markAdminCatalogDirty}
+        materialNamePlaceholder={MATERIAL_NAME_PLACEHOLDER}
+        newlyAddedSubitemId={newlyAddedSubitemId}
+        renameAdminFlooringGroup={renameAdminFlooringGroup}
+        renameAdminSubitem={renameAdminSubitem}
+        renderSpecOptionsControl={renderSpecOptionsControl}
+        reorderAdminFlooringGroups={reorderAdminFlooringGroups}
+        reorderAdminItems={reorderAdminItems}
+        reorderAdminSubitems={reorderAdminSubitems}
+        requestAdminCatalogLeave={requestAdminCatalogLeave}
+        saveAdminPrices={saveAdminPrices}
+        selectAdminFlooringThickness={selectAdminFlooringThickness}
+        selectedAdminPriceItem={selectedAdminPriceItem}
+        setAdminFavoriteOnly={setAdminFavoriteOnly}
+        setAdminItems={setAdminItems}
+        setAdminPriceRowRef={setAdminPriceRowRef}
+        setAdminSearch={setAdminSearch}
+        setSelectedAdminCategoryId={setSelectedAdminCategoryId}
+        updateAdminSubitemUnit={updateAdminSubitemUnit}
+        updateLocalFlooringGroupBaseName={updateLocalFlooringGroupBaseName}
+        updateLocalSubitemDraft={updateLocalSubitemDraft}
+        updateLocalSubitemPrice={updateLocalSubitemPrice}
+      />,
       { className: "formate-app-shell--admin-price-v2" }
     );
   }
@@ -10189,7 +9022,11 @@ function AdminApp() {
       const snapshotItems = adminItemsRef.current;
       const adminSubitems = snapshotItems.flatMap((item) => item.subitems ?? []);
       const persistableAdminSubitems = adminSubitems.filter(
-        (subitem) => !isEmptyLocalAdminSubitemPlaceholder(subitem)
+        (subitem) =>
+          !isEmptyLocalAdminSubitemPlaceholder(
+            subitem,
+            MATERIAL_NAME_PLACEHOLDER
+          )
       );
       const isCommonPriceSave = saveTarget === "prices";
       const invalidNameSubitem = persistableAdminSubitems.find((subitem) => {
@@ -10211,8 +9048,7 @@ function AdminApp() {
         focusAdminPriceValidationRow(invalidNameSubitem, parent);
         setNewlyAddedSubitemId(invalidNameSubitem.id);
         if (auto) {
-          setAutoSaveStatus("error");
-          setAutoSaveError(message);
+          markAdminCatalogError(message, saveTarget);
         }
         return false;
       }
@@ -10221,21 +9057,13 @@ function AdminApp() {
       if (snapshotItems.length) {
         await Promise.all(
           snapshotItems.map((item) =>
-            supabase
-              .from("construction_items")
-              .update({
-                name: getCategoryPersistName(item) || "새 대분류",
-                item_type: item.item_type ?? "itemized",
-                is_favorite: Boolean(item.is_favorite),
-                sort_order: item.sort_order ?? 0,
-              })
-              .eq("id", item.id)
-              .eq("company_id", companyId)
+            updateConstructionItem(
+              item.id,
+              companyId,
+              buildConstructionItemSavePayload(item)
+            )
           )
-        ).then((results) => {
-          const failed = results.find((result) => result.error);
-          if (failed?.error) throw failed.error;
-        });
+        );
       }
 
       const existingSubitems = persistableAdminSubitems.filter((subitem) => !isLocalSubitemId(subitem.id));
@@ -10245,48 +9073,23 @@ function AdminApp() {
       if (existingSubitems.length) {
         await Promise.all(
           existingSubitems.map((subitem) => {
-            const payload = {
-              name: getCanonicalFlooringSubitemName(subitem.name),
-              unit: normalizeUnitOptionValue(subitem.unit) || "평",
-              sort_order: subitem.sort_order ?? 0,
-            };
-            if (isCommonPriceSave) {
-              payload.cost_price = toNonNegativeNumberOrZero(subitem.cost_price);
-              payload.cost_unit = normalizeUnitOptionValue(subitem.cost_unit);
-              Object.assign(payload, buildSubitemPricePayload(subitem));
-              payload.spec_options = normalizeSpecOptions(subitem.spec_options);
-            }
-            return supabase
-              .from("construction_subitems")
-              .update(payload)
-              .eq("id", subitem.id);
+            const payload = buildConstructionSubitemSavePayload(
+              subitem,
+              { includePrices: isCommonPriceSave }
+            );
+            return updateConstructionSubitem(subitem.id, payload);
           })
-        ).then((results) => {
-          const failed = results.find((result) => result.error);
-          if (failed?.error) throw failed.error;
-        });
+        );
       }
 
       if (localSubitems.length) {
-        const { data: insertedSubitems, error: insertError } = await supabase
-          .from("construction_subitems")
-          .insert(
-            localSubitems.map((subitem) => ({
-              item_id: subitem.item_id,
-              name: getCanonicalFlooringSubitemName(subitem.name),
-              unit: normalizeUnitOptionValue(subitem.unit) || "평",
-              cost_price: toNonNegativeNumberOrZero(subitem.cost_price),
-              cost_unit: normalizeUnitOptionValue(subitem.cost_unit),
-              ...buildSubitemPricePayload(subitem),
-              spec_options: normalizeSpecOptions(subitem.spec_options),
-              sort_order: subitem.sort_order ?? 0,
-            }))
-          )
-          .select("*");
-        if (insertError) throw insertError;
+        const insertedSubitems = await insertConstructionSubitems(
+          localSubitems.map(buildConstructionSubitemInsertPayload),
+          { select: true }
+        );
         const reconciledLocalSubitems = reconcileInsertedSubitems(
           localSubitems,
-          insertedSubitems ?? []
+          insertedSubitems
         );
         persistedSubitems = [
           ...existingSubitems,
@@ -10326,10 +9129,7 @@ function AdminApp() {
         if (!auto) setAdminNotice("공통 단가/인건비를 저장했습니다.");
         if (refetch) await fetchAdminItems({ mode: "prices" });
         if (!auto) {
-          clearAutoSaveTimer();
-          setAutoSaveStatus("saved");
-          setAutoSaveSavedAt(savedAt);
-          setAutoSaveError("");
+          markAdminCatalogSavedNow(saveTarget);
         }
         return true;
       }
@@ -10341,25 +9141,19 @@ function AdminApp() {
 
       let templateRow = await fetchTemplateRowByCondition(companyId, adminTemplateCondition);
       if (templateRow?.id) {
-        const { data: updatedTemplate, error: updateTemplateError } = await supabase
-          .from("admin_condition_templates")
-          .update(adminTemplateCondition)
-          .eq("id", templateRow.id)
-          .select("id")
-          .single();
-        if (updateTemplateError) throw updateTemplateError;
-        templateRow = updatedTemplate;
+        templateRow = await updateAdminTemplate(
+          templateRow.id,
+          adminTemplateCondition,
+          { idOnly: true }
+        );
       } else {
-        const { data: insertedTemplate, error: insertTemplateError } = await supabase
-          .from("admin_condition_templates")
-          .insert({
+        templateRow = await insertAdminTemplate(
+          {
             company_id: companyId,
             ...adminTemplateCondition,
-          })
-          .select("id")
-          .single();
-        if (insertTemplateError) throw insertTemplateError;
-        templateRow = insertedTemplate;
+          },
+          { idOnly: true }
+        );
       }
 
       const templateValuePayloads = persistedSubitems.map((subitem) => ({
@@ -10373,10 +9167,7 @@ function AdminApp() {
       }));
 
       if (templateValuePayloads.length) {
-        const { error: valuesError } = await supabase
-          .from("admin_condition_template_values")
-          .upsert(templateValuePayloads, { onConflict: "template_id,subitem_id,option_value" });
-        if (valuesError) throw valuesError;
+        await upsertAdminTemplateValues(templateValuePayloads);
       }
 
       if (!stayOnPage) {
@@ -10390,18 +9181,14 @@ function AdminApp() {
         await fetchAdminItems({ mode: "condition", condition: adminTemplateCondition });
       }
       if (!auto) {
-        clearAutoSaveTimer();
-        setAutoSaveStatus("saved");
-        setAutoSaveSavedAt(new Date().toISOString());
-        setAutoSaveError("");
+        markAdminCatalogSavedNow(saveTarget);
       }
       return true;
     } catch (error) {
       const message = getFriendlyError(error, "시공 항목 값을 저장하지 못했어요. 다시 시도해주세요.");
       setAdminError(message);
       if (auto) throw error;
-      setAutoSaveStatus("error");
-      setAutoSaveError(message);
+      markAdminCatalogError(message, target);
       return false;
     } finally {
       if (!auto) setAdminSaving(false);

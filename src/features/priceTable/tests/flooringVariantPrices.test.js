@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildConstructionItemSavePayload,
+  buildConstructionSubitemInsertPayload,
+  buildConstructionSubitemSavePayload,
   buildSubitemPricePayload,
   buildSubitemSaveOperation,
   buildUniqueFlooringOptions,
@@ -183,6 +186,76 @@ describe("price persistence contract", () => {
     expect(buildSubitemSaveOperation(localRow)).toMatchObject({
       operation: "insert",
       payload: { name: "KCC 장판 3T" },
+    });
+  });
+
+  it("builds the unchanged full update payload for a persisted price row", () => {
+    expect(
+      buildConstructionSubitemSavePayload(
+        {
+          ...kccRows[0],
+          unit: "평",
+          cost_price: "7000",
+          cost_unit: "평",
+          spec_options: ["2.2T", "2.7T"],
+          sort_order: 4,
+        },
+        { includePrices: true }
+      )
+    ).toEqual({
+      name: "KCC 장판 1.8T",
+      unit: "평",
+      sort_order: 4,
+      cost_price: 7000,
+      cost_unit: "평",
+      unit_price: 12000,
+      labor_rate_empty: 11000,
+      labor_rate_occupied: 13000,
+      labor_rate: 11000,
+      spec_options: ["2.2T", "2.7T"],
+    });
+  });
+
+  it("builds the unchanged insert payload for a local price row", () => {
+    expect(
+      buildConstructionSubitemInsertPayload({
+        ...kccRows[2],
+        id: "local-subitem-30",
+        unit: "평",
+        cost_price: "",
+        cost_unit: "",
+        spec_options: [],
+        sort_order: 2,
+      })
+    ).toEqual({
+      item_id: FLOORING_ITEM_ID,
+      name: "KCC 장판 3T",
+      unit: "평",
+      sort_order: 2,
+      cost_price: 0,
+      cost_unit: "",
+      unit_price: 20000,
+      labor_rate_empty: 18000,
+      labor_rate_occupied: 22000,
+      labor_rate: 18000,
+      spec_options: [],
+    });
+  });
+
+  it("preserves category source names in construction item payloads", () => {
+    expect(
+      buildConstructionItemSavePayload({
+        name: "도장/페인트",
+        _sourceName: "도장",
+        item_type: "itemized",
+        is_favorite: true,
+        sort_order: 3,
+      })
+    ).toEqual({
+      name: "도장",
+      item_type: "itemized",
+      is_favorite: true,
+      sort_order: 3,
     });
   });
 
