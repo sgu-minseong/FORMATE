@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import * as XLSX from "xlsx";
 import {
   ArrowLeft,
   BookOpen,
@@ -26,9 +25,8 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { isSupabaseConfigured, supabase } from "./lib/supabaseClient";
+import { isSupabaseConfigured } from "./lib/supabaseClient";
 import {
-  getCurrentAccessToken,
   isAdminVerifiedForCompany,
   isValidUuid,
   normalizeCompanyCode,
@@ -61,7 +59,6 @@ import {
 } from "./features/aiExcelImport/display";
 import {
   formatExcelCellValue,
-  normalizeExcelRows,
   getExcelColumnLabel,
   analyzeExcelSheetForFormate,
   getExcelMappingSelectValue,
@@ -160,6 +157,14 @@ import {
 } from "./features/photoManagement/photoModel";
 import DetailCostsPage from "./features/detailCosts/DetailCostsPage";
 import { useDetailCosts } from "./features/detailCosts/useDetailCosts";
+import AiSetupPage from "./features/aiSetup/AiSetupPage";
+import { buildAiRecommendationRequest, requestAiRecommendations } from "./features/aiSetup/aiSetupApi";
+import {
+  createEmptyAiSetupApplyCondition,
+  createEmptyAiSetupConditionTouched,
+  useAiSetup,
+} from "./features/aiSetup/useAiSetup";
+import { isSupportedAiSetupExcelFile, parseAiSetupWorkbook } from "./features/aiSetup/aiSetupExcel";
 import {
   buildUniqueFlooringOptions,
   buildConstructionItemSavePayload,
@@ -1773,24 +1778,6 @@ function parseAiImportTemplateNumber(value) {
   return parseAiImportCurrencyNumber(value);
 }
 
-function createEmptyAiSetupApplyCondition() {
-  return {
-    pyeong: "",
-    buildType: "",
-    conditionVariant: "",
-    occupancy: "",
-  };
-}
-
-function createEmptyAiSetupConditionTouched() {
-  return {
-    pyeong: false,
-    buildType: false,
-    conditionVariant: false,
-    occupancy: false,
-  };
-}
-
 function normalizePyeongValue(value) {
   const text = formatExcelCellValue(value);
   if (!text) return "";
@@ -2312,42 +2299,40 @@ function AdminApp() {
   const [pyeongDropdownOpen, setPyeongDropdownOpen] = useState(false);
   const [adminPyeongDropdownOpen, setAdminPyeongDropdownOpen] = useState(false);
   const [favoritePyeongs, setFavoritePyeongs] = useState(readFavoritePyeongs);
-  const [aiSetupFileName, setAiSetupFileName] = useState("");
-  const [aiSetupStatus, setAiSetupStatus] = useState("idle");
-  const [aiSetupError, setAiSetupError] = useState("");
-  const [aiSetupSheets, setAiSetupSheets] = useState([]);
-  const [selectedAiSetupSheetName, setSelectedAiSetupSheetName] = useState("");
-  const [aiSetupHeaderRowIndex, setAiSetupHeaderRowIndex] = useState(-1);
-  const [aiSetupColumnMappings, setAiSetupColumnMappings] = useState([]);
-  const [aiSetupCatalogItems, setAiSetupCatalogItems] = useState([]);
-  const [aiSetupCatalogLoading, setAiSetupCatalogLoading] = useState(false);
-  const [aiSetupCatalogError, setAiSetupCatalogError] = useState("");
-  const [aiSetupMatchOverrides, setAiSetupMatchOverrides] = useState({});
-  const [aiSetupApplyCondition, setAiSetupApplyCondition] = useState(createEmptyAiSetupApplyCondition);
-  const [aiSetupApplyConditionTouched, setAiSetupApplyConditionTouched] = useState(createEmptyAiSetupConditionTouched);
-  const [aiSetupPriceConfirmOpen, setAiSetupPriceConfirmOpen] = useState(false);
-  const [aiSetupPriceSaving, setAiSetupPriceSaving] = useState(false);
-  const [aiSetupPriceResult, setAiSetupPriceResult] = useState(null);
-  const [aiSetupPriceError, setAiSetupPriceError] = useState("");
-  const [aiSetupTemplateConfirmOpen, setAiSetupTemplateConfirmOpen] = useState(false);
-  const [aiSetupTemplateSaving, setAiSetupTemplateSaving] = useState(false);
-  const [aiSetupTemplateResult, setAiSetupTemplateResult] = useState(null);
-  const [aiSetupTemplateError, setAiSetupTemplateError] = useState("");
-  const [aiSetupNewItemConfirmOpen, setAiSetupNewItemConfirmOpen] = useState(false);
-  const [aiSetupNewItemSaving, setAiSetupNewItemSaving] = useState(false);
-  const [aiSetupNewItemResult, setAiSetupNewItemResult] = useState(null);
-  const [aiSetupNewItemError, setAiSetupNewItemError] = useState("");
-  const [aiSetupAiLoading, setAiSetupAiLoading] = useState(false);
-  const [aiSetupAiError, setAiSetupAiError] = useState("");
-  const [aiSetupAiResult, setAiSetupAiResult] = useState(null);
-  const [aiSetupAdvancedOpen, setAiSetupAdvancedOpen] = useState(false);
-  const [aiSetupStandardOpen, setAiSetupStandardOpen] = useState(false);
-  const [aiSetupRawOpen, setAiSetupRawOpen] = useState(false);
-  const [aiSetupMatchReviewOpen, setAiSetupMatchReviewOpen] = useState(false);
-  const [aiSetupMatchReviewMode, setAiSetupMatchReviewMode] = useState("review");
-  const [aiSetupSplitReviewOpen, setAiSetupSplitReviewOpen] = useState(false);
-  const [aiSetupApplyPlanOpen, setAiSetupApplyPlanOpen] = useState(false);
-  const [aiSetupSaveGuideOpen, setAiSetupSaveGuideOpen] = useState(false);
+  const aiSetupController = useAiSetup();
+  const {
+    aiSetupFileName, setAiSetupFileName, aiSetupStatus, setAiSetupStatus,
+    aiSetupError, setAiSetupError, aiSetupSheets, setAiSetupSheets,
+    selectedAiSetupSheetName, setSelectedAiSetupSheetName,
+    aiSetupHeaderRowIndex, setAiSetupHeaderRowIndex,
+    aiSetupColumnMappings, setAiSetupColumnMappings,
+    aiSetupCatalogItems, setAiSetupCatalogItems,
+    aiSetupCatalogLoading, setAiSetupCatalogLoading,
+    aiSetupCatalogError, setAiSetupCatalogError,
+    aiSetupMatchOverrides, setAiSetupMatchOverrides,
+    aiSetupApplyCondition, setAiSetupApplyCondition,
+    aiSetupApplyConditionTouched, setAiSetupApplyConditionTouched,
+    aiSetupPriceConfirmOpen, setAiSetupPriceConfirmOpen,
+    aiSetupPriceSaving, setAiSetupPriceSaving, aiSetupPriceResult, setAiSetupPriceResult,
+    aiSetupPriceError, setAiSetupPriceError,
+    aiSetupTemplateConfirmOpen, setAiSetupTemplateConfirmOpen,
+    aiSetupTemplateSaving, setAiSetupTemplateSaving,
+    aiSetupTemplateResult, setAiSetupTemplateResult,
+    aiSetupTemplateError, setAiSetupTemplateError,
+    aiSetupNewItemConfirmOpen, setAiSetupNewItemConfirmOpen,
+    aiSetupNewItemSaving, setAiSetupNewItemSaving,
+    aiSetupNewItemResult, setAiSetupNewItemResult,
+    aiSetupNewItemError, setAiSetupNewItemError,
+    aiSetupAiLoading, setAiSetupAiLoading, aiSetupAiError, setAiSetupAiError,
+    aiSetupAiResult, setAiSetupAiResult,
+    aiSetupAdvancedOpen, setAiSetupAdvancedOpen,
+    aiSetupStandardOpen, setAiSetupStandardOpen, aiSetupRawOpen, setAiSetupRawOpen,
+    aiSetupMatchReviewOpen, setAiSetupMatchReviewOpen,
+    aiSetupMatchReviewMode, setAiSetupMatchReviewMode,
+    aiSetupSplitReviewOpen, setAiSetupSplitReviewOpen,
+    aiSetupApplyPlanOpen, setAiSetupApplyPlanOpen,
+    aiSetupSaveGuideOpen, setAiSetupSaveGuideOpen,
+  } = aiSetupController;
 
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
@@ -2979,7 +2964,7 @@ function AdminApp() {
     if (!file) return;
 
     const fileName = file.name ?? "";
-    const isExcelFile = /\.(xlsx|xls)$/i.test(fileName);
+    const isExcelFile = isSupportedAiSetupExcelFile(fileName);
     setAiSetupFileName(fileName);
 
     if (!isExcelFile) {
@@ -2990,34 +2975,12 @@ function AdminApp() {
 
     setAiSetupStatus("reading");
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: true });
-      const sheetNames = workbook.SheetNames ?? [];
-
-      if (sheetNames.length === 0) {
+      const parsedSheets = await parseAiSetupWorkbook(file);
+      if (parsedSheets.length === 0) {
         setAiSetupStatus("error");
         setAiSetupError("읽을 수 있는 시트가 없습니다.");
         return;
       }
-
-      const parsedSheets = sheetNames.map((sheetName) => {
-        const worksheet = workbook.Sheets[sheetName];
-        const rows = normalizeExcelRows(
-          XLSX.utils.sheet_to_json(worksheet, {
-            header: 1,
-            blankrows: false,
-            defval: "",
-            raw: false,
-          })
-        );
-        const columnCount = rows.reduce((max, row) => Math.max(max, row.length), 0);
-        return {
-          name: sheetName,
-          rows,
-          rowCount: rows.length,
-          columnCount,
-        };
-      });
 
       setAiSetupSheets(parsedSheets);
       setSelectedAiSetupSheetName(parsedSheets[0]?.name ?? "");
@@ -3123,70 +3086,15 @@ function AdminApp() {
     setAiSetupAiResult(null);
 
     try {
-      const existingCategories = aiSetupCatalogItems.map((item) => ({
-        id: item.id,
-        name: item.name,
-      }));
-      const existingSubitems = aiSetupCatalogItems.flatMap((item) =>
-        (item.subitems ?? []).map((subitem) => ({
-          id: subitem.id,
-          item_id: subitem.item_id,
-          categoryId: item.id,
-          categoryName: item.name,
-          name: subitem.name,
-          unit: subitem.unit,
-        }))
-      );
-      const rows = aiSetupCatalogMatchRows.filter((row) => !row.isSplitChild).slice(0, 50).map((row) => {
-        const override = aiSetupMatchOverrides[row.sourceRowNumber] ?? {};
-        return ({
-        rowIndex: row.sourceRowNumber,
-        category: row.category ?? row.sourceCategory ?? "",
-        item_name: row.item_name ?? row.sourceItemName ?? "",
-        spec: row.spec ?? "",
-        unit: row.unit ?? "",
-        quantity: row.quantity ?? "",
-        unit_price: row.unit_price ?? "",
-        labor_rate: row.labor_rate ?? "",
-        labor_count: row.labor_count ?? "",
-        original_amount: row.original_amount ?? "",
-        memo: row.memo ?? "",
-        rowType: override.rowType ?? row.rowType,
-        action: override.action ?? row.action,
-        matchedCategoryId: row.selectedCategoryId,
-        matchedCategoryName: row.selectedCategoryName,
-        matchedSubitemId: row.selectedSubitemId,
-        matchedSubitemName: row.selectedSubitemName,
-        });
+      const requestPayload = buildAiRecommendationRequest({
+        catalogItems: aiSetupCatalogItems,
+        matchRows: aiSetupCatalogMatchRows,
+        overrides: aiSetupMatchOverrides,
+        mappings: aiSetupMappingAnalysis.mappings,
+        condition: aiSetupApplyCondition,
+        conditionLabel: aiSetupApplyConditionLabel,
       });
-
-      const accessToken = await getCurrentAccessToken();
-      if (!accessToken) {
-        throw new Error("AI 분석을 사용하려면 다시 로그인해 주세요.");
-      }
-
-      const response = await fetch("/api/analyze-excel-import", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          rows,
-          currentMappings: aiSetupMappingAnalysis.mappings,
-          existingCategories,
-          existingSubitems,
-          condition: {
-            ...aiSetupApplyCondition,
-            label: aiSetupApplyConditionLabel,
-          },
-        }),
-      });
-
-      const result = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(result?.error || "AI 매칭 추천에 실패했습니다.");
-      }
+      const result = await requestAiRecommendations(requestPayload);
 
       const recommendations = Array.isArray(result?.recommendations) ? result.recommendations : [];
       const sourceRowNumbers = new Set(aiSetupCatalogMatchRows.map((row) => row.sourceRowNumber));
@@ -9187,7 +9095,8 @@ function AdminApp() {
       )}
 
       {page === "admin-ai-setup" && adminVerified && renderAppShell(
-        <main className="panel-page admin-page ai-setup-page">
+        <AiSetupPage>
+          <main className="panel-page admin-page ai-setup-page">
           <button className="ghost" onClick={() => setPage("admin")}>
             <ArrowLeft size={18} /> 관리자 홈으로 돌아가기
           </button>
@@ -10444,7 +10353,8 @@ function AdminApp() {
               </section>
             )}
           </section>
-        </main>,
+          </main>
+        </AiSetupPage>,
         { className: "formate-app-shell--overview" }
       )}
 
