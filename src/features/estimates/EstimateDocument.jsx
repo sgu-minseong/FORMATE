@@ -2,6 +2,7 @@ import PriceText from "../../components/PriceText";
 
 export default function EstimateDocument({
   documentRef,
+  outputMode = "screen",
   previewType,
   companyName,
   total,
@@ -30,9 +31,14 @@ export default function EstimateDocument({
   onSiteMemoChange,
   estimateNumber,
 }) {
+  const outputModeClassName = outputMode === "pdf"
+    ? "estimate-document--pdf"
+    : "estimate-document--screen";
+
   return (
     <div
-      className={`pdf-capture-area ${previewType === "general" ? "general-estimate-document" : "detail-estimate-document"}`.trim()}
+      className={`pdf-capture-area estimate-document ${outputModeClassName} ${previewType === "general" ? "general-estimate-document" : "detail-estimate-document"}`.trim()}
+      data-estimate-document={outputMode}
       ref={documentRef}
     >
       <div className="pdf-title-row">

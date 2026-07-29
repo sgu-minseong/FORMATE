@@ -2110,7 +2110,7 @@ function getAiSetupFlowState({
 }
 
 export default function AdminApp() {
-  const previewPdfRef = useRef(null);
+  const printableEstimateDocumentRef = useRef(null);
   const estimatePhotoRequestRef = useRef("");
   const estimateBlankCatalogRequestRef = useRef(0);
   const estimateListRequestRef = useRef(0);
@@ -7783,12 +7783,12 @@ export default function AdminApp() {
   }
 
   async function downloadEstimatePdf() {
-    if (!previewPdfRef.current) return;
+    if (!printableEstimateDocumentRef.current) return;
 
     setEstimateError("");
     try {
       await exportEstimatePdf({
-        element: previewPdfRef.current,
+        documentNode: printableEstimateDocumentRef.current,
         companyName: selectedCompanyName,
         customerName,
         address,
@@ -12339,8 +12339,8 @@ export default function AdminApp() {
           saving={estimateSaving}
           onSave={saveEstimateToSupabase}
           onDownloadPdf={downloadEstimatePdf}
+          printableDocumentRef={printableEstimateDocumentRef}
           documentProps={{
-            documentRef: previewPdfRef,
             companyName: selectedCompanyName,
             total,
             createdDate: estimateCreatedDate,

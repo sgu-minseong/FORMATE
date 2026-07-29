@@ -9327,14 +9327,56 @@ const appStyles = `
   }
   .general-preview-page,
   .detail-preview-page {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
     background: var(--color-bg);
   }
   .general-preview-panel,
   .detail-preview-panel {
+    display: flex;
     width: min(var(--viewport-preferred-width), 100%);
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .estimate-preview-viewport {
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .estimate-document {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    transform: none;
+  }
+  .estimate-document--screen {
+    flex: 0 0 auto;
+  }
+  .estimate-pdf-export-host {
+    position: fixed;
+    top: 0;
+    left: -100000px;
+    width: max-content;
+    height: auto;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .general-estimate-document.estimate-document--pdf {
+    width: 920px;
+    max-width: none;
+  }
+  .detail-estimate-document.estimate-document--pdf {
+    width: 1100px;
+    max-width: none;
   }
   .general-preview-panel > .editor-header,
   .detail-preview-panel > .editor-header {
+    flex: 0 0 auto;
     margin-bottom: var(--space-2);
     padding: var(--space-card-padding);
     border: 1px solid var(--color-border);
@@ -9355,6 +9397,10 @@ const appStyles = `
     border-radius: var(--radius-card);
     background: var(--color-surface);
     box-shadow: none;
+  }
+  .general-preview-panel > .actions,
+  .detail-preview-panel > .actions {
+    flex: 0 0 auto;
   }
   .general-estimate-document .pdf-title-row,
   .detail-estimate-document .pdf-title-row {

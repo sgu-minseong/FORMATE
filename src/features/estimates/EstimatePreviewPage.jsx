@@ -1,4 +1,5 @@
 import { ArrowLeft, Printer, Save } from "lucide-react";
+import { createPortal } from "react-dom";
 import EstimateDocument from "./EstimateDocument";
 
 export default function EstimatePreviewPage({
@@ -11,8 +12,24 @@ export default function EstimatePreviewPage({
   saving,
   onSave,
   onDownloadPdf,
+  printableDocumentRef,
   documentProps,
 }) {
+  const pdfExportHost = (
+    <div
+      className="estimate-pdf-export-host"
+      aria-hidden="true"
+      inert=""
+    >
+      <EstimateDocument
+        previewType={previewType}
+        outputMode="pdf"
+        documentRef={printableDocumentRef}
+        {...documentProps}
+      />
+    </div>
+  );
+
   return (
     <main className={`panel-page ${previewType === "general" ? "general-preview-page" : "detail-preview-page"}`.trim()}>
       <section className={`panel wide ${previewType === "general" ? "general-preview-panel" : "detail-preview-panel"}`.trim()}>
@@ -45,7 +62,16 @@ export default function EstimatePreviewPage({
         {error && <div className="error-box">{error}</div>}
         {saving && <div className="status-box">저장 중...</div>}
 
-        <EstimateDocument previewType={previewType} {...documentProps} />
+        <div
+          className="estimate-preview-viewport formate-scroll-light"
+          data-estimate-preview-viewport
+        >
+          <EstimateDocument
+            previewType={previewType}
+            outputMode="screen"
+            {...documentProps}
+          />
+        </div>
 
         <div className="actions">
           <button className="secondary-button" disabled={saving} onClick={onSave}>
@@ -55,6 +81,10 @@ export default function EstimatePreviewPage({
             <Printer size={18} /> PDF 받기
           </button>
         </div>
+
+        {typeof document === "undefined"
+          ? pdfExportHost
+          : createPortal(pdfExportHost, document.body)}
       </section>
     </main>
   );

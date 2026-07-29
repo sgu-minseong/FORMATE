@@ -23,7 +23,7 @@ export function buildEstimatePdfFileName({
 }
 
 export async function exportEstimatePdf({
-  element,
+  documentNode,
   companyName,
   customerName,
   address,
@@ -32,9 +32,9 @@ export async function exportEstimatePdf({
   capture = html2canvas,
   createPdf = () => new jsPDF("p", "mm", "a4"),
 }) {
-  if (!element) return false;
+  if (documentNode?.dataset?.estimateDocument !== "pdf") return false;
 
-  const canvas = await capture(element, {
+  const canvas = await capture(documentNode, {
     scale: 2,
     useCORS: true,
     backgroundColor,

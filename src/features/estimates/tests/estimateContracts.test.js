@@ -177,6 +177,7 @@ describe("estimate PDF generation contracts", () => {
   it("keeps capture settings, A4 margins, and page splitting", async () => {
     const canvas = { width: 1000, height: 2200, toDataURL: vi.fn(() => "image") };
     const capture = vi.fn(async () => canvas);
+    const documentNode = { nodeType: 1, dataset: { estimateDocument: "pdf" } };
     const pdf = {
       internal: { pageSize: { getWidth: () => 210, getHeight: () => 297 } },
       addImage: vi.fn(),
@@ -184,7 +185,7 @@ describe("estimate PDF generation contracts", () => {
       save: vi.fn(),
     };
     await exportEstimatePdf({
-      element: { nodeType: 1 },
+      documentNode,
       companyName: "FORMATE",
       customerName: "",
       address: "서울",
@@ -193,7 +194,7 @@ describe("estimate PDF generation contracts", () => {
       capture,
       createPdf: () => pdf,
     });
-    expect(capture).toHaveBeenCalledWith(expect.anything(), {
+    expect(capture).toHaveBeenCalledWith(documentNode, {
       scale: 2,
       useCORS: true,
       backgroundColor: "#fff",
@@ -201,5 +202,15 @@ describe("estimate PDF generation contracts", () => {
     expect(pdf.addImage).toHaveBeenCalled();
     expect(pdf.addPage).toHaveBeenCalled();
     expect(pdf.save).toHaveBeenCalledWith("견적서_FORMATE_서울_2026-07-28.pdf");
+  });
+
+  it("does not capture a screen viewport or screen document by mistake", async () => {
+    const capture = vi.fn();
+
+    await expect(exportEstimatePdf({
+      documentNode: { dataset: { estimateDocument: "screen" } },
+      capture,
+    })).resolves.toBe(false);
+    expect(capture).not.toHaveBeenCalled();
   });
 });
