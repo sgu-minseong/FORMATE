@@ -110,7 +110,7 @@ import { isOperationalEstimate } from "../features/customerOperations/utils";
 import DeleteSavedEstimateDialog from "../features/estimates/DeleteSavedEstimateDialog";
 import {
   fetchSavedEstimateLists,
-  insertEstimate,
+  saveEstimateDraft,
   moveSavedEstimateToTrash,
   restoreSavedEstimate,
   SAVED_ESTIMATE_RESTORE_RESULT,
@@ -846,6 +846,10 @@ function createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus = "
     selected: false,
     ...patch,
   });
+}
+
+function createEstimateDraftKey() {
+  return globalThis.crypto.randomUUID();
 }
 
 function buildEstimateItemsFromTemplate(catalog, pyeong, residenceStatus = "empty") {
@@ -2115,6 +2119,8 @@ export default function AdminApp() {
   const estimateBlankCatalogRequestRef = useRef(0);
   const estimateListRequestRef = useRef(0);
   const estimateDeleteTriggerRef = useRef(null);
+  const estimateAggregateIdRef = useRef(null);
+  const estimateClientDraftKeyRef = useRef(createEstimateDraftKey());
   const currentAdminTemplateConditionRef = useRef(null);
   const {
     companySession,
@@ -5730,6 +5736,11 @@ export default function AdminApp() {
     const restoredDraft = restoreEstimateDraft(estimate);
     const restoredConditionVariant = restoredDraft.condition.conditionVariant;
 
+    estimateAggregateIdRef.current = copy ? null : estimate.id;
+    estimateClientDraftKeyRef.current = copy
+      ? createEstimateDraftKey()
+      : estimate.client_draft_key || createEstimateDraftKey();
+
     setCondition(restoredDraft.condition);
     setItems(restoredDraft.items);
     setEstimateCatalog(restoredDraft.catalog);
@@ -5797,6 +5808,8 @@ export default function AdminApp() {
   }
 
   function resetFlow() {
+    estimateAggregateIdRef.current = null;
+    estimateClientDraftKeyRef.current = createEstimateDraftKey();
     setPage("landing");
     setStep(1);
     setCondition({
@@ -5839,6 +5852,8 @@ export default function AdminApp() {
   }
 
   function resetEstimateDraftForNewStart() {
+    estimateAggregateIdRef.current = null;
+    estimateClientDraftKeyRef.current = createEstimateDraftKey();
     estimateBlankCatalogRequestRef.current += 1;
     setStep(1);
     setCondition({
@@ -7762,7 +7777,15 @@ export default function AdminApp() {
         itemsData,
         total,
       });
-      await insertEstimate(estimatePayload);
+      const saveResult = await saveEstimateDraft({
+        estimate: estimatePayload,
+        estimateId: estimateAggregateIdRef.current,
+        clientDraftKey: estimateClientDraftKeyRef.current,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        projectName: address.trim(),
+      });
+      estimateAggregateIdRef.current = saveResult.estimateId;
 
       const createdTemplate = await saveBlankEstimateAsTemplate(companyId);
 

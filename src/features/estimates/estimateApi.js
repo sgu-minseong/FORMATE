@@ -9,6 +9,12 @@ import {
 
 const ESTIMATE_SELECT = `
   *,
+  consultation:consultations(
+    id,
+    status,
+    customer:customers(id, name, phone, email),
+    project:projects(id, name, address, detail_address, deleted_at)
+  ),
   estimate_versions(
     id,
     project_id,
@@ -39,9 +45,39 @@ export async function fetchSavedEstimateLists(companyId) {
   };
 }
 
-export async function insertEstimate(payload) {
-  const { error } = await supabase.from("estimates").insert(payload);
+export async function saveEstimateDraft({
+  estimate,
+  estimateId = null,
+  clientDraftKey,
+  customerName = "",
+  customerPhone = "",
+  customerEmail = "",
+  projectName = "",
+  projectDetailAddress = "",
+}) {
+  const { data, error } = await supabase.rpc("save_estimate_draft", {
+    p_company_id: estimate.company_id,
+    p_client_draft_key: clientDraftKey,
+    p_estimate_id: estimateId,
+    p_address: estimate.address || "",
+    p_construction_date: estimate.construction_date,
+    p_condition_id: estimate.condition_id,
+    p_condition_snapshot: estimate.condition_snapshot,
+    p_items_data: estimate.items_data,
+    p_total_amount: estimate.total_amount,
+    p_customer_name: customerName,
+    p_customer_phone: customerPhone,
+    p_customer_email: customerEmail,
+    p_project_name: projectName,
+    p_project_detail_address: projectDetailAddress,
+  });
   if (error) throw error;
+  if (!data?.ok) {
+    const lifecycleError = new Error(data?.message || "견적 작업본을 저장하지 못했습니다.");
+    lifecycleError.code = data?.code || "estimate_save_failed";
+    throw lifecycleError;
+  }
+  return data;
 }
 
 export {

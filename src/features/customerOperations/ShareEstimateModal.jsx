@@ -60,6 +60,10 @@ export default function ShareEstimateModal({
       return;
     }
 
+    if (!window.confirm("\uB9C1\uD06C\uB97C \uC0DD\uC131\uD558\uBA74 \uACAC\uC801\uC774 \uBC1C\uC1A1\uB428\uC73C\uB85C \uCC98\uB9AC\uB429\uB2C8\uB2E4.")) {
+      return;
+    }
+
     setSubmitting(true);
     try {
       const result = await createEstimatePortalLink({
@@ -77,10 +81,17 @@ export default function ShareEstimateModal({
         marketingConsent: form.marketingConsent,
       });
       const portalPath = result.portalPath || `/c/${result.token}`;
-      setCreatedLink({
+      const nextLink = {
         ...result,
         url: `${window.location.origin}${portalPath}`,
-      });
+      };
+      setCreatedLink(nextLink);
+      try {
+        await navigator.clipboard.writeText(nextLink.url);
+        setCopyStatus("\uBC1C\uC1A1\uC6A9 \uB9C1\uD06C\uB97C \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.");
+      } catch {
+        setCopyStatus("\uB9C1\uD06C\uB294 \uBC1C\uC1A1\uB428\uC73C\uB85C \uCC98\uB9AC\uB410\uC9C0\uB9CC \uC790\uB3D9 \uBCF5\uC0AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC544\uB798 \uBC84\uD2BC\uC73C\uB85C \uB2E4\uC2DC \uBCF5\uC0AC\uD574\uC8FC\uC138\uC694.");
+      }
     } catch (submitError) {
       setError(getShareErrorMessage(submitError));
     } finally {
@@ -128,7 +139,7 @@ export default function ShareEstimateModal({
           <div className="estimate-share-result">
             <div className="estimate-share-result__status">
               <span aria-hidden="true" />
-              <strong>공유 링크가 생성되었습니다</strong>
+              <strong>견적이 발송됨으로 처리되었습니다</strong>
             </div>
             <Input
               label="고객용 링크"
@@ -138,7 +149,7 @@ export default function ShareEstimateModal({
             />
             <div className="estimate-share-result__actions">
               <Button variant="primary" leftIcon={<Copy />} onClick={handleCopy}>
-                링크 복사
+                다시 복사
               </Button>
               <Button
                 variant="secondary"
@@ -161,14 +172,14 @@ export default function ShareEstimateModal({
                 value={form.customerName}
                 maxLength={120}
                 required
-                onChange={(event) => updateField("customerName", event.target.value)}
+                readOnly
               />
               <Input
                 label="연락처"
                 value={form.customerPhone}
                 maxLength={40}
                 placeholder="선택 입력"
-                onChange={(event) => updateField("customerPhone", event.target.value)}
+                readOnly
               />
               <Input
                 label="이메일"
@@ -176,21 +187,21 @@ export default function ShareEstimateModal({
                 value={form.customerEmail}
                 maxLength={200}
                 placeholder="선택 입력"
-                onChange={(event) => updateField("customerEmail", event.target.value)}
+                readOnly
               />
               <Input
                 label="현장명"
                 value={form.projectName}
                 maxLength={160}
                 placeholder="예: 아파트 전체 리모델링"
-                onChange={(event) => updateField("projectName", event.target.value)}
+                readOnly
               />
               <Input
                 label="현장 주소"
                 className="estimate-share-form__wide"
                 value={form.projectAddress}
                 maxLength={500}
-                onChange={(event) => updateField("projectAddress", event.target.value)}
+                readOnly
               />
               <Input
                 label="견적 버전 라벨"
@@ -253,7 +264,7 @@ export default function ShareEstimateModal({
                 닫기
               </Button>
               <Button variant="primary" type="submit" disabled={submitting}>
-                {submitting ? "생성 중" : "링크 생성"}
+                {submitting ? "발송 처리 중" : "카카오톡·문자로 보낼 링크 복사"}
               </Button>
             </footer>
           </form>
