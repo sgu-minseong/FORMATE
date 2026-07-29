@@ -14,6 +14,7 @@ import Select from "../../components/ui/Select";
 import {
   approveCustomerPortalEstimate,
   fetchCustomerPortal,
+  rejectCustomerPortalEstimate,
   submitCustomerPortalRequest,
 } from "./customerPortalApi";
 import {
@@ -52,6 +53,7 @@ export default function CustomerPortalPage({ token }) {
   const [approvalNote, setApprovalNote] = useState("");
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const [approvalError, setApprovalError] = useState("");
+  const [decisionAction, setDecisionAction] = useState("approved");
   const requestDialogRef = useRef(null);
   const requestTriggerRef = useRef(null);
   const approvalDialogRef = useRef(null);
@@ -97,6 +99,11 @@ export default function CustomerPortalPage({ token }) {
   }, [items]);
   const status = getPortalStatus(estimateVersion.status);
   const approved = estimateVersion.status === "approved";
+  const isCurrentVersion = portalData?.isCurrentVersion !== false;
+  const canRequestRevision = isCurrentVersion && ["sent", "viewed"].includes(estimateVersion.status);
+  const canApprove = isCurrentVersion && ["sent", "viewed"].includes(estimateVersion.status);
+  const canReject = isCurrentVersion
+    && ["sent", "viewed", "revision_requested"].includes(estimateVersion.status);
   const projectAddress = [
     portalData?.project?.address,
     portalData?.project?.detailAddress,
@@ -204,15 +211,20 @@ export default function CustomerPortalPage({ token }) {
     setApprovalError("");
     setApprovalSubmitting(true);
     try {
-      await approveCustomerPortalEstimate({
-        token,
-        note: approvalNote.trim(),
-      });
+      const action = decisionAction === "rejected"
+        ? rejectCustomerPortalEstimate
+        : approveCustomerPortalEstimate;
+      await action({ token, note: approvalNote.trim() });
       setApprovalOpen(false);
       setApprovalNote("");
       await loadPortal({ quiet: true });
     } catch (error) {
-      setApprovalError(error?.message || "견적을 확정하지 못했습니다.");
+      setApprovalError(
+        error?.message
+        || (decisionAction === "rejected"
+          ? "견적을 거절하지 못했습니다."
+          : "견적을 확정하지 못했습니다.")
+      );
     } finally {
       setApprovalSubmitting(false);
     }
@@ -405,7 +417,11 @@ export default function CustomerPortalPage({ token }) {
             >
               문의하기
             </Button>
-            {approved ? (
+            {!isCurrentVersion ? (
+              <span className="customer-portal__approved-action">
+                <span>이전 견적 버전입니다. 최신 링크에서만 상태를 변경할 수 있습니다.</span>
+              </span>
+            ) : approved ? (
               <span className="customer-portal__approved-action">
                 <CircleCheck aria-hidden="true" />
                 <span>
@@ -420,16 +436,30 @@ export default function CustomerPortalPage({ token }) {
                 <Button
                   variant="secondary"
                   leftIcon={<PencilLine />}
+                  disabled={!canRequestRevision}
                   onClick={(event) => openRequestDialog("estimate_revision", event.currentTarget)}
                 >
                   변경 요청
                 </Button>
                 <Button
-                  variant="primary"
-                  leftIcon={<Check />}
-                  disabled={approvalSubmitting}
+                  variant="tertiary"
+                  disabled={!canReject || approvalSubmitting}
                   onClick={(event) => {
                     approvalTriggerRef.current = event.currentTarget;
+                    setDecisionAction("rejected");
+                    setApprovalError("");
+                    setApprovalOpen(true);
+                  }}
+                >
+                  견적 거절
+                </Button>
+                <Button
+                  variant="primary"
+                  leftIcon={<Check />}
+                  disabled={!canApprove || approvalSubmitting}
+                  onClick={(event) => {
+                    approvalTriggerRef.current = event.currentTarget;
+                    setDecisionAction("approved");
                     setApprovalError("");
                     setApprovalOpen(true);
                   }}
@@ -541,13 +571,17 @@ export default function CustomerPortalPage({ token }) {
           >
             <header className="customer-portal__dialog-header">
               <div>
-                <h2 id="customer-portal-approval-title">이 견적으로 진행하시겠습니까?</h2>
+                <h2 id="customer-portal-approval-title">
+                  {decisionAction === "rejected"
+                    ? "이 견적을 거절하시겠습니까?"
+                    : "이 견적으로 진행하시겠습니까?"}
+                </h2>
                 <p>{projectName} · {formatPortalMoney(estimateVersion.totalAmount)}</p>
               </div>
               <button
                 type="button"
                 className="customer-portal__dialog-close"
-                aria-label="견적 확정 창 닫기"
+                aria-label={decisionAction === "rejected" ? "견적 거절 창 닫기" : "견적 확정 창 닫기"}
                 disabled={approvalSubmitting}
                 onClick={() => setApprovalOpen(false)}
               >
@@ -556,7 +590,7 @@ export default function CustomerPortalPage({ token }) {
             </header>
             <Input
               as="textarea"
-              label="업체에 남길 메모"
+              label={decisionAction === "rejected" ? "거절 사유" : "업체에 남길 메모"}
               value={approvalNote}
               maxLength={1000}
               placeholder="선택 입력"
@@ -567,8 +601,14 @@ export default function CustomerPortalPage({ token }) {
               <Button variant="secondary" onClick={() => setApprovalOpen(false)}>
                 취소
               </Button>
-              <Button variant="primary" disabled={approvalSubmitting} onClick={handleApprove}>
-                {approvalSubmitting ? "확정 중" : "견적 확정"}
+              <Button
+                variant={decisionAction === "rejected" ? "secondary" : "primary"}
+                disabled={approvalSubmitting}
+                onClick={handleApprove}
+              >
+                {approvalSubmitting
+                  ? "처리 중"
+                  : decisionAction === "rejected" ? "견적 거절" : "견적 확정"}
               </Button>
             </footer>
           </section>
