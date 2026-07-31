@@ -671,8 +671,7 @@ begin
       status,
       expires_at,
       activated_at,
-      activation_source,
-      sent_at
+      activation_source
     )
     values (
       p_company_id,
@@ -684,8 +683,7 @@ begin
       'active',
       p_expires_at,
       v_now,
-      'manual_confirmed',
-      v_now
+      'manual_confirmed'
     )
     returning * into v_token;
     v_token_created := true;

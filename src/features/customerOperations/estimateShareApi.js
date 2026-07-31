@@ -48,13 +48,13 @@ export async function fetchActiveEstimatePortalLink({
 
   const { data, error } = await supabase
     .from("customer_access_tokens")
-    .select("token, status, expires_at, estimate_version_id, created_at")
+    .select("token, status, expires_at, estimate_version_id, activated_at")
     .eq("company_id", companyId)
     .eq("estimate_id", estimateId)
     .eq("estimate_version_id", estimateVersionId)
     .eq("status", "active")
     .is("revoked_at", null)
-    .order("created_at", { ascending: false })
+    .order("activated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 

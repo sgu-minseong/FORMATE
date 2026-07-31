@@ -29,6 +29,12 @@ function getFunctionBody(name) {
   return rpcSql.slice(start, next < 0 ? rpcSql.length : next);
 }
 
+function getInsertColumns(body, tableName) {
+  const start = body.indexOf(`insert into public.${tableName}`);
+  const values = body.indexOf("values", start);
+  return start < 0 || values < 0 ? "" : body.slice(start, values);
+}
+
 describe("sales lifecycle database contracts", () => {
   it("saves a consultation and draft estimate idempotently without contract or construction mutation", () => {
     const body = getFunctionBody("save_estimate_draft");
@@ -52,6 +58,18 @@ describe("sales lifecycle database contracts", () => {
     expect(body).toContain("'manual_confirmed'");
     expect(body).toContain("current_estimate_version_id = v_version.id");
     expect(body).not.toContain("'prepared'");
+  });
+
+  it("uses canonical activation and send timestamps for each lifecycle table", () => {
+    const body = getFunctionBody("create_customer_portal_link");
+    const versionColumns = getInsertColumns(body, "estimate_versions");
+    const tokenColumns = getInsertColumns(body, "customer_access_tokens");
+    const messageColumns = getInsertColumns(body, "customer_messages");
+
+    expect(versionColumns).toContain("sent_at");
+    expect(tokenColumns).toContain("activated_at");
+    expect(tokenColumns).not.toContain("sent_at");
+    expect(messageColumns).toContain("sent_at");
   });
 
   it("allows only documented customer estimate transitions on the current version", () => {
@@ -132,5 +150,15 @@ describe("sales lifecycle PostgREST embed contracts", () => {
 
     expect(saveCall).toBeGreaterThan(functionStart);
     expect(shareCall).toBeGreaterThan(saveCall);
+  });
+
+  it("reads active token timing from the canonical activated_at field", () => {
+    expect(apiSources["estimateShareApi.js"]).toContain(
+      'select("token, status, expires_at, estimate_version_id, activated_at")'
+    );
+    expect(apiSources["estimateShareApi.js"]).toContain(
+      '.order("activated_at", { ascending: false })'
+    );
+    expect(apiSources["estimateShareApi.js"]).not.toContain("sent_at");
   });
 });
