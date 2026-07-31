@@ -265,14 +265,33 @@ export function getEstimateShareDefaults(estimate) {
   const linkedProject = getRelationRow(consultation?.project);
 
   return {
+    customerId: linkedCustomer?.id || "",
+    projectId: linkedProject?.id || "",
+    isFullyLinked: Boolean(linkedCustomer?.id && linkedProject?.id),
     customerName: linkedCustomer?.name
       || (savedCustomerName === "고객명 미입력" ? "" : savedCustomerName),
     customerPhone: linkedCustomer?.phone || `${estimateMeta.customerPhone ?? ""}`.trim(),
     customerEmail: linkedCustomer?.email || "",
     projectName: linkedProject?.name || "",
-    projectAddress: linkedProject?.address || `${estimate?.address ?? ""}`.trim(),
+    projectAddress: [linkedProject?.address, linkedProject?.detail_address]
+      .filter(Boolean)
+      .join(" ") || `${estimate?.address ?? ""}`.trim(),
+    projectBaseAddress: linkedProject?.address || `${estimate?.address ?? ""}`.trim(),
+    projectDetailAddress: linkedProject?.detail_address || "",
     versionLabel: `${estimateMeta.estimateNumber ?? ""}`.trim(),
   };
+}
+
+const RESHAREABLE_ESTIMATE_STATUSES = new Set(["sent", "viewed", "revision_requested"]);
+const BLOCKED_ESTIMATE_SHARE_STATUSES = new Set(["approved", "rejected", "expired", "cancelled"]);
+
+export function getEstimateShareAction(estimate) {
+  const status = `${estimate?.status || "draft"}`;
+  if (BLOCKED_ESTIMATE_SHARE_STATUSES.has(status)) return null;
+  if (RESHAREABLE_ESTIMATE_STATUSES.has(status) && !estimate?.has_unpublished_changes) {
+    return { mode: "copy", label: "링크 다시 복사" };
+  }
+  return { mode: "send", label: "고객에게 보내기" };
 }
 
 export function getProjectCurrentStage(project) {

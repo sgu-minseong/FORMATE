@@ -105,8 +105,13 @@ import CustomerRequestsPage from "../features/customerOperations/CustomerRequest
 import CustomersProjectsPage from "../features/customerOperations/CustomersProjectsPage";
 import HomeOperationsOverview from "../features/customerOperations/HomeOperationsOverview";
 import ShareEstimateModal from "../features/customerOperations/ShareEstimateModal";
+import { StatusText } from "../features/customerOperations/components";
 import { CUSTOMER_OPERATIONS_PAGES } from "../features/customerOperations/constants";
-import { isOperationalEstimate } from "../features/customerOperations/utils";
+import {
+  getEstimateShareAction,
+  isOperationalEstimate,
+  operationStatusViews,
+} from "../features/customerOperations/utils";
 import DeleteSavedEstimateDialog from "../features/estimates/DeleteSavedEstimateDialog";
 import {
   fetchSavedEstimateLists,
@@ -2433,6 +2438,10 @@ export default function AdminApp() {
     customerVisibleAdjustments,
   } = buildEstimateSummary(selectedRows, cleanEstimateAdjustments);
   const visibleEstimates = estimateListView === "trash" ? trashedEstimates : estimates;
+  const previewEstimate = estimateAggregateIdRef.current
+    ? estimates.find((estimate) => estimate.id === estimateAggregateIdRef.current) ?? null
+    : null;
+  const previewEstimateShareAction = getEstimateShareAction(previewEstimate);
   const recentHomeEstimates = useMemo(() =>
     [...estimates]
       .filter(isOperationalEstimate)
@@ -4297,6 +4306,46 @@ export default function AdminApp() {
         setAdminLoading(false);
       }
     }
+  }
+
+  function handleEstimateShared({ result, form }) {
+    const patchEstimate = (estimate) => {
+      if (!estimate || estimate.id !== shareEstimateTarget?.id) return estimate;
+      const currentConsultation = Array.isArray(estimate.consultation)
+        ? estimate.consultation[0]
+        : estimate.consultation;
+      const nextConsultation = {
+        ...currentConsultation,
+        customer_id: result.customerId,
+        project_id: result.projectId,
+        customer: {
+          id: result.customerId,
+          name: form.customerName,
+          phone: form.customerPhone,
+          email: form.customerEmail,
+        },
+        project: {
+          id: result.projectId,
+          name: form.projectName,
+          address: form.projectBaseAddress || form.projectAddress,
+          detail_address: form.projectDetailAddress,
+          deleted_at: null,
+        },
+      };
+      return {
+        ...estimate,
+        status: result.status || "sent",
+        current_estimate_version_id: result.estimateVersionId,
+        has_unpublished_changes: false,
+        consultation: Array.isArray(estimate.consultation)
+          ? [nextConsultation]
+          : nextConsultation,
+      };
+    };
+
+    setEstimates((current) => current.map(patchEstimate));
+    setSelectedEstimate((current) => patchEstimate(current));
+    setShareEstimateTarget((current) => patchEstimate(current));
   }
 
   function openEstimateDeleteDialog(event, estimate) {
@@ -12073,19 +12122,21 @@ export default function AdminApp() {
                       { key: "actions", label: "작업", align: "right", width: "110px" },
                     ]
                   : [
-                      { key: "customer", label: "고객명", width: "16%" },
-                      { key: "address", label: "현장 주소", width: "25%" },
+                      { key: "customer", label: "고객명", width: "14%" },
+                      { key: "address", label: "현장 주소", width: "20%" },
+                      { key: "status", label: "견적 상태", width: "10%" },
                       { key: "createdAt", label: "작성일", width: "11%" },
                       { key: "constructionDays", label: "예상시공일", align: "right", width: "10%" },
                       { key: "constructionDate", label: "시공 예정일", width: "12%" },
                       { key: "amount", label: "총액", align: "right", width: "12%" },
-                      { key: "actions", label: "작업", align: "right", width: "190px" },
+                      { key: "actions", label: "작업", align: "right", width: "270px" },
                     ]}
                 rows={visibleEstimates.map((estimate) => ({
                   id: estimate.id,
                   estimate,
                   customer: getSavedEstimateCustomerName(estimate) || "고객명 미입력",
                   address: estimate.address || "주소 미입력",
+                  status: estimate.status || "draft",
                   estimateNumber: `${getEstimateItemsDataMeta(estimate.items_data).estimateNumber ?? ""}`.trim() || "-",
                   createdAt: estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-",
                   deletedAt: estimate.deleted_at ? new Date(estimate.deleted_at).toLocaleDateString("ko-KR") : "-",
@@ -12104,6 +12155,10 @@ export default function AdminApp() {
 
                   if (column.key === "amount") {
                     return <PriceText value={value} size="sm" />;
+                  }
+
+                  if (column.key === "status") {
+                    return <StatusText status={operationStatusViews.estimate(value)} />;
                   }
 
                   if (column.key === "constructionDays") {
@@ -12135,6 +12190,7 @@ export default function AdminApp() {
                       );
                     }
 
+                    const shareAction = getEstimateShareAction(row.estimate);
                     return (
                       <div className="saved-estimate-table-actions">
                         <button
@@ -12151,6 +12207,15 @@ export default function AdminApp() {
                         >
                           견적서 확인
                         </button>
+                        {shareAction ? (
+                          <button
+                            type="button"
+                            className="saved-estimate-row-action is-primary"
+                            onClick={() => setShareEstimateTarget(row.estimate)}
+                          >
+                            {shareAction.label}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className="saved-estimate-row-action"
@@ -12184,6 +12249,9 @@ export default function AdminApp() {
                       {estimateListView === "trash" ? "휴지통 견적 상세" : "견적서 상세"}
                     </p>
                     <h3>{getSavedEstimateCustomerName(selectedEstimate) || selectedEstimate.address || "견적서"}</h3>
+                    {estimateListView !== "trash" ? (
+                      <StatusText status={operationStatusViews.estimate(selectedEstimate.status || "draft")} />
+                    ) : null}
                     <p className="muted">
                       연락처 {getSavedEstimateCustomerPhone(selectedEstimate) || "-"} · 현장 주소 {selectedEstimate.address || "주소 미입력"}
                     </p>
@@ -12225,12 +12293,14 @@ export default function AdminApp() {
                       >
                         견적 삭제
                       </Button>
-                      <Button
-                        variant="primary"
-                        onClick={() => setShareEstimateTarget(selectedEstimate)}
-                      >
-                        고객에게 보내기
-                      </Button>
+                      {getEstimateShareAction(selectedEstimate) ? (
+                        <Button
+                          variant="primary"
+                          onClick={() => setShareEstimateTarget(selectedEstimate)}
+                        >
+                          {getEstimateShareAction(selectedEstimate).label}
+                        </Button>
+                      ) : null}
                       <Button
                         variant="tertiary"
                         onClick={() => loadSavedEstimateDraft(selectedEstimate, { destination: "preview" })}
@@ -12345,13 +12415,6 @@ export default function AdminApp() {
             />
           )}
 
-          {shareEstimateTarget && (
-            <ShareEstimateModal
-              companyId={selectedCompanyId}
-              estimate={shareEstimateTarget}
-              onClose={() => setShareEstimateTarget(null)}
-            />
-          )}
           </main>
         </SavedEstimatesPage>
       )}
@@ -12367,6 +12430,10 @@ export default function AdminApp() {
           saving={estimateSaving}
           onSave={saveEstimateToSupabase}
           onDownloadPdf={downloadEstimatePdf}
+          onShare={previewEstimate && previewEstimateShareAction
+            ? () => setShareEstimateTarget(previewEstimate)
+            : undefined}
+          shareLabel={previewEstimateShareAction?.label}
           printableDocumentRef={printableEstimateDocumentRef}
           documentProps={{
             companyName: selectedCompanyName,
@@ -12396,6 +12463,15 @@ export default function AdminApp() {
             onSiteMemoChange: (event) => setSiteMemo(event.target.value),
             estimateNumber,
           }}
+        />
+      )}
+
+      {shareEstimateTarget && (
+        <ShareEstimateModal
+          companyId={selectedCompanyId}
+          estimate={shareEstimateTarget}
+          onShared={handleEstimateShared}
+          onClose={() => setShareEstimateTarget(null)}
         />
       )}
     </div>

@@ -9111,6 +9111,10 @@ const appStyles = `
     background: var(--color-primary-soft);
     color: var(--color-primary);
   }
+  .saved-estimate-row-action.is-primary {
+    color: var(--color-primary);
+    font-weight: var(--font-weight-semibold);
+  }
   .saved-estimate-row-action:focus-visible {
     outline: 2px solid var(--color-primary-border);
     outline-offset: 1px;

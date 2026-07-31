@@ -1439,6 +1439,30 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
                     <StatusText status={lifecycleStatus} />
                     {projectScheduleText ? <span>{projectScheduleText}</span> : null}
                   </p>
+                  <dl className="customer-projects-workspace__lifecycle-summary" aria-label="영업 진행 상태">
+                    <div>
+                      <dt>상담 상태</dt>
+                      <dd><StatusText status={currentConsultation
+                        ? operationStatusViews.consultation(currentConsultation.status)
+                        : { label: "상담 없음", tone: "muted" }} /></dd>
+                    </div>
+                    <div>
+                      <dt>견적 상태</dt>
+                      <dd><StatusText status={operationStatusViews.estimate(
+                        recentEstimate?.status || detailProject?.estimate_status || "draft"
+                      )} /></dd>
+                    </div>
+                    <div>
+                      <dt>계약 상태</dt>
+                      <dd><StatusText status={currentContractView} /></dd>
+                    </div>
+                    <div>
+                      <dt>공사 상태</dt>
+                      <dd><StatusText status={operationStatusViews.construction(
+                        detailProject?.construction_status || "not_started"
+                      )} /></dd>
+                    </div>
+                  </dl>
                 </div>
                 <div className="customer-projects-workspace__detail-actions">
                   {isTrashProject ? (

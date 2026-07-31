@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   getContractLifecycleView,
+  getEstimateShareAction,
   operationStatusViews,
 } from "../utils";
 
@@ -86,6 +87,22 @@ describe("sales lifecycle display contracts", () => {
     expect(getContractLifecycleView({ status: "customer_signed" }, "reviewing").label)
       .toBe("고객 서명 완료 · 업체 최종 확인 대기");
   });
+
+  it("exposes send, link-copy, and terminal estimate actions without changing lifecycle states", () => {
+    expect(getEstimateShareAction({ status: "draft" })).toEqual({
+      mode: "send",
+      label: "고객에게 보내기",
+    });
+    expect(getEstimateShareAction({ status: "viewed", has_unpublished_changes: false })).toEqual({
+      mode: "copy",
+      label: "링크 다시 복사",
+    });
+    expect(getEstimateShareAction({ status: "revision_requested", has_unpublished_changes: true }))
+      .toEqual({ mode: "send", label: "고객에게 보내기" });
+    ["approved", "rejected", "expired", "cancelled"].forEach((status) => {
+      expect(getEstimateShareAction({ status })).toBeNull();
+    });
+  });
 });
 
 describe("sales lifecycle PostgREST embed contracts", () => {
@@ -105,5 +122,15 @@ describe("sales lifecycle PostgREST embed contracts", () => {
     expect(apiSources["projectsApi.js"].match(
       /estimate:estimates!estimate_versions_estimate_id_fkey\(/g
     )).toHaveLength(2);
+  });
+
+  it("links an unconnected draft before activating its customer portal link", () => {
+    const source = apiSources["estimateShareApi.js"];
+    const functionStart = source.indexOf("export async function createEstimatePortalLink");
+    const saveCall = source.indexOf("await saveEstimateDraft({", functionStart);
+    const shareCall = source.indexOf('"create_customer_portal_link"', functionStart);
+
+    expect(saveCall).toBeGreaterThan(functionStart);
+    expect(shareCall).toBeGreaterThan(saveCall);
   });
 });

@@ -3539,6 +3539,35 @@
   content: "";
 }
 
+.customer-projects-workspace__lifecycle-summary {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: var(--space-0-5) var(--space-2);
+  margin: var(--space-0-5) 0 0;
+}
+
+.customer-projects-workspace__lifecycle-summary > div {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-0-5);
+}
+
+.customer-projects-workspace__lifecycle-summary dt,
+.customer-projects-workspace__lifecycle-summary dd {
+  margin: 0;
+}
+
+.customer-projects-workspace__lifecycle-summary dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.customer-projects-workspace__lifecycle-summary .customer-operation-status {
+  font-size: var(--font-size-caption);
+}
+
 .customer-projects-workspace__detail-actions {
   display: flex;
   max-width: 100%;

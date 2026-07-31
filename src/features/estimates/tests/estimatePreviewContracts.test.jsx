@@ -135,4 +135,31 @@ describe("estimate preview rendering contracts", () => {
     expect(screenDocument.props["data-estimate-document"]).toBe("screen");
     expect(pdfDocument.props["data-estimate-document"]).toBe("pdf");
   });
+
+  it("shows the saved estimate share action in the preview header", () => {
+    const onShare = vi.fn();
+    const preview = EstimatePreviewPage({
+      previewType: "general",
+      onPreviewTypeChange: vi.fn(),
+      backLabel: "저장 견적 보기",
+      onBack: vi.fn(),
+      notice: "",
+      error: "",
+      saving: false,
+      onSave: vi.fn(),
+      onDownloadPdf: vi.fn(),
+      onShare,
+      shareLabel: "링크 다시 복사",
+      printableDocumentRef: { current: null },
+      documentProps: createDocumentProps(),
+    });
+    const shareButton = visitElements(preview).find((element) => (
+      element.type === "button"
+      && collectText(element).join(" ").includes("링크 다시 복사")
+    ));
+
+    expect(shareButton).toBeDefined();
+    shareButton.props.onClick();
+    expect(onShare).toHaveBeenCalledOnce();
+  });
 });
