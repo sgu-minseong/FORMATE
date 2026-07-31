@@ -156,7 +156,7 @@ export function createScopedExcelImportContext(currentCompanyId, metadata = {}) 
 }
 
 export function prepareExcelImportRowsForCompany(rows = [], context = {}) {
-  if (context.mode !== EXCEL_IMPORT_MODES.COPY) return rows;
+  if (context?.mode !== EXCEL_IMPORT_MODES.COPY) return rows;
   return rows.map((row) => {
     const nextRow = { ...row, __formateImportMode: EXCEL_IMPORT_MODES.COPY };
     delete nextRow.formate_item_id;

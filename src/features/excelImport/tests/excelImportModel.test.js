@@ -114,6 +114,11 @@ describe("shared Excel import model", () => {
     expect(findCatalogMatchByStableIds(catalog, preparedRows[0])?.subitem?.id).toBe("sub-27");
   });
 
+  it("keeps the initial app render safe before an import context exists", () => {
+    const rows = [{ category: "바닥", item_name: "장판" }];
+    expect(prepareExcelImportRowsForCompany(rows, null)).toBe(rows);
+  });
+
   it("keeps a missing current-company item as a new-item candidate", () => {
     const context = createScopedExcelImportContext("company-current", {
       COMPANY_ID: "company-source",
