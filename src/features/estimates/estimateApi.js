@@ -15,7 +15,7 @@ const ESTIMATE_SELECT = `
     customer:customers(id, name, phone, email),
     project:projects(id, name, address, detail_address, deleted_at)
   ),
-  estimate_versions(
+  estimate_versions!estimate_versions_estimate_id_fkey(
     id,
     project_id,
     project:projects(id, deleted_at)

@@ -67,7 +67,7 @@ export async function fetchHomeCustomerOperations(companyId) {
       .from("estimate_versions")
       .select(`
         id, estimate_id, project_id, status,
-        estimate:estimates(id, deleted_at),
+        estimate:estimates!estimate_versions_estimate_id_fkey(id, deleted_at),
         project:projects(id, deleted_at)
       `)
       .eq("company_id", companyId)
@@ -76,7 +76,10 @@ export async function fetchHomeCustomerOperations(companyId) {
       .from("estimates")
       .select(`
         id, deleted_at,
-        estimate_versions(id, project:projects(id, deleted_at))
+        estimate_versions!estimate_versions_estimate_id_fkey(
+          id,
+          project:projects(id, deleted_at)
+        )
       `)
       .eq("company_id", companyId),
     supabase
@@ -89,7 +92,7 @@ export async function fetchHomeCustomerOperations(companyId) {
         estimate:estimates(id, deleted_at),
         estimate_version:estimate_versions(
           id,
-          estimate:estimates(id, deleted_at),
+          estimate:estimates!estimate_versions_estimate_id_fkey(id, deleted_at),
           project:projects(id, deleted_at)
         )
       `)

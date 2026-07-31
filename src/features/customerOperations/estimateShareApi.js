@@ -45,7 +45,7 @@ export async function createEstimatePortalLink({
         customer:customers(id),
         project:projects(id, deleted_at)
       ),
-      estimate_versions(
+      estimate_versions!estimate_versions_estimate_id_fkey(
         id,
         project:projects(id, deleted_at)
       )

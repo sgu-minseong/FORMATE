@@ -775,13 +775,18 @@ function getSupabaseFriendlyError(error, fallback = "일시적인 문제가 발�
     return "Supabase에 연결하지 못했습니다. URL/key 입력값과 네트워크 상태를 확인한 뒤 개발 서버를 다시 켜주세요.";
   }
   if (
+    code === "PGRST201" ||
+    raw.includes("more than one relationship")
+  ) {
+    return "DB 조회 관계를 결정하지 못했습니다. 앱을 최신 상태로 새로고침한 뒤 다시 시도해주세요.";
+  }
+  if (
     code === "42P01" ||
     code === "PGRST204" ||
-    raw.includes("relation") ||
     raw.includes("does not exist") ||
     raw.includes("could not find")
   ) {
-    return "필요한 DB 테이블 또는 컬럼이 아직 없습니다. Supabase SQL Editor에서 supabase/schema.sql을 다시 실행해주세요.";
+    return "필요한 DB 테이블 또는 컬럼을 찾지 못했습니다. 오류 코드와 적용된 migration을 확인해주세요.";
   }
   if (code === "23503" || raw.includes("foreign key")) {
     return "기본 업체 정보가 없어 저장할 수 없습니다. Supabase SQL Editor에서 supabase/seed.sql을 실행하거나 companies에 기본 업체를 추가해주세요.";

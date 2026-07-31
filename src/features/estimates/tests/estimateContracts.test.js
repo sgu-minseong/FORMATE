@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   calculateEstimateRow,
@@ -17,6 +18,11 @@ import {
   buildEstimatePdfFileName,
   exportEstimatePdf,
 } from "../exportEstimatePdf";
+
+const estimateApiSource = readFileSync(
+  new URL("../estimateApi.js", import.meta.url),
+  "utf8"
+);
 
 const condition = {
   size: "32",
@@ -80,6 +86,12 @@ describe("estimate calculation contracts", () => {
 });
 
 describe("estimate snapshot and persistence contracts", () => {
+  it("disambiguates saved estimate versions from the current-version relationship", () => {
+    expect(estimateApiSource).toContain(
+      "estimate_versions!estimate_versions_estimate_id_fkey("
+    );
+  });
+
   it("keeps condition_snapshot and estimate insert field names", () => {
     const conditionSnapshot = buildConditionSnapshot({
       condition,

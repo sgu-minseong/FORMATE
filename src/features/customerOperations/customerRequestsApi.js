@@ -48,7 +48,7 @@ export async function fetchCustomerRequests(companyId) {
         label,
         status,
         total_amount,
-        estimate:estimates(id, deleted_at)
+        estimate:estimates!estimate_versions_estimate_id_fkey(id, deleted_at)
       ),
       request_events:timeline_events(
         id,
@@ -177,7 +177,7 @@ export async function updateCustomerRequestStatus({
         label,
         status,
         total_amount,
-        estimate:estimates(id, deleted_at)
+        estimate:estimates!estimate_versions_estimate_id_fkey(id, deleted_at)
       ),
       request_events:timeline_events(
         id,

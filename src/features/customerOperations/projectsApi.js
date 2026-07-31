@@ -155,7 +155,7 @@ export async function fetchCustomersProjects(companyId) {
       .order("updated_at", { ascending: false }),
     supabase
       .from("estimate_versions")
-      .select("id, project_id, estimate_id, version_no, label, estimate:estimates(id, deleted_at)")
+      .select("id, project_id, estimate_id, version_no, label, estimate:estimates!estimate_versions_estimate_id_fkey(id, deleted_at)")
       .eq("company_id", companyId),
     supabase
       .from("customer_requests")
@@ -260,7 +260,7 @@ export async function fetchCustomerProjectDetail({
         viewed_at,
         sent_at,
         created_at,
-        estimate:estimates(id, deleted_at)
+        estimate:estimates!estimate_versions_estimate_id_fkey(id, deleted_at)
       `)
       .eq("company_id", companyId)
       .eq("customer_id", customerId)

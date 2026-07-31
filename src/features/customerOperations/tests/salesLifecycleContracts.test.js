@@ -9,6 +9,17 @@ const rpcSql = readFileSync(
   new URL("../../../../supabase/sales_lifecycle_rpcs.sql", import.meta.url),
   "utf8"
 );
+const apiSources = Object.fromEntries(
+  [
+    "customerRequestsApi.js",
+    "estimateShareApi.js",
+    "homeApi.js",
+    "projectsApi.js",
+  ].map((file) => [
+    file,
+    readFileSync(new URL(`../${file}`, import.meta.url), "utf8"),
+  ])
+);
 
 function getFunctionBody(name) {
   const start = rpcSql.indexOf(`create or replace function public.${name}`);
@@ -74,5 +85,25 @@ describe("sales lifecycle display contracts", () => {
     expect(getContractLifecycleView(null, "not_started").label).toBe("미작성");
     expect(getContractLifecycleView({ status: "customer_signed" }, "reviewing").label)
       .toBe("고객 서명 완료 · 업체 최종 확인 대기");
+  });
+});
+
+describe("sales lifecycle PostgREST embed contracts", () => {
+  it("disambiguates estimate aggregate and immutable version relationships", () => {
+    expect(apiSources["customerRequestsApi.js"].match(
+      /estimate:estimates!estimate_versions_estimate_id_fkey\(/g
+    )).toHaveLength(2);
+    expect(apiSources["estimateShareApi.js"]).toContain(
+      "estimate_versions!estimate_versions_estimate_id_fkey("
+    );
+    expect(apiSources["homeApi.js"].match(
+      /estimate:estimates!estimate_versions_estimate_id_fkey\(/g
+    )).toHaveLength(2);
+    expect(apiSources["homeApi.js"]).toContain(
+      "estimate_versions!estimate_versions_estimate_id_fkey("
+    );
+    expect(apiSources["projectsApi.js"].match(
+      /estimate:estimates!estimate_versions_estimate_id_fkey\(/g
+    )).toHaveLength(2);
   });
 });
