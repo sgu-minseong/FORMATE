@@ -1145,6 +1145,39 @@ const appStyles = `
   .ai-setup-page {
     max-width: 1180px;
   }
+  .excel-import-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    display: grid;
+    place-items: center;
+    padding: var(--space-3);
+    background: rgba(18, 29, 25, 0.54);
+  }
+  .excel-import-modal {
+    width: min(1240px, calc(100vw - 40px));
+    max-height: calc(100dvh - 40px);
+    overflow: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+    box-shadow: 0 24px 70px rgba(18, 29, 25, 0.24);
+  }
+  .excel-import-modal .ai-setup-page {
+    max-width: none;
+    padding: 0;
+  }
+  .excel-import-modal .ai-setup-panel {
+    border: 0;
+    box-shadow: none;
+  }
+  .excel-import-modal-head-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
   .ai-setup-panel {
     display: grid;
     gap: var(--space-3);
@@ -5589,6 +5622,19 @@ const appStyles = `
     background: var(--bg-subtle);
   }
   @media (max-width: 840px) {
+    .excel-import-modal-backdrop {
+      padding: 0;
+    }
+    .excel-import-modal {
+      width: 100vw;
+      max-height: 100dvh;
+      border-radius: 0;
+    }
+    .ai-setup-header,
+    .excel-import-modal-head-actions {
+      align-items: flex-start;
+      flex-direction: column;
+    }
     .hero, .primary-action-grid, .secondary-action-grid,
     .menu-grid, .admin-menu, .workspace, .form-grid, .material-row, .sticky-summary,
     .condition-static-grid,
@@ -5870,6 +5916,25 @@ const appStyles = `
     --radius-button: 6px;
     --shadow-sm: none;
     --shadow-md: none;
+  }
+  .ai-match-status.automatic {
+    color: #317c52;
+    background: rgba(49, 124, 82, 0.08);
+  }
+  .ai-match-status.conflict,
+  .ai-match-status.needs_review {
+    color: #8a5a16;
+    background: rgba(170, 111, 28, 0.1);
+  }
+  .ai-match-status.unmapped {
+    color: var(--text-secondary);
+    background: var(--bg-subtle);
+  }
+  .ai-status-pill.analyzing,
+  .ai-status-pill.mapping {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-subtle);
+    color: var(--brand-primary);
   }
   body {
     background: var(--bg-base);

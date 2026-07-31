@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  Download,
   HelpCircle,
   Home,
   Image,
@@ -19,7 +20,7 @@ import {
   Save,
   Search,
   SlidersHorizontal,
-  Sparkles,
+  Upload,
   Star,
   Trash2,
   Users,
@@ -160,7 +161,6 @@ import {
 } from "../features/photoManagement/photoModel";
 import DetailCostsPage from "../features/detailCosts/DetailCostsPage";
 import { useDetailCosts } from "../features/detailCosts/useDetailCosts";
-import AiSetupPage from "../features/aiSetup/AiSetupPage";
 import { buildAiRecommendationRequest, requestAiRecommendations } from "../features/aiSetup/aiSetupApi";
 import {
   createEmptyAiSetupApplyCondition,
@@ -168,6 +168,21 @@ import {
   useAiSetup,
 } from "../features/aiSetup/useAiSetup";
 import { isSupportedAiSetupExcelFile, parseAiSetupWorkbook } from "../features/aiSetup/aiSetupExcel";
+import { exportFormateExcel } from "../features/excelImport/excelExport";
+import {
+  EXCEL_IMPORT_TARGETS,
+  LUMP_SUM_CATEGORY_NAME,
+  LUMP_SUM_ITEM_TYPE,
+  buildImportSubitemName,
+  buildLumpSumExclusionPatches,
+  findCatalogMatchByStableIds,
+  getImportReviewStatus,
+  getLumpSumSourceTotal,
+  isLumpSumImportRow,
+  readFormateWorkbookMetadata,
+  resolveLegacyExcelImportRoute,
+  shouldApplyExcelConflict,
+} from "../features/excelImport/excelImportModel";
 import ContractEditorPage from "../features/contracts/ContractEditorPage";
 import {
   buildUniqueFlooringOptions,
@@ -237,7 +252,7 @@ import "../features/customerOperations/customerOperations.css";
 import appStyles from "../styles/appStyles";
 
 const pageFromHash = () => {
-  const page = window.location.hash.replace("#", "");
+  const page = resolveLegacyExcelImportRoute(window.location.hash.replace("#", ""));
   if (page === "message-history") {
     return CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS;
   }
@@ -249,12 +264,11 @@ const pageFromHash = () => {
     "admin-prices",
     "admin-items",
     "admin-condition-labels",
-    "admin-ai-setup",
     ...Object.values(CUSTOMER_OPERATIONS_PAGES),
   ].includes(page) ? page : "landing";
 };
 
-const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs", "admin-ai-setup"];
+const PROTECTED_ADMIN_PAGES = ["admin", "admin-prices", "admin-items", "admin-condition-labels", "admin-detail-costs"];
 const APP_SHELL_NAV_ITEMS = [
   {
     key: "home-work",
@@ -292,7 +306,6 @@ const APP_SHELL_NAV_ITEMS = [
       { key: "admin-prices", label: "단가표 관리", icon: <Calculator /> },
       { key: "admin-items", label: "견적 템플릿 만들기", icon: <BookOpen />, activeKeys: ["admin-items", "admin-condition-labels"] },
       { key: "admin-detail-costs", label: "세부 비용 관리", icon: <Wrench /> },
-      { key: "admin-ai-setup", label: "AI 초기 세팅", icon: <Sparkles /> },
     ],
   },
   { key: "help-support", label: "도움말 / 지원", icon: <HelpCircle />, placement: "bottom", disabled: true },
@@ -866,7 +879,7 @@ function createEstimateDraftKey() {
 function buildEstimateItemsFromTemplate(catalog, pyeong, residenceStatus = "empty") {
   return Object.fromEntries(
     catalog.map((item) => {
-      const itemSubitems = item.item_type === "flat" ? item.subitems.slice(0, 1) : item.subitems;
+      const itemSubitems = item.subitems;
       const rows = isFlooringThicknessItem(item)
         ? getFlooringThicknessGroups(itemSubitems).map((group) => {
             const optionKeys = Object.keys(group.options).sort(compareFlooringThickness);
@@ -1256,25 +1269,52 @@ function createAiSplitOverridePatch(splitRow, catalogItems = []) {
 }
 
 function createAiCatalogMatchRow(row, catalogItems, override = {}, options = {}) {
-    const sourceCategory = formatExcelCellValue(override.sourceCategory ?? row.category ?? row.sourceCategory).trim();
+    const lumpSum = Boolean(options.isLumpSum || options.isSplitParent || isLumpSumImportRow(row));
+    const stableMatch = findCatalogMatchByStableIds(catalogItems, row);
+    const sourceCategory = formatExcelCellValue(
+      override.sourceCategory ?? (lumpSum ? LUMP_SUM_CATEGORY_NAME : row.category ?? row.sourceCategory)
+    ).trim();
     const sourceItemName = formatExcelCellValue(override.sourceItemName ?? override.itemName ?? row.item_name ?? row.sourceItemName).trim();
-    const categoryMatch = findBestCatalogCategoryMatch(sourceCategory, catalogItems);
-    const subitemMatch = findBestCatalogSubitemMatch(sourceItemName, catalogItems, categoryMatch);
+    const categoryMatch = stableMatch?.item
+      ? {
+          sourceCategory,
+          matchedCategoryId: stableMatch.item.id,
+          matchedCategoryName: stableMatch.item.name,
+          categoryMatchMethod: "stable_key",
+          categoryConfidence: 1,
+        }
+      : findBestCatalogCategoryMatch(sourceCategory, catalogItems);
+    const subitemMatch = stableMatch?.subitem
+      ? {
+          sourceItemName,
+          matchedSubitemId: stableMatch.subitem.id,
+          matchedSubitemName: stableMatch.subitem.name,
+          matchedSubitemCategoryId: stableMatch.item.id,
+          matchedSubitemCategoryName: stableMatch.item.name,
+          subitemMatchMethod: "stable_key",
+          subitemConfidence: 1,
+        }
+      : findBestCatalogSubitemMatch(sourceItemName, catalogItems, categoryMatch);
     const autoStatus = getAiMatchStatus(row, categoryMatch, subitemMatch);
-    const rowType = options.isSplitParent ? "ignored" : override.rowType ?? inferAiRowType(row, categoryMatch, subitemMatch);
+    const rowType = options.isSplitChildDefaultIgnored && !override.rowType
+      ? "ignored"
+      : override.rowType ?? (lumpSum ? "work_item" : inferAiRowType(row, categoryMatch, subitemMatch));
     const selectedCategoryId = override.categoryId ?? categoryMatch?.matchedCategoryId ?? subitemMatch?.matchedSubitemCategoryId ?? "";
     const selectedCategory = (catalogItems ?? []).find((item) => item.id === selectedCategoryId);
     const selectedSubitemId = override.subitemId ?? (
       selectedCategoryId && subitemMatch?.matchedSubitemCategoryId === selectedCategoryId ? subitemMatch?.matchedSubitemId : ""
     );
     const selectedSubitem = (selectedCategory?.subitems ?? []).find((subitem) => subitem.id === selectedSubitemId);
-    const action = options.isSplitParent
-      ? "ignore"
-      : normalizeAiActionForRowType(rowType, override.action ?? getDefaultAiActionForRowType(rowType, autoStatus), autoStatus);
+    const hasConflict = Boolean(selectedSubitem && (
+      (hasImportValue(override.unitPrice ?? row.unit_price) && importValuesDiffer(selectedSubitem.unit_price, override.unitPrice ?? row.unit_price))
+      || (hasImportValue(override.laborRate ?? row.labor_rate) && importValuesDiffer(selectedSubitem.labor_rate, override.laborRate ?? row.labor_rate))
+      || (hasImportValue(override.laborRateEmpty ?? row.labor_rate_empty) && importValuesDiffer(getLaborRateEmptyValue(selectedSubitem), override.laborRateEmpty ?? row.labor_rate_empty))
+      || (hasImportValue(override.laborRateOccupied ?? row.labor_rate_occupied) && importValuesDiffer(getLaborRateOccupiedValue(selectedSubitem), override.laborRateOccupied ?? row.labor_rate_occupied))
+    ));
+    const defaultAction = lumpSum && !selectedSubitemId ? "new" : getDefaultAiActionForRowType(rowType, autoStatus);
+    const action = normalizeAiActionForRowType(rowType, override.action ?? defaultAction, autoStatus);
 
-    const matchStatus = options.isSplitParent
-      ? "ignored"
-      : rowType === "ignored" || action === "ignore"
+    const matchStatus = rowType === "ignored" || action === "ignore"
       ? "ignored"
       : rowType !== "work_item"
         ? rowType
@@ -1288,10 +1328,13 @@ function createAiCatalogMatchRow(row, catalogItems, override = {}, options = {})
 
     return {
       ...row,
-      quantity: override.quantity ?? row.quantity,
-      unit: override.unit ?? row.unit,
-      unit_price: override.unitPrice ?? row.unit_price,
+      spec: override.spec ?? row.spec,
+      quantity: override.quantity ?? (lumpSum ? row.quantity || "1" : row.quantity),
+      unit: override.unit ?? (lumpSum ? "식" : row.unit),
+      unit_price: override.unitPrice ?? (lumpSum ? getLumpSumSourceTotal(row) : row.unit_price),
       labor_rate: override.laborRate ?? row.labor_rate,
+      labor_rate_empty: override.laborRateEmpty ?? row.labor_rate_empty,
+      labor_rate_occupied: override.laborRateOccupied ?? row.labor_rate_occupied,
       labor_count: override.laborCount ?? row.labor_count,
       sourceCategory,
       sourceItemName,
@@ -1307,6 +1350,12 @@ function createAiCatalogMatchRow(row, catalogItems, override = {}, options = {})
       selectedSubitemUnit: selectedSubitem?.unit ?? "",
       selectedSubitemUnitPrice: selectedSubitem?.unit_price ?? "",
       selectedSubitemLaborRate: selectedSubitem?.labor_rate ?? "",
+      selectedSubitemLaborRateEmpty: selectedSubitem ? getLaborRateEmptyValue(selectedSubitem) : "",
+      selectedSubitemLaborRateOccupied: selectedSubitem ? getLaborRateOccupiedValue(selectedSubitem) : "",
+      stableMatch: Boolean(stableMatch?.subitem),
+      reviewStatus: getImportReviewStatus({ row, stableMatch, categoryMatch, subitemMatch, hasConflict }),
+      conflictDecision: override.conflictDecision ?? "keep",
+      isLumpSum: lumpSum,
       isSplitParent: Boolean(options.isSplitParent),
       isSplitRow: Boolean(options.isSplitRow),
       isSplitChild: Boolean(options.isSplitRow),
@@ -1328,20 +1377,36 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
   return (previewRows ?? []).flatMap((row) => {
     const override = overrides[row.sourceRowNumber] ?? {};
     const splitRows = Array.isArray(override.splitRows) ? override.splitRows : [];
+    const isBundleParent = splitRows.length > 0 || isLumpSumImportRow(row);
+    const existingBundleCategory = (catalogItems ?? []).find((item) =>
+      item.item_type === LUMP_SUM_ITEM_TYPE
+      && normalizeCatalogMatchText(item.name) === normalizeCatalogMatchText(LUMP_SUM_CATEGORY_NAME)
+    );
+    const bundleDefaultPatch = isBundleParent && override.source !== "manual"
+      ? {
+          rowType: "work_item",
+          action: findCatalogMatchByStableIds(catalogItems, row)?.subitem ? "link" : "new",
+          categoryId: findCatalogMatchByStableIds(catalogItems, row)?.item?.id || existingBundleCategory?.id || "",
+          subitemId: findCatalogMatchByStableIds(catalogItems, row)?.subitem?.id || "",
+          sourceItemName: formatExcelCellValue(row.item_name || row.category || `원본 ${row.sourceRowNumber}행 1식 공사`).trim(),
+        }
+      : {};
     const parentRow = createAiCatalogMatchRow(
       row,
       catalogItems,
       {
         ...override,
+        ...bundleDefaultPatch,
         aiReason: splitRows.length > 0
-          ? `AI가 ${splitRows.length}개 분해 행을 만들었습니다. 원본 총액은 검산용으로만 사용됩니다.`
+          ? `AI가 ${splitRows.length}개 분해 후보를 만들었습니다. 기본 계산 기준은 원본 묶음 총액입니다.`
           : override.aiReason,
         aiReviewNotes: splitRows.length > 0
-          ? [...(override.aiReviewNotes ?? []), "원본 묶음 행은 저장 후보에서 제외됩니다."]
+          ? [...(override.aiReviewNotes ?? []), "분해 후보는 기본 저장 대상에서 제외됩니다."]
           : override.aiReviewNotes,
       },
       {
         isSplitParent: splitRows.length > 0,
+        isLumpSum: isBundleParent,
         splitCount: splitRows.length,
       }
     );
@@ -1365,8 +1430,10 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
           sourceItemName,
           unit: row.unit || "식",
           quantity: "1",
-          unit_price: "",
-          labor_rate: "",
+          unit_price: splitRow.unitPrice ?? "",
+          labor_rate: splitRow.laborRate ?? "",
+          labor_rate_empty: splitRow.laborRateEmpty ?? "",
+          labor_rate_occupied: splitRow.laborRateOccupied ?? "",
           labor_count: "",
           original_amount: "",
           memo: "",
@@ -1375,6 +1442,8 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
         {
           ...splitPatch,
           ...childOverride,
+          rowType: childOverride.rowType ?? "ignored",
+          action: childOverride.action ?? "ignore",
           aiReason: childOverride.aiReason ?? splitRow.reason ?? "원본 묶음 행에서 분리된 공사항목입니다.",
           aiConfidence: childOverride.aiConfidence ?? splitRow.confidence ?? null,
           aiRecommendedAction: childOverride.aiRecommendedAction ?? (
@@ -1387,6 +1456,7 @@ function createAiCatalogMatchRows(previewRows, catalogItems, overrides = {}) {
         },
         {
           isSplitRow: true,
+          isSplitChildDefaultIgnored: true,
           sourceParentRowNumber: row.sourceRowNumber,
           splitIndex: index + 1,
         }
@@ -1425,6 +1495,10 @@ function getAiRecommendationOverridePatch(recommendation) {
       suggestedAction: splitRow?.suggestedAction ?? "needs_review",
       confidence: Number.isFinite(Number(splitRow?.confidence)) ? Number(splitRow.confidence) : null,
       reason: formatExcelCellValue(splitRow?.reason).trim(),
+      unitPrice: formatExcelCellValue(splitRow?.unitPrice ?? splitRow?.unit_price).trim(),
+      laborRate: formatExcelCellValue(splitRow?.laborRate ?? splitRow?.labor_rate).trim(),
+      laborRateEmpty: formatExcelCellValue(splitRow?.laborRateEmpty ?? splitRow?.labor_rate_empty).trim(),
+      laborRateOccupied: formatExcelCellValue(splitRow?.laborRateOccupied ?? splitRow?.labor_rate_occupied).trim(),
     }))
     .filter((splitRow) => splitRow.itemName);
   const withSplitRows = (patch) => splitRows.length > 0 ? { ...patch, splitRows } : patch;
@@ -1587,17 +1661,21 @@ function createAiImportApplyPlan(rows) {
     const sourceItemName = row.sourceItemName || "";
     const hasQuantityValue = hasImportValue(row.quantity);
     const hasLaborCountValue = hasImportValue(row.labor_count);
+    const hasConstructionDaysValue = hasImportValue(row.construction_days);
     const hasUnitPriceValue = hasImportValue(row.unit_price);
     const hasLaborRateValue = hasImportValue(row.labor_rate);
+    const hasLaborRateEmptyValue = hasImportValue(row.labor_rate_empty);
+    const hasLaborRateOccupiedValue = hasImportValue(row.labor_rate_occupied);
     const reviewReasons = getAiApplyPlanReviewReasons(row);
 
-    if (row.isSplitParent) {
+    if (row.isSplitChild) {
       plan.ignoredRows.push({
         sourceRowNumber: row.sourceRowNumber,
         sourceCategory,
         sourceItemName,
         rowType: "ignored",
         action: "ignore",
+        reason: "부모 1식 총액 기준에서 분해 후보는 계산과 저장에서 제외됩니다.",
       });
       return;
     }
@@ -1648,10 +1726,12 @@ function createAiImportApplyPlan(rows) {
       return;
     }
 
-    if (isWorkItem && isAiImportLinkAction(row.action) && row.selectedSubitemId && (hasUnitPriceValue || hasLaborRateValue)) {
+    if (isWorkItem && isAiImportLinkAction(row.action) && row.selectedSubitemId && (hasUnitPriceValue || hasLaborRateValue || hasLaborRateEmptyValue || hasLaborRateOccupiedValue)) {
       const unitPriceWillChange = hasUnitPriceValue && importValuesDiffer(row.selectedSubitemUnitPrice, row.unit_price);
       const laborRateWillChange = hasLaborRateValue && importValuesDiffer(row.selectedSubitemLaborRate, row.labor_rate);
-      if (unitPriceWillChange || laborRateWillChange) {
+      const laborRateEmptyWillChange = hasLaborRateEmptyValue && importValuesDiffer(row.selectedSubitemLaborRateEmpty, row.labor_rate_empty);
+      const laborRateOccupiedWillChange = hasLaborRateOccupiedValue && importValuesDiffer(row.selectedSubitemLaborRateOccupied, row.labor_rate_occupied);
+      if (unitPriceWillChange || laborRateWillChange || laborRateEmptyWillChange || laborRateOccupiedWillChange) {
         plan.priceUpdates.push({
           sourceRowNumber: row.sourceRowNumber,
           matchedSubitemId: row.selectedSubitemId,
@@ -1664,7 +1744,12 @@ function createAiImportApplyPlan(rows) {
           excelUnitPrice: row.unit_price,
           currentLaborRate: row.selectedSubitemLaborRate,
           excelLaborRate: row.labor_rate,
+          currentLaborRateEmpty: row.selectedSubitemLaborRateEmpty,
+          excelLaborRateEmpty: row.labor_rate_empty,
+          currentLaborRateOccupied: row.selectedSubitemLaborRateOccupied,
+          excelLaborRateOccupied: row.labor_rate_occupied,
           willChange: true,
+          conflictDecision: row.conflictDecision ?? "keep",
         });
       }
     }
@@ -1696,7 +1781,7 @@ function createAiImportApplyPlan(rows) {
       });
     }
 
-    if (isWorkItem && row.selectedSubitemId && (hasQuantityValue || hasLaborCountValue)) {
+    if (isWorkItem && row.selectedSubitemId && (hasQuantityValue || hasLaborCountValue || hasConstructionDaysValue)) {
       const selectedSubitemName = row.selectedSubitemName || sourceItemName || "\uC138\uBD80\uD56D\uBAA9 \uBBF8\uC815";
       plan.templateValueCandidates.push({
         sourceRowNumber: row.sourceRowNumber,
@@ -1708,6 +1793,8 @@ function createAiImportApplyPlan(rows) {
         subitemName: selectedSubitemName,
         quantity: row.quantity,
         laborCount: row.labor_count,
+        constructionDays: row.construction_days,
+        conflictDecision: row.templateConflictDecision ?? "keep",
         unit: row.unit || row.selectedSubitemUnit || "",
         optionValue: getTemplateOptionValue({ name: selectedSubitemName }),
       });
@@ -1736,7 +1823,8 @@ function getAiPriceUpdateTargets(plan) {
     row?.matchedSubitemId &&
     row?.matchedItemId &&
     row?.willChange &&
-    (hasImportValue(row.excelUnitPrice) || hasImportValue(row.excelLaborRate))
+    shouldApplyExcelConflict(row?.conflictDecision) &&
+    (hasImportValue(row.excelUnitPrice) || hasImportValue(row.excelLaborRate) || hasImportValue(row.excelLaborRateEmpty) || hasImportValue(row.excelLaborRateOccupied))
   );
 }
 
@@ -1745,7 +1833,7 @@ function getAiTemplateValueTargets(plan) {
     row?.rowType === "work_item" &&
     row?.matchedSubitemId &&
     row?.matchedItemId &&
-    (hasImportValue(row.quantity) || hasImportValue(row.laborCount))
+    (hasImportValue(row.quantity) || hasImportValue(row.laborCount) || hasImportValue(row.constructionDays))
   );
 }
 
@@ -1765,11 +1853,14 @@ function getAiNewItemTargets(rows) {
         existingCategoryName: row.selectedCategoryName || row.categoryMatch?.matchedCategoryName || "",
         sourceCategory,
         categoryName: row.selectedCategoryName || row.categoryMatch?.matchedCategoryName || sourceCategory,
-        subitemName: sourceItemName || sourceCategory,
+        subitemName: buildImportSubitemName(sourceItemName || sourceCategory, row.spec),
         spec: row.spec,
         unit: formatExcelCellValue(row.unit).trim() || "평",
         unitPrice: row.unit_price,
         laborRate: row.labor_rate,
+        laborRateEmpty: row.labor_rate_empty,
+        laborRateOccupied: row.labor_rate_occupied,
+        isLumpSum: Boolean(row.isLumpSum),
       };
     })
     .filter((row) => row.categoryName && row.subitemName);
@@ -2019,15 +2110,13 @@ function getAiSetupConditionHintRows(hint, variantLabels = {}) {
   ];
 }
 
-function getAiApplyReadiness(condition, summary) {
+function getAiApplyReadiness(condition, summary, target = EXCEL_IMPORT_TARGETS.PRICES) {
   const hasCondition = isAiSetupApplyConditionComplete(condition);
-  const saveCandidateCount =
-    (summary?.priceUpdates ?? 0) +
-    (summary?.newCategoryCandidates ?? 0) +
-    (summary?.newSubitemCandidates ?? 0) +
-    (summary?.templateValueCandidates ?? 0);
+  const saveCandidateCount = target === EXCEL_IMPORT_TARGETS.TEMPLATES
+    ? (summary?.templateValueCandidates ?? 0)
+    : (summary?.priceUpdates ?? 0) + (summary?.newCategoryCandidates ?? 0) + (summary?.newSubitemCandidates ?? 0);
 
-  if (!hasCondition && (summary?.templateValueCandidates ?? 0) > 0) {
+  if (target === EXCEL_IMPORT_TARGETS.TEMPLATES && !hasCondition && (summary?.templateValueCandidates ?? 0) > 0) {
     return { status: "needs_condition", label: "조건 선택 필요" };
   }
   if ((summary?.reviewRows ?? 0) > 0) {
@@ -2334,6 +2423,10 @@ export default function AdminApp() {
   const [pyeongDropdownOpen, setPyeongDropdownOpen] = useState(false);
   const [adminPyeongDropdownOpen, setAdminPyeongDropdownOpen] = useState(false);
   const [favoritePyeongs, setFavoritePyeongs] = useState(readFavoritePyeongs);
+  const [excelImportOpen, setExcelImportOpen] = useState(false);
+  const [excelImportTarget, setExcelImportTarget] = useState(EXCEL_IMPORT_TARGETS.PRICES);
+  const [excelExportTarget, setExcelExportTarget] = useState("");
+  const [excelExportError, setExcelExportError] = useState("");
   const aiSetupController = useAiSetup();
   const {
     aiSetupFileName, setAiSetupFileName, aiSetupStatus, setAiSetupStatus,
@@ -2544,8 +2637,8 @@ export default function AdminApp() {
     return isAiSetupApplyConditionComplete(aiSetupApplyCondition);
   }, [aiSetupApplyCondition]);
   const aiSetupApplyReadiness = useMemo(() => {
-    return getAiApplyReadiness(aiSetupApplyCondition, aiSetupImportApplyPlanSummary);
-  }, [aiSetupApplyCondition, aiSetupImportApplyPlanSummary]);
+    return getAiApplyReadiness(aiSetupApplyCondition, aiSetupImportApplyPlanSummary, excelImportTarget);
+  }, [aiSetupApplyCondition, aiSetupImportApplyPlanSummary, excelImportTarget]);
   const aiSetupFlowState = useMemo(() => {
     return getAiSetupFlowState({
       fileName: aiSetupFileName,
@@ -2559,11 +2652,11 @@ export default function AdminApp() {
       aiResult: aiSetupAiResult,
       catalogMatchRowCount: aiSetupCatalogMatchRows.length,
       reviewRowCount: aiSetupImportApplyPlanSummary.reviewRows,
-      conditionComplete: aiSetupApplyConditionComplete,
+      conditionComplete: excelImportTarget === EXCEL_IMPORT_TARGETS.PRICES || aiSetupApplyConditionComplete,
       applyPlanSummary: aiSetupImportApplyPlanSummary,
       priceTargetCount: aiSetupPriceUpdateTargets.length,
       newItemTargetCount: aiSetupNewItemTargets.length,
-      templateTargetCount: aiSetupTemplateValueTargets.length,
+      templateTargetCount: excelImportTarget === EXCEL_IMPORT_TARGETS.TEMPLATES ? aiSetupTemplateValueTargets.length : 0,
     });
   }, [
     aiSetupAiLoading,
@@ -2580,6 +2673,7 @@ export default function AdminApp() {
     aiSetupPriceUpdateTargets.length,
     aiSetupStatus,
     aiSetupTemplateValueTargets.length,
+    excelImportTarget,
     selectedAiSetupSheet,
   ]);
   const aiSetupAutoSelectedFields = useMemo(() => {
@@ -2593,12 +2687,16 @@ export default function AdminApp() {
   const hasAiSetupAutoSelectedCondition = Object.values(aiSetupAutoSelectedFields).some(Boolean);
   const aiSetupStatusLabel =
     aiSetupStatus === "reading"
-      ? "읽는 중"
-      : aiSetupStatus === "success"
-        ? "읽기 완료"
-        : aiSetupStatus === "error"
-          ? "읽기 실패"
-          : "대기 중";
+      ? "파일 읽는 중"
+      : aiSetupStatus === "analyzing"
+        ? "시트 분석 중"
+        : aiSetupStatus === "mapping"
+          ? "항목 매핑 중"
+          : aiSetupStatus === "success"
+            ? "검토 결과 준비 완료"
+            : aiSetupStatus === "error"
+              ? "읽기 실패"
+              : "대기 중";
   const aiSetupAdvancedReviewCount =
     (aiSetupMappingAnalysis.hasHeader ? 0 : 1) +
     (aiSetupMappingAnalysis.unknownCount ?? 0) +
@@ -2621,9 +2719,6 @@ export default function AdminApp() {
   const aiSetupSheetCompactMeta = selectedAiSetupSheet
     ? `${selectedAiSetupSheet.name} · ${selectedAiSetupSheet.rowCount ?? 0}행 · ${selectedAiSetupSheet.columnCount ?? 0}열`
     : "";
-  const aiSetupIntroText = aiSetupAiResult
-    ? "검토가 필요한 항목만 확인한 뒤 저장하세요."
-    : "AI가 엑셀을 읽고 FORMATE 항목으로 정리합니다.";
   const aiSetupCatalogReviewRows = aiSetupCatalogMatchRows.filter((row) => {
     const displayStatus = getAiDisplayMatchStatus(row);
     return !["matched", "new_candidate", "ignored", "cost_item", "margin_item", "tax_item", "subtotal_row", "total_row"].includes(displayStatus);
@@ -2650,11 +2745,10 @@ export default function AdminApp() {
         ["검토 필요", aiSetupCatalogMatchSummary.needsReview],
       ];
   const aiSetupCatalogSummaryItems = [
-    ["전체", aiSetupCatalogMatchSummary.total],
-    ["기존 연결", aiSetupCatalogMatchSummary.matched],
-    ["새 항목", aiSetupCatalogMatchSummary.newCandidate],
-    ["비용/합계", aiSetupCatalogMatchSummary.costSummaryCandidate + aiSetupCatalogMatchSummary.validationRows],
-    ["검토 필요", aiSetupCatalogMatchSummary.needsReview],
+    ["자동 매핑 가능", aiSetupCatalogMatchRows.filter((row) => row.reviewStatus === "automatic").length],
+    ["확인 필요", aiSetupCatalogMatchRows.filter((row) => row.reviewStatus === "needs_review").length],
+    ["매핑되지 않음", aiSetupCatalogMatchRows.filter((row) => row.reviewStatus === "unmapped").length],
+    ["기존 값과 충돌", aiSetupCatalogMatchRows.filter((row) => row.reviewStatus === "conflict").length],
   ];
   const aiSetupApplyPlanSummaryItems = [
     ["기존 단가", aiSetupImportApplyPlanSummary.priceUpdates],
@@ -2792,9 +2886,20 @@ export default function AdminApp() {
   ]);
 
   useEffect(() => {
-    if (!selectedCompanyId || page !== "admin-ai-setup" || !adminVerified) return;
+    if (!selectedCompanyId || !excelImportOpen || !adminVerified) return;
     fetchAiSetupCatalogItems();
-  }, [adminVerified, page, selectedCompanyId]);
+  }, [adminVerified, excelImportOpen, selectedCompanyId]);
+
+  useEffect(() => {
+    if (!excelImportOpen) return undefined;
+    function handleExcelImportEscape(event) {
+      if (event.key !== "Escape") return;
+      if (aiSetupPriceSaving || aiSetupTemplateSaving || aiSetupNewItemSaving || aiSetupAiLoading) return;
+      setExcelImportOpen(false);
+    }
+    window.addEventListener("keydown", handleExcelImportEscape);
+    return () => window.removeEventListener("keydown", handleExcelImportEscape);
+  }, [aiSetupAiLoading, aiSetupNewItemSaving, aiSetupPriceSaving, aiSetupTemplateSaving, excelImportOpen]);
 
   useEffect(() => {
     setAiSetupMatchOverrides({});
@@ -2828,6 +2933,23 @@ export default function AdminApp() {
         : next;
     });
   }, [aiSetupApplyConditionTouched, aiSetupDetectedConditionHint, selectedAiSetupSheet]);
+
+  useEffect(() => {
+    if (excelImportTarget !== EXCEL_IMPORT_TARGETS.TEMPLATES) return;
+    const firstRow = aiSetupMappingAnalysis.previewRows[0];
+    if (!firstRow) return;
+    const explicitPyeong = matchPyeongOptionNumber(firstRow.pyeong);
+    const explicitVariant = CONDITION_VARIANT_KEYS.includes(firstRow.condition_variant)
+      ? firstRow.condition_variant
+      : "";
+    const explicitBuildType = detectAiSetupBuildType(`${firstRow.build_type ?? ""}`, explicitVariant);
+    setAiSetupApplyCondition((current) => ({
+      ...current,
+      pyeong: aiSetupApplyConditionTouched.pyeong ? current.pyeong : explicitPyeong || current.pyeong,
+      buildType: aiSetupApplyConditionTouched.buildType ? current.buildType : explicitBuildType || current.buildType,
+      conditionVariant: aiSetupApplyConditionTouched.conditionVariant ? current.conditionVariant : explicitVariant || current.conditionVariant,
+    }));
+  }, [aiSetupApplyConditionTouched, aiSetupMappingAnalysis.previewRows, excelImportTarget]);
 
   useEffect(() => {
     if (selectedCompanyId && page === "admin-detail-costs" && selectedDetailSubitemId) {
@@ -2986,6 +3108,35 @@ export default function AdminApp() {
     setAiSetupRawOpen(false);
   }
 
+  function openExcelImport(target) {
+    resetAiSetupUpload();
+    setExcelImportTarget(target);
+    setExcelImportOpen(true);
+  }
+
+  function closeExcelImport() {
+    if (aiSetupPriceSaving || aiSetupTemplateSaving || aiSetupNewItemSaving || aiSetupAiLoading) return;
+    setExcelImportOpen(false);
+  }
+
+  async function handleExcelExport(target) {
+    if (excelExportTarget) return;
+    setExcelExportTarget(target);
+    setExcelExportError("");
+    try {
+      await exportFormateExcel({
+        companyId: requireSelectedCompanyId(),
+        companyName: selectedCompanyName,
+        target,
+      });
+    } catch (error) {
+      console.error("[FORMATE Excel export]", error);
+      setExcelExportError(getFriendlyError(error, "Excel 파일을 내보내지 못했습니다."));
+    } finally {
+      setExcelExportTarget("");
+    }
+  }
+
   function updateAiSetupApplyConditionPatch(patch, touchedFields = Object.keys(patch)) {
     setAiSetupApplyCondition((prev) => ({ ...prev, ...patch }));
     setAiSetupApplyConditionTouched((prev) => {
@@ -2997,9 +3148,7 @@ export default function AdminApp() {
     });
   }
 
-  async function handleAiSetupFileChange(event) {
-    const input = event.target;
-    const file = event.target.files?.[0];
+  async function processAiSetupFile(file) {
     resetAiSetupUpload();
 
     if (!file) return;
@@ -3022,9 +3171,30 @@ export default function AdminApp() {
         setAiSetupError("읽을 수 있는 시트가 없습니다.");
         return;
       }
+      const workbookMetadata = readFormateWorkbookMetadata(parsedSheets);
+      if (workbookMetadata.COMPANY_ID && workbookMetadata.COMPANY_ID !== requireSelectedCompanyId()) {
+        setAiSetupStatus("error");
+        setAiSetupError("다른 업체에서 내보낸 FORMATE Excel 파일은 가져올 수 없습니다.");
+        return;
+      }
 
-      setAiSetupSheets(parsedSheets);
-      setSelectedAiSetupSheetName(parsedSheets[0]?.name ?? "");
+      setAiSetupStatus("analyzing");
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      const importSheets = parsedSheets.filter((sheet) => sheet.name !== "FORMATE_META");
+      if (!importSheets.length) {
+        setAiSetupStatus("error");
+        setAiSetupError("가져올 데이터 시트가 없습니다.");
+        return;
+      }
+      setAiSetupSheets(importSheets);
+      setSelectedAiSetupSheetName(importSheets[0]?.name ?? "");
+      const analysis = analyzeExcelSheetForFormate(importSheets[0]);
+      setAiSetupStatus("mapping");
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      if (analysis.hasHeader) {
+        setAiSetupHeaderRowIndex(analysis.headerRowIndex);
+        setAiSetupColumnMappings(analysis.mappings);
+      }
       setAiSetupStatus("success");
       setAiSetupError("");
     } catch (error) {
@@ -3033,9 +3203,19 @@ export default function AdminApp() {
       setAiSetupError("엑셀 파일을 읽지 못했습니다. 파일 형식을 확인해주세요.");
       setAiSetupSheets([]);
       setSelectedAiSetupSheetName("");
-    } finally {
-      input.value = "";
     }
+  }
+
+  async function handleAiSetupFileChange(event) {
+    const input = event.target;
+    await processAiSetupFile(event.target.files?.[0]);
+    input.value = "";
+  }
+
+  function handleAiSetupFileDrop(event) {
+    event.preventDefault();
+    if (aiSetupStatus === "reading") return;
+    processAiSetupFile(event.dataTransfer.files?.[0]);
   }
 
   function handleAiSetupHeaderRowChange(event) {
@@ -3107,10 +3287,16 @@ export default function AdminApp() {
       if (Object.prototype.hasOwnProperty.call(patch, "categoryId")) {
         next.subitemId = "";
       }
-      return {
+      const updated = {
         ...current,
         [sourceRowNumber]: next,
       };
+      const targetRow = aiSetupCatalogMatchRows.find((row) => `${row.sourceRowNumber}` === `${sourceRowNumber}`);
+      const activatesRow = patch.action && !["ignore", "review"].includes(patch.action);
+      Object.entries(buildLumpSumExclusionPatches(aiSetupCatalogMatchRows, targetRow, activatesRow)).forEach(([rowKey, exclusionPatch]) => {
+        updated[rowKey] = { ...(updated[rowKey] ?? {}), ...exclusionPatch };
+      });
+      return updated;
     });
   }
 
@@ -3246,11 +3432,20 @@ export default function AdminApp() {
         const payload = {};
         const nextUnitPrice = parseAiImportCurrencyNumber(target.excelUnitPrice);
         const nextLaborRate = parseAiImportCurrencyNumber(target.excelLaborRate);
+        const nextLaborRateEmpty = parseAiImportCurrencyNumber(target.excelLaborRateEmpty);
+        const nextLaborRateOccupied = parseAiImportCurrencyNumber(target.excelLaborRateOccupied);
         if (nextUnitPrice !== null && importValuesDiffer(target.currentUnitPrice, target.excelUnitPrice)) {
           payload.unit_price = nextUnitPrice;
         }
         if (nextLaborRate !== null && importValuesDiffer(target.currentLaborRate, target.excelLaborRate)) {
           payload.labor_rate = nextLaborRate;
+        }
+        if (nextLaborRateEmpty !== null && importValuesDiffer(target.currentLaborRateEmpty, target.excelLaborRateEmpty)) {
+          payload.labor_rate_empty = nextLaborRateEmpty;
+          payload.labor_rate = nextLaborRateEmpty;
+        }
+        if (nextLaborRateOccupied !== null && importValuesDiffer(target.currentLaborRateOccupied, target.excelLaborRateOccupied)) {
+          payload.labor_rate_occupied = nextLaborRateOccupied;
         }
 
         if (Object.keys(payload).length === 0) {
@@ -3351,10 +3546,12 @@ export default function AdminApp() {
 
         const hasQuantity = hasImportValue(target.quantity);
         const hasLaborCount = hasImportValue(target.laborCount);
+        const hasConstructionDays = hasImportValue(target.constructionDays);
         const quantity = hasQuantity ? parseAiImportTemplateNumber(target.quantity) : null;
         const laborCount = hasLaborCount ? parseAiImportTemplateNumber(target.laborCount) : null;
+        const constructionDays = hasConstructionDays ? parseAiImportTemplateNumber(target.constructionDays) : null;
 
-        if ((hasQuantity && quantity === null) || (hasLaborCount && laborCount === null)) {
+        if ((hasQuantity && quantity === null) || (hasLaborCount && laborCount === null) || (hasConstructionDays && constructionDays === null)) {
           preflightResults.push({
             status: "rejected",
             target,
@@ -3367,8 +3564,10 @@ export default function AdminApp() {
           ...target,
           hasQuantity,
           hasLaborCount,
+          hasConstructionDays,
           quantity,
           laborCount,
+          constructionDays,
           optionValue: target.optionValue ?? "",
         });
       }
@@ -3419,9 +3618,14 @@ export default function AdminApp() {
         }
 
         if (existingValue?.id) {
+          if (!shouldApplyExcelConflict(target.conflictDecision)) {
+            results.push({ status: "skipped", target, reason: "기존 템플릿 값을 유지했습니다." });
+            continue;
+          }
           const updatePayload = {};
           if (target.hasQuantity) updatePayload.quantity = target.quantity;
           if (target.hasLaborCount) updatePayload.labor_count = target.laborCount;
+          if (target.hasConstructionDays) updatePayload.construction_days = Math.max(0, Math.round(target.constructionDays));
 
           try {
             const updatedRows = await updateAdminTemplateValue(
@@ -3446,6 +3650,7 @@ export default function AdminApp() {
           option_value: optionValue,
           quantity: target.hasQuantity ? target.quantity : null,
           labor_count: target.hasLaborCount ? target.laborCount : null,
+          construction_days: target.hasConstructionDays ? Math.max(0, Math.round(target.constructionDays)) : 0,
         };
 
         try {
@@ -3562,7 +3767,9 @@ export default function AdminApp() {
 
         const unitPrice = hasImportValue(target.unitPrice) ? parseAiImportCurrencyNumber(target.unitPrice) : 0;
         const laborRate = hasImportValue(target.laborRate) ? parseAiImportCurrencyNumber(target.laborRate) : 0;
-        if (unitPrice === null || laborRate === null) {
+        const laborRateEmpty = hasImportValue(target.laborRateEmpty) ? parseAiImportCurrencyNumber(target.laborRateEmpty) : laborRate;
+        const laborRateOccupied = hasImportValue(target.laborRateOccupied) ? parseAiImportCurrencyNumber(target.laborRateOccupied) : laborRate;
+        if (unitPrice === null || laborRate === null || laborRateEmpty === null || laborRateOccupied === null) {
           results.push({ status: "rejected", target, reason: "단가 또는 인건비 값을 숫자로 읽을 수 없습니다." });
           continue;
         }
@@ -3579,7 +3786,7 @@ export default function AdminApp() {
             category = await insertConstructionItemRow({
               company_id: companyId,
               name: categoryName,
-              item_type: "itemized",
+              item_type: target.isLumpSum ? LUMP_SUM_ITEM_TYPE : "itemized",
               is_favorite: false,
               sort_order: nextItemSortOrder,
             });
@@ -3594,6 +3801,15 @@ export default function AdminApp() {
           if (normalizedCategoryName) categoriesByName.set(normalizedCategoryName, { ...category });
           createdCategoryIds.add(category.id);
           nextSubitemSortOrders.set(category.id, 0);
+        } else if (target.isLumpSum && category.item_type !== LUMP_SUM_ITEM_TYPE) {
+          try {
+            await updateConstructionItem(category.id, companyId, { item_type: LUMP_SUM_ITEM_TYPE });
+            category = { ...category, item_type: LUMP_SUM_ITEM_TYPE };
+            categoriesById.set(category.id, category);
+          } catch (error) {
+            results.push({ status: "rejected", target, reason: error.message || "1식 공사 유형 설정 실패" });
+            continue;
+          }
         }
 
         const normalizedSubitemName = normalizeCatalogMatchText(subitemName);
@@ -3620,7 +3836,9 @@ export default function AdminApp() {
             name: subitemName,
             unit: target.unit || "평",
             unit_price: unitPrice,
-            labor_rate: laborRate,
+            labor_rate: laborRateEmpty,
+            labor_rate_empty: laborRateEmpty,
+            labor_rate_occupied: laborRateOccupied,
             sort_order: sortOrder,
           });
         } catch (error) {
@@ -6905,6 +7123,8 @@ export default function AdminApp() {
         dragOverItemId={dragOverItemId}
         dragOverSubitem={dragOverSubitem}
         dragSubitem={dragSubitem}
+        excelExporting={excelExportTarget === EXCEL_IMPORT_TARGETS.PRICES}
+        excelExportError={excelExportError}
         fetchAdminItems={fetchAdminItems}
         filteredAdminItems={filteredAdminItems}
         getAdminFlooringActiveThickness={getAdminFlooringActiveThickness}
@@ -6918,6 +7138,8 @@ export default function AdminApp() {
         markAdminCatalogDirty={markAdminCatalogDirty}
         materialNamePlaceholder={MATERIAL_NAME_PLACEHOLDER}
         newlyAddedSubitemId={newlyAddedSubitemId}
+        onExcelExport={() => handleExcelExport(EXCEL_IMPORT_TARGETS.PRICES)}
+        onExcelImport={() => openExcelImport(EXCEL_IMPORT_TARGETS.PRICES)}
         renameAdminFlooringGroup={renameAdminFlooringGroup}
         renameAdminSubitem={renameAdminSubitem}
         renderSpecOptionsControl={renderSpecOptionsControl}
@@ -7250,7 +7472,7 @@ export default function AdminApp() {
     return (
       <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} quantity-table-list admin-items-v2-grid-list`.trim()}>
         {renderAdminItemsHeaderV2(item)}
-        {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
+        {itemSubitems.map((subitem) => (
           <div
             key={subitem.id}
             className={`admin-value-row condition-quantity-row quantity-table-row ${item.item_type !== "flat" ? "itemized-quantity-row" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
@@ -7260,7 +7482,7 @@ export default function AdminApp() {
             onDragEnd={clearAdminDragState}
           >
             {item.item_type === "flat" ? (
-              <strong className="flat-subitem-name">{item.name}</strong>
+              <strong className="flat-subitem-name">{subitem.name || item.name}</strong>
             ) : (
               <>
                 <span
@@ -7546,6 +7768,24 @@ export default function AdminApp() {
               <span>{currentAdminConditionLabel ? `현재 관리 중: ${currentAdminConditionLabel}` : "조건을 선택하거나 새 조건을 만드세요."}</span>
             </div>
             <div className="items-v2-header-actions">
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Upload />}
+                disabled={adminLoading || adminSaving}
+                onClick={() => openExcelImport(EXCEL_IMPORT_TARGETS.TEMPLATES)}
+              >
+                Excel 업로드
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Download />}
+                disabled={adminLoading || adminSaving || Boolean(excelExportTarget)}
+                onClick={() => handleExcelExport(EXCEL_IMPORT_TARGETS.TEMPLATES)}
+              >
+                {excelExportTarget === EXCEL_IMPORT_TARGETS.TEMPLATES ? "내보내는 중" : "Excel 내보내기"}
+              </Button>
               <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
                 {getAutoSaveStatusLabel()}
               </span>
@@ -7593,6 +7833,7 @@ export default function AdminApp() {
           {adminSaving && <div className="status-box">저장 중...</div>}
           {adminNotice && <div className="status-box">{adminNotice}</div>}
           {adminError && <div className="error-box">{adminError}</div>}
+          {excelExportError && <div className="error-box">{excelExportError}</div>}
 
           {item ? (
             <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
@@ -8790,7 +9031,7 @@ export default function AdminApp() {
         <div className="modal-backdrop" onClick={closeAiSetupPriceConfirm}>
           <section className="admin-verify-modal ai-price-update-modal" onClick={(event) => event.stopPropagation()}>
             <div>
-              <p className="eyebrow dark">AI 초기 세팅</p>
+              <p className="eyebrow dark">Excel 가져오기</p>
               <h2>기존 항목 단가/인건비를 반영할까요?</h2>
               <p className="muted">
                 업데이트 예정 항목은 <strong>{aiSetupPriceUpdateTargets.length}개</strong>입니다.
@@ -8849,7 +9090,7 @@ export default function AdminApp() {
         <div className="modal-backdrop" onClick={closeAiSetupTemplateConfirm}>
           <section className="admin-verify-modal ai-price-update-modal ai-template-save-modal" onClick={(event) => event.stopPropagation()}>
             <div>
-              <p className="eyebrow dark">AI 초기 세팅</p>
+              <p className="eyebrow dark">Excel 가져오기</p>
               <h2>선택 조건의 견적 템플릿에 저장할까요?</h2>
               <p className="muted">
                 선택 조건은 <strong>{aiSetupApplyConditionLabel}</strong>입니다.
@@ -8916,7 +9157,7 @@ export default function AdminApp() {
         <div className="modal-backdrop" onClick={closeAiSetupNewItemConfirm}>
           <section className="admin-verify-modal ai-price-update-modal ai-new-item-modal" onClick={(event) => event.stopPropagation()}>
             <div>
-              <p className="eyebrow dark">AI 초기 세팅</p>
+              <p className="eyebrow dark">Excel 가져오기</p>
               <h2>새 항목 후보를 단가표에 추가할까요?</h2>
               <p className="muted">
                 추가 예정 대분류는 <strong>{aiSetupNewItemSummary.newCategoryCount}개</strong>,
@@ -9208,39 +9449,44 @@ export default function AdminApp() {
                   <em>철거, 폐기물, 운반비처럼 견적서에 추가할 수 있는 비용을 관리합니다.</em>
                 </span>
               </button>
-              <button className="admin-action-row" onClick={() => setPage("admin-ai-setup")}>
-                <Image size={18} strokeWidth={1.5} />
-                <span>
-                  <strong>4. AI 초기 세팅</strong>
-                  <em>기존에 사용하던 엑셀 견적서를 업로드하면 항목과 금액을 분석해 단가표와 템플릿 초안을 만들 수 있습니다.</em>
-                </span>
-              </button>
             </div>
           </section>
         </main>
         , { className: "formate-app-shell--overview" }
       )}
 
-      {page === "admin-ai-setup" && adminVerified && renderAppShell(
-        <AiSetupPage>
+      {excelImportOpen && adminVerified && (
+        <div className="excel-import-modal-backdrop" onMouseDown={closeExcelImport}>
+          <section
+            className="excel-import-modal formate-scroll-light"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="excel-import-modal-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
           <main className="panel-page admin-page ai-setup-page">
-          <button className="ghost" onClick={() => setPage("admin")}>
-            <ArrowLeft size={18} /> 관리자 홈으로 돌아가기
-          </button>
           <section className="panel wide ai-setup-panel">
             <div className="ai-setup-header">
               <div>
-                <p className="eyebrow dark">AI 초기 세팅</p>
-                <h2>AI 초기 세팅</h2>
+                <p className="eyebrow dark">Excel 가져오기</p>
+                <h2 id="excel-import-modal-title">{excelImportTarget === EXCEL_IMPORT_TARGETS.PRICES ? "단가표 Excel 업로드" : "기본 견적 설정 Excel 업로드"}</h2>
                 <p className="muted">
-                  {aiSetupIntroText}
+                  기존 Excel 단가표를 분석해 FORMATE 항목으로 가져옵니다. 저장 전 결과를 검토할 수 있습니다.
                 </p>
               </div>
-              <span className={`ai-status-pill ${aiSetupStatus}`.trim()}>{aiSetupStatusLabel}</span>
+              <div className="excel-import-modal-head-actions">
+                <span className="ai-status-pill">대상: {excelImportTarget === EXCEL_IMPORT_TARGETS.PRICES ? "단가표" : "기본 견적 설정"}</span>
+                <span className={`ai-status-pill ${aiSetupStatus}`.trim()}>{aiSetupStatusLabel}</span>
+                <Button variant="tertiary" size="sm" onClick={closeExcelImport}>닫기</Button>
+              </div>
             </div>
 
             <div className="ai-upload-grid">
-              <label className="ai-upload-box">
+              <label
+                className="ai-upload-box"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={handleAiSetupFileDrop}
+              >
                 <input
                   type="file"
                   accept=".xlsx,.xls"
@@ -9248,7 +9494,7 @@ export default function AdminApp() {
                   disabled={aiSetupStatus === "reading"}
                 />
                 <FileText />
-                <strong>엑셀 견적서 업로드</strong>
+                <strong>파일 선택 또는 드래그 앤 드롭</strong>
                 <span>.xlsx, .xls 파일을 선택하세요.</span>
               </label>
               <div className="ai-upload-summary">
@@ -9620,6 +9866,9 @@ export default function AdminApp() {
                               <th>원본 행</th>
                               <th>원본 대분류</th>
                               <th>원본 항목명</th>
+                              <th>규격 또는 옵션</th>
+                              <th>단위</th>
+                              <th>기존 값 처리</th>
                               <th>행 유형</th>
                               <th>매칭 상태</th>
                               <th>처리 방식</th>
@@ -9627,7 +9876,8 @@ export default function AdminApp() {
                               <th>FORMATE 세부항목</th>
                               <th>수량</th>
                               <th>단가</th>
-                              <th>인건비</th>
+                              <th>인건비(빈집)</th>
+                              <th>인건비(살림집)</th>
                               <th>인원</th>
                               <th>원본 금액</th>
                               <th>메모</th>
@@ -9651,12 +9901,12 @@ export default function AdminApp() {
                                       <small className="ai-match-hint">자동 분해 · 원본 {row.sourceParentRowNumber}행</small>
                                     )}
                                     {row.isSplitParent && (
-                                      <small className="ai-match-hint">분해 원본 · 저장 제외</small>
+                                      <small className="ai-match-hint">묶음 총액 · 기본 계산 기준</small>
                                     )}
                                   </td>
                                   <td>{row.sourceCategory || "-"}</td>
                                   <td>
-                                    {row.isSplitRow ? (
+                                    {canEditCatalogMapping ? (
                                       <input
                                         className="ai-inline-input wide"
                                         value={row.sourceItemName ?? ""}
@@ -9668,22 +9918,53 @@ export default function AdminApp() {
                                     )}
                                   </td>
                                   <td>
-                                    {row.isSplitParent ? (
-                                      <span className="ai-match-status subtotal_row">분해 원본 · 저장 제외</span>
-                                    ) : (
+                                    {canEditCatalogMapping ? (
+                                      <input
+                                        className="ai-inline-input"
+                                        value={row.spec ?? ""}
+                                        placeholder="직접 입력"
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { spec: event.target.value })}
+                                      />
+                                    ) : row.spec || "-"}
+                                  </td>
+                                  <td>
+                                    {canEditCatalogMapping ? (
+                                      <input
+                                        className="ai-inline-input"
+                                        value={row.unit ?? ""}
+                                        placeholder="직접 입력"
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { unit: event.target.value })}
+                                      />
+                                    ) : row.unit || "-"}
+                                  </td>
+                                  <td>
+                                    {row.reviewStatus === "conflict" && row.action === "link" ? (
                                       <select
-                                        value={row.rowType}
-                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { rowType: event.target.value })}
+                                        value={row.conflictDecision ?? "keep"}
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { conflictDecision: event.target.value })}
                                       >
-                                        {AI_ROW_TYPE_OPTIONS.map((option) => (
-                                          <option key={option.value} value={option.value}>{option.label}</option>
-                                        ))}
+                                        <option value="keep">기존 값 유지</option>
+                                        <option value="excel">Excel 값으로 변경</option>
                                       </select>
+                                    ) : (
+                                      <span className={`ai-match-status ${row.reviewStatus ?? "needs_review"}`}>
+                                        {row.reviewStatus === "automatic" ? "자동 매핑 가능" : row.reviewStatus === "unmapped" ? "매핑되지 않음" : "확인 필요"}
+                                      </span>
                                     )}
                                   </td>
                                   <td>
+                                    <select
+                                      value={row.rowType}
+                                      onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { rowType: event.target.value })}
+                                    >
+                                      {AI_ROW_TYPE_OPTIONS.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td>
                                     <span className={`ai-match-status ${row.isSplitParent ? "subtotal_row" : getAiDisplayMatchStatus(row)}`.trim()}>
-                                      {row.isSplitParent ? "분해 원본" : getAiDisplayMatchStatusLabel(row)}
+                                      {row.isSplitParent ? "묶음 총액" : getAiDisplayMatchStatusLabel(row)}
                                     </span>
                                     {row.aiReason && (
                                       <small className="ai-recommendation-reason" title={row.aiReason}>
@@ -9695,8 +9976,8 @@ export default function AdminApp() {
                                     )}
                                   </td>
                                   <td>
-                                    {row.isSplitParent ? (
-                                      <span className="ai-match-status ignored">저장 제외</span>
+                                    {row.isSplitChild ? (
+                                      <span className="ai-match-status ignored">분해 후보 · 계산 제외</span>
                                     ) : (
                                       <select
                                         value={getAiActionSelectValue(row)}
@@ -9756,9 +10037,18 @@ export default function AdminApp() {
                                       <span className="ai-match-status ignored">해당 없음</span>
                                     )}
                                   </td>
-                                  <td>{row.quantity ?? ""}</td>
                                   <td>
-                                    {row.isSplitRow ? (
+                                    {canEditCatalogMapping ? (
+                                      <input
+                                        className="ai-inline-input"
+                                        value={row.quantity ?? ""}
+                                        placeholder="직접 입력"
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { quantity: event.target.value })}
+                                      />
+                                    ) : row.quantity ?? ""}
+                                  </td>
+                                  <td>
+                                    {canEditCatalogMapping ? (
                                       <input
                                         className="ai-inline-input"
                                         value={row.unit_price ?? ""}
@@ -9770,18 +10060,37 @@ export default function AdminApp() {
                                     )}
                                   </td>
                                   <td>
-                                    {row.isSplitRow ? (
+                                    {canEditCatalogMapping ? (
                                       <input
                                         className="ai-inline-input"
-                                        value={row.labor_rate ?? ""}
+                                        value={row.labor_rate_empty ?? row.labor_rate ?? ""}
                                         placeholder="직접 입력"
-                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { laborRate: event.target.value })}
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { laborRateEmpty: event.target.value })}
                                       />
                                     ) : (
-                                      row.labor_rate ?? ""
+                                      row.labor_rate_empty ?? row.labor_rate ?? ""
                                     )}
                                   </td>
-                                  <td>{row.labor_count ?? ""}</td>
+                                  <td>
+                                    {canEditCatalogMapping ? (
+                                      <input
+                                        className="ai-inline-input"
+                                        value={row.labor_rate_occupied ?? row.labor_rate ?? ""}
+                                        placeholder="직접 입력"
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { laborRateOccupied: event.target.value })}
+                                      />
+                                    ) : row.labor_rate_occupied ?? row.labor_rate ?? ""}
+                                  </td>
+                                  <td>
+                                    {canEditCatalogMapping ? (
+                                      <input
+                                        className="ai-inline-input"
+                                        value={row.labor_count ?? ""}
+                                        placeholder="직접 입력"
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { laborCount: event.target.value })}
+                                      />
+                                    ) : row.labor_count ?? ""}
+                                  </td>
                                   <td>{row.original_amount ?? ""}</td>
                                   <td>{row.memo ?? ""}</td>
                                 </tr>
@@ -9919,7 +10228,7 @@ export default function AdminApp() {
                   </section>
                 )}
 
-                {aiSetupMappingAnalysis.hasHeader && (
+                {excelImportTarget === EXCEL_IMPORT_TARGETS.TEMPLATES && aiSetupMappingAnalysis.hasHeader && (
                   <section className="ai-apply-condition-panel">
                     <div className="ai-mapping-title">
                       <div>
@@ -10030,8 +10339,8 @@ export default function AdminApp() {
                                 <th>FORMATE 세부항목</th>
                                 <th>현재 단가</th>
                                 <th>엑셀 단가</th>
-                                <th>현재 인건비</th>
-                                <th>엑셀 인건비</th>
+                                <th>현재 인건비(빈집/살림집)</th>
+                                <th>Excel 인건비(빈집/살림집)</th>
                                 <th>변경 여부</th>
                               </tr>
                             </thead>
@@ -10045,12 +10354,18 @@ export default function AdminApp() {
                                   <td>{row.selectedSubitemName || "-"}</td>
                                   <td>{displayImportValue(row.currentUnitPrice)}</td>
                                   <td>{displayImportValue(row.excelUnitPrice)}</td>
-                                  <td>{displayImportValue(row.currentLaborRate)}</td>
-                                  <td>{displayImportValue(row.excelLaborRate)}</td>
+                                  <td>{displayImportValue(row.currentLaborRateEmpty ?? row.currentLaborRate)} / {displayImportValue(row.currentLaborRateOccupied ?? row.currentLaborRate)}</td>
+                                  <td>{displayImportValue(row.excelLaborRateEmpty ?? row.excelLaborRate)} / {displayImportValue(row.excelLaborRateOccupied ?? row.excelLaborRate)}</td>
                                   <td>
-                                    <span className={`ai-match-status ${row.willChange ? "new_candidate" : "matched"}`}>
-                                      {row.willChange ? "변경 예정" : "동일"}
-                                    </span>
+                                    {row.willChange ? (
+                                      <select
+                                        value={row.conflictDecision ?? "keep"}
+                                        onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { conflictDecision: event.target.value })}
+                                      >
+                                        <option value="keep">기존 값 유지</option>
+                                        <option value="excel">Excel 값으로 변경</option>
+                                      </select>
+                                    ) : <span className="ai-match-status matched">동일</span>}
                                   </td>
                                 </tr>
                               ))}
@@ -10138,7 +10453,9 @@ export default function AdminApp() {
                                 <th>세부항목</th>
                                 <th>수량</th>
                                 <th>인원</th>
+                                <th>공사기간</th>
                                 <th>단위</th>
+                                <th>기존 값 처리</th>
                                 <th>계획</th>
                               </tr>
                             </thead>
@@ -10150,7 +10467,17 @@ export default function AdminApp() {
                                   <td>{row.subitemName || "-"}</td>
                                   <td>{row.quantity || "-"}</td>
                                   <td>{row.laborCount || "-"}</td>
+                                  <td>{row.constructionDays || "-"}</td>
                                   <td>{row.unit || "-"}</td>
+                                  <td>
+                                    <select
+                                      value={row.conflictDecision ?? "keep"}
+                                      onChange={(event) => updateAiSetupRowOverride(row.sourceRowNumber, { templateConflictDecision: event.target.value })}
+                                    >
+                                      <option value="keep">기존 값이 있으면 유지</option>
+                                      <option value="excel">Excel 값으로 변경</option>
+                                    </select>
+                                  </td>
                                   <td>조건 선택 후 견적 템플릿 값으로 저장할 후보</td>
                                 </tr>
                               ))}
@@ -10263,19 +10590,19 @@ export default function AdminApp() {
                       </div>
                     </div>
 
-                    <div className="ai-selected-condition final">
+                    {excelImportTarget === EXCEL_IMPORT_TARGETS.TEMPLATES && <div className="ai-selected-condition final">
                       <span>선택한 공사 조건</span>
                       <strong>{aiSetupApplyConditionLabel || "공사 조건이 선택되지 않았습니다."}</strong>
                       {!aiSetupApplyConditionComplete && (
                         <p>공사 조건이 선택되지 않아 템플릿 값은 저장할 수 없습니다.</p>
                       )}
-                    </div>
+                    </div>}
 
                     <div className="ai-save-safety-line">
                       <span>AI 추천은 자동 저장되지 않습니다.</span>
                       <span>누른 저장 버튼의 범위만 반영됩니다.</span>
                       <span>비용/세금/검산 행은 자동 저장하지 않습니다.</span>
-                      <span>묶음 원본은 제외, 자동 분해 행만 저장 후보입니다.</span>
+                      <span>1식 공사는 원본 총액이 기본 계산 기준이며 분해 후보는 기본 제외됩니다.</span>
                     </div>
 
                     <button
@@ -10290,13 +10617,13 @@ export default function AdminApp() {
                     {aiSetupSaveGuideOpen && (
                     <>
                     <div className="ai-confirm-warning-list">
-                      {hasAiSetupAutoSelectedCondition && !aiSetupApplyConditionComplete && (
+                      {excelImportTarget === EXCEL_IMPORT_TARGETS.TEMPLATES && hasAiSetupAutoSelectedCondition && !aiSetupApplyConditionComplete && (
                         <p>평수는 자동 감지되었지만, 일부 조건이 선택되지 않았습니다. 템플릿 저장 전 나머지 조건을 확인해야 합니다.</p>
                       )}
                       {aiSetupImportApplyPlanSummary.reviewRows > 0 && (
                         <p>검토 필요 행이 남아 있습니다. 실제 반영 전 확인이 필요합니다.</p>
                       )}
-                      {!aiSetupApplyConditionComplete && (
+                      {excelImportTarget === EXCEL_IMPORT_TARGETS.TEMPLATES && !aiSetupApplyConditionComplete && (
                         <p>공사 조건이 선택되지 않아 템플릿 값은 저장할 수 없습니다.</p>
                       )}
                       {aiSetupImportApplyPlanSummary.priceUpdates > 0 && (
@@ -10333,6 +10660,7 @@ export default function AdminApp() {
                     </>
                     )}
 
+                    {excelImportTarget === EXCEL_IMPORT_TARGETS.PRICES && <>
                     {renderAiSetupSaveResult({
                       result: aiSetupNewItemResult,
                       title: "새 항목 추가 완료",
@@ -10357,7 +10685,7 @@ export default function AdminApp() {
                         onClick={openAiSetupNewItemConfirm}
                         disabled={aiSetupNewItemSaving || aiSetupNewItemTargets.length === 0}
                       >
-                        {aiSetupNewItemSaving ? "새 항목 추가 중..." : "새 항목 후보를 단가표에 추가"}
+                        {aiSetupNewItemSaving ? "새 항목 저장 중..." : "선택한 새 항목 저장"}
                       </button>
                     </div>
 
@@ -10383,10 +10711,12 @@ export default function AdminApp() {
                         onClick={openAiSetupPriceConfirm}
                         disabled={aiSetupPriceSaving || aiSetupPriceUpdateTargets.length === 0}
                       >
-                        {aiSetupPriceSaving ? "단가표 반영 중..." : "기존 항목 단가만 반영"}
+                        {aiSetupPriceSaving ? "단가표 반영 중..." : "선택한 Excel 값 저장"}
                       </button>
                     </div>
+                    </>}
 
+                    {excelImportTarget === EXCEL_IMPORT_TARGETS.TEMPLATES && <>
                     {renderAiSetupSaveResult({
                       result: aiSetupTemplateResult,
                       title: "템플릿 저장 완료",
@@ -10413,9 +10743,10 @@ export default function AdminApp() {
                         onClick={openAiSetupTemplateConfirm}
                         disabled={aiSetupTemplateSaving || !aiSetupApplyConditionComplete || aiSetupTemplateValueTargets.length === 0}
                       >
-                        {aiSetupTemplateSaving ? "템플릿 저장 중..." : "선택 조건 템플릿에 수량/인원 저장"}
+                        {aiSetupTemplateSaving ? "템플릿 저장 중..." : "선택 항목 저장"}
                       </button>
                     </div>
+                    </>}
                   </section>
                 )}
 
@@ -10481,8 +10812,8 @@ export default function AdminApp() {
             )}
           </section>
           </main>
-        </AiSetupPage>,
-        { className: "formate-app-shell--overview" }
+          </section>
+        </div>
       )}
 
       {page === "admin-condition-labels" && adminVerified && renderAppShell(
@@ -11845,7 +12176,7 @@ export default function AdminApp() {
                       {item.item_type !== "flat" && <span>삭제</span>}
                     </div>
                   )}
-                  {(item.item_type === "flat" ? itemSubitems.slice(0, 1) : itemSubitems).map((subitem) => (
+                  {itemSubitems.map((subitem) => (
                     <div
                       key={subitem.id}
                       className={`admin-value-row ${isCommonPriceAdminPage ? "common-price-row price-table-row price-table-grid" : "condition-quantity-row quantity-table-row"} ${item.item_type !== "flat" && isConditionQuantityAdminPage ? "itemized-quantity-row" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}

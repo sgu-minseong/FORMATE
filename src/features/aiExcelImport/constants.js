@@ -1,5 +1,23 @@
-export const AI_BASIC_FIELD_KEYS = ["category", "item_name", "spec", "unit", "quantity", "unit_price", "labor_rate", "labor_count"];
+export const AI_BASIC_FIELD_KEYS = ["category", "item_name", "spec", "unit", "quantity", "unit_price", "labor_rate", "labor_rate_empty", "labor_rate_occupied", "labor_count", "construction_days"];
 export const AI_EXCEL_FIELD_DEFINITIONS = [
+  {
+    key: "formate_item_id",
+    label: "FORMATE 대분류 ID",
+    type: "stable_key",
+    aliases: ["FORMATE_ITEM_ID"],
+  },
+  {
+    key: "formate_subitem_id",
+    label: "FORMATE 세부항목 ID",
+    type: "stable_key",
+    aliases: ["FORMATE_SUBITEM_ID"],
+  },
+  {
+    key: "formate_template_id",
+    label: "FORMATE 템플릿 ID",
+    type: "stable_key",
+    aliases: ["FORMATE_TEMPLATE_ID"],
+  },
   {
     key: "category",
     label: "대분류",
@@ -10,13 +28,13 @@ export const AI_EXCEL_FIELD_DEFINITIONS = [
     key: "item_name",
     label: "항목명",
     type: "basic_field",
-    aliases: ["품명", "항목", "공사항목", "작업내용", "내역", "세부내역", "명칭", "자재명", "시공항목", "세부공사", "내용", "품목", "품목명", "품목/내역", "품목내역", "품목 및 내역", "내역/품목", "세부품목", "작업내역", "공사내역", "공사명 및 세부내역", "총괄내역", "상세내역", "시공내역"],
+    aliases: ["품명", "항목", "세부항목", "공사항목", "작업내용", "내역", "세부내역", "명칭", "자재명", "시공항목", "세부공사", "내용", "품목", "품목명", "품목/내역", "품목내역", "품목 및 내역", "내역/품목", "세부품목", "작업내역", "공사내역", "공사명 및 세부내역", "총괄내역", "상세내역", "시공내역"],
   },
   {
     key: "spec",
     label: "규격",
     type: "basic_field",
-    aliases: ["규격", "사양", "적요", "상세", "상세내용", "설명", "모델명", "제품규격", "제품명", "제품", "브랜드", "모델", "옵션", "재질", "두께", "색상"],
+    aliases: ["규격", "규격 또는 옵션", "사양", "적요", "상세", "상세내용", "설명", "모델명", "제품규격", "제품명", "제품", "브랜드", "모델", "옵션", "재질", "두께", "색상"],
   },
   {
     key: "unit",
@@ -47,6 +65,48 @@ export const AI_EXCEL_FIELD_DEFINITIONS = [
     label: "인원",
     type: "basic_field",
     aliases: ["인원", "작업인원", "투입인원", "인부", "사람", "명", "공수", "품"],
+  },
+  {
+    key: "labor_rate_empty",
+    label: "인건비(빈집)",
+    type: "basic_field",
+    aliases: ["인건비(빈집)", "빈집 인건비", "빈집인건비", "공실 인건비"],
+  },
+  {
+    key: "labor_rate_occupied",
+    label: "인건비(살림집)",
+    type: "basic_field",
+    aliases: ["인건비(살림집)", "살림집 인건비", "살림집인건비", "거주중 인건비"],
+  },
+  {
+    key: "construction_days",
+    label: "공사기간",
+    type: "basic_field",
+    aliases: ["공사기간", "시공기간", "공사일수", "기간", "일수"],
+  },
+  {
+    key: "pyeong",
+    label: "평수",
+    type: "condition_field",
+    aliases: ["평수", "면적", "공급평형"],
+  },
+  {
+    key: "build_type",
+    label: "주택 유형",
+    type: "condition_field",
+    aliases: ["주택 유형", "주택유형", "신축/구축", "신축구축"],
+  },
+  {
+    key: "has_extension",
+    label: "확장 여부",
+    type: "condition_field",
+    aliases: ["확장 여부", "확장여부"],
+  },
+  {
+    key: "condition_variant",
+    label: "세부 유형",
+    type: "condition_field",
+    aliases: ["세부 유형", "세부유형", "조건 유형", "조건유형"],
   },
   {
     key: "expense_cost",
@@ -86,7 +146,9 @@ export const AI_EXCEL_FIELD_DEFINITIONS = [
   },
 ];
 export const AI_MAPPING_GROUPS = [
+  { key: "stable_key", title: "FORMATE 연결 키", description: "내보낸 파일을 다시 가져올 때 기존 항목을 정확히 연결하는 내부 키입니다." },
   { key: "basic_field", title: "기본 필드", description: "FORMATE 단가표와 템플릿으로 이어질 수 있는 핵심 열입니다." },
+  { key: "condition_field", title: "기본 견적 조건", description: "평수와 주택 유형처럼 기본 견적 설정에 사용하는 조건입니다." },
   { key: "custom_field", title: "추가필드 후보", description: "메모나 위치처럼 참고 정보로 사용할 수 있는 열입니다." },
   { key: "cost_field", title: "비용성 필드 후보", description: "경비나 기타비처럼 별도 비용 후보로 볼 수 있는 열입니다." },
   { key: "validation_field", title: "검산 필드", description: "원본 금액 검산에 활용할 수 있는 열입니다." },
@@ -105,7 +167,7 @@ export const AI_MAPPING_SELECT_OPTIONS = [
   })),
   { value: "custom_field", label: "추가필드", mappedKey: "custom_field", mappedLabel: "추가필드", fieldType: "custom_field" },
 ];
-export const AI_DUPLICATE_WARNING_KEYS = ["category", "item_name", "spec", "unit", "quantity", "unit_price", "labor_rate", "labor_count", "original_amount"];
+export const AI_DUPLICATE_WARNING_KEYS = ["category", "item_name", "spec", "unit", "quantity", "unit_price", "labor_rate", "labor_rate_empty", "labor_rate_occupied", "labor_count", "original_amount"];
 export const AI_ROW_TYPE_OPTIONS = [
   { value: "work_item", label: "공사항목" },
   { value: "cost_item", label: "비용항목" },

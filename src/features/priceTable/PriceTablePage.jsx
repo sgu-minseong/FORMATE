@@ -1,12 +1,14 @@
 import {
   ChevronDown,
   ChevronRight,
+  Download,
   Plus,
   RefreshCcw,
   Save,
   Search,
   Star,
   Trash2,
+  Upload,
 } from "lucide-react";
 import Button from "../../components/ui/Button";
 import EmptyState from "../../components/ui/EmptyState";
@@ -67,6 +69,8 @@ export default function PriceTablePage({
   dragOverSubitem,
   dragSubitem,
   fetchAdminItems,
+  excelExporting,
+  excelExportError,
   filteredAdminItems,
   getAdminFlooringActiveThickness,
   getAutoSaveStatusLabel,
@@ -79,6 +83,8 @@ export default function PriceTablePage({
   materialNamePlaceholder,
   markAdminCatalogDirty,
   newlyAddedSubitemId,
+  onExcelExport,
+  onExcelImport,
   renameAdminFlooringGroup,
   renameAdminItem,
   renameAdminSubitem,
@@ -517,10 +523,7 @@ export default function PriceTablePage({
     return (
       <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} price-table-list admin-price-v2-grid-list`.trim()}>
         {renderHeader(item)}
-        {(item.item_type === "flat"
-          ? itemSubitems.slice(0, 1)
-          : itemSubitems
-        ).map((subitem) => {
+        {itemSubitems.map((subitem) => {
           const hasValidationError =
             adminPriceValidationError?.subitemId === subitem.id;
           return (
@@ -545,7 +548,7 @@ export default function PriceTablePage({
             >
               {item.item_type === "flat" ? (
                 <strong className={`flat-subitem-name ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
-                  {item.name}
+                  {subitem.name || item.name}
                   {hasValidationError && (
                     <span className="admin-price-validation-helper">
                       {adminPriceValidationError.message}
@@ -663,6 +666,24 @@ export default function PriceTablePage({
             <span>업체 공통 단가와 인건비 기준</span>
           </div>
           <div className="items-v2-header-actions">
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<Upload />}
+              disabled={adminLoading || adminSaving}
+              onClick={onExcelImport}
+            >
+              Excel 업로드
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<Download />}
+              disabled={adminLoading || adminSaving || excelExporting}
+              onClick={onExcelExport}
+            >
+              {excelExporting ? "내보내는 중" : "Excel 내보내기"}
+            </Button>
             <span
               className={`autosave-pill ${autoSaveStatus}`.trim()}
               title={autoSaveError || getAutoSaveStatusLabel()}
@@ -719,6 +740,7 @@ export default function PriceTablePage({
         {adminSaving && <div className="status-box">저장 중...</div>}
         {adminNotice && <div className="status-box">{adminNotice}</div>}
         {adminError && <div className="error-box">{adminError}</div>}
+        {excelExportError && <div className="error-box">{excelExportError}</div>}
 
         {item ? (
           <section className="items-v2-table-section admin-price-v2-table-section">
