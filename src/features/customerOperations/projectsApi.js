@@ -117,7 +117,14 @@ export async function restoreProjectFromTrash({
 export async function fetchCustomersProjects(companyId) {
   assertCustomerOperationsQuery(companyId);
 
-  const [projectsResult, versionsResult, requestsResult, timelineResult] = await Promise.all([
+  const [
+    projectsResult,
+    versionsResult,
+    requestsResult,
+    timelineResult,
+    consultationsResult,
+    contractsResult,
+  ] = await Promise.all([
     supabase
       .from("projects")
       .select(`
@@ -159,6 +166,17 @@ export async function fetchCustomersProjects(companyId) {
       .select("id, project_id, created_at")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("consultations")
+      .select("id, project_id, customer_id, status, close_reason, closed_at, updated_at")
+      .eq("company_id", companyId)
+      .not("project_id", "is", null)
+      .order("updated_at", { ascending: false }),
+    supabase
+      .from("contracts")
+      .select("id, project_id, estimate_id, estimate_version_id, status, customer_signed_at, completed_at, updated_at")
+      .eq("company_id", companyId)
+      .order("updated_at", { ascending: false }),
   ]);
 
   return buildCustomerProjectRows({
@@ -166,6 +184,8 @@ export async function fetchCustomersProjects(companyId) {
     estimateVersions: unwrap(versionsResult).filter(
       (version) => !isDeletedEstimate(version.estimate)
     ),
+    consultations: unwrap(consultationsResult),
+    contracts: unwrap(contractsResult),
     requests: unwrap(requestsResult),
     timelineEvents: unwrap(timelineResult),
   });
@@ -191,6 +211,8 @@ export async function fetchCustomerProjectDetail({
     changeOrdersResult,
     aftercareSchedulesResult,
     serviceRequestsResult,
+    consultationsResult,
+    contractsResult,
   ] = await Promise.all([
     supabase
       .from("projects")
@@ -364,6 +386,18 @@ export async function fetchCustomerProjectDetail({
       .eq("customer_id", customerId)
       .eq("project_id", projectId)
       .order("updated_at", { ascending: false }),
+    supabase
+      .from("consultations")
+      .select("id, project_id, customer_id, status, close_reason, closed_at, closed_by, created_at, updated_at")
+      .eq("company_id", companyId)
+      .eq("project_id", projectId)
+      .order("updated_at", { ascending: false }),
+    supabase
+      .from("contracts")
+      .select("id, project_id, estimate_id, estimate_version_id, status, customer_signed_at, completed_at, completed_by, cancelled_at, cancel_reason, created_at, updated_at")
+      .eq("company_id", companyId)
+      .eq("project_id", projectId)
+      .order("updated_at", { ascending: false }),
   ]);
 
   const estimateVersions = unwrap(versionsResult).filter(
@@ -371,7 +405,11 @@ export async function fetchCustomerProjectDetail({
   );
 
   return {
-    project: unwrapSingle(projectResult),
+    project: {
+      ...unwrapSingle(projectResult),
+      consultation: unwrap(consultationsResult)[0] ?? null,
+      contract: unwrap(contractsResult)[0] ?? null,
+    },
     estimateVersions,
     requests: unwrap(requestsResult),
     messages: unwrap(messagesResult),
@@ -379,6 +417,8 @@ export async function fetchCustomerProjectDetail({
     changeOrders: unwrap(changeOrdersResult),
     aftercareSchedules: unwrap(aftercareSchedulesResult),
     serviceRequests: unwrap(serviceRequestsResult),
+    consultations: unwrap(consultationsResult),
+    contracts: unwrap(contractsResult),
   };
 }
 

@@ -30,15 +30,25 @@ export const ESTIMATE_VERSION_STATUS = {
   viewed: { label: "열람", tone: "info" },
   revision_requested: { label: "수정 요청", tone: "warning" },
   approved: { label: "승인", tone: "success" },
+  rejected: { label: "거절", tone: "danger" },
   expired: { label: "만료", tone: "muted" },
   cancelled: { label: "취소", tone: "danger" },
 };
 
+export const CONSULTATION_STATUS = {
+  active: { label: "상담 진행 중", tone: "info" },
+  closed: { label: "상담 종료", tone: "muted" },
+};
+
 export const CONTRACT_STATUS = {
-  not_started: { label: "계약 전", tone: "muted" },
-  reviewing: { label: "계약 검토", tone: "warning" },
-  signed: { label: "계약 완료", tone: "success" },
+  not_started: { label: "미작성", tone: "muted" },
+  draft: { label: "작성 중", tone: "muted" },
+  customer_reviewing: { label: "고객 검토 중", tone: "warning" },
+  revision_requested: { label: "수정 요청", tone: "warning" },
+  customer_signed: { label: "고객 서명 완료 · 업체 최종 확인 대기", tone: "warning" },
+  completed: { label: "계약 완료", tone: "success" },
   cancelled: { label: "계약 취소", tone: "danger" },
+  legacy_reviewing: { label: "기존 계약 상태 확인 필요", tone: "warning" },
 };
 
 export const CONSTRUCTION_STATUS = {
