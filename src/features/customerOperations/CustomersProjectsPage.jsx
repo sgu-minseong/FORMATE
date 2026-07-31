@@ -13,6 +13,7 @@ import {
 import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
 import PriceText from "../../components/PriceText";
+import { isApprovedCurrentEstimateVersion } from "../contracts/contractModel";
 import AftercareRecordDialog from "./AftercareRecordDialog";
 import {
   createAftercareSchedule,
@@ -230,7 +231,7 @@ function EstimateVersionsList({ versions, onOpenEstimate }) {
   );
 }
 
-export default function CustomersProjectsPage({ companyId, onNavigate }) {
+export default function CustomersProjectsPage({ companyId, onNavigate, onOpenContract }) {
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
@@ -417,6 +418,7 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
     [detail.requests]
   );
   const recentEstimate = detail.estimateVersions[0] ?? null;
+  const approvedCurrentEstimate = detail.estimateVersions.find(isApprovedCurrentEstimateVersion) ?? null;
 
   const activityItems = useMemo(() => {
     const messages = detail.messages
@@ -919,25 +921,51 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
                 : "계약서가 작성되기 전에는 미작성으로 표시합니다."}
             </span>
           </div>
-          {currentContract?.status === "customer_signed" && !isTrashProject ? (
-            <button
-              type="button"
-              disabled={salesLifecycleProcessing}
-              onClick={() => handleContractTransition("completed")}
-            >
-              계약 최종 확정
-            </button>
-          ) : currentContract
-            && !["completed", "cancelled"].includes(currentContract.status)
-            && !isTrashProject ? (
+          <div className="customer-projects-workspace__overview-actions">
+            {currentContract ? (
+              <button
+                type="button"
+                onClick={() => onOpenContract?.({
+                  contractId: currentContract.id,
+                  projectId: detailProject?.id,
+                  estimateVersionId: currentContract.estimate_version_id,
+                  returnPage: CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS,
+                })}
+              >
+                계약서 열기
+              </button>
+            ) : approvedCurrentEstimate && !isTrashProject ? (
+              <button
+                type="button"
+                onClick={() => onOpenContract?.({
+                  projectId: detailProject?.id,
+                  estimateVersionId: approvedCurrentEstimate.id,
+                  returnPage: CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS,
+                })}
+              >
+                계약서 작성
+              </button>
+            ) : null}
+            {currentContract?.status === "customer_signed" && !isTrashProject ? (
               <button
                 type="button"
                 disabled={salesLifecycleProcessing}
-                onClick={() => handleContractTransition("cancelled")}
+                onClick={() => handleContractTransition("completed")}
               >
-                계약 취소
+                계약 최종 확정
               </button>
-            ) : null}
+            ) : currentContract
+              && !["completed", "cancelled"].includes(currentContract.status)
+              && !isTrashProject ? (
+                <button
+                  type="button"
+                  disabled={salesLifecycleProcessing}
+                  onClick={() => handleContractTransition("cancelled")}
+                >
+                  계약 취소
+                </button>
+              ) : null}
+          </div>
         </div>
 
         {latestOpenRequest ? (

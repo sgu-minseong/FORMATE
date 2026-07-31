@@ -3726,7 +3726,16 @@
   white-space: nowrap;
 }
 
+.customer-projects-workspace__overview-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
 .customer-projects-workspace__overview-row > button,
+.customer-projects-workspace__overview-actions > button,
 .customer-projects-workspace__estimate-row > button,
 .customer-projects-workspace__request-history-row > button,
 .customer-projects-workspace__section-link {
@@ -3741,6 +3750,7 @@
 }
 
 .customer-projects-workspace__overview-row > button:hover,
+.customer-projects-workspace__overview-actions > button:hover,
 .customer-projects-workspace__estimate-row > button:hover,
 .customer-projects-workspace__request-history-row > button:hover,
 .customer-projects-workspace__section-link:hover {
@@ -3750,6 +3760,7 @@
 }
 
 .customer-projects-workspace__overview-row > button:focus-visible,
+.customer-projects-workspace__overview-actions > button:focus-visible,
 .customer-projects-workspace__estimate-row > button:focus-visible,
 .customer-projects-workspace__request-history-row > button:focus-visible,
 .customer-projects-workspace__section-link:focus-visible {
@@ -4539,6 +4550,11 @@
   .customer-projects-workspace__overview-row > button {
     grid-column: 2;
     justify-self: start;
+  }
+
+  .customer-projects-workspace__overview-actions {
+    grid-column: 2;
+    justify-content: flex-start;
   }
 
   .customer-projects-workspace__estimate-row {

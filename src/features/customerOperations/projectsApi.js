@@ -155,7 +155,7 @@ export async function fetchCustomersProjects(companyId) {
       .order("updated_at", { ascending: false }),
     supabase
       .from("estimate_versions")
-      .select("id, project_id, estimate_id, version_no, label, estimate:estimates!estimate_versions_estimate_id_fkey(id, deleted_at)")
+      .select("id, project_id, estimate_id, version_no, label, status, estimate:estimates!estimate_versions_estimate_id_fkey(id, deleted_at, current_estimate_version_id)")
       .eq("company_id", companyId),
     supabase
       .from("customer_requests")
@@ -174,7 +174,7 @@ export async function fetchCustomersProjects(companyId) {
       .order("updated_at", { ascending: false }),
     supabase
       .from("contracts")
-      .select("id, project_id, estimate_id, estimate_version_id, status, customer_signed_at, completed_at, updated_at")
+      .select("id, project_id, estimate_id, estimate_version_id, contract_number, current_version_id, status, customer_signed_at, completed_at, updated_at")
       .eq("company_id", companyId)
       .order("updated_at", { ascending: false }),
   ]);
@@ -260,7 +260,7 @@ export async function fetchCustomerProjectDetail({
         viewed_at,
         sent_at,
         created_at,
-        estimate:estimates!estimate_versions_estimate_id_fkey(id, deleted_at)
+        estimate:estimates!estimate_versions_estimate_id_fkey(id, deleted_at, current_estimate_version_id)
       `)
       .eq("company_id", companyId)
       .eq("customer_id", customerId)
@@ -394,7 +394,7 @@ export async function fetchCustomerProjectDetail({
       .order("updated_at", { ascending: false }),
     supabase
       .from("contracts")
-      .select("id, project_id, estimate_id, estimate_version_id, status, customer_signed_at, completed_at, completed_by, cancelled_at, cancel_reason, created_at, updated_at")
+      .select("id, project_id, estimate_id, estimate_version_id, contract_number, current_version_id, status, customer_signed_at, completed_at, completed_by, cancelled_at, cancel_reason, created_at, updated_at")
       .eq("company_id", companyId)
       .eq("project_id", projectId)
       .order("updated_at", { ascending: false }),

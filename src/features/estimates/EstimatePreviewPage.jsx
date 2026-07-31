@@ -1,4 +1,4 @@
-import { ArrowLeft, Printer, Save, Send } from "lucide-react";
+import { ArrowLeft, FileSignature, Printer, Save, Send } from "lucide-react";
 import { createPortal } from "react-dom";
 import EstimateDocument from "./EstimateDocument";
 
@@ -14,6 +14,8 @@ export default function EstimatePreviewPage({
   onDownloadPdf,
   onShare,
   shareLabel = "고객에게 보내기",
+  onCreateContract,
+  contractActionLabel = "계약서 작성",
   printableDocumentRef,
   documentProps,
 }) {
@@ -40,6 +42,11 @@ export default function EstimatePreviewPage({
             <h2>{previewType === "detail" ? "세부 견적서 확인" : "일반 견적서 확인"}</h2>
           </div>
           <div className="estimate-header-actions">
+            {onCreateContract ? (
+              <button type="button" className="secondary-button" onClick={onCreateContract}>
+                <FileSignature size={18} /> {contractActionLabel}
+              </button>
+            ) : null}
             {onShare ? (
               <button type="button" className="primary-button" onClick={onShare}>
                 <Send size={18} /> {shareLabel}

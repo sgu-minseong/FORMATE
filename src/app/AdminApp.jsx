@@ -168,6 +168,7 @@ import {
   useAiSetup,
 } from "../features/aiSetup/useAiSetup";
 import { isSupportedAiSetupExcelFile, parseAiSetupWorkbook } from "../features/aiSetup/aiSetupExcel";
+import ContractEditorPage from "../features/contracts/ContractEditorPage";
 import {
   buildUniqueFlooringOptions,
   buildConstructionItemSavePayload,
@@ -964,6 +965,24 @@ function getSavedEstimateCustomerName(estimate) {
 
 function getSavedEstimateCustomerPhone(estimate) {
   return `${getEstimateItemsDataMeta(estimate?.items_data).customerPhone ?? ""}`.trim();
+}
+
+function getApprovedEstimateContractTarget(estimate) {
+  if (estimate?.status !== "approved" || !estimate?.current_estimate_version_id) return null;
+  const consultation = Array.isArray(estimate.consultation)
+    ? estimate.consultation[0]
+    : estimate.consultation;
+  const project = Array.isArray(consultation?.project)
+    ? consultation.project[0]
+    : consultation?.project;
+  const versions = Array.isArray(estimate.estimate_versions) ? estimate.estimate_versions : [];
+  const currentVersion = versions.find((version) => version.id === estimate.current_estimate_version_id);
+  const projectId = currentVersion?.project_id || project?.id || "";
+  if (!projectId || project?.deleted_at) return null;
+  return {
+    projectId,
+    estimateVersionId: estimate.current_estimate_version_id,
+  };
 }
 
 function getSavedEstimateDisplayDate(estimate) {
@@ -2149,6 +2168,7 @@ export default function AdminApp() {
   } = useAppSession();
   const [pendingAdminPage, setPendingAdminPage] = useState("admin");
   const [page, setPage] = useState(pageFromHash);
+  const [contractEditorTarget, setContractEditorTarget] = useState(null);
   const [step, setStep] = useState(1);
   const {
     condition, setCondition,
@@ -2442,6 +2462,8 @@ export default function AdminApp() {
     ? estimates.find((estimate) => estimate.id === estimateAggregateIdRef.current) ?? null
     : null;
   const previewEstimateShareAction = getEstimateShareAction(previewEstimate);
+  const previewEstimateContractTarget = getApprovedEstimateContractTarget(previewEstimate);
+  const selectedEstimateContractTarget = getApprovedEstimateContractTarget(selectedEstimate);
   const recentHomeEstimates = useMemo(() =>
     [...estimates]
       .filter(isOperationalEstimate)
@@ -5953,6 +5975,7 @@ export default function AdminApp() {
   function clearCompanyScopedState() {
     estimateListRequestRef.current += 1;
     resetFlow();
+    setContractEditorTarget(null);
     setAdminItems([]);
     setAdminError("");
     setAdminNotice("");
@@ -7878,6 +7901,22 @@ export default function AdminApp() {
     }
   }
 
+  function handleOpenContract(nextTarget) {
+    if (!nextTarget?.projectId && !nextTarget?.contractId) return;
+    setSelectedEstimate(null);
+    setContractEditorTarget({
+      ...nextTarget,
+      returnPage: nextTarget.returnPage || (page === "preview" ? "preview" : "admin-estimates"),
+    });
+    setPage("contract-editor");
+  }
+
+  function handleCloseContractEditor() {
+    const returnPage = contractEditorTarget?.returnPage || CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS;
+    setContractEditorTarget(null);
+    setPage(returnPage);
+  }
+
   function handleAppShellNavigate(nextPage) {
     if (nextPage === "logout") {
       requestAdminCatalogLeave(handleChangeCompany);
@@ -9101,7 +9140,19 @@ export default function AdminApp() {
       )}
 
       {page === CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS && renderAppShell(
-        <CustomersProjectsPage companyId={selectedCompanyId} onNavigate={setPage} />
+        <CustomersProjectsPage
+          companyId={selectedCompanyId}
+          onNavigate={setPage}
+          onOpenContract={handleOpenContract}
+        />
+      )}
+
+      {page === "contract-editor" && contractEditorTarget && renderAppShell(
+        <ContractEditorPage
+          companyId={selectedCompanyId}
+          target={contractEditorTarget}
+          onBack={handleCloseContractEditor}
+        />
       )}
 
       {page === CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE && renderAppShell(
@@ -12293,6 +12344,17 @@ export default function AdminApp() {
                       >
                         견적 삭제
                       </Button>
+                      {selectedEstimateContractTarget ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() => handleOpenContract({
+                            ...selectedEstimateContractTarget,
+                            returnPage: "admin-estimates",
+                          })}
+                        >
+                          계약서 작성
+                        </Button>
+                      ) : null}
                       {getEstimateShareAction(selectedEstimate) ? (
                         <Button
                           variant="primary"
@@ -12434,6 +12496,12 @@ export default function AdminApp() {
             ? () => setShareEstimateTarget(previewEstimate)
             : undefined}
           shareLabel={previewEstimateShareAction?.label}
+          onCreateContract={previewEstimateContractTarget
+            ? () => handleOpenContract({
+                ...previewEstimateContractTarget,
+                returnPage: "preview",
+              })
+            : undefined}
           printableDocumentRef={printableEstimateDocumentRef}
           documentProps={{
             companyName: selectedCompanyName,

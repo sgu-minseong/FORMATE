@@ -162,4 +162,30 @@ describe("estimate preview rendering contracts", () => {
     shareButton.props.onClick();
     expect(onShare).toHaveBeenCalledOnce();
   });
+
+  it("shows the contract entry point for an approved saved estimate", () => {
+    const onCreateContract = vi.fn();
+    const preview = EstimatePreviewPage({
+      previewType: "general",
+      onPreviewTypeChange: vi.fn(),
+      backLabel: "저장 견적 보기",
+      onBack: vi.fn(),
+      notice: "",
+      error: "",
+      saving: false,
+      onSave: vi.fn(),
+      onDownloadPdf: vi.fn(),
+      onCreateContract,
+      printableDocumentRef: { current: null },
+      documentProps: createDocumentProps(),
+    });
+    const contractButton = visitElements(preview).find((element) => (
+      element.type === "button"
+      && collectText(element).join(" ").includes("계약서 작성")
+    ));
+
+    expect(contractButton).toBeDefined();
+    contractButton.props.onClick();
+    expect(onCreateContract).toHaveBeenCalledOnce();
+  });
 });
