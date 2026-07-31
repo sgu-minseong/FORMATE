@@ -13,6 +13,7 @@ export function useAiSetup() {
     aiSetupFileName: useState(""),
     aiSetupStatus: useState("idle"),
     aiSetupError: useState(""),
+    aiSetupImportContext: useState(null),
     aiSetupSheets: useState([]),
     selectedAiSetupSheetName: useState(""),
     aiSetupHeaderRowIndex: useState(-1),

@@ -170,15 +170,20 @@ import {
 import { isSupportedAiSetupExcelFile, parseAiSetupWorkbook } from "../features/aiSetup/aiSetupExcel";
 import { exportFormateExcel } from "../features/excelImport/excelExport";
 import {
+  EXCEL_IMPORT_MODES,
   EXCEL_IMPORT_TARGETS,
   LUMP_SUM_CATEGORY_NAME,
   LUMP_SUM_ITEM_TYPE,
   buildImportSubitemName,
   buildLumpSumExclusionPatches,
+  createScopedExcelImportContext,
+  findCatalogCopyMatch,
   findCatalogMatchByStableIds,
+  getCopyImportDefaultAction,
   getImportReviewStatus,
   getLumpSumSourceTotal,
   isLumpSumImportRow,
+  prepareExcelImportRowsForCompany,
   readFormateWorkbookMetadata,
   resolveLegacyExcelImportRoute,
   shouldApplyExcelConflict,
@@ -1270,7 +1275,9 @@ function createAiSplitOverridePatch(splitRow, catalogItems = []) {
 
 function createAiCatalogMatchRow(row, catalogItems, override = {}, options = {}) {
     const lumpSum = Boolean(options.isLumpSum || options.isSplitParent || isLumpSumImportRow(row));
-    const stableMatch = findCatalogMatchByStableIds(catalogItems, row);
+    const isCopyImport = row.__formateImportMode === EXCEL_IMPORT_MODES.COPY;
+    const stableMatch = isCopyImport ? null : findCatalogMatchByStableIds(catalogItems, row);
+    const copyMatch = isCopyImport ? findCatalogCopyMatch(catalogItems, row) : null;
     const sourceCategory = formatExcelCellValue(
       override.sourceCategory ?? (lumpSum ? LUMP_SUM_CATEGORY_NAME : row.category ?? row.sourceCategory)
     ).trim();
@@ -1283,7 +1290,15 @@ function createAiCatalogMatchRow(row, catalogItems, override = {}, options = {})
           categoryMatchMethod: "stable_key",
           categoryConfidence: 1,
         }
-      : findBestCatalogCategoryMatch(sourceCategory, catalogItems);
+      : copyMatch?.item
+        ? {
+            sourceCategory,
+            matchedCategoryId: copyMatch.item.id,
+            matchedCategoryName: copyMatch.item.name,
+            categoryMatchMethod: "current_company_copy",
+            categoryConfidence: copyMatch.categoryConfidence,
+          }
+        : findBestCatalogCategoryMatch(sourceCategory, catalogItems);
     const subitemMatch = stableMatch?.subitem
       ? {
           sourceItemName,
@@ -1294,11 +1309,27 @@ function createAiCatalogMatchRow(row, catalogItems, override = {}, options = {})
           subitemMatchMethod: "stable_key",
           subitemConfidence: 1,
         }
-      : findBestCatalogSubitemMatch(sourceItemName, catalogItems, categoryMatch);
+      : copyMatch?.subitem
+        ? {
+            sourceItemName,
+            matchedSubitemId: copyMatch.subitem.id,
+            matchedSubitemName: copyMatch.subitem.name,
+            matchedSubitemCategoryId: copyMatch.item.id,
+            matchedSubitemCategoryName: copyMatch.item.name,
+            subitemMatchMethod: "current_company_copy",
+            subitemConfidence: copyMatch.subitemConfidence,
+          }
+        : isCopyImport
+          ? null
+          : findBestCatalogSubitemMatch(sourceItemName, catalogItems, categoryMatch);
     const autoStatus = getAiMatchStatus(row, categoryMatch, subitemMatch);
     const rowType = options.isSplitChildDefaultIgnored && !override.rowType
       ? "ignored"
-      : override.rowType ?? (lumpSum ? "work_item" : inferAiRowType(row, categoryMatch, subitemMatch));
+      : override.rowType ?? (
+        lumpSum || (isCopyImport && (sourceCategory || sourceItemName))
+          ? "work_item"
+          : inferAiRowType(row, categoryMatch, subitemMatch)
+      );
     const selectedCategoryId = override.categoryId ?? categoryMatch?.matchedCategoryId ?? subitemMatch?.matchedSubitemCategoryId ?? "";
     const selectedCategory = (catalogItems ?? []).find((item) => item.id === selectedCategoryId);
     const selectedSubitemId = override.subitemId ?? (
@@ -1311,7 +1342,11 @@ function createAiCatalogMatchRow(row, catalogItems, override = {}, options = {})
       || (hasImportValue(override.laborRateEmpty ?? row.labor_rate_empty) && importValuesDiffer(getLaborRateEmptyValue(selectedSubitem), override.laborRateEmpty ?? row.labor_rate_empty))
       || (hasImportValue(override.laborRateOccupied ?? row.labor_rate_occupied) && importValuesDiffer(getLaborRateOccupiedValue(selectedSubitem), override.laborRateOccupied ?? row.labor_rate_occupied))
     ));
-    const defaultAction = lumpSum && !selectedSubitemId ? "new" : getDefaultAiActionForRowType(rowType, autoStatus);
+    const defaultAction = isCopyImport
+      ? getCopyImportDefaultAction(copyMatch)
+      : lumpSum && !selectedSubitemId
+        ? "new"
+        : getDefaultAiActionForRowType(rowType, autoStatus);
     const action = normalizeAiActionForRowType(rowType, override.action ?? defaultAction, autoStatus);
 
     const matchStatus = rowType === "ignored" || action === "ignore"
@@ -2431,6 +2466,7 @@ export default function AdminApp() {
   const {
     aiSetupFileName, setAiSetupFileName, aiSetupStatus, setAiSetupStatus,
     aiSetupError, setAiSetupError, aiSetupSheets, setAiSetupSheets,
+    aiSetupImportContext, setAiSetupImportContext,
     selectedAiSetupSheetName, setSelectedAiSetupSheetName,
     aiSetupHeaderRowIndex, setAiSetupHeaderRowIndex,
     aiSetupColumnMappings, setAiSetupColumnMappings,
@@ -2600,9 +2636,15 @@ export default function AdminApp() {
   const aiSetupDuplicateWarnings = useMemo(() => {
     return getExcelDuplicateMappingWarnings(aiSetupMappingAnalysis.mappings);
   }, [aiSetupMappingAnalysis.mappings]);
+  const aiSetupCompanyScopedPreviewRows = useMemo(() => {
+    return prepareExcelImportRowsForCompany(
+      aiSetupMappingAnalysis.previewRows,
+      aiSetupImportContext
+    );
+  }, [aiSetupImportContext, aiSetupMappingAnalysis.previewRows]);
   const aiSetupCatalogMatchRows = useMemo(() => {
-    return createAiCatalogMatchRows(aiSetupMappingAnalysis.previewRows, aiSetupCatalogItems, aiSetupMatchOverrides);
-  }, [aiSetupCatalogItems, aiSetupMappingAnalysis.previewRows, aiSetupMatchOverrides]);
+    return createAiCatalogMatchRows(aiSetupCompanyScopedPreviewRows, aiSetupCatalogItems, aiSetupMatchOverrides);
+  }, [aiSetupCatalogItems, aiSetupCompanyScopedPreviewRows, aiSetupMatchOverrides]);
   const aiSetupSplitValidationSummaries = useMemo(() => {
     return createAiSplitValidationSummaries(aiSetupCatalogMatchRows);
   }, [aiSetupCatalogMatchRows]);
@@ -3081,6 +3123,7 @@ export default function AdminApp() {
     setAiSetupFileName("");
     setAiSetupStatus("idle");
     setAiSetupError("");
+    setAiSetupImportContext(null);
     setAiSetupSheets([]);
     setSelectedAiSetupSheetName("");
     setAiSetupHeaderRowIndex(-1);
@@ -3172,11 +3215,11 @@ export default function AdminApp() {
         return;
       }
       const workbookMetadata = readFormateWorkbookMetadata(parsedSheets);
-      if (workbookMetadata.COMPANY_ID && workbookMetadata.COMPANY_ID !== requireSelectedCompanyId()) {
-        setAiSetupStatus("error");
-        setAiSetupError("다른 업체에서 내보낸 FORMATE Excel 파일은 가져올 수 없습니다.");
-        return;
-      }
+      const importContext = createScopedExcelImportContext(
+        requireSelectedCompanyId(),
+        workbookMetadata
+      );
+      setAiSetupImportContext(importContext);
 
       setAiSetupStatus("analyzing");
       await new Promise((resolve) => window.setTimeout(resolve, 0));
@@ -9505,6 +9548,9 @@ export default function AdminApp() {
             </div>
 
             {aiSetupError && <div className="error-box">{aiSetupError}</div>}
+            {aiSetupImportContext?.notice && (
+              <div className="info-box" role="status">{aiSetupImportContext.notice}</div>
+            )}
 
             {aiSetupSheets.length > 0 && (
               <section className="ai-review-panel" aria-live="polite">

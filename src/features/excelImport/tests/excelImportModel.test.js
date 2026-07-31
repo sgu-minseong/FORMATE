@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { analyzeExcelSheetForFormate } from "../../aiExcelImport/excelMapping";
 import {
+  CROSS_COMPANY_IMPORT_NOTICE,
+  EXCEL_IMPORT_MODES,
   EXCEL_IMPORT_TARGETS,
   LUMP_SUM_CALCULATION_BASIS,
   LUMP_SUM_ITEM_TYPE,
@@ -8,11 +10,15 @@ import {
   buildLumpSumExclusionPatches,
   buildPriceExportRows,
   buildTemplateExportRows,
+  createScopedExcelImportContext,
   createScopedExcelExportRequest,
   dedupeImportRows,
   findCatalogMatchByStableIds,
+  findCatalogCopyMatch,
   getLumpSumSourceTotal,
+  getCopyImportDefaultAction,
   isLumpSumImportRow,
+  prepareExcelImportRowsForCompany,
   resolveLegacyExcelImportRoute,
   shouldApplyExcelConflict,
 } from "../excelImportModel";
@@ -53,6 +59,80 @@ describe("shared Excel import model", () => {
     expect(shouldApplyExcelConflict("keep")).toBe(false);
     expect(shouldApplyExcelConflict(undefined)).toBe(false);
     expect(shouldApplyExcelConflict("excel")).toBe(true);
+  });
+
+  it("accepts another company's metadata in copy mode without reusing its row ids", () => {
+    const context = createScopedExcelImportContext("company-current", {
+      COMPANY_ID: "company-source",
+    });
+    const sourceRows = [{
+      category: "바닥",
+      item_name: "장판",
+      spec: "2.2T",
+      unit: "평",
+      unit_price: "15000",
+      formate_item_id: "source-item",
+      formate_subitem_id: "source-subitem",
+      formate_template_id: "source-template",
+      formate_item_type: "itemized",
+    }];
+    const preparedRows = prepareExcelImportRowsForCompany(sourceRows, context);
+
+    expect(context).toMatchObject({
+      companyId: "company-current",
+      sourceCompanyId: "company-source",
+      mode: EXCEL_IMPORT_MODES.COPY,
+      notice: CROSS_COMPANY_IMPORT_NOTICE,
+    });
+    expect(preparedRows[0]).not.toHaveProperty("formate_item_id");
+    expect(preparedRows[0]).not.toHaveProperty("formate_subitem_id");
+    expect(preparedRows[0]).not.toHaveProperty("formate_template_id");
+    expect(sourceRows[0].formate_subitem_id).toBe("source-subitem");
+
+    const match = findCatalogCopyMatch(catalog, preparedRows[0]);
+    expect(match.item?.id).toBe("item-floor");
+    expect(match.subitem?.id).toBe("sub-22");
+    expect(match.subitem?.unit_price).toBe(11000);
+    expect(getCopyImportDefaultAction(match)).toBe("link");
+    expect(shouldApplyExcelConflict()).toBe(false);
+  });
+
+  it("keeps stable ids for an exact same-company round trip", () => {
+    const context = createScopedExcelImportContext("company-current", {
+      COMPANY_ID: "company-current",
+    });
+    const rows = [{
+      category: "바닥",
+      item_name: "장판 (2.7T)",
+      formate_item_id: "item-floor",
+      formate_subitem_id: "sub-27",
+    }];
+    const preparedRows = prepareExcelImportRowsForCompany(rows, context);
+
+    expect(context.mode).toBe(EXCEL_IMPORT_MODES.ROUND_TRIP);
+    expect(preparedRows).toBe(rows);
+    expect(findCatalogMatchByStableIds(catalog, preparedRows[0])?.subitem?.id).toBe("sub-27");
+  });
+
+  it("keeps a missing current-company item as a new-item candidate", () => {
+    const context = createScopedExcelImportContext("company-current", {
+      COMPANY_ID: "company-source",
+    });
+    const [preparedRow] = prepareExcelImportRowsForCompany([{
+      category: "바닥",
+      item_name: "강마루",
+      spec: "프리미엄",
+      unit: "평",
+      formate_item_id: "source-item",
+      formate_subitem_id: "source-only-subitem",
+      formate_item_type: "itemized",
+    }], context);
+    const match = findCatalogCopyMatch(catalog, preparedRow);
+
+    expect(match.item?.id).toBe("item-floor");
+    expect(match.subitem).toBeNull();
+    expect(getCopyImportDefaultAction(match)).toBe("new");
+    expect(findCatalogMatchByStableIds(catalog, preparedRow)).toBeNull();
   });
 
   it("deduplicates retries while preserving each specification as its own row", () => {

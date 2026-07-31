@@ -3,6 +3,14 @@ export const EXCEL_IMPORT_TARGETS = Object.freeze({
   TEMPLATES: "templates",
 });
 
+export const EXCEL_IMPORT_MODES = Object.freeze({
+  ROUND_TRIP: "round_trip",
+  COPY: "copy",
+});
+
+export const CROSS_COMPANY_IMPORT_NOTICE =
+  "다른 업체에서 내보낸 파일입니다. 현재 업체의 항목과 다시 연결한 뒤 저장할 수 있습니다.";
+
 export const LUMP_SUM_CATEGORY_NAME = "1식 공사";
 export const LUMP_SUM_ITEM_TYPE = "flat";
 export const LUMP_SUM_CALCULATION_BASIS = "parent_total";
@@ -49,6 +57,113 @@ export function findCatalogMatchByStableIds(catalogItems = [], row = {}) {
   if (!item) return null;
   const subitem = (item.subitems ?? []).find((candidate) => candidate.id === subitemId) ?? null;
   return { item, subitem };
+}
+
+function normalizeCopyMatchValue(value) {
+  return `${value ?? ""}`
+    .trim()
+    .toLowerCase()
+    .normalize("NFKC")
+    .replace(/[()（）]/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function getCopyMatchValues(value, aliases = []) {
+  return [value, ...(Array.isArray(aliases) ? aliases : [])]
+    .map(normalizeCopyMatchValue)
+    .filter(Boolean);
+}
+
+function getCopyMatchScore(sourceValues, targetValues) {
+  let bestScore = 0;
+  sourceValues.forEach((source) => {
+    targetValues.forEach((target) => {
+      if (source === target) bestScore = Math.max(bestScore, 1);
+      else if (source.includes(target) || target.includes(source)) bestScore = Math.max(bestScore, 0.78);
+    });
+  });
+  return bestScore;
+}
+
+export function findCatalogCopyMatch(catalogItems = [], row = {}) {
+  const sourceCategoryValues = getCopyMatchValues(row.category, row.category_aliases);
+  const sourceItemName = `${row.item_name ?? ""}`.trim();
+  const sourceSpec = `${row.spec ?? ""}`.trim();
+  const sourceItemValues = getCopyMatchValues(
+    sourceItemName,
+    [
+      buildImportSubitemName(sourceItemName, sourceSpec),
+      ...(Array.isArray(row.item_aliases) ? row.item_aliases : []),
+    ]
+  );
+  const sourceItemType = `${row.formate_item_type ?? ""}`.trim();
+  const sourceUnit = normalizeCopyMatchValue(row.unit);
+
+  const categoryCandidates = (catalogItems ?? []).map((item) => {
+    if (sourceItemType && item.item_type && sourceItemType !== item.item_type) return null;
+    const score = getCopyMatchScore(
+      sourceCategoryValues,
+      getCopyMatchValues(item.name, item.aliases)
+    );
+    return score >= 0.78 ? { item, score } : null;
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
+  const categoryCandidate = categoryCandidates[0] ?? null;
+  const subitemPool = categoryCandidate
+    ? (categoryCandidate.item.subitems ?? []).map((subitem) => ({ item: categoryCandidate.item, subitem }))
+    : (catalogItems ?? []).flatMap((item) =>
+      (item.subitems ?? []).map((subitem) => ({ item, subitem }))
+    );
+  const subitemCandidates = subitemPool.map(({ item, subitem }) => {
+    let score = getCopyMatchScore(
+      sourceItemValues,
+      getCopyMatchValues(subitem.name, subitem.aliases)
+    );
+    if (score < 0.78) return null;
+    const targetUnit = normalizeCopyMatchValue(subitem.unit);
+    if (sourceUnit && targetUnit) score += sourceUnit === targetUnit ? 0.02 : -0.04;
+    if (categoryCandidate?.item.id === item.id) score += 0.02;
+    return { item, subitem, score: Math.min(1, score) };
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
+  const subitemCandidate = subitemCandidates[0] ?? null;
+  const hasAmbiguousSubitem = Boolean(
+    subitemCandidate
+    && subitemCandidates[1]
+    && subitemCandidates[1].score === subitemCandidate.score
+  );
+
+  return {
+    item: subitemCandidate?.item ?? categoryCandidate?.item ?? null,
+    subitem: hasAmbiguousSubitem ? null : subitemCandidate?.subitem ?? null,
+    categoryConfidence: categoryCandidate?.score ?? 0,
+    subitemConfidence: hasAmbiguousSubitem ? 0 : subitemCandidate?.score ?? 0,
+  };
+}
+
+export function getCopyImportDefaultAction(copyMatch) {
+  return copyMatch?.subitem ? "link" : "new";
+}
+
+export function createScopedExcelImportContext(currentCompanyId, metadata = {}) {
+  if (!currentCompanyId) throw new Error("현재 업체 범위가 필요합니다.");
+  const sourceCompanyId = `${metadata.COMPANY_ID ?? ""}`.trim();
+  const isCrossCompany = Boolean(sourceCompanyId && sourceCompanyId !== currentCompanyId);
+  return {
+    companyId: currentCompanyId,
+    sourceCompanyId,
+    mode: isCrossCompany ? EXCEL_IMPORT_MODES.COPY : EXCEL_IMPORT_MODES.ROUND_TRIP,
+    notice: isCrossCompany ? CROSS_COMPANY_IMPORT_NOTICE : "",
+  };
+}
+
+export function prepareExcelImportRowsForCompany(rows = [], context = {}) {
+  if (context.mode !== EXCEL_IMPORT_MODES.COPY) return rows;
+  return rows.map((row) => {
+    const nextRow = { ...row, __formateImportMode: EXCEL_IMPORT_MODES.COPY };
+    delete nextRow.formate_item_id;
+    delete nextRow.formate_subitem_id;
+    delete nextRow.formate_template_id;
+    return nextRow;
+  });
 }
 
 export function getImportReviewStatus({ row, stableMatch, categoryMatch, subitemMatch, hasConflict = false } = {}) {
