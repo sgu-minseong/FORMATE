@@ -117,3 +117,24 @@ export async function approveCustomerPortalEstimate({
 
   return data;
 }
+
+export async function rejectCustomerPortalEstimate({
+  token,
+  note = "",
+}) {
+  assertCustomerPortalAvailable();
+
+  const { data, error } = await supabase.rpc("reject_customer_estimate", {
+    p_token: token,
+    p_note: note,
+  });
+
+  if (error) {
+    throw new Error("견적을 거절하지 못했습니다. 잠시 후 다시 시도해주세요.");
+  }
+  if (!data?.ok) {
+    throw getActionError(data, "견적을 거절하지 못했습니다.");
+  }
+
+  return data;
+}

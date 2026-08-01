@@ -102,7 +102,7 @@ export function findAiFieldByHeader(headerValue) {
   }
 
   for (const definition of AI_EXCEL_FIELD_DEFINITIONS) {
-    if (definition.type === "ignored") continue;
+    if (["ignored", "stable_key"].includes(definition.type)) continue;
     const tokenAlias = definition.aliases.find((alias) => {
       const aliasMatches = getExcelHeaderMatchTexts(alias);
       return headerTokens.some((token) => aliasMatches.has(token));

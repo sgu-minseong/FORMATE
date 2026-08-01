@@ -1,6 +1,7 @@
 import { formatDisplayDate, formatDisplayDateTime } from "../../shared/utils/dates";
 import {
   AFTERCARE_STATUS,
+  CONSULTATION_STATUS,
   CONSTRUCTION_STATUS,
   CONTRACT_STATUS,
   ESTIMATE_VERSION_STATUS,
@@ -229,6 +230,7 @@ export const operationStatusViews = {
   requestType: (value) => createStatusView(REQUEST_TYPE, value),
   request: (value) => createStatusView(REQUEST_STATUS, value),
   estimate: (value) => createStatusView(ESTIMATE_VERSION_STATUS, value),
+  consultation: (value) => createStatusView(CONSULTATION_STATUS, value),
   contract: (value) => createStatusView(CONTRACT_STATUS, value),
   construction: (value) => createStatusView(CONSTRUCTION_STATUS, value),
   aftercare: (value) => createStatusView(AFTERCARE_STATUS, value),
@@ -240,6 +242,14 @@ export const operationStatusViews = {
   timeline: (value) => createStatusView(TIMELINE_EVENT_TYPE, value),
 };
 
+export function getContractLifecycleView(contract, legacyContractStatus) {
+  if (contract?.status) return operationStatusViews.contract(contract.status);
+  if (legacyContractStatus === "reviewing") {
+    return operationStatusViews.contract("legacy_reviewing");
+  }
+  return operationStatusViews.contract("not_started");
+}
+
 export function getEstimateShareDefaults(estimate) {
   const itemsData = estimate?.items_data;
   const estimateMeta = (
@@ -250,15 +260,38 @@ export function getEstimateShareDefaults(estimate) {
     ? itemsData.estimateMeta
     : {};
   const savedCustomerName = `${estimateMeta.customerName ?? ""}`.trim();
+  const consultation = getRelationRow(estimate?.consultation);
+  const linkedCustomer = getRelationRow(consultation?.customer);
+  const linkedProject = getRelationRow(consultation?.project);
 
   return {
-    customerName: savedCustomerName === "고객명 미입력" ? "" : savedCustomerName,
-    customerPhone: `${estimateMeta.customerPhone ?? ""}`.trim(),
-    customerEmail: "",
-    projectName: "",
-    projectAddress: `${estimate?.address ?? ""}`.trim(),
+    customerId: linkedCustomer?.id || "",
+    projectId: linkedProject?.id || "",
+    isFullyLinked: Boolean(linkedCustomer?.id && linkedProject?.id),
+    customerName: linkedCustomer?.name
+      || (savedCustomerName === "고객명 미입력" ? "" : savedCustomerName),
+    customerPhone: linkedCustomer?.phone || `${estimateMeta.customerPhone ?? ""}`.trim(),
+    customerEmail: linkedCustomer?.email || "",
+    projectName: linkedProject?.name || "",
+    projectAddress: [linkedProject?.address, linkedProject?.detail_address]
+      .filter(Boolean)
+      .join(" ") || `${estimate?.address ?? ""}`.trim(),
+    projectBaseAddress: linkedProject?.address || `${estimate?.address ?? ""}`.trim(),
+    projectDetailAddress: linkedProject?.detail_address || "",
     versionLabel: `${estimateMeta.estimateNumber ?? ""}`.trim(),
   };
+}
+
+const RESHAREABLE_ESTIMATE_STATUSES = new Set(["sent", "viewed", "revision_requested"]);
+const BLOCKED_ESTIMATE_SHARE_STATUSES = new Set(["approved", "rejected", "expired", "cancelled"]);
+
+export function getEstimateShareAction(estimate) {
+  const status = `${estimate?.status || "draft"}`;
+  if (BLOCKED_ESTIMATE_SHARE_STATUSES.has(status)) return null;
+  if (RESHAREABLE_ESTIMATE_STATUSES.has(status) && !estimate?.has_unpublished_changes) {
+    return { mode: "copy", label: "링크 다시 복사" };
+  }
+  return { mode: "send", label: "고객에게 보내기" };
 }
 
 export function getProjectCurrentStage(project) {
@@ -274,6 +307,8 @@ export function getProjectCurrentStage(project) {
 export function buildCustomerProjectRows({
   projects = [],
   estimateVersions = [],
+  consultations = [],
+  contracts = [],
   requests = [],
   timelineEvents = [],
 }) {
@@ -281,6 +316,19 @@ export function buildCustomerProjectRows({
   const estimateReferences = new Map();
   const openRequestCounts = new Map();
   const recentActivityByProject = new Map();
+  const consultationByProject = new Map();
+  const contractByProject = new Map();
+
+  consultations.forEach((consultation) => {
+    if (consultation.project_id && !consultationByProject.has(consultation.project_id)) {
+      consultationByProject.set(consultation.project_id, consultation);
+    }
+  });
+  contracts.forEach((contract) => {
+    if (contract.project_id && !contractByProject.has(contract.project_id)) {
+      contractByProject.set(contract.project_id, contract);
+    }
+  });
 
   estimateVersions.forEach((version) => {
     if (!version.project_id) return;
@@ -306,6 +354,8 @@ export function buildCustomerProjectRows({
 
   return projects.map((project) => ({
     ...project,
+    consultation: consultationByProject.get(project.id) ?? null,
+    contract: contractByProject.get(project.id) ?? null,
     estimateCount: estimateCounts.get(project.id) ?? 0,
     estimateSearchText: (estimateReferences.get(project.id) ?? []).join(" "),
     openRequestCount: openRequestCounts.get(project.id) ?? 0,

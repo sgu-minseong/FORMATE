@@ -1,0 +1,667 @@
+.contract-editor-page {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--space-1-5);
+  width: 100%;
+  min-width: 0;
+  min-height: calc(100dvh - (var(--space-page-y) * 2));
+  color: var(--color-text-primary);
+}
+
+.contract-editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+
+.contract-editor-header > div:first-child {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.contract-editor-header h1 {
+  width: 100%;
+  margin: var(--space-0-5) 0 0;
+  font-size: var(--font-size-page-title);
+  line-height: var(--line-height-page-title);
+}
+
+.contract-editor-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.contract-editor-header__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.contract-editor-notice,
+.contract-editor-error,
+.contract-editor-readonly {
+  padding: var(--space-1) var(--space-1-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  font-size: var(--font-size-body-sm);
+}
+
+.contract-editor-notice {
+  border-color: var(--color-success-border);
+  background: var(--color-success-soft);
+  color: var(--color-primary-hover);
+}
+
+.contract-editor-error {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.contract-editor-readonly {
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.contract-editor-mobile-tabs {
+  display: none;
+}
+
+.contract-editor-workspace {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.92fr) minmax(560px, 1.08fr);
+  min-width: 0;
+  min-height: 720px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+
+.contract-editor-form,
+.contract-editor-preview {
+  min-width: 0;
+  height: calc(100dvh - 190px);
+  min-height: 680px;
+  overflow: auto;
+}
+
+.contract-editor-form {
+  padding: var(--space-2);
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.contract-editor-form__canonical,
+.contract-editor-form fieldset {
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-2) 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.contract-editor-form__canonical {
+  padding-top: 0;
+}
+
+.contract-editor-form h2,
+.contract-editor-form legend {
+  margin: 0 0 var(--space-1-5);
+  padding: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-section-title);
+  font-weight: var(--font-weight-semibold);
+}
+
+.contract-editor-form__canonical dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  background: var(--color-border);
+}
+
+.contract-editor-form__canonical dl > div {
+  min-width: 0;
+  padding: var(--space-1);
+  background: var(--color-surface-subtle);
+}
+
+.contract-editor-form__canonical dt,
+.contract-editor-form__canonical dd {
+  margin: 0;
+}
+
+.contract-editor-form__canonical dt {
+  margin-bottom: 2px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.contract-editor-form__canonical dd {
+  overflow: hidden;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contract-editor-form__canonical > p,
+.contract-editor-form__empty {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.contract-editor-form fieldset > label,
+.contract-payment-row label {
+  display: grid;
+  gap: var(--space-label-gap);
+  margin-top: var(--space-1-5);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.contract-editor-form input,
+.contract-editor-form select,
+.contract-editor-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-input);
+  background: var(--surface-editable);
+  color: var(--color-text-primary);
+  font: inherit;
+}
+
+.contract-editor-form input,
+.contract-editor-form select {
+  height: var(--button-height);
+  padding: 0 var(--space-input-x);
+}
+
+.contract-editor-form textarea {
+  min-height: 76px;
+  padding: var(--space-1);
+  line-height: var(--line-height-body);
+  resize: vertical;
+}
+
+.contract-editor-form input:focus,
+.contract-editor-form select:focus,
+.contract-editor-form textarea:focus {
+  border-color: var(--border-focus);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.contract-editor-form fieldset:disabled input,
+.contract-editor-form fieldset:disabled select,
+.contract-editor-form fieldset:disabled textarea {
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+}
+
+.contract-editor-form__date-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.contract-editor-form__add-payment {
+  position: absolute;
+  top: var(--space-2);
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.contract-payment-list {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-1-5);
+}
+
+.contract-payment-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(90px, 0.8fr) minmax(90px, 0.7fr) minmax(100px, 0.8fr) minmax(160px, 1.3fr) 32px;
+  align-items: end;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  background: var(--color-surface-subtle);
+}
+
+.contract-payment-row label {
+  margin: 0;
+}
+
+.contract-payment-row__remove {
+  display: inline-grid;
+  width: 32px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-danger);
+  cursor: pointer;
+}
+
+.contract-editor-form__internal {
+  border-bottom: 0 !important;
+  background: var(--color-warning-soft);
+}
+
+.contract-editor-preview {
+  padding: var(--space-2);
+  background: var(--color-bg);
+}
+
+.contract-document {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 18mm 16mm;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: #1f2933;
+  font-family: var(--font-family-ui);
+  font-size: 12px;
+  line-height: 1.65;
+  box-sizing: border-box;
+}
+
+.contract-document--screen {
+  transform-origin: top center;
+}
+
+.contract-document__title {
+  padding-bottom: 10mm;
+  border-bottom: 2px solid #0d5c52;
+  text-align: center;
+}
+
+.contract-document__title p,
+.contract-document__title h2,
+.contract-document__title span {
+  margin: 0;
+}
+
+.contract-document__title p {
+  margin-bottom: 2mm;
+  color: #667085;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.contract-document__title h2 {
+  font-size: 25px;
+  line-height: 1.3;
+}
+
+.contract-document__title span {
+  display: block;
+  margin-top: 3mm;
+  color: #667085;
+}
+
+.contract-document__parties {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5mm;
+  padding: 8mm 0;
+  border-bottom: 1px solid #e2ded6;
+}
+
+.contract-document__parties h3,
+.contract-document__parties dl,
+.contract-document__parties dt,
+.contract-document__parties dd {
+  margin: 0;
+}
+
+.contract-document__parties h3,
+.contract-document__section h4 {
+  margin-bottom: 3mm;
+  color: #0d5c52;
+  font-size: 13px;
+}
+
+.contract-document__parties dl > div {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 2mm;
+  margin-top: 1.5mm;
+}
+
+.contract-document__parties dt {
+  color: #667085;
+}
+
+.contract-document__parties dd {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.contract-document__estimate {
+  display: grid;
+  grid-template-columns: 0.8fr 0.8fr 1.4fr;
+  gap: 1px;
+  margin: 7mm 0;
+  overflow: hidden;
+  border: 1px solid #cfc8bc;
+  background: #e2ded6;
+}
+
+.contract-document__estimate > div {
+  display: grid;
+  align-content: center;
+  min-height: 19mm;
+  padding: 4mm;
+  background: #fbfaf7;
+}
+
+.contract-document__estimate span,
+.contract-document__estimate small {
+  color: #667085;
+}
+
+.contract-document__estimate strong {
+  margin-top: 1mm;
+  font-size: 13px;
+}
+
+.contract-document__section {
+  padding: 5mm 0;
+  break-inside: avoid;
+  border-bottom: 1px solid #e2ded6;
+}
+
+.contract-document__section h4,
+.contract-document__section p {
+  margin-top: 0;
+}
+
+.contract-document__section p {
+  margin-bottom: 0;
+  white-space: pre-wrap;
+}
+
+.contract-document__scope-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5mm 7mm;
+  margin: 0;
+  padding-left: 6mm;
+}
+
+.contract-document__supplement {
+  margin-top: 4mm;
+  padding: 3mm 4mm;
+  background: #fbfaf7;
+}
+
+.contract-document__supplement p {
+  margin-top: 1mm;
+}
+
+.contract-document__payments {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.contract-document__payments th,
+.contract-document__payments td {
+  padding: 2.5mm 3mm;
+  border-bottom: 1px solid #e2ded6;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.contract-document__payments th {
+  background: #fbfaf7;
+  color: #667085;
+  font-size: 10px;
+}
+
+.contract-document__clauses {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 9mm;
+}
+
+.contract-document__confirmation {
+  display: grid;
+  grid-template-columns: 1fr 0.7fr 0.7fr;
+  gap: 5mm;
+  align-items: end;
+  padding-top: 10mm;
+  break-inside: avoid;
+}
+
+.contract-document__confirmation p {
+  margin: 0;
+  color: #667085;
+  font-size: 10px;
+}
+
+.contract-document__confirmation div {
+  min-height: 18mm;
+  padding: 3mm;
+  border-bottom: 1px solid #667085;
+}
+
+.contract-document__confirmation span,
+.contract-document__confirmation strong {
+  display: block;
+}
+
+.contract-document__confirmation span {
+  color: #667085;
+  font-size: 10px;
+}
+
+.contract-pdf-export-host {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  z-index: -1;
+  width: 210mm;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.contract-document--pdf {
+  border: 0;
+  box-shadow: none;
+}
+
+.contract-editor-loading,
+.contract-editor-empty {
+  width: min(720px, 100%);
+  margin: 48px auto;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+
+.contract-editor-loading {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.contract-editor-loading span {
+  display: block;
+  height: 20px;
+  border-radius: var(--radius-input);
+  background: var(--color-surface-subtle);
+}
+
+.contract-editor-loading span:nth-child(2) {
+  width: 72%;
+}
+
+.contract-editor-loading span:nth-child(3) {
+  width: 54%;
+}
+
+.contract-editor-empty h2,
+.contract-editor-empty p {
+  margin-top: 0;
+}
+
+@media (max-width: 1180px) {
+  .contract-editor-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .contract-editor-header__actions {
+    justify-content: flex-start;
+  }
+
+  .contract-editor-workspace {
+    grid-template-columns: minmax(380px, 0.9fr) minmax(500px, 1.1fr);
+  }
+}
+
+@media (max-width: 899px) {
+  .contract-editor-page {
+    min-height: 100dvh;
+  }
+
+  .contract-editor-mobile-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 3px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface-subtle);
+  }
+
+  .contract-editor-mobile-tabs button {
+    height: var(--button-height);
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .contract-editor-mobile-tabs button.is-active {
+    background: var(--color-surface);
+    color: var(--color-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .contract-editor-workspace {
+    display: block;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .contract-editor-form,
+  .contract-editor-preview {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    border-right: 0;
+  }
+
+  .contract-editor-form.is-mobile-hidden,
+  .contract-editor-preview.is-mobile-hidden {
+    display: none;
+  }
+
+  .contract-editor-preview {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 639px) {
+  .contract-editor-header,
+  .contract-editor-form,
+  .contract-editor-preview {
+    padding: var(--space-1-5);
+  }
+
+  .contract-editor-header__actions .ui-button {
+    flex: 1 1 calc(50% - var(--space-1));
+    white-space: nowrap;
+  }
+
+  .contract-editor-form__canonical dl,
+  .contract-editor-form__date-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .contract-payment-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .contract-payment-row__due {
+    grid-column: 1 / -1;
+  }
+
+  .contract-payment-row__remove {
+    position: absolute;
+    top: var(--space-0-5);
+    right: var(--space-0-5);
+  }
+
+  .contract-document--screen {
+    margin: 0;
+    transform: scale(0.72);
+    transform-origin: top left;
+  }
+
+  .contract-editor-preview {
+    height: calc(297mm * 0.72 + 24px);
+  }
+}
+
+@media print {
+  .contract-document {
+    border: 0;
+  }
+}

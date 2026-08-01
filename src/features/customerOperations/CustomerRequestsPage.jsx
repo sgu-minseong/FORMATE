@@ -22,6 +22,7 @@ import {
   isDeletedEstimate,
   operationStatusViews,
 } from "./utils";
+import { replaceRequestInCollection } from "./lifecycleContracts";
 
 const STATUS_FILTERS = [
   { key: "attention", label: "처리 필요" },
@@ -90,60 +91,33 @@ function normalizeComparableRequestText(value) {
     .replace(/[^\p{L}\p{N}]/gu, "");
 }
 
-function splitRequestBody(value) {
-  const body = `${value ?? ""}`.trim();
-  if (!body) return { headline: "", description: "" };
-
-  const sentenceMatch = body.match(/^([\s\S]*?[.!?。！？])(?:\s+|$)([\s\S]*)$/);
-  if (sentenceMatch?.[1]) {
-    return {
-      headline: sentenceMatch[1].trim(),
-      description: sentenceMatch[2]?.trim() || "",
-    };
-  }
-
-  const lines = body.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (lines.length > 1) {
-    return {
-      headline: lines[0],
-      description: lines.slice(1).join("\n"),
-    };
-  }
-
-  if (body.length > 180) {
-    const candidateBreak = body.lastIndexOf(" ", 180);
-    const splitAt = candidateBreak >= 100 ? candidateBreak : 180;
-    return {
-      headline: `${body.slice(0, splitAt).trim()}…`,
-      description: body.slice(splitAt).trim(),
-    };
-  }
-
-  return { headline: body, description: "" };
-}
-
 function getRequestContent(request, fallbackTitle) {
   const rawTitle = `${request?.title ?? ""}`.trim();
   const translatedTitle = getCustomerOperationText(rawTitle, "").trim();
   const body = `${request?.body ?? ""}`.trim();
   const hasGeneratedTitle = GENERATED_REQUEST_TITLES.has(rawTitle);
+  const hasMeaningfulTitle = Boolean(translatedTitle && !hasGeneratedTitle);
+  const isDuplicate = (
+    hasMeaningfulTitle
+    && body
+    && normalizeComparableRequestText(body) === normalizeComparableRequestText(translatedTitle)
+  );
 
-  if (translatedTitle && !hasGeneratedTitle) {
+  if (hasMeaningfulTitle) {
     return {
       headline: translatedTitle,
-      description: (
-        body
-        && normalizeComparableRequestText(body) !== normalizeComparableRequestText(translatedTitle)
-      )
-        ? body
-        : "",
+      body: isDuplicate ? "" : body,
+      summary: translatedTitle,
+      accessibleText: [translatedTitle, isDuplicate ? "" : body].filter(Boolean).join("\n\n"),
     };
   }
 
-  const bodyContent = splitRequestBody(body);
+  const fallback = translatedTitle || fallbackTitle;
   return {
-    headline: bodyContent.headline || translatedTitle || fallbackTitle,
-    description: bodyContent.description,
+    headline: body ? "" : fallback,
+    body,
+    summary: body || fallback,
+    accessibleText: body || fallback,
   };
 }
 
@@ -159,10 +133,56 @@ function getRequestEstimateContext(request) {
 
   return {
     label,
+    version: version?.version_no ? `v${version.version_no}` : "",
     status: version?.status
       ? operationStatusViews.estimate(version.status).label
       : "",
+    amount: Number.isFinite(Number(version?.total_amount))
+      ? Number(version.total_amount)
+      : null,
   };
+}
+
+function formatRequestAmount(value) {
+  if (!Number.isFinite(value)) return "";
+  return `${Math.round(value).toLocaleString("ko-KR")}원`;
+}
+
+function getRequestHistory(request) {
+  const events = Array.isArray(request?.request_events)
+    ? request.request_events
+    : [];
+
+  return events
+    .filter((event) => ["request_received", "request_updated"].includes(event?.event_type))
+    .map((event) => {
+      if (event.event_type === "request_received") {
+        return {
+          id: event.id,
+          label: "요청 접수",
+          detail: "고객 요청이 접수되었습니다.",
+          createdAt: event.created_at,
+        };
+      }
+
+      const previousStatus = event?.metadata?.previousStatus;
+      const nextStatus = event?.metadata?.status;
+      const previousLabel = previousStatus ? getRequestStatusMeta(previousStatus).label : "";
+      const nextLabel = nextStatus ? getRequestStatusMeta(nextStatus).label : "";
+
+      return {
+        id: event.id,
+        label: "상태 변경",
+        detail: previousLabel && nextLabel
+          ? `${previousLabel} → ${nextLabel}`
+          : "요청 상태가 변경되었습니다.",
+        createdAt: event.created_at,
+      };
+    })
+    .sort((left, right) => (
+      (new Date(right.createdAt).getTime() || 0)
+      - (new Date(left.createdAt).getTime() || 0)
+    ));
 }
 
 function isRequestMatch(request, {
@@ -224,6 +244,7 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
   const [processingError, setProcessingError] = useState("");
   const [processingNotice, setProcessingNotice] = useState("");
   const [internalMemo, setInternalMemo] = useState("");
+  const [contextOpen, setContextOpen] = useState(true);
   const detailBodyRef = useRef(null);
 
   useEffect(() => {
@@ -337,9 +358,7 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
         status,
         internalMemo,
       });
-      setRequests((current) => current.map((request) => (
-        request.id === updatedRequest.id ? updatedRequest : request
-      )));
+      setRequests((current) => replaceRequestInCollection(current, updatedRequest));
       setInternalMemo(updatedRequest.internal_memo || "");
       if (status === "closed") {
         setProcessingNotice("요청을 완료했습니다.");
@@ -375,6 +394,21 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
     ? getRequestContent(selectedRequest, selectedType?.label || "고객 요청")
     : null;
   const selectedEstimateContext = getRequestEstimateContext(selectedRequest);
+  const showSelectedEstimateVersion = Boolean(
+    selectedEstimateContext?.version
+    && !normalizeComparableRequestText(selectedEstimateContext.label)
+      .includes(normalizeComparableRequestText(selectedEstimateContext.version))
+  );
+  const selectedRequestHistory = getRequestHistory(selectedRequest);
+  const selectedProjectName = selectedProject?.name || selectedProject?.address || "현장 미입력";
+  const selectedProjectAddress = [selectedProject?.address, selectedProject?.detail_address]
+    .filter(Boolean)
+    .join(" ");
+  const showProjectAddress = (
+    selectedProjectAddress
+    && normalizeComparableRequestText(selectedProjectAddress)
+      !== normalizeComparableRequestText(selectedProjectName)
+  );
   const emptyMessage = {
     attention: "현재 처리할 새 요청이 없습니다.",
     reviewing: "현재 처리 중인 요청이 없습니다.",
@@ -562,13 +596,18 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
                     >
                       <span className="customer-requests-inbox__request-line customer-requests-inbox__request-line--top">
                         <span className="customer-requests-inbox__request-type">{typeMeta.label}</span>
-                      <time>{formatRelativeRequestTime(request.created_at)}</time>
+                      <time
+                        dateTime={request.created_at}
+                        title={formatOperationDateTime(request.created_at)}
+                      >
+                        {formatRelativeRequestTime(request.created_at)}
+                      </time>
                     </span>
                     <strong
                       className="customer-requests-inbox__request-title"
-                      title={content.headline}
+                      title={content.accessibleText}
                     >
-                      {content.headline}
+                      {content.summary}
                     </strong>
                     <span className="customer-requests-inbox__request-line customer-requests-inbox__request-line--meta">
                       <span>
@@ -588,7 +627,11 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
           </div>
         </aside>
 
-        <article className="customer-requests-inbox__detail-pane" aria-label="요청 상세">
+        <article
+          className="customer-requests-inbox__detail-pane"
+          aria-label="요청 상세"
+          aria-busy={processing}
+        >
           {selectedRequest ? (
             <>
               <header className="customer-requests-inbox__detail-header">
@@ -604,88 +647,206 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
                   <span>
                     <span className="customer-requests-inbox__detail-type">{selectedType.label}</span>
                     <span aria-hidden="true">·</span>
-                    <time>{formatRelativeRequestTime(selectedRequest.created_at)}</time>
-                  </span>
-                  <span className={`customer-requests-inbox__status is-${selectedStatus.tone}`}>
-                    <i aria-hidden="true" />
-                    {selectedStatus.label}
+                    <time
+                      dateTime={selectedRequest.created_at}
+                      title={formatOperationDateTime(selectedRequest.created_at)}
+                    >
+                      {formatRelativeRequestTime(selectedRequest.created_at)}
+                    </time>
                   </span>
                 </div>
-                <h2>{selectedContent.headline}</h2>
               </header>
 
-              <div className="customer-requests-inbox__detail-body" ref={detailBodyRef}>
-                {selectedContent.description ? (
-                  <section className="customer-requests-inbox__detail-section customer-requests-inbox__detail-section--description">
-                    <p className="customer-requests-inbox__request-body">{selectedContent.description}</p>
-                  </section>
+              <section className="customer-requests-inbox__status-panel" aria-label="현재 요청 상태">
+                <span>현재 상태</span>
+                <span className={`customer-requests-inbox__status is-${selectedStatus.tone}`}>
+                  <i aria-hidden="true" />
+                  {selectedStatus.label}
+                </span>
+                {selectedRequest.completed_at ? (
+                  <time dateTime={selectedRequest.completed_at}>
+                    완료 {formatOperationDateTime(selectedRequest.completed_at)}
+                  </time>
                 ) : null}
+              </section>
+
+              <div className="customer-requests-inbox__detail-body" ref={detailBodyRef}>
+                <section className="customer-requests-inbox__request-content">
+                  <span className="customer-requests-inbox__section-label">고객 요청</span>
+                  {selectedContent.headline ? <h2>{selectedContent.headline}</h2> : null}
+                  {selectedContent.body ? (
+                    <p
+                      className={[
+                        "customer-requests-inbox__request-body",
+                        selectedContent.headline ? "" : "is-primary",
+                      ].filter(Boolean).join(" ")}
+                    >
+                      {selectedContent.body}
+                    </p>
+                  ) : null}
+                </section>
 
                 {selectedRequest.related_item_label ? (
-                  <section className="customer-requests-inbox__detail-section">
-                    <h3>관련 항목</h3>
+                  <section className="customer-requests-inbox__detail-section customer-requests-inbox__related-item">
+                    <span className="customer-requests-inbox__section-label">관련 항목</span>
                     <p>{selectedRequest.related_item_label}</p>
                   </section>
                 ) : null}
 
-                <section className="customer-requests-inbox__detail-section customer-requests-inbox__context-row">
-                  <div>
-                    <h3>고객·현장</h3>
-                    <p>
-                      {selectedCustomer?.name || "고객명 미입력"}
-                      {" · "}
-                      {selectedProject?.name || selectedProject?.address || "현장 미입력"}
-                    </p>
-                  </div>
-                  {selectedProject?.id && onNavigate ? (
-                    <button
-                      type="button"
-                      onClick={() => onNavigate(CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS)}
-                    >
-                      고객·현장 보기
-                      <ArrowRight size={15} strokeWidth={1.5} aria-hidden="true" />
-                    </button>
-                  ) : null}
-                </section>
-
-                {selectedEstimateContext ? (
-                  <section className="customer-requests-inbox__detail-section customer-requests-inbox__context-row">
-                    <div>
-                      <h3>관련 견적</h3>
-                      <p>
-                        {selectedEstimateContext.label}
-                        {selectedEstimateContext.status ? ` · ${selectedEstimateContext.status}` : ""}
-                      </p>
+                {selectedRequestHistory.length > 0 ? (
+                  <section className="customer-requests-inbox__history">
+                    <div className="customer-requests-inbox__history-heading">
+                      <h3>처리 이력</h3>
+                      <span>{selectedRequestHistory.length}</span>
                     </div>
-                    {onNavigate ? (
-                      <button type="button" onClick={() => onNavigate("admin-estimates")}>
-                        저장 견적 보기
+                    <ol>
+                      {selectedRequestHistory.map((event) => (
+                        <li key={event.id}>
+                          <span aria-hidden="true" />
+                          <div>
+                            <strong>{event.label}</strong>
+                            <p>{event.detail}</p>
+                          </div>
+                          <time
+                            dateTime={event.createdAt}
+                            title={formatOperationDateTime(event.createdAt)}
+                          >
+                            {formatRelativeRequestTime(event.createdAt)}
+                          </time>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                ) : null}
+              </div>
+
+              <details
+                className="customer-requests-inbox__context-shell"
+                open={contextOpen}
+                onToggle={(event) => setContextOpen(event.currentTarget.open)}
+              >
+                <summary>
+                  <span>업무 맥락</span>
+                  <span>고객·현장, 견적, 요청 정보</span>
+                </summary>
+                <aside className="customer-requests-inbox__context-panel" aria-label="요청 업무 맥락">
+                  <section>
+                  <div className="customer-requests-inbox__context-heading">
+                    <h3>고객·현장</h3>
+                    {selectedProject?.id && onNavigate ? (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate(CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS)}
+                      >
+                        보기
                         <ArrowRight size={15} strokeWidth={1.5} aria-hidden="true" />
                       </button>
                     ) : null}
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>고객</dt>
+                      <dd>{selectedCustomer?.name || "고객명 미입력"}</dd>
+                    </div>
+                    <div>
+                      <dt>현장</dt>
+                      <dd>{selectedProjectName}</dd>
+                    </div>
+                    {showProjectAddress ? (
+                      <div>
+                        <dt>주소</dt>
+                        <dd>{selectedProjectAddress}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
                   </section>
-                ) : null}
 
-                <section className="customer-requests-inbox__detail-section customer-requests-inbox__memo-section">
-                  <label htmlFor={`request-memo-${selectedRequest.id}`}>관리자 메모</label>
+                  <section>
+                  <div className="customer-requests-inbox__context-heading">
+                    <h3>관련 견적</h3>
+                    {selectedEstimateContext && onNavigate ? (
+                      <button type="button" onClick={() => onNavigate("admin-estimates")}>
+                        보기
+                        <ArrowRight size={15} strokeWidth={1.5} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </div>
+                  {selectedEstimateContext ? (
+                    <dl>
+                      <div>
+                        <dt>견적</dt>
+                        <dd>{selectedEstimateContext.label}</dd>
+                      </div>
+                      {showSelectedEstimateVersion ? (
+                        <div>
+                          <dt>버전</dt>
+                          <dd>{selectedEstimateContext.version}</dd>
+                        </div>
+                      ) : null}
+                      {selectedEstimateContext.status ? (
+                        <div>
+                          <dt>상태</dt>
+                          <dd>{selectedEstimateContext.status}</dd>
+                        </div>
+                      ) : null}
+                      {selectedEstimateContext.amount !== null ? (
+                        <div>
+                          <dt>금액</dt>
+                          <dd className="is-numeric">
+                            {formatRequestAmount(selectedEstimateContext.amount)}
+                          </dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                  ) : (
+                    <p className="customer-requests-inbox__context-empty">연결된 견적이 없습니다.</p>
+                  )}
+                  </section>
+
+                  <section>
+                    <h3>요청 정보</h3>
+                    <dl>
+                      <div>
+                        <dt>접수</dt>
+                        <dd>{formatOperationDateTime(selectedRequest.created_at)}</dd>
+                      </div>
+                      <div>
+                        <dt>최근 변경</dt>
+                        <dd>{formatOperationDateTime(selectedRequest.updated_at)}</dd>
+                      </div>
+                    </dl>
+                  </section>
+                </aside>
+              </details>
+
+              <div className="customer-requests-inbox__work-dock">
+                <section className="customer-requests-inbox__memo-section">
+                  <div className="customer-requests-inbox__memo-heading">
+                    <label htmlFor={`request-memo-${selectedRequest.id}`}>관리자 메모</label>
+                    <span id={`request-memo-help-${selectedRequest.id}`}>
+                      고객에게 노출되지 않는 내부 메모입니다.
+                    </span>
+                  </div>
                   <textarea
                     id={`request-memo-${selectedRequest.id}`}
                     value={internalMemo}
                     maxLength={2000}
+                    rows={2}
+                    disabled={processing}
+                    aria-describedby={`request-memo-help-${selectedRequest.id}`}
                     placeholder="처리 내용이나 확인 사항을 기록합니다."
                     onChange={(event) => setInternalMemo(event.target.value)}
                   />
-                  <span>고객에게 노출되지 않는 내부 메모입니다.</span>
                   {processingError ? (
                     <p className="customer-requests-inbox__error" role="alert">{processingError}</p>
                   ) : null}
                 </section>
-              </div>
 
-              <footer className="customer-requests-inbox__action-bar">
-                <span>다음 행동</span>
-                <div>{renderDetailActions()}</div>
-              </footer>
+                <footer className="customer-requests-inbox__action-bar">
+                  <span>다음 행동</span>
+                  <div>{renderDetailActions()}</div>
+                </footer>
+              </div>
             </>
           ) : (
             <div className="customer-requests-inbox__detail-empty">

@@ -13,6 +13,7 @@ import {
 import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
 import PriceText from "../../components/PriceText";
+import { isApprovedCurrentEstimateVersion } from "../contracts/contractModel";
 import AftercareRecordDialog from "./AftercareRecordDialog";
 import {
   createAftercareSchedule,
@@ -22,6 +23,8 @@ import {
   getProjectTrashImpact,
   moveProjectToTrash,
   restoreProjectFromTrash,
+  updateConsultationStatus,
+  updateContractStatus,
   updateProjectStatus,
 } from "./api";
 import ProjectStatusConfirmDialog from "./ProjectStatusConfirmDialog";
@@ -33,6 +36,7 @@ import {
   formatOperationDateTime,
   getAftercareScheduleTitle,
   getCustomerOperationText,
+  getContractLifecycleView,
   getEstimateReference,
   getEstimateVersionLabel,
   getRelationRow,
@@ -52,6 +56,8 @@ const EMPTY_DETAIL = {
   changeOrders: [],
   aftercareSchedules: [],
   serviceRequests: [],
+  consultations: [],
+  contracts: [],
 };
 
 const PROJECT_TABS = [
@@ -225,7 +231,7 @@ function EstimateVersionsList({ versions, onOpenEstimate }) {
   );
 }
 
-export default function CustomersProjectsPage({ companyId, onNavigate }) {
+export default function CustomersProjectsPage({ companyId, onNavigate, onOpenContract }) {
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
@@ -242,6 +248,9 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
   const [detail, setDetail] = useState(EMPTY_DETAIL);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [salesLifecycleProcessing, setSalesLifecycleProcessing] = useState(false);
+  const [salesLifecycleNotice, setSalesLifecycleNotice] = useState("");
+  const [salesLifecycleError, setSalesLifecycleError] = useState("");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectStatusConfirm, setProjectStatusConfirm] = useState("");
   const [projectStatusProcessing, setProjectStatusProcessing] = useState(false);
@@ -388,6 +397,12 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
   }, [companyId, selectedProject]);
 
   const detailProject = detail.project || selectedProject;
+  const currentConsultation = detailProject?.consultation ?? detail.consultations?.[0] ?? null;
+  const currentContract = detailProject?.contract ?? detail.contracts?.[0] ?? null;
+  const currentContractView = getContractLifecycleView(
+    currentContract,
+    detailProject?.contract_status
+  );
   const isTrashProject = Boolean(detailProject?.deleted_at);
   const selectedTrashImpact = detailProject?.id
     ? projectTrashImpacts[detailProject.id] ?? null
@@ -403,6 +418,7 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
     [detail.requests]
   );
   const recentEstimate = detail.estimateVersions[0] ?? null;
+  const approvedCurrentEstimate = detail.estimateVersions.find(isApprovedCurrentEstimateVersion) ?? null;
 
   const activityItems = useMemo(() => {
     const messages = detail.messages
@@ -460,6 +476,8 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
     setProjectMenuOpen(false);
     setProjectStatusConfirm("");
     setProjectStatusError("");
+    setSalesLifecycleNotice("");
+    setSalesLifecycleError("");
     setProjectTrashDialog(null);
     setProjectTrashError("");
     setAftercareDialog(null);
@@ -596,6 +614,79 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
       setProjectStatusError("현장 상태를 변경하지 못했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setProjectStatusProcessing(false);
+    }
+  };
+
+  const handleConsultationToggle = async () => {
+    if (!currentConsultation?.id || salesLifecycleProcessing) return;
+    const nextStatus = currentConsultation.status === "closed" ? "active" : "closed";
+    const confirmMessage = nextStatus === "closed"
+      ? "상담을 종료하시겠습니까? 견적·계약·공사 상태는 변경되지 않습니다."
+      : "상담을 다시 여시겠습니까?";
+    if (!window.confirm(confirmMessage)) return;
+
+    setSalesLifecycleProcessing(true);
+    setSalesLifecycleError("");
+    setSalesLifecycleNotice("");
+    try {
+      const result = await updateConsultationStatus({
+        companyId,
+        consultationId: currentConsultation.id,
+        status: nextStatus,
+      });
+      const patch = {
+        ...currentConsultation,
+        status: result.status,
+        closed_at: result.closedAt ?? null,
+      };
+      setDetail((current) => ({
+        ...current,
+        consultations: [patch, ...(current.consultations ?? []).filter((row) => row.id !== patch.id)],
+        project: current.project
+          ? { ...current.project, consultation: patch }
+          : current.project,
+      }));
+      setProjects((current) => current.map((project) => (
+        project.id === detailProject?.id ? { ...project, consultation: patch } : project
+      )));
+      setSalesLifecycleNotice(nextStatus === "closed" ? "상담을 종료했습니다." : "상담을 다시 열었습니다.");
+    } catch (statusError) {
+      setSalesLifecycleError(statusError?.message || "상담 상태를 변경하지 못했습니다.");
+    } finally {
+      setSalesLifecycleProcessing(false);
+    }
+  };
+
+  const handleContractTransition = async (nextStatus) => {
+    if (!currentContract?.id || salesLifecycleProcessing) return;
+    const message = nextStatus === "completed"
+      ? "계약을 최종 확정하시겠습니까? 고객 서명만으로는 완료되지 않습니다."
+      : "계약을 취소하시겠습니까? 상담과 공사 상태는 변경되지 않습니다.";
+    if (!window.confirm(message)) return;
+
+    setSalesLifecycleProcessing(true);
+    setSalesLifecycleError("");
+    setSalesLifecycleNotice("");
+    try {
+      const result = await updateContractStatus({
+        companyId,
+        contractId: currentContract.id,
+        status: nextStatus,
+      });
+      const patch = { ...currentContract, status: result.status };
+      setDetail((current) => ({
+        ...current,
+        contracts: [patch, ...(current.contracts ?? []).filter((row) => row.id !== patch.id)],
+        project: current.project ? { ...current.project, contract: patch } : current.project,
+      }));
+      setProjects((current) => current.map((project) => (
+        project.id === detailProject?.id ? { ...project, contract: patch } : project
+      )));
+      setSalesLifecycleNotice(nextStatus === "completed" ? "계약을 최종 확정했습니다." : "계약을 취소했습니다.");
+    } catch (statusError) {
+      setSalesLifecycleError(statusError?.message || "계약 상태를 변경하지 못했습니다.");
+    } finally {
+      setSalesLifecycleProcessing(false);
     }
   };
 
@@ -770,6 +861,17 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
 
     return (
       <div className="customer-projects-workspace__overview-list">
+        {salesLifecycleNotice ? (
+          <p className="customer-projects-workspace__aftercare-notice" role="status">
+            {salesLifecycleNotice}
+          </p>
+        ) : null}
+        {salesLifecycleError ? (
+          <p className="customer-projects-workspace__form-error" role="alert">
+            {salesLifecycleError}
+          </p>
+        ) : null}
+
         {isTrashProject ? (
           <div className="customer-projects-workspace__overview-row">
             <span className="customer-projects-workspace__overview-label">연결 데이터</span>
@@ -787,6 +889,84 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
             </div>
           </div>
         ) : null}
+
+        <div className="customer-projects-workspace__overview-row">
+          <span className="customer-projects-workspace__overview-label">상담</span>
+          <div className="customer-projects-workspace__overview-value">
+            <strong>
+              {currentConsultation
+                ? operationStatusViews.consultation(currentConsultation.status).label
+                : "연결된 상담 없음"}
+            </strong>
+            <span>상담 상태는 견적·계약·공사 상태와 독립적으로 관리됩니다.</span>
+          </div>
+          {currentConsultation && !isTrashProject ? (
+            <button
+              type="button"
+              disabled={salesLifecycleProcessing}
+              onClick={handleConsultationToggle}
+            >
+              {currentConsultation.status === "closed" ? "상담 다시 열기" : "상담 종료"}
+            </button>
+          ) : null}
+        </div>
+
+        <div className="customer-projects-workspace__overview-row">
+          <span className="customer-projects-workspace__overview-label">계약</span>
+          <div className="customer-projects-workspace__overview-value">
+            <strong>{currentContractView.label}</strong>
+            <span>
+              {currentContract
+                ? "고객 서명과 업체 최종 확정은 별도 단계입니다."
+                : "계약서가 작성되기 전에는 미작성으로 표시합니다."}
+            </span>
+          </div>
+          <div className="customer-projects-workspace__overview-actions">
+            {currentContract ? (
+              <button
+                type="button"
+                onClick={() => onOpenContract?.({
+                  contractId: currentContract.id,
+                  projectId: detailProject?.id,
+                  estimateVersionId: currentContract.estimate_version_id,
+                  returnPage: CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS,
+                })}
+              >
+                계약서 열기
+              </button>
+            ) : approvedCurrentEstimate && !isTrashProject ? (
+              <button
+                type="button"
+                onClick={() => onOpenContract?.({
+                  projectId: detailProject?.id,
+                  estimateVersionId: approvedCurrentEstimate.id,
+                  returnPage: CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS,
+                })}
+              >
+                계약서 작성
+              </button>
+            ) : null}
+            {currentContract?.status === "customer_signed" && !isTrashProject ? (
+              <button
+                type="button"
+                disabled={salesLifecycleProcessing}
+                onClick={() => handleContractTransition("completed")}
+              >
+                계약 최종 확정
+              </button>
+            ) : currentContract
+              && !["completed", "cancelled"].includes(currentContract.status)
+              && !isTrashProject ? (
+                <button
+                  type="button"
+                  disabled={salesLifecycleProcessing}
+                  onClick={() => handleContractTransition("cancelled")}
+                >
+                  계약 취소
+                </button>
+              ) : null}
+          </div>
+        </div>
 
         {latestOpenRequest ? (
           <div className="customer-projects-workspace__overview-row">
@@ -861,7 +1041,7 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
         <div className="customer-projects-workspace__overview-row">
           <span className="customer-projects-workspace__overview-label">정산</span>
           <div className="customer-projects-workspace__overview-value">
-            <strong>{operationStatusViews.contract(detailProject?.contract_status).label}</strong>
+            <strong>{currentContractView.label}</strong>
             <span>아직 등록된 정산 내역이 없습니다.</span>
           </div>
           <button type="button" onClick={() => setActiveTab("settlement")}>정산 보기</button>
@@ -986,7 +1166,7 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
 
   const renderSettlement = () => (
     <div className="customer-projects-workspace__compact-empty">
-      <strong>{operationStatusViews.contract(detailProject?.contract_status).label}</strong>
+      <strong>{currentContractView.label}</strong>
       <span>아직 등록된 정산 내역이 없습니다.</span>
     </div>
   );
@@ -1287,6 +1467,30 @@ export default function CustomersProjectsPage({ companyId, onNavigate }) {
                     <StatusText status={lifecycleStatus} />
                     {projectScheduleText ? <span>{projectScheduleText}</span> : null}
                   </p>
+                  <dl className="customer-projects-workspace__lifecycle-summary" aria-label="영업 진행 상태">
+                    <div>
+                      <dt>상담 상태</dt>
+                      <dd><StatusText status={currentConsultation
+                        ? operationStatusViews.consultation(currentConsultation.status)
+                        : { label: "상담 없음", tone: "muted" }} /></dd>
+                    </div>
+                    <div>
+                      <dt>견적 상태</dt>
+                      <dd><StatusText status={operationStatusViews.estimate(
+                        recentEstimate?.status || detailProject?.estimate_status || "draft"
+                      )} /></dd>
+                    </div>
+                    <div>
+                      <dt>계약 상태</dt>
+                      <dd><StatusText status={currentContractView} /></dd>
+                    </div>
+                    <div>
+                      <dt>공사 상태</dt>
+                      <dd><StatusText status={operationStatusViews.construction(
+                        detailProject?.construction_status || "not_started"
+                      )} /></dd>
+                    </div>
+                  </dl>
                 </div>
                 <div className="customer-projects-workspace__detail-actions">
                   {isTrashProject ? (

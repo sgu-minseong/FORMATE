@@ -11,6 +11,8 @@
   --color-text-primary: #1F2933;
   --color-text-secondary: #667085;
   --color-text-muted: #98A2B3;
+  --color-text-metadata: var(--color-text-secondary);
+  --color-text-placeholder: var(--color-text-muted);
 
   --color-primary: #0D5C52;
   --color-primary-hover: #042F2C;
@@ -77,6 +79,14 @@
   --text-tertiary: var(--color-text-muted);
   --text-inverse: #FFFFFF;
 
+  --surface-page: var(--color-bg);
+  --surface-workspace: var(--color-surface);
+  --surface-subtle: var(--color-surface-subtle);
+  --surface-selected: var(--color-primary-soft);
+  --surface-editable: var(--color-surface);
+  --surface-sticky-action: var(--color-surface);
+  --surface-drawer-dialog: var(--color-surface);
+
   --brand-primary: var(--color-primary);
   --brand-primary-hover: var(--color-primary-hover);
   --brand-primary-subtle: var(--color-primary-soft);
@@ -87,13 +97,22 @@
   --border-subtle: var(--color-border);
   --border-default: var(--color-border);
   --border-strong: var(--color-border-strong);
+  --border-workspace: var(--color-border);
+  --border-row: var(--color-border);
+  --border-input: var(--color-border-strong);
+  --border-focus: var(--color-primary);
 
   --shadow-sm: none;
   --shadow-md: none;
   --shadow-lg: none;
   --shadow-hover: 0 1px 3px rgba(16, 24, 40, 0.08);
   --shadow-popover: 0 8px 24px rgba(16, 24, 40, 0.12);
-  --focus-ring: 0 0 0 1px var(--color-primary-border);
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-color: var(--color-primary);
+  --focus-ring:
+    0 0 0 var(--focus-ring-offset) var(--color-surface),
+    0 0 0 calc(var(--focus-ring-offset) + var(--focus-ring-width)) var(--focus-ring-color);
 
   --font-family-ui: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
   --font-sans: var(--font-family-ui);
@@ -132,6 +151,21 @@
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
+  --font-size-object-title: var(--font-size-work-title);
+  --line-height-object-title: var(--line-height-work-title);
+  --font-weight-object-title: var(--font-weight-semibold);
+  --font-weight-page-title: var(--font-weight-semibold);
+  --font-weight-section-title: var(--font-weight-semibold);
+  --font-size-row-title: var(--font-size-body);
+  --line-height-row-title: var(--line-height-body);
+  --font-weight-row-title: var(--font-weight-semibold);
+  --font-weight-body: var(--font-weight-regular);
+  --font-size-metadata: var(--font-size-caption);
+  --line-height-metadata: var(--line-height-caption);
+  --font-weight-metadata: var(--font-weight-regular);
+  --font-weight-table-cell: var(--font-weight-regular);
+  --font-weight-table-header: var(--font-weight-medium);
+  --font-variant-numeric: tabular-nums;
 
   --space-0-5: 4px;
   --space-1: 8px;
@@ -149,6 +183,10 @@
   --space-section-gap: 24px;
   --space-group-gap: 12px;
   --space-label-gap: 6px;
+  --space-control-gap: var(--space-1);
+  --space-compact-gap: var(--space-0-5);
+  --space-workspace-padding: var(--space-2);
+  --space-detail-section-padding: var(--space-2);
   --space-table-cell-x: 12px;
   --space-button-x: 14px;
   --space-input-x: 10px;
@@ -342,26 +380,26 @@ textarea {
 
 .ui-page-header__eyebrow {
   margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-caption);
+  color: var(--color-text-metadata);
+  font-size: var(--font-size-metadata);
+  font-weight: var(--font-weight-metadata);
+  line-height: var(--line-height-metadata);
 }
 
 .ui-page-header h1 {
   margin: 0;
   color: var(--color-text-primary);
   font-size: var(--font-size-page-title);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-page-title);
   line-height: var(--line-height-page-title);
 }
 
 .ui-page-header__description {
   margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-caption);
+  color: var(--color-text-metadata);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-body);
 }
 
 .ui-page-header__actions {
@@ -749,13 +787,17 @@ textarea {
 }
 
 .ui-input::placeholder {
-  color: var(--color-text-muted);
+  color: var(--color-text-placeholder);
 }
 
 .ui-input:focus,
 .ui-select:focus {
   border-color: var(--color-primary);
   outline: none;
+}
+
+.ui-input:focus-visible,
+.ui-select:focus-visible {
   box-shadow: var(--focus-ring);
 }
 
@@ -1050,10 +1092,8 @@ textarea {
   justify-content: space-between;
   gap: var(--space-2);
   height: var(--sticky-total-height);
-  border-top: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid var(--border-row);
+  background: var(--surface-sticky-action);
   padding: 0 var(--space-3);
 }
 
@@ -1070,7 +1110,7 @@ textarea {
   gap: var(--space-3);
   margin-left: auto;
   text-align: right;
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: var(--font-variant-numeric);
 }
 
 .ui-sticky-total-bar__amount-label {
