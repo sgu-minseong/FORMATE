@@ -602,3 +602,58 @@ export function normalizeAdminItems(
     }))
   );
 }
+
+export function shouldBootstrapAdminCatalog({
+  allowBootstrap = false,
+  bootstrapAlreadyAttempted = false,
+  itemRows = [],
+} = {}) {
+  return Boolean(
+    allowBootstrap
+    && !bootstrapAlreadyAttempted
+    && Array.isArray(itemRows)
+    && itemRows.length === 0
+  );
+}
+
+export async function loadAdminCatalogSnapshot({
+  companyId,
+  readCatalog,
+  bootstrapCatalog,
+  allowBootstrap = false,
+  bootstrapAlreadyAttempted = false,
+  hasBootstrapBeenAttempted = () => bootstrapAlreadyAttempted,
+  canBootstrap = () => true,
+  markBootstrapAttempted = () => {},
+}) {
+  const initialSnapshot = await readCatalog(companyId);
+  if (!shouldBootstrapAdminCatalog({
+    allowBootstrap: allowBootstrap && canBootstrap(companyId),
+    bootstrapAlreadyAttempted: hasBootstrapBeenAttempted(companyId),
+    itemRows: initialSnapshot.itemRows,
+  })) {
+    return { ...initialSnapshot, bootstrapped: false };
+  }
+
+  markBootstrapAttempted(companyId);
+  await bootstrapCatalog(
+    companyId,
+    initialSnapshot.itemRows,
+    initialSnapshot.subitemRows
+  );
+  const refreshedSnapshot = await readCatalog(companyId);
+  return { ...refreshedSnapshot, bootstrapped: true };
+}
+
+export function countVerifiedImportRows(results = [], snapshot = {}) {
+  const persistedSubitems = new Map(
+    (snapshot.subitemRows ?? []).map((subitem) => [subitem.id, subitem])
+  );
+  return results.filter((result) => {
+    const subitemId = result.subitem?.id ?? result.target?.matchedSubitemId;
+    const persisted = persistedSubitems.get(subitemId);
+    if (!persisted) return false;
+    if (!result.payload) return true;
+    return Object.entries(result.payload).every(([key, value]) => `${persisted[key] ?? ""}` === `${value ?? ""}`);
+  }).length;
+}

@@ -179,6 +179,10 @@ export function shouldApplyExcelConflict(decision) {
   return decision === "excel";
 }
 
+export function hasExcelImportWriteTargets(rows = []) {
+  return Array.isArray(rows) && rows.length > 0;
+}
+
 export function buildLumpSumExclusionPatches(rows = [], targetRow, activatesRow) {
   if (!activatesRow || !targetRow) return {};
   if (targetRow.isSplitChild) {

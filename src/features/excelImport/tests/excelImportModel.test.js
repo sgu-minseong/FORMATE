@@ -18,6 +18,7 @@ import {
   getLumpSumSourceTotal,
   getCopyImportDefaultAction,
   isLumpSumImportRow,
+  hasExcelImportWriteTargets,
   prepareExcelImportRowsForCompany,
   resolveLegacyExcelImportRoute,
   shouldApplyExcelConflict,
@@ -59,6 +60,8 @@ describe("shared Excel import model", () => {
     expect(shouldApplyExcelConflict("keep")).toBe(false);
     expect(shouldApplyExcelConflict(undefined)).toBe(false);
     expect(shouldApplyExcelConflict("excel")).toBe(true);
+    expect(hasExcelImportWriteTargets([])).toBe(false);
+    expect(hasExcelImportWriteTargets([{ selected: true }])).toBe(true);
   });
 
   it("accepts another company's metadata in copy mode without reusing its row ids", () => {

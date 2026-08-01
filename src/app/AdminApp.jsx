@@ -182,6 +182,7 @@ import {
   getCopyImportDefaultAction,
   getImportReviewStatus,
   getLumpSumSourceTotal,
+  hasExcelImportWriteTargets,
   isLumpSumImportRow,
   prepareExcelImportRowsForCompany,
   readFormateWorkbookMetadata,
@@ -196,6 +197,7 @@ import {
   buildConstructionSubitemSavePayload,
   compareFlooringThickness,
   composeFlooringSubitemName,
+  countVerifiedImportRows,
   createEmptyFlooringVariantDraft,
   formatFlooringThickness,
   getCanonicalFlooringSubitemName,
@@ -210,6 +212,7 @@ import {
   isFlooringThicknessItem,
   isFlooringThicknessSelection,
   isLocalPriceTableSubitem as isLocalSubitemId,
+  loadAdminCatalogSnapshot,
   normalizeAdminItems,
   normalizeFlooringThickness,
   patchSubitemPriceById,
@@ -228,7 +231,6 @@ import {
   deleteAdminTemplateValues,
   deleteConstructionItem,
   deleteConstructionSubitem,
-  deleteConstructionSubitems,
   fetchAdminTemplateValueCandidate,
   fetchAdminTemplateCandidates,
   fetchAdminTemplateRows,
@@ -2501,6 +2503,10 @@ export default function AdminApp() {
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
   const selectedCompanyName = selectedCompany?.name ?? "";
+  const selectedCompanyIdRef = useRef(selectedCompanyId);
+  const adminCatalogLoadRequestRef = useRef(0);
+  const adminCatalogBootstrapAttemptedRef = useRef(new Set());
+  selectedCompanyIdRef.current = selectedCompanyId;
   const photoManagement = usePhotoManagement({
     companyId: selectedCompanyId,
     createPhotoId: createStorageSafeId,
@@ -2872,7 +2878,7 @@ export default function AdminApp() {
     if (!selectedCompanyId) return;
     if (PROTECTED_ADMIN_PAGES.includes(page) && !isAdminVerifiedForCompany(selectedCompanyId)) return;
     if (page === "admin-prices") {
-      fetchAdminItems({ mode: "prices" });
+      initializeAdminItems({ mode: "prices" });
       return;
     }
     if (page === "admin-items") {
@@ -2881,7 +2887,7 @@ export default function AdminApp() {
         setAdminConditionLoaded(false);
         setCurrentAdminTemplateId("");
       }
-      fetchAdminItems({ mode: "condition", condition: activeCondition });
+      initializeAdminItems({ mode: "condition", condition: activeCondition });
     }
     if (page === "admin-condition-labels") {
       fetchConditionVariantLabels();
@@ -3311,10 +3317,11 @@ export default function AdminApp() {
           ),
         }))
       );
+      return { itemRows, subitemRows };
     } catch (error) {
       console.error("[FORMATE AI setup catalog fetch]", error);
-      setAiSetupCatalogItems([]);
       setAiSetupCatalogError("기존 단가표 항목을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
+      return null;
     } finally {
       setAiSetupCatalogLoading(false);
     }
@@ -3445,7 +3452,7 @@ export default function AdminApp() {
   }
 
   async function confirmAiSetupPriceUpdates() {
-    if (aiSetupPriceSaving || aiSetupPriceUpdateTargets.length === 0) return;
+    if (aiSetupPriceSaving || !hasExcelImportWriteTargets(aiSetupPriceUpdateTargets)) return;
 
     setAiSetupPriceSaving(true);
     setAiSetupPriceError("");
@@ -3515,9 +3522,30 @@ export default function AdminApp() {
       const successRows = results.filter((result) => result.status === "fulfilled" && !result.skipped);
       const skippedRows = results.filter((result) => result.status === "fulfilled" && result.skipped);
       const failedRows = results.filter((result) => result.status === "rejected");
+      let verifiedCount = 0;
+      let verificationFailedCount = 0;
+      let refreshFailed = false;
+
+      if (successRows.length > 0) {
+        await fetchAiSetupCatalogItems();
+        const refreshedSnapshot = await fetchAdminItems({ mode: "prices" });
+        if (refreshedSnapshot) {
+          verifiedCount = countVerifiedImportRows(successRows, refreshedSnapshot);
+          verificationFailedCount = successRows.length - verifiedCount;
+          if (verificationFailedCount > 0) {
+            setAiSetupPriceError(`저장 응답 후 ${verificationFailedCount}개 항목이 DB 재조회에서 확인되지 않았습니다.`);
+          }
+        } else {
+          refreshFailed = true;
+          setAiSetupPriceError("저장은 완료됐지만 현재 단가표를 다시 확인하지 못했습니다. 기존 화면 데이터는 유지했습니다.");
+        }
+      }
 
       setAiSetupPriceResult({
         successCount: successRows.length,
+        verifiedCount,
+        verificationFailedCount,
+        refreshFailed,
         skippedCount: skippedRows.length,
         failedCount: failedRows.length,
         failedRows,
@@ -3526,10 +3554,7 @@ export default function AdminApp() {
         skippedNames: skippedRows.map((result) => getAiSaveTargetName(result.target)),
       });
 
-      if (successRows.length > 0) {
-        await fetchAiSetupCatalogItems();
-      }
-      if (failedRows.length === 0) {
+      if (failedRows.length === 0 && !refreshFailed && verificationFailedCount === 0) {
         setAiSetupPriceConfirmOpen(false);
       }
     } catch (error) {
@@ -3554,7 +3579,7 @@ export default function AdminApp() {
   }
 
   async function confirmAiSetupTemplateValues() {
-    if (aiSetupTemplateSaving || !aiSetupApplyConditionComplete || aiSetupTemplateValueTargets.length === 0) return;
+    if (aiSetupTemplateSaving || !aiSetupApplyConditionComplete || !hasExcelImportWriteTargets(aiSetupTemplateValueTargets)) return;
 
     setAiSetupTemplateSaving(true);
     setAiSetupTemplateError("");
@@ -3756,7 +3781,7 @@ export default function AdminApp() {
   }
 
   async function confirmAiSetupNewItems() {
-    if (aiSetupNewItemSaving || aiSetupNewItemTargets.length === 0) return;
+    if (aiSetupNewItemSaving || !hasExcelImportWriteTargets(aiSetupNewItemTargets)) return;
 
     setAiSetupNewItemSaving(true);
     setAiSetupNewItemError("");
@@ -3903,6 +3928,9 @@ export default function AdminApp() {
       const successRows = results.filter((result) => result.status === "fulfilled" && !result.skipped);
       const skippedRows = results.filter((result) => result.status === "fulfilled" && result.skipped);
       const failedRows = results.filter((result) => result.status === "rejected");
+      let verifiedCount = 0;
+      let verificationFailedCount = 0;
+      let refreshFailed = false;
 
       if (Object.keys(linkedOverrides).length > 0) {
         setAiSetupMatchOverrides((current) => {
@@ -3920,10 +3948,29 @@ export default function AdminApp() {
       if (successRows.length > 0 || skippedRows.length > 0) {
         await fetchAiSetupCatalogItems();
       }
+      if (successRows.length > 0) {
+        const refreshOptions = page === "admin-items"
+          ? { mode: "condition", condition: currentAdminTemplateCondition }
+          : { mode: "prices" };
+        const refreshedSnapshot = await fetchAdminItems(refreshOptions);
+        if (refreshedSnapshot) {
+          verifiedCount = countVerifiedImportRows(successRows, refreshedSnapshot);
+          verificationFailedCount = successRows.length - verifiedCount;
+          if (verificationFailedCount > 0) {
+            setAiSetupNewItemError(`저장 응답 후 ${verificationFailedCount}개 항목이 DB 재조회에서 확인되지 않았습니다.`);
+          }
+        } else {
+          refreshFailed = true;
+          setAiSetupNewItemError("저장은 완료됐지만 현재 단가표를 다시 확인하지 못했습니다. 기존 화면 데이터는 유지했습니다.");
+        }
+      }
 
       setAiSetupNewItemResult({
         createdCategoryCount: createdCategoryIds.size,
         createdSubitemCount: successRows.length,
+        verifiedCount,
+        verificationFailedCount,
+        refreshFailed,
         skippedCount: skippedRows.length,
         failedCount: failedRows.length,
         failedRows,
@@ -3932,7 +3979,7 @@ export default function AdminApp() {
         skippedNames: skippedRows.map((result) => getAiSaveTargetName(result.target)),
       });
 
-      if (failedRows.length === 0) {
+      if (failedRows.length === 0 && !refreshFailed && verificationFailedCount === 0) {
         setAiSetupNewItemConfirmOpen(false);
       }
     } catch (error) {
@@ -3945,7 +3992,9 @@ export default function AdminApp() {
 
   function renderAiSetupSaveResult({ result, title, successCount, successUnit = "개", successText, skippedText }) {
     if (!result) return null;
-    const hasFailures = (result.failedCount ?? 0) > 0;
+    const hasFailures = (result.failedCount ?? 0) > 0
+      || (result.verificationFailedCount ?? 0) > 0
+      || result.refreshFailed;
     const savedSummary = getCompactNameSummary(result.savedNames);
     const skippedSummary = getCompactNameSummary(result.skippedNames);
     const savedAtLabel = formatRecentSaveTime(result.savedAt);
@@ -3957,6 +4006,13 @@ export default function AdminApp() {
           {savedAtLabel && <span>{savedAtLabel}</span>}
         </div>
         {successText && <p>{successText}</p>}
+        {Number.isInteger(result.verifiedCount) && successCount > 0 && (
+          <p>DB 재조회 확인 · {result.verifiedCount}/{successCount}개</p>
+        )}
+        {result.refreshFailed && <p>DB 재조회 실패 · 기존 화면 데이터 유지</p>}
+        {(result.verificationFailedCount ?? 0) > 0 && (
+          <p>DB 반영 미확인 · {result.verificationFailedCount}개</p>
+        )}
         {savedSummary && <p>저장됨: {savedSummary}</p>}
         {(result.skippedCount ?? 0) > 0 && (
           <p>{skippedText ?? "건너뜀"} · {result.skippedCount}개{skippedSummary ? ` (${skippedSummary})` : ""}</p>
@@ -4095,21 +4151,6 @@ export default function AdminApp() {
     );
   }
 
-  function hasDefaultCatalogGaps(itemRows = [], subitemRows = []) {
-    const subitemNamesByItemId = subitemRows.reduce((acc, subitem) => {
-      acc[subitem.item_id] = acc[subitem.item_id] ?? new Set();
-      acc[subitem.item_id].add(subitem.name.trim());
-      return acc;
-    }, {});
-
-    return DEFAULT_CONSTRUCTION_CATALOG.some((catalogItem) => {
-      const item = findItemByDefaultCatalogName(itemRows, catalogItem.name);
-      if (!item?.id) return true;
-      const subitemNames = subitemNamesByItemId[item.id] ?? new Set();
-      return catalogItem.subitems.some(([name]) => !subitemNames.has(name));
-    });
-  }
-
   async function ensureDefaultConstructionCatalog(companyId, itemRows = [], subitemRows = []) {
     let nextItemRows = [...itemRows];
     const missingItemPayloads = DEFAULT_CONSTRUCTION_CATALOG
@@ -4162,93 +4203,6 @@ export default function AdminApp() {
     }
 
     return changed;
-  }
-
-  async function ensureFlatSubitems(itemRows, subitemRows) {
-    const flatItems = (itemRows ?? []).filter((item) => (item.item_type ?? "itemized") === "flat");
-    if (!flatItems.length) return false;
-
-    let changed = false;
-    const subitemsByItemId = subitemRows.reduce((acc, subitem) => {
-      acc[subitem.item_id] = acc[subitem.item_id] ?? [];
-      acc[subitem.item_id].push(subitem);
-      return acc;
-    }, {});
-
-    for (const item of flatItems) {
-      const subitems = [...(subitemsByItemId[item.id] ?? [])].sort(
-        (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
-      );
-
-      if (!subitems.length) {
-        await insertConstructionSubitems({
-          item_id: item.id,
-          name: item.name,
-          unit: "식",
-          unit_price: 0,
-          labor_rate: 0,
-          sort_order: 0,
-        });
-        changed = true;
-        continue;
-      }
-
-      const [primary, ...extras] = subitems;
-      if (primary.name !== item.name || (primary.sort_order ?? 0) !== 0) {
-        await updateConstructionSubitem(primary.id, {
-          name: item.name,
-          sort_order: 0,
-        });
-        changed = true;
-      }
-
-      if (extras.length) {
-        await deleteConstructionSubitems(
-          extras.map((subitem) => subitem.id)
-        );
-        changed = true;
-      }
-    }
-
-    return changed;
-  }
-
-  async function ensureFlooringThicknessSubitems(itemRows, subitemRows) {
-    const subitemsByItemId = subitemRows.reduce((acc, subitem) => {
-      acc[subitem.item_id] = acc[subitem.item_id] ?? [];
-      acc[subitem.item_id].push(subitem);
-      return acc;
-    }, {});
-
-    const payloads = [];
-
-    (itemRows ?? []).forEach((item) => {
-      const itemSubitems = subitemsByItemId[item.id] ?? [];
-      if (!isFlooringThicknessItem({ ...item, subitems: itemSubitems })) return;
-
-      getFlooringThicknessGroups(itemSubitems).forEach((group) => {
-        if (!group.baseName.includes("장판")) return;
-        const source = group.options["1.8"] ?? group.options[DEFAULT_FLOORING_SPEC] ?? Object.values(group.options)[0];
-        if (!source) return;
-
-        DEFAULT_FLOORING_AUTO_SPECS.forEach((thickness, thicknessIndex) => {
-          if (group.options[thickness]) return;
-          payloads.push({
-            item_id: item.id,
-            name: composeFlooringSubitemName(group.baseName, thickness),
-            unit: source.unit ?? "평",
-            unit_price: 0,
-            labor_rate: 0,
-            sort_order: (source.sort_order ?? 0) * 100 + thicknessIndex,
-          });
-        });
-      });
-    });
-
-    if (!payloads.length) return false;
-
-    await insertConstructionSubitems(payloads);
-    return true;
   }
 
   async function ensurePyeongValuesForPyeong(subitemRows, pyeong, existingPyeongRows = []) {
@@ -4464,7 +4418,10 @@ export default function AdminApp() {
     }
   }
 
-  async function fetchAdminItems(options = {}) {
+  async function loadAdminItems(options = {}, { allowBootstrap = false } = {}) {
+    const requestId = adminCatalogLoadRequestRef.current + 1;
+    adminCatalogLoadRequestRef.current = requestId;
+    let loadCompanyId = "";
     setAdminLoading(true);
     setAdminError("");
     setAdminPriceValidationError(null);
@@ -4473,77 +4430,101 @@ export default function AdminApp() {
         throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
       }
       const companyId = requireSelectedCompanyId();
+      loadCompanyId = companyId;
       const mode = options.mode ?? (page === "admin-prices" ? "prices" : "condition");
       const shouldLoadConditionValues = mode === "condition";
+      const snapshot = await loadAdminCatalogSnapshot({
+        companyId,
+        readCatalog: fetchConstructionCatalogRows,
+        bootstrapCatalog: ensureDefaultConstructionCatalog,
+        allowBootstrap,
+        hasBootstrapBeenAttempted: () => adminCatalogBootstrapAttemptedRef.current.has(companyId),
+        canBootstrap: () => (
+          requestId === adminCatalogLoadRequestRef.current
+          && companyId === selectedCompanyIdRef.current
+        ),
+        markBootstrapAttempted: () => {
+          adminCatalogBootstrapAttemptedRef.current.add(companyId);
+          if (requestId === adminCatalogLoadRequestRef.current) {
+            setAdminNotice("FORMATE 기본 시공항목을 준비하고 있습니다.");
+          }
+        },
+      });
+      const { itemRows, subitemRows } = snapshot;
+      const requestIsCurrent = () => (
+        requestId === adminCatalogLoadRequestRef.current
+        && companyId === selectedCompanyIdRef.current
+      );
+      if (!requestIsCurrent()) return null;
 
-      let { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
-      let defaultCatalogPrepared = false;
-      if (hasDefaultCatalogGaps(itemRows, subitemRows)) {
-        setAdminNotice("FORMATE 기본 시공항목을 준비하고 있습니다.");
-        const catalogChanged = await ensureDefaultConstructionCatalog(companyId, itemRows, subitemRows);
-        if (catalogChanged) {
-          ({ itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId));
-          defaultCatalogPrepared = true;
-        }
-      }
-
-      const flatSubitemsChanged = await ensureFlatSubitems(itemRows, subitemRows);
-      if (flatSubitemsChanged) {
-        await fetchAdminItems(options);
-        return;
-      }
-
-      const flooringThicknessChanged = await ensureFlooringThicknessSubitems(itemRows, subitemRows);
-      if (flooringThicknessChanged) {
-        await fetchAdminItems(options);
-        return;
-      }
-
+      let nextTemplates = [];
       if (shouldLoadConditionValues) {
-        await fetchAdminTemplateList();
-      } else {
-        setAdminTemplates([]);
-        setCurrentAdminTemplateId("");
-        setAdminConditionLoaded(false);
+        nextTemplates = dedupeTemplatesByCondition(await fetchAdminTemplateRows(companyId));
       }
 
       let templateValueRows = [];
+      let nextTemplateId = "";
+      let nextConditionLoaded = false;
+      let nextNotice = "";
       const adminTemplateCondition = Object.prototype.hasOwnProperty.call(options, "condition")
         ? options.condition
         : getAdminTemplateCondition();
       if (shouldLoadConditionValues && adminTemplateCondition) {
         const templateRow = await fetchTemplateRowByCondition(companyId, adminTemplateCondition);
-        setCurrentAdminTemplateId(templateRow?.id ?? "");
-        setAdminConditionLoaded(true);
+        nextTemplateId = templateRow?.id ?? "";
+        nextConditionLoaded = true;
 
         if (templateRow?.id) {
           templateValueRows = await fetchAdminTemplateValues(templateRow.id);
-          setAdminNotice("");
         } else {
-          setAdminNotice("아직 이 조건의 견적 템플릿이 없습니다. 기본 수량과 기본 인원을 입력한 뒤 저장하세요.");
+          nextNotice = "아직 이 조건의 견적 템플릿이 없습니다. 기본 수량과 기본 인원을 입력한 뒤 저장하세요.";
         }
-      } else {
-        setCurrentAdminTemplateId("");
-        if (shouldLoadConditionValues) {
-          setAdminConditionLoaded(false);
-          setAdminNotice(defaultCatalogPrepared ? "기본 시공항목이 준비되었습니다. 먼저 조건을 선택한 뒤 관리하기를 눌러주세요." : "");
-        } else {
-          const latestUpdatedAt = subitemRows
-            .map((subitem) => subitem.updated_at)
-            .filter(Boolean)
-            .sort()
-            .at(-1);
-          if (latestUpdatedAt) setAdminCommonPriceSavedAt(latestUpdatedAt);
-          setAdminNotice(defaultCatalogPrepared ? "기본 시공항목이 준비되었습니다. 공통 단가와 인건비를 입력하세요." : "");
-        }
+      } else if (shouldLoadConditionValues && snapshot.bootstrapped) {
+        nextNotice = "기본 시공항목이 준비되었습니다. 먼저 조건을 선택한 뒤 관리하기를 눌러주세요.";
+      } else if (!shouldLoadConditionValues && snapshot.bootstrapped) {
+        nextNotice = "기본 시공항목이 준비되었습니다. 공통 단가와 인건비를 입력하세요.";
       }
 
+      if (!requestIsCurrent()) return null;
+      setAdminTemplates(nextTemplates);
+      setCurrentAdminTemplateId(nextTemplateId);
+      setAdminConditionLoaded(nextConditionLoaded);
+      setAdminNotice(nextNotice);
+      if (!shouldLoadConditionValues) {
+        const latestUpdatedAt = subitemRows
+          .map((subitem) => subitem.updated_at)
+          .filter(Boolean)
+          .sort()
+          .at(-1);
+        if (latestUpdatedAt) setAdminCommonPriceSavedAt(latestUpdatedAt);
+      }
       setAdminItems(normalizeAdminItems(itemRows, subitemRows, templateValueRows));
+      return snapshot;
     } catch (error) {
-      setAdminError(getFriendlyError(error, "데이터를 불러오지 못했어요. 다시 시도해주세요."));
+      if (
+        requestId === adminCatalogLoadRequestRef.current
+        && (!loadCompanyId || loadCompanyId === selectedCompanyIdRef.current)
+      ) {
+        setAdminNotice("");
+        setAdminError(getFriendlyError(error, "데이터를 불러오지 못했어요. 다시 시도해주세요."));
+      }
+      return null;
     } finally {
-      setAdminLoading(false);
+      if (
+        requestId === adminCatalogLoadRequestRef.current
+        && (!loadCompanyId || loadCompanyId === selectedCompanyIdRef.current)
+      ) {
+        setAdminLoading(false);
+      }
     }
+  }
+
+  function fetchAdminItems(options = {}) {
+    return loadAdminItems(options, { allowBootstrap: false });
+  }
+
+  function initializeAdminItems(options = {}) {
+    return loadAdminItems(options, { allowBootstrap: true });
   }
 
   function doesSavedEstimateMatchSearch(estimate, searchText = estimateSearch) {
@@ -5499,7 +5480,9 @@ export default function AdminApp() {
   }
 
   async function fetchEstimateCatalog(pyeong = condition.size, nextCondition = condition, options = {}) {
-    estimateBlankCatalogRequestRef.current += 1;
+    const requestId = estimateBlankCatalogRequestRef.current + 1;
+    estimateBlankCatalogRequestRef.current = requestId;
+    const loadCompanyId = selectedCompanyId;
     const preserveDraft = Boolean(options.preserveDraft);
     const forceBlank = Boolean(options.forceBlank);
     setEstimateLoading(true);
@@ -5514,26 +5497,27 @@ export default function AdminApp() {
       }
       const companyId = requireSelectedCompanyId();
 
-      let { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
-      let defaultCatalogPrepared = false;
-      if (hasDefaultCatalogGaps(itemRows, subitemRows)) {
-        setEstimateNotice("FORMATE 기본 시공항목을 준비하고 있습니다.");
-        const catalogChanged = await ensureDefaultConstructionCatalog(companyId, itemRows, subitemRows);
-        if (catalogChanged) {
-          ({ itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId));
-          defaultCatalogPrepared = true;
-        }
-      }
-
-      const flatSubitemsChanged = await ensureFlatSubitems(itemRows, subitemRows);
-      if (flatSubitemsChanged) {
-        return await fetchEstimateCatalog(pyeong, nextCondition, options);
-      }
-
-      const flooringThicknessChanged = await ensureFlooringThicknessSubitems(itemRows, subitemRows);
-      if (flooringThicknessChanged) {
-        return await fetchEstimateCatalog(pyeong, nextCondition, options);
-      }
+      const snapshot = await loadAdminCatalogSnapshot({
+        companyId,
+        readCatalog: fetchConstructionCatalogRows,
+        bootstrapCatalog: ensureDefaultConstructionCatalog,
+        allowBootstrap: true,
+        hasBootstrapBeenAttempted: () => adminCatalogBootstrapAttemptedRef.current.has(companyId),
+        canBootstrap: () => (
+          requestId === estimateBlankCatalogRequestRef.current
+          && companyId === selectedCompanyIdRef.current
+        ),
+        markBootstrapAttempted: () => {
+          adminCatalogBootstrapAttemptedRef.current.add(companyId);
+          setEstimateNotice("FORMATE 기본 시공항목을 준비하고 있습니다.");
+        },
+      });
+      if (
+        requestId !== estimateBlankCatalogRequestRef.current
+        || companyId !== selectedCompanyIdRef.current
+      ) return false;
+      const { itemRows, subitemRows } = snapshot;
+      const defaultCatalogPrepared = snapshot.bootstrapped;
 
       let templateValueRows = [];
       let templateFound = false;
@@ -5570,10 +5554,21 @@ export default function AdminApp() {
       setEstimateDraftSource(templateFound ? "template" : "blank");
       return true;
     } catch (error) {
-      setEstimateError(getFriendlyError(error, "견적 템플릿을 불러오지 못했어요. 다시 시도해주세요."));
+      if (
+        requestId === estimateBlankCatalogRequestRef.current
+        && loadCompanyId === selectedCompanyIdRef.current
+      ) {
+        setEstimateNotice("");
+        setEstimateError(getFriendlyError(error, "견적 템플릿을 불러오지 못했어요. 다시 시도해주세요."));
+      }
       return false;
     } finally {
-      setEstimateLoading(false);
+      if (
+        requestId === estimateBlankCatalogRequestRef.current
+        && loadCompanyId === selectedCompanyIdRef.current
+      ) {
+        setEstimateLoading(false);
+      }
     }
   }
 
