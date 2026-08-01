@@ -5,6 +5,12 @@ export const PHOTO_TYPES = {
   PARTIAL_PROJECT: "partial_project",
   SUBITEM: "subitem",
 };
+export const PHOTO_TYPE_KINDS = {
+  WHOLE: "whole",
+  PARTIAL: "partial",
+  DETAIL: "detail",
+  CUSTOM: "custom",
+};
 export const PHOTO_TAB_OPTIONS = [
   { key: PHOTO_TYPES.FULL_PROJECT, label: "올공사" },
   { key: PHOTO_TYPES.PARTIAL_PROJECT, label: "부분공사" },
@@ -13,6 +19,36 @@ export const PHOTO_TAB_OPTIONS = [
 export const PHOTO_COLLECTION_DEFAULT_NAMES = ["1000만원대", "2000만원대", "3000만원대"];
 export const MAX_SUBITEM_PHOTO_COUNT = 10;
 export const MAX_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+export function sortPhotoTypes(rows = []) {
+  return [...rows].sort((a, b) => {
+    const orderDiff = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+    return orderDiff !== 0
+      ? orderDiff
+      : `${a.created_at ?? ""}`.localeCompare(`${b.created_at ?? ""}`);
+  });
+}
+
+export function isDetailPhotoType(photoType) {
+  return photoType?.stable_kind === PHOTO_TYPE_KINDS.DETAIL;
+}
+
+export function isGeneralPhotoType(photoType) {
+  return Boolean(photoType) && !isDetailPhotoType(photoType);
+}
+
+export function buildCustomPhotoType({ companyId, id, displayName, sortOrder }) {
+  return {
+    id,
+    company_id: companyId,
+    storage_key: `custom_${id}`,
+    stable_kind: PHOTO_TYPE_KINDS.CUSTOM,
+    display_name: `${displayName ?? ""}`.trim(),
+    sort_order: sortOrder,
+    is_system: false,
+    archived_at: null,
+  };
+}
 
 export function getPhotoFileExtension(fileName = "") {
   const extension = `${fileName}`.split(".").pop()?.toLowerCase() ?? "";

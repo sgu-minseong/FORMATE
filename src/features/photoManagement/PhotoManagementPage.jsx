@@ -1,99 +1,161 @@
-import { Check, GripVertical, Image, MoreVertical, Plus, RefreshCcw, Save, Trash2, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  GripVertical,
+  Image,
+  MoreVertical,
+  Plus,
+  RefreshCcw,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import PhotoViewer, { shouldSuppressPhotoClick } from "../../components/PhotoViewer";
 import Button from "../../components/ui/Button";
 import EmptyState from "../../components/ui/EmptyState";
-import PageHeader from "../../components/ui/PageHeader";
 import {
   MAX_SUBITEM_PHOTO_COUNT,
-  PHOTO_TAB_OPTIONS,
-  PHOTO_TYPES,
   getPhotoImageUrl,
   getPrimaryPhoto,
+  isDetailPhotoType,
+  isGeneralPhotoType,
 } from "./photoModel";
-
-function sameSelection(current, next) {
-  return current.full_project === next.full_project
-    && current.partial_project === next.partial_project;
-}
 
 export default function PhotoManagementPage({ controller }) {
   const {
-    photoTab, setPhotoTab, photoCollections, photoCollectionDrafts,
-    photoCatalog, photoAutoSaveStatus, photoAutoSaveMessage, photoLoading, photoSaving,
-    hasPendingPhotoChanges, photoError, setPhotoError, photoNotice, setPhotoNotice, getPhotosForTarget,
-    refresh, flushPendingChanges, addCollection, changeCollectionName, cancelCollectionNameEdit,
-    deleteCollection, reorderCollections,
-    upload, setPrimary, remove, movePhoto, reorderSubitems,
+    photoTab,
+    setPhotoTab,
+    photoTypes,
+    photoTypeDrafts,
+    photoCollections,
+    photoCollectionDrafts,
+    photos,
+    photoCatalog,
+    photoAutoSaveStatus,
+    photoAutoSaveMessage,
+    photoLoading,
+    photoSaving,
+    hasPendingPhotoChanges,
+    photoError,
+    setPhotoError,
+    photoNotice,
+    setPhotoNotice,
+    getPhotosForTarget,
+    refresh,
+    flushPendingChanges,
+    addPhotoType,
+    changePhotoTypeName,
+    cancelPhotoTypeNameEdit,
+    reorderPhotoTypes,
+    removePhotoType,
+    addCollection,
+    changeCollectionName,
+    cancelCollectionNameEdit,
+    deleteCollection,
+    reorderCollections,
+    upload,
+    setPrimary,
+    remove,
+    movePhoto,
+    reorderSubitems,
   } = controller;
-  const [selectedCollections, setSelectedCollections] = useState({
-    [PHOTO_TYPES.FULL_PROJECT]: "",
-    [PHOTO_TYPES.PARTIAL_PROJECT]: "",
-  });
+  const [selectedCollections, setSelectedCollections] = useState({});
   const [selectedSubitemId, setSelectedSubitemId] = useState("");
+  const [expandedDetailItemId, setExpandedDetailItemId] = useState("");
+  const [newTypeOpen, setNewTypeOpen] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [editingTypeId, setEditingTypeId] = useState("");
   const [newCollectionOpen, setNewCollectionOpen] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [viewerIndex, setViewerIndex] = useState(null);
   const [draggedPhotoId, setDraggedPhotoId] = useState("");
+  const [draggedTypeId, setDraggedTypeId] = useState("");
   const [draggedCollectionId, setDraggedCollectionId] = useState("");
   const [draggedSubitem, setDraggedSubitem] = useState(null);
   const [dropTargetId, setDropTargetId] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteDestinationId, setDeleteDestinationId] = useState("");
+  const [deleteTypeTarget, setDeleteTypeTarget] = useState(null);
+  const [deleteTypeDestinationKey, setDeleteTypeDestinationKey] = useState("");
   const dragEndedAtRef = useRef(0);
+  const typeNameBeforeEditRef = useRef("");
   const collectionNameBeforeEditRef = useRef("");
 
-  const collectionsByType = useMemo(() => ({
-    [PHOTO_TYPES.FULL_PROJECT]: photoCollections.filter((entry) => entry.photo_type === PHOTO_TYPES.FULL_PROJECT),
-    [PHOTO_TYPES.PARTIAL_PROJECT]: photoCollections.filter((entry) => entry.photo_type === PHOTO_TYPES.PARTIAL_PROJECT),
-  }), [photoCollections]);
+  const selectedType = photoTypes.find((entry) => entry.storage_key === photoTab) ?? null;
+  const detailMode = isDetailPhotoType(selectedType);
+  const collectionsByType = useMemo(() => Object.fromEntries(photoTypes.map((photoType) => [
+    photoType.storage_key,
+    photoCollections.filter((collection) => collection.photo_type === photoType.storage_key),
+  ])), [photoCollections, photoTypes]);
   const subitemEntries = useMemo(() => photoCatalog.flatMap((item) => (
     (item.subitems ?? []).map((subitem) => ({ ...subitem, parentId: item.id, parentName: item.name }))
   )), [photoCatalog]);
 
   useEffect(() => {
-    const next = {
-      [PHOTO_TYPES.FULL_PROJECT]: collectionsByType[PHOTO_TYPES.FULL_PROJECT]
-        .some((entry) => entry.id === selectedCollections[PHOTO_TYPES.FULL_PROJECT])
-        ? selectedCollections[PHOTO_TYPES.FULL_PROJECT]
-        : collectionsByType[PHOTO_TYPES.FULL_PROJECT][0]?.id ?? "",
-      [PHOTO_TYPES.PARTIAL_PROJECT]: collectionsByType[PHOTO_TYPES.PARTIAL_PROJECT]
-        .some((entry) => entry.id === selectedCollections[PHOTO_TYPES.PARTIAL_PROJECT])
-        ? selectedCollections[PHOTO_TYPES.PARTIAL_PROJECT]
-        : collectionsByType[PHOTO_TYPES.PARTIAL_PROJECT][0]?.id ?? "",
-    };
-    if (!sameSelection(selectedCollections, next)) setSelectedCollections(next);
-  }, [collectionsByType, selectedCollections]);
+    if (!photoTypes.length || selectedType) return;
+    setPhotoTab(photoTypes[0].storage_key);
+  }, [photoTypes, selectedType, setPhotoTab]);
+
+  useEffect(() => {
+    setSelectedCollections((current) => {
+      const next = { ...current };
+      photoTypes.filter(isGeneralPhotoType).forEach((photoType) => {
+        const typeCollections = collectionsByType[photoType.storage_key] ?? [];
+        if (!typeCollections.some((entry) => entry.id === current[photoType.storage_key])) {
+          next[photoType.storage_key] = typeCollections[0]?.id ?? "";
+        }
+      });
+      return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+    });
+  }, [collectionsByType, photoTypes]);
 
   useEffect(() => {
     if (subitemEntries.some((entry) => entry.id === selectedSubitemId)) return;
     setSelectedSubitemId(subitemEntries[0]?.id ?? "");
   }, [selectedSubitemId, subitemEntries]);
 
-  const selectedTargetId = photoTab === PHOTO_TYPES.SUBITEM
-    ? selectedSubitemId || subitemEntries[0]?.id || ""
-    : selectedCollections[photoTab] || collectionsByType[photoTab]?.[0]?.id || "";
-  const selectedCollection = photoTab === PHOTO_TYPES.SUBITEM
-    ? null
-    : collectionsByType[photoTab]?.find((entry) => entry.id === selectedTargetId) ?? null;
-  const selectedSubitem = photoTab === PHOTO_TYPES.SUBITEM
+  const selectedSubitem = detailMode
     ? subitemEntries.find((entry) => entry.id === selectedSubitemId) ?? null
     : null;
+
+  useEffect(() => {
+    if (!detailMode || !selectedSubitem?.parentId) return;
+    setExpandedDetailItemId(selectedSubitem.parentId);
+  }, [detailMode, selectedSubitem?.parentId]);
+
+  const selectedTargetId = detailMode
+    ? selectedSubitemId
+    : selectedCollections[photoTab] || collectionsByType[photoTab]?.[0]?.id || "";
+  const selectedCollection = detailMode
+    ? null
+    : collectionsByType[photoTab]?.find((entry) => entry.id === selectedTargetId) ?? null;
   const selectedPhotos = selectedTargetId ? getPhotosForTarget(photoTab, selectedTargetId) : [];
   const primaryPhoto = getPrimaryPhoto(selectedPhotos);
-  const selectedLabel = photoTab === PHOTO_TYPES.SUBITEM
+  const selectedLabel = detailMode
     ? selectedSubitem?.name || "세부항목"
-    : selectedCollection?.name || "사진";
+    : selectedCollection?.name || selectedType?.display_name || "사진";
   const collectionDeletePhotos = deleteTarget
     ? getPhotosForTarget(deleteTarget.photo_type, deleteTarget.id)
     : [];
   const deleteDestinations = deleteTarget
-    ? collectionsByType[deleteTarget.photo_type].filter((entry) => entry.id !== deleteTarget.id)
+    ? (collectionsByType[deleteTarget.photo_type] ?? []).filter((entry) => entry.id !== deleteTarget.id)
+    : [];
+  const deleteTypeCollections = deleteTypeTarget
+    ? photoCollections.filter((entry) => entry.photo_type === deleteTypeTarget.storage_key)
+    : [];
+  const deleteTypePhotos = deleteTypeTarget
+    ? photos.filter((entry) => (entry.target_type ?? entry.photo_type) === deleteTypeTarget.storage_key)
+    : [];
+  const deleteTypeDestinations = deleteTypeTarget
+    ? photoTypes.filter((entry) => entry.id !== deleteTypeTarget.id && isGeneralPhotoType(entry))
     : [];
 
   function clearDragState() {
     dragEndedAtRef.current = Date.now();
     setDraggedPhotoId("");
+    setDraggedTypeId("");
     setDraggedCollectionId("");
     setDraggedSubitem(null);
     setDropTargetId("");
@@ -101,6 +163,7 @@ export default function PhotoManagementPage({ controller }) {
 
   function selectType(nextType) {
     setPhotoTab(nextType);
+    setNewTypeOpen(false);
     setNewCollectionOpen(false);
     setNewCollectionName("");
     setViewerIndex(null);
@@ -108,12 +171,19 @@ export default function PhotoManagementPage({ controller }) {
     setPhotoNotice("");
   }
 
+  async function handleAddType() {
+    const created = await addPhotoType(newTypeName);
+    if (!created) return;
+    setNewTypeOpen(false);
+    setNewTypeName("");
+    setPhotoTab(created.storage_key);
+  }
+
   async function handleAddCollection() {
     const created = await addCollection(photoTab, newCollectionName);
-    if (created) {
-      setNewCollectionOpen(false);
-      setNewCollectionName("");
-    }
+    if (!created) return;
+    setNewCollectionOpen(false);
+    setNewCollectionName("");
   }
 
   async function handleRefresh() {
@@ -147,21 +217,110 @@ export default function PhotoManagementPage({ controller }) {
   function renderTypeSidebar() {
     return (
       <aside className="photo-type-sidebar" aria-label="사진 유형">
-        <div className="photo-sidebar-header">사진 유형</div>
-        <div className="photo-sidebar-list">
-          {PHOTO_TAB_OPTIONS.map((option) => (
-            <button
-              type="button"
-              key={option.key}
-              className={photoTab === option.key ? "active" : ""}
-              onClick={() => selectType(option.key)}
-            >
-              <span>{option.label}</span>
-              <em>{option.key === PHOTO_TYPES.SUBITEM
-                ? subitemEntries.length
-                : collectionsByType[option.key].length}</em>
+        <div className="photo-sidebar-header"><span>사진 유형</span><strong>{photoTypes.length}개</strong></div>
+        <div className="photo-sidebar-list photo-type-list formate-scroll-light">
+          {photoTypes.map((photoType) => {
+            const typePhotoCount = photos.filter((photo) => (
+              (photo.target_type ?? photo.photo_type) === photoType.storage_key
+            )).length;
+            const editing = editingTypeId === photoType.id;
+            return (
+              <div
+                className={`photo-type-row ${photoTab === photoType.storage_key ? "active" : ""} ${dropTargetId === photoType.id ? "drop-target" : ""}`.trim()}
+                key={photoType.id}
+                onDragOver={(event) => {
+                  if (!draggedTypeId) return;
+                  event.preventDefault();
+                  setDropTargetId(photoType.id);
+                }}
+                onDrop={async (event) => {
+                  event.preventDefault();
+                  if (!draggedTypeId) return;
+                  await reorderPhotoTypes(draggedTypeId, photoType.id);
+                  clearDragState();
+                }}
+              >
+                <span
+                  className="photo-drag-handle"
+                  draggable={!photoSaving}
+                  onDragStart={(event) => {
+                    event.stopPropagation();
+                    setDraggedTypeId(photoType.id);
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", photoType.id);
+                  }}
+                  onDragEnd={clearDragState}
+                  aria-label={`${photoType.display_name} 유형 순서 변경`}
+                >
+                  <GripVertical size={16} strokeWidth={1.5} />
+                </span>
+                {editing ? (
+                  <input
+                    autoFocus
+                    value={photoTypeDrafts[photoType.id] ?? photoType.display_name ?? ""}
+                    onFocus={(event) => { typeNameBeforeEditRef.current = event.currentTarget.value; }}
+                    onChange={(event) => changePhotoTypeName(photoType.id, event.target.value)}
+                    onBlur={(event) => {
+                      if (!event.currentTarget.value.trim()) {
+                        cancelPhotoTypeNameEdit(photoType.id, typeNameBeforeEditRef.current || photoType.display_name);
+                      }
+                      setEditingTypeId("");
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelPhotoTypeNameEdit(photoType.id, typeNameBeforeEditRef.current || photoType.display_name);
+                        setEditingTypeId("");
+                      }
+                    }}
+                    aria-label="사진 유형명"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="photo-type-select"
+                    onClick={() => selectType(photoType.storage_key)}
+                    onDoubleClick={() => setEditingTypeId(photoType.id)}
+                    title={photoType.display_name}
+                  >
+                    <span className="photo-sidebar-item-label">{photoType.display_name}</span>
+                    <em>{typePhotoCount}</em>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="photo-row-menu-button"
+                  onClick={() => { setDeleteTypeTarget(photoType); setDeleteTypeDestinationKey(""); }}
+                  disabled={photoSaving}
+                  aria-label={`${photoType.display_name} 유형 관리`}
+                  title="이름 변경 또는 유형 정리"
+                >
+                  <MoreVertical size={16} strokeWidth={1.5} />
+                </button>
+              </div>
+            );
+          })}
+          {newTypeOpen ? (
+            <div className="photo-category-add-form photo-type-add-form">
+              <input
+                autoFocus
+                value={newTypeName}
+                onChange={(event) => setNewTypeName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") handleAddType();
+                  if (event.key === "Escape") setNewTypeOpen(false);
+                }}
+                aria-label="새 사진 유형명"
+              />
+              <button type="button" onClick={handleAddType} disabled={photoSaving} aria-label="사진 유형 추가 저장"><Check size={16} /></button>
+              <button type="button" onClick={() => setNewTypeOpen(false)} aria-label="사진 유형 추가 취소"><X size={16} /></button>
+            </div>
+          ) : (
+            <button type="button" className="photo-category-add-row" onClick={() => setNewTypeOpen(true)} aria-label="사진 유형 추가">
+              <Plus size={18} strokeWidth={1.5} />
             </button>
-          ))}
+          )}
         </div>
       </aside>
     );
@@ -170,9 +329,9 @@ export default function PhotoManagementPage({ controller }) {
   function renderCollectionSidebar() {
     const collections = collectionsByType[photoTab] ?? [];
     return (
-      <aside className="photo-category-sidebar" aria-label={`${PHOTO_TAB_OPTIONS.find((entry) => entry.key === photoTab)?.label ?? "사진"} 분류`}>
+      <aside className="photo-category-sidebar" aria-label={`${selectedType?.display_name ?? "사진"} 분류`}>
         <div className="photo-sidebar-header"><span>분류</span><strong>{collections.length}개</strong></div>
-        <div className="photo-sidebar-list">
+        <div className="photo-sidebar-list formate-scroll-light">
           {collections.map((collection) => {
             const count = getPhotosForTarget(photoTab, collection.id).length;
             return (
@@ -195,6 +354,7 @@ export default function PhotoManagementPage({ controller }) {
                     clearDragState();
                   }
                 }}
+                title={collection.name}
               >
                 <span
                   className="photo-drag-handle"
@@ -243,55 +403,76 @@ export default function PhotoManagementPage({ controller }) {
   function renderSubitemSidebar() {
     return (
       <aside className="photo-category-sidebar photo-subitem-sidebar" aria-label="세부항목 분류">
-        <div className="photo-sidebar-header"><span>세부항목</span><strong>{subitemEntries.length}개</strong></div>
+        <div className="photo-sidebar-header"><span>대분류와 세부항목</span><strong>{subitemEntries.length}개</strong></div>
         <div className="photo-subitem-sidebar-list formate-scroll-light">
-          {photoCatalog.map((item) => (
-            <div className="photo-subitem-sidebar-group" key={item.id}>
-              <strong>{item.name}</strong>
-              {(item.subitems ?? []).map((subitem) => {
-                const count = getPhotosForTarget(PHOTO_TYPES.SUBITEM, subitem.id).length;
-                return (
-                  <button
-                    type="button"
-                    key={subitem.id}
-                    className={`${selectedSubitemId === subitem.id ? "active" : ""} ${dropTargetId === subitem.id ? "drop-target" : ""}`.trim()}
-                    onClick={() => setSelectedSubitemId(subitem.id)}
-                    onDragOver={(event) => {
-                      if (!draggedPhotoId && !draggedSubitem) return;
-                      event.preventDefault();
-                      setDropTargetId(subitem.id);
-                    }}
-                    onDrop={async (event) => {
-                      event.preventDefault();
-                      if (draggedPhotoId) {
-                        await handlePhotoDrop(event, PHOTO_TYPES.SUBITEM, subitem.id, count);
-                      } else if (draggedSubitem?.itemId === item.id) {
-                        await reorderSubitems(item.id, draggedSubitem.id, subitem.id);
-                        clearDragState();
-                      }
-                    }}
-                  >
-                    <span
-                      className="photo-drag-handle"
-                      draggable={!photoSaving}
-                      onDragStart={(event) => {
-                        event.stopPropagation();
-                        setDraggedSubitem({ itemId: item.id, id: subitem.id });
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData("text/plain", subitem.id);
-                      }}
-                      onDragEnd={clearDragState}
-                      aria-label={`${subitem.name} 순서 변경`}
-                    >
-                      <GripVertical size={16} strokeWidth={1.5} />
-                    </span>
-                    <span className="photo-sidebar-item-label">{subitem.name}</span>
-                    <em>{count}</em>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+          {photoCatalog.map((item) => {
+            const expanded = expandedDetailItemId === item.id;
+            const categoryCount = (item.subitems ?? []).reduce((sum, subitem) => (
+              sum + getPhotosForTarget(selectedType.storage_key, subitem.id).length
+            ), 0);
+            return (
+              <section className="photo-subitem-sidebar-group" key={item.id}>
+                <button
+                  type="button"
+                  className="photo-subitem-group-toggle"
+                  onClick={() => setExpandedDetailItemId((current) => current === item.id ? "" : item.id)}
+                  aria-expanded={expanded}
+                  title={item.name}
+                >
+                  {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  <span className="photo-sidebar-item-label">{item.name}</span>
+                  <em>{categoryCount}</em>
+                </button>
+                {expanded && (
+                  <div className="photo-subitem-group-children">
+                    {(item.subitems ?? []).map((subitem) => {
+                      const count = getPhotosForTarget(selectedType.storage_key, subitem.id).length;
+                      return (
+                        <button
+                          type="button"
+                          key={subitem.id}
+                          className={`${selectedSubitemId === subitem.id ? "active" : ""} ${dropTargetId === subitem.id ? "drop-target" : ""}`.trim()}
+                          onClick={() => setSelectedSubitemId(subitem.id)}
+                          onDragOver={(event) => {
+                            if (!draggedPhotoId && !draggedSubitem) return;
+                            event.preventDefault();
+                            setDropTargetId(subitem.id);
+                          }}
+                          onDrop={async (event) => {
+                            event.preventDefault();
+                            if (draggedPhotoId) {
+                              await handlePhotoDrop(event, selectedType.storage_key, subitem.id, count);
+                            } else if (draggedSubitem?.itemId === item.id) {
+                              await reorderSubitems(item.id, draggedSubitem.id, subitem.id);
+                              clearDragState();
+                            }
+                          }}
+                          title={subitem.name}
+                        >
+                          <span
+                            className="photo-drag-handle"
+                            draggable={!photoSaving}
+                            onDragStart={(event) => {
+                              event.stopPropagation();
+                              setDraggedSubitem({ itemId: item.id, id: subitem.id });
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", subitem.id);
+                            }}
+                            onDragEnd={clearDragState}
+                            aria-label={`${subitem.name} 순서 변경`}
+                          >
+                            <GripVertical size={16} strokeWidth={1.5} />
+                          </span>
+                          <span className="photo-sidebar-item-label">{subitem.name}</span>
+                          <em>{count}</em>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            );
+          })}
         </div>
       </aside>
     );
@@ -299,9 +480,9 @@ export default function PhotoManagementPage({ controller }) {
 
   function renderPhotoGrid() {
     if (!selectedTargetId) {
-      return <EmptyState className="compact-empty" icon={<Image size={24} />} title="선택할 분류가 없습니다" description={photoTab === PHOTO_TYPES.SUBITEM ? "단가표에서 세부항목을 준비해 주세요." : "왼쪽의 + 버튼으로 분류를 추가해 주세요."} />;
+      return <EmptyState className="compact-empty" icon={<Image size={24} />} title="선택할 분류가 없습니다" description={detailMode ? "단가표에서 세부항목을 준비해 주세요." : "왼쪽의 + 버튼으로 분류를 추가해 주세요."} />;
     }
-    const limitReached = photoTab === PHOTO_TYPES.SUBITEM && selectedPhotos.length >= MAX_SUBITEM_PHOTO_COUNT;
+    const limitReached = detailMode && selectedPhotos.length >= MAX_SUBITEM_PHOTO_COUNT;
     return (
       <div className="photo-thumb-grid" data-photo-grid={selectedTargetId}>
         {selectedPhotos.map((photo, index) => {
@@ -366,29 +547,35 @@ export default function PhotoManagementPage({ controller }) {
   return (
     <main className="panel-page photo-management-page">
       <section className="photo-management-panel">
-        <PageHeader
-          eyebrow="사진 관리/확인"
-          title="업체 사진 자료실"
-          actions={(
-            <>
-              <Button variant="secondary" leftIcon={<RefreshCcw />} onClick={handleRefresh} disabled={photoLoading || photoSaving}>새로고침</Button>
-              <Button leftIcon={<Save />} onClick={flushPendingChanges} disabled={!hasPendingPhotoChanges || photoLoading || photoSaving}>저장</Button>
-            </>
-          )}
-        />
-        {photoAutoSaveStatus !== "idle" && <div className={`photo-autosave-status ${photoAutoSaveStatus}`.trim()}><span>{photoAutoSaveStatus === "dirty" ? "저장 대기" : photoAutoSaveStatus === "saving" ? "저장 중..." : photoAutoSaveStatus === "error" ? "저장 실패" : "저장됨"}</span><strong>{photoAutoSaveMessage}</strong></div>}
-        {photoLoading && <div className="info-box">사진 데이터를 불러오는 중입니다.</div>}
-        {photoNotice && <div className="success-box">{photoNotice}</div>}
-        {photoError && <div className="error-box">{photoError}</div>}
+        <header className="photo-management-toolbar">
+          <h1>사진 관리/확인</h1>
+          <div className="photo-management-toolbar-actions">
+            {photoAutoSaveStatus !== "idle" && (
+              <div className={`photo-autosave-status ${photoAutoSaveStatus}`.trim()}>
+                <span>{photoAutoSaveStatus === "dirty" ? "저장 대기" : photoAutoSaveStatus === "saving" ? "저장 중" : photoAutoSaveStatus === "error" ? "저장 실패" : "저장됨"}</span>
+                <strong>{photoAutoSaveMessage}</strong>
+              </div>
+            )}
+            <Button variant="secondary" leftIcon={<RefreshCcw />} onClick={handleRefresh} disabled={photoLoading || photoSaving}>새로고침</Button>
+            <Button leftIcon={<Save />} onClick={flushPendingChanges} disabled={!hasPendingPhotoChanges || photoLoading || photoSaving}>저장</Button>
+          </div>
+        </header>
+
+        {(photoLoading || photoNotice || photoError) && (
+          <div className="photo-management-feedback">
+            {photoLoading && <div className="info-box">사진 데이터를 불러오는 중입니다.</div>}
+            {photoNotice && <div className="success-box">{photoNotice}</div>}
+            {photoError && <div className="error-box">{photoError}</div>}
+          </div>
+        )}
 
         {!photoLoading && (
           <div className="photo-management-workspace">
             {renderTypeSidebar()}
-            {photoTab === PHOTO_TYPES.SUBITEM ? renderSubitemSidebar() : renderCollectionSidebar()}
+            {detailMode ? renderSubitemSidebar() : renderCollectionSidebar()}
             <section className="photo-content-panel">
               <header className="photo-content-header">
-                <div>
-                  <span>{PHOTO_TAB_OPTIONS.find((entry) => entry.key === photoTab)?.label}</span>
+                <div className="photo-content-path">
                   {selectedCollection ? (
                     <input
                       value={photoCollectionDrafts[selectedCollection.id] ?? selectedCollection.name ?? ""}
@@ -410,10 +597,15 @@ export default function PhotoManagementPage({ controller }) {
                       disabled={photoSaving}
                       aria-label="사진 분류명"
                     />
+                  ) : detailMode && selectedSubitem ? (
+                    <h2 title={`${selectedSubitem.parentName} > ${selectedSubitem.name}`}>
+                      <span>{selectedSubitem.parentName}</span>
+                      <ChevronRight size={16} aria-hidden="true" />
+                      <strong>{selectedSubitem.name}</strong>
+                    </h2>
                   ) : (
-                    <h2>{selectedLabel}</h2>
+                    <h2>{selectedType?.display_name ?? "사진"}</h2>
                   )}
-                  {photoTab === PHOTO_TYPES.SUBITEM && selectedSubitem?.parentName && <small>{selectedSubitem.parentName}</small>}
                 </div>
                 <div className="photo-content-actions">
                   <span>{selectedPhotos.length}장</span>
@@ -424,7 +616,7 @@ export default function PhotoManagementPage({ controller }) {
                   )}
                 </div>
               </header>
-              {renderPhotoGrid()}
+              <div className="photo-grid-scroll formate-scroll-light">{renderPhotoGrid()}</div>
             </section>
           </div>
         )}
@@ -438,6 +630,37 @@ export default function PhotoManagementPage({ controller }) {
           getPhotoUrl={getPhotoImageUrl}
           getPhotoAlt={(photo) => photo?.original_filename || `${selectedLabel} 사진`}
         />
+      )}
+
+      {deleteTypeTarget && (
+        <div className="modal-backdrop photo-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteTypeTarget(null); }}>
+          <section className="modal photo-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="photo-type-delete-title">
+            <h3 id="photo-type-delete-title">{deleteTypeTarget.display_name} 유형 관리</h3>
+            <p>분류 {deleteTypeCollections.length}개, 사진 {deleteTypePhotos.length}장이 연결되어 있습니다.</p>
+            <div className="photo-type-name-action">
+              <Button variant="secondary" onClick={() => { setEditingTypeId(deleteTypeTarget.id); setDeleteTypeTarget(null); }}>이름 변경</Button>
+            </div>
+            {(deleteTypeCollections.length > 0 || deleteTypePhotos.length > 0) && !isDetailPhotoType(deleteTypeTarget) && deleteTypeDestinations.length > 0 && (
+              <label>
+                <span>분류와 사진을 이동할 유형</span>
+                <select value={deleteTypeDestinationKey} onChange={(event) => setDeleteTypeDestinationKey(event.target.value)}>
+                  <option value="">유형 선택</option>
+                  {deleteTypeDestinations.map((entry) => <option value={entry.storage_key} key={entry.id}>{entry.display_name}</option>)}
+                </select>
+              </label>
+            )}
+            <div className="photo-delete-actions">
+              {(deleteTypeCollections.length > 0 || deleteTypePhotos.length > 0) && !isDetailPhotoType(deleteTypeTarget) && deleteTypeDestinations.length > 0 && (
+                <Button variant="secondary" onClick={async () => { if (await removePhotoType(deleteTypeTarget, { mode: "move", destinationStorageKey: deleteTypeDestinationKey })) setDeleteTypeTarget(null); }} disabled={!deleteTypeDestinationKey || photoSaving}>이동 후 유형 정리</Button>
+              )}
+              {!deleteTypeTarget.is_system && deleteTypeCollections.length === 0 && deleteTypePhotos.length === 0 && (
+                <Button variant="tertiary" className="danger-text" onClick={async () => { if (await removePhotoType(deleteTypeTarget, { mode: "delete" })) setDeleteTypeTarget(null); }} disabled={photoSaving}>유형 삭제</Button>
+              )}
+              <Button variant="tertiary" onClick={async () => { if (await removePhotoType(deleteTypeTarget, { mode: "archive" })) setDeleteTypeTarget(null); }} disabled={photoSaving}>유형 보관</Button>
+              <Button variant="tertiary" onClick={() => setDeleteTypeTarget(null)}>취소</Button>
+            </div>
+          </section>
+        </div>
       )}
 
       {deleteTarget && (

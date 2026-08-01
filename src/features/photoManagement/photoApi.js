@@ -4,11 +4,23 @@ import { normalizeAdminItems } from "../priceTable/priceTableModel";
 import {
   PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS,
   PHOTO_STORAGE_BUCKET,
-  PHOTO_TYPES,
   buildPhotoPlacementUpdates,
   buildPhotoInsertPayload,
   buildPhotoStoragePath,
 } from "./photoModel";
+
+async function fetchPhotoTypes(companyId) {
+  const result = await supabase
+    .from("photo_types")
+    .select("*")
+    .eq("company_id", companyId)
+    .in("stable_kind", ["whole", "partial", "detail", "custom"])
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (result.error) throw result.error;
+  return result.data ?? [];
+}
 
 async function attachSignedPhotoUrls(photoRows = []) {
   const rows = Array.isArray(photoRows) ? photoRows : [];
@@ -29,7 +41,7 @@ async function fetchCollections(companyId) {
     .from("photo_collections")
     .select("*")
     .eq("company_id", companyId)
-    .in("photo_type", [PHOTO_TYPES.FULL_PROJECT, PHOTO_TYPES.PARTIAL_PROJECT])
+    .neq("photo_type", "estimate_progress")
     .order("photo_type", { ascending: true })
     .order("sort_order", { ascending: true });
   if (result.error) throw result.error;
@@ -37,7 +49,10 @@ async function fetchCollections(companyId) {
 }
 
 export async function fetchPhotoManagementData(companyId) {
-  const collections = await fetchCollections(companyId);
+  const [photoTypes, collections] = await Promise.all([
+    fetchPhotoTypes(companyId),
+    fetchCollections(companyId),
+  ]);
   const { data: photoRows, error: photoError } = await supabase
     .from("photos")
     .select("*")
@@ -48,10 +63,88 @@ export async function fetchPhotoManagementData(companyId) {
   const photos = await attachSignedPhotoUrls(photoRows ?? []);
   const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
   return {
+    photoTypes,
     collections,
     photos,
     catalog: normalizeAdminItems(itemRows, subitemRows, []),
   };
+}
+
+export async function insertPhotoType(payload) {
+  const { error } = await supabase.from("photo_types").insert(payload);
+  if (error) throw error;
+}
+
+export async function updatePhotoTypeName({ companyId, photoTypeId, displayName }) {
+  const { error } = await supabase.from("photo_types")
+    .update({ display_name: displayName })
+    .eq("id", photoTypeId)
+    .eq("company_id", companyId);
+  if (error) throw error;
+}
+
+export async function updatePhotoTypeOrder({ companyId, photoTypes }) {
+  for (const [sortOrder, photoType] of photoTypes.entries()) {
+    const { error } = await supabase.from("photo_types")
+      .update({ sort_order: sortOrder })
+      .eq("id", photoType.id)
+      .eq("company_id", companyId);
+    if (error) throw error;
+  }
+}
+
+export async function archivePhotoType({ companyId, photoTypeId }) {
+  const { error } = await supabase.from("photo_types")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", photoTypeId)
+    .eq("company_id", companyId);
+  if (error) throw error;
+}
+
+export async function deleteEmptyPhotoType({ companyId, photoTypeId }) {
+  const { error } = await supabase.from("photo_types")
+    .delete()
+    .eq("id", photoTypeId)
+    .eq("company_id", companyId)
+    .eq("is_system", false);
+  if (error) throw error;
+}
+
+export async function movePhotoTypeContents({
+  companyId,
+  sourceType,
+  destinationType,
+  collections,
+}) {
+  const sourceCollections = collections.filter((collection) => collection.photo_type === sourceType.storage_key);
+  const destinationCount = collections.filter((collection) => collection.photo_type === destinationType.storage_key).length;
+
+  for (const [index, collection] of sourceCollections.entries()) {
+    const { error } = await supabase.from("photo_collections")
+      .update({
+        photo_type: destinationType.storage_key,
+        sort_order: destinationCount + index,
+      })
+      .eq("id", collection.id)
+      .eq("company_id", companyId)
+      .eq("photo_type", sourceType.storage_key);
+    if (error) throw error;
+  }
+
+  const { error: photoError } = await supabase.from("photos")
+    .update({
+      photo_type: destinationType.storage_key,
+      target_type: destinationType.storage_key,
+    })
+    .eq("company_id", companyId)
+    .eq("target_type", sourceType.storage_key);
+  if (photoError) throw photoError;
+
+  if (sourceType.is_system) {
+    await archivePhotoType({ companyId, photoTypeId: sourceType.id });
+  } else {
+    await deleteEmptyPhotoType({ companyId, photoTypeId: sourceType.id });
+  }
 }
 
 export async function fetchPhotosForTarget({ companyId, targetType, targetId }) {

@@ -2,13 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_PHOTO_UPLOAD_BYTES,
   PHOTO_STORAGE_BUCKET,
+  PHOTO_TYPE_KINDS,
   PHOTO_TYPES,
+  buildCustomPhotoType,
   buildPhotoInsertPayload,
   buildPhotoPlacementUpdates,
   buildPhotoStoragePath,
   getPrimaryPhoto,
+  isDetailPhotoType,
+  isGeneralPhotoType,
   reorderRowsById,
   sortPhotos,
+  sortPhotoTypes,
   validatePhotoFile,
 } from "../photoModel";
 
@@ -47,6 +52,33 @@ describe("photo management contracts", () => {
     const rows = [{ id: "a" }, { id: "b" }, { id: "c" }];
     expect(reorderRowsById(rows, "c", "a").map((row) => row.id)).toEqual(["c", "a", "b"]);
     expect(rows.map((row) => row.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("keeps stable behavior separate from editable photo type labels", () => {
+    const renamedDetail = { stable_kind: PHOTO_TYPE_KINDS.DETAIL, display_name: "공종별 사진" };
+    const custom = buildCustomPhotoType({
+      companyId: "company",
+      id: "11111111-1111-4111-8111-111111111111",
+      displayName: "준공 사진",
+      sortOrder: 3,
+    });
+
+    expect(isDetailPhotoType(renamedDetail)).toBe(true);
+    expect(isGeneralPhotoType(renamedDetail)).toBe(false);
+    expect(custom).toMatchObject({
+      company_id: "company",
+      stable_kind: PHOTO_TYPE_KINDS.CUSTOM,
+      display_name: "준공 사진",
+      storage_key: "custom_11111111-1111-4111-8111-111111111111",
+      is_system: false,
+    });
+    expect(isGeneralPhotoType(custom)).toBe(true);
+  });
+
+  it("sorts photo types by persisted order without mutating the source", () => {
+    const rows = [{ id: "later", sort_order: 2 }, { id: "first", sort_order: 0 }];
+    expect(sortPhotoTypes(rows).map((entry) => entry.id)).toEqual(["first", "later"]);
+    expect(rows.map((entry) => entry.id)).toEqual(["later", "first"]);
   });
 
   it("moves only the selected photo and keeps at most one primary per target", () => {

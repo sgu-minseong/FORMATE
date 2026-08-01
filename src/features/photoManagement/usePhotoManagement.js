@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  archivePhotoType,
+  deleteEmptyPhotoType,
   fetchPhotoManagementData as fetchPhotoData,
   insertPhotoCollection,
+  insertPhotoType,
   moveCollectionPhotos,
+  movePhotoTypeContents,
   persistPhotoPlacement,
   removePhoto,
   removePhotoCollection,
   updatePhotoCollectionOrder,
   updatePhotoCollectionName,
+  updatePhotoTypeName,
+  updatePhotoTypeOrder,
   updatePrimaryPhoto,
   updatePhotoSubitemOrder,
   uploadPhoto,
@@ -16,10 +22,12 @@ import { createPhotoAutosave, runQueuedPhotoChanges } from "./photoAutosave";
 import {
   MAX_SUBITEM_PHOTO_COUNT,
   PHOTO_TYPES,
+  buildCustomPhotoType,
   buildPhotoPlacementUpdates,
   getPhotoTargetId,
   getPhotosForTarget,
   reorderRowsById,
+  sortPhotoTypes,
   validatePhotoFile,
 } from "./photoModel";
 
@@ -27,6 +35,8 @@ const PHOTO_AUTOSAVE_TARGET = "photo-management";
 
 export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError }) {
   const [photoTab, setPhotoTab] = useState(PHOTO_TYPES.FULL_PROJECT);
+  const [photoTypes, setPhotoTypes] = useState([]);
+  const [photoTypeDrafts, setPhotoTypeDrafts] = useState({});
   const [photoCollections, setPhotoCollections] = useState([]);
   const [photoCollectionDrafts, setPhotoCollectionDrafts] = useState({});
   const [photos, setPhotos] = useState([]);
@@ -40,6 +50,7 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
   const [hasPendingPhotoChanges, setHasPendingPhotoChanges] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const [photoNotice, setPhotoNotice] = useState("");
+  const typesRef = useRef([]);
   const collectionsRef = useRef([]);
   const photosRef = useRef([]);
   const catalogRef = useRef([]);
@@ -47,6 +58,13 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
   const mountedRef = useRef(true);
   const flushQueueRef = useRef(async () => true);
   const autosaveRef = useRef(null);
+
+  const setTypesState = (nextValue) => {
+    const next = typeof nextValue === "function" ? nextValue(typesRef.current) : nextValue;
+    typesRef.current = sortPhotoTypes(next);
+    setPhotoTypes(typesRef.current);
+    return typesRef.current;
+  };
 
   const setCollectionsState = (nextValue) => {
     const next = typeof nextValue === "function" ? nextValue(collectionsRef.current) : nextValue;
@@ -98,6 +116,10 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
     if (resetFeedback) setPhotoNotice("");
     try {
       const data = await fetchPhotoData(companyId);
+      setTypesState(data.photoTypes);
+      setPhotoTypeDrafts(Object.fromEntries(
+        data.photoTypes.map((photoType) => [photoType.id, photoType.display_name ?? ""])
+      ));
       setCollectionsState(data.collections);
       setPhotoCollectionDrafts(Object.fromEntries(
         data.collections.map((collection) => [collection.id, collection.name ?? ""])
@@ -106,7 +128,7 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
       setCatalogState(data.catalog);
       return true;
     } catch (error) {
-      setPhotoError(getFriendlyError(error, "사진 관리 데이터를 불러오지 못했습니다. supabase/photo_management.sql 적용 여부를 확인해 주세요."));
+      setPhotoError(getFriendlyError(error, "사진 관리 데이터를 불러오지 못했습니다. 사진 관리 SQL 적용 상태를 확인해 주세요."));
       return false;
     } finally {
       setPhotoLoading(false);
@@ -175,8 +197,128 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
     }
   }
 
+  async function addPhotoType(requestedName) {
+    const displayName = `${requestedName ?? ""}`.trim();
+    if (!displayName) {
+      setPhotoError("사진 유형명을 입력해 주세요.");
+      return false;
+    }
+    const id = createPhotoId();
+    const photoType = buildCustomPhotoType({
+      companyId,
+      id,
+      displayName,
+      sortOrder: typesRef.current.length,
+    });
+    setTypesState((current) => [...current, photoType]);
+    setPhotoTypeDrafts((current) => ({ ...current, [photoType.id]: displayName }));
+    queueChange({
+      key: `photo-type-add:${photoType.id}`,
+      execute: () => insertPhotoType(photoType),
+    });
+    return photoType;
+  }
+
+  function changePhotoTypeName(photoTypeId, value) {
+    const draftValue = `${value ?? ""}`;
+    setPhotoTypeDrafts((current) => ({ ...current, [photoTypeId]: draftValue }));
+    const displayName = draftValue.trim();
+    if (!displayName) {
+      removeQueuedChange(`photo-type-name:${photoTypeId}`);
+      return false;
+    }
+    setTypesState((current) => current.map((entry) => (
+      entry.id === photoTypeId ? { ...entry, display_name: displayName } : entry
+    )));
+    queueChange({
+      key: `photo-type-name:${photoTypeId}`,
+      execute: () => updatePhotoTypeName({ companyId, photoTypeId, displayName }),
+    });
+    return true;
+  }
+
+  function cancelPhotoTypeNameEdit(photoTypeId, originalName) {
+    const displayName = `${originalName ?? ""}`.trim();
+    setPhotoTypeDrafts((current) => ({ ...current, [photoTypeId]: displayName }));
+    setTypesState((current) => current.map((entry) => (
+      entry.id === photoTypeId ? { ...entry, display_name: displayName } : entry
+    )));
+    if (!displayName) {
+      removeQueuedChange(`photo-type-name:${photoTypeId}`);
+      return;
+    }
+    queueChange({
+      key: `photo-type-name:${photoTypeId}`,
+      execute: () => updatePhotoTypeName({ companyId, photoTypeId, displayName }),
+    });
+  }
+
+  async function reorderPhotoTypes(draggedId, dropId) {
+    const reordered = reorderRowsById(typesRef.current, draggedId, dropId)
+      .map((entry, sortOrder) => ({ ...entry, sort_order: sortOrder }));
+    if (reordered.map((entry) => entry.id).join("|") === typesRef.current.map((entry) => entry.id).join("|")) return false;
+    setTypesState(reordered);
+    queueChange({
+      key: "photo-type-order",
+      execute: () => updatePhotoTypeOrder({ companyId, photoTypes: reordered }),
+    });
+    return true;
+  }
+
+  async function removePhotoType(photoType, { mode = "archive", destinationStorageKey = "" } = {}) {
+    const currentCollections = collectionsRef.current;
+    const currentPhotos = photosRef.current;
+    const sourceCollections = currentCollections.filter((collection) => collection.photo_type === photoType.storage_key);
+    const sourcePhotos = currentPhotos.filter((photo) => (photo.target_type ?? photo.photo_type) === photoType.storage_key);
+    const hasContent = sourceCollections.length > 0 || sourcePhotos.length > 0;
+    const destinationType = typesRef.current.find((entry) => entry.storage_key === destinationStorageKey);
+
+    if (mode === "move" && (!destinationType || destinationType.id === photoType.id || destinationType.stable_kind === "detail")) {
+      setPhotoError("사진과 분류를 이동할 일반 사진 유형을 선택해 주세요.");
+      return false;
+    }
+    if (mode === "delete" && (photoType.is_system || hasContent)) {
+      setPhotoError("기본 유형 또는 데이터가 있는 유형은 보관하거나 이동한 뒤 정리해 주세요.");
+      return false;
+    }
+
+    setTypesState((current) => current.filter((entry) => entry.id !== photoType.id));
+    if (mode === "move") {
+      const destinationCount = currentCollections.filter((collection) => collection.photo_type === destinationType.storage_key).length;
+      setCollectionsState((current) => {
+        let movedIndex = 0;
+        return current.map((collection) => collection.photo_type === photoType.storage_key
+          ? { ...collection, photo_type: destinationType.storage_key, sort_order: destinationCount + movedIndex++ }
+          : collection);
+      });
+      setPhotosState((current) => current.map((photo) => (
+        (photo.target_type ?? photo.photo_type) === photoType.storage_key
+          ? { ...photo, photo_type: destinationType.storage_key, target_type: destinationType.storage_key }
+          : photo
+      )));
+    }
+
+    queueChange({
+      key: `photo-type-remove:${photoType.id}`,
+      execute: () => {
+        if (mode === "move") {
+          return movePhotoTypeContents({
+            companyId,
+            sourceType: photoType,
+            destinationType,
+            collections: currentCollections,
+          });
+        }
+        if (mode === "delete") return deleteEmptyPhotoType({ companyId, photoTypeId: photoType.id });
+        return archivePhotoType({ companyId, photoTypeId: photoType.id });
+      },
+    });
+    return true;
+  }
+
   async function addCollection(photoType, requestedName) {
-    if (![PHOTO_TYPES.FULL_PROJECT, PHOTO_TYPES.PARTIAL_PROJECT].includes(photoType)) return false;
+    const activeType = typesRef.current.find((entry) => entry.storage_key === photoType);
+    if (!activeType || activeType.stable_kind === "detail") return false;
     const sameType = collectionsRef.current.filter((collection) => collection.photo_type === photoType);
     const name = `${requestedName ?? ""}`.trim();
     if (!name) {
@@ -380,6 +522,8 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
     autosaveRef.current?.reset();
     pendingChangesRef.current = [];
     setPhotoTab(PHOTO_TYPES.FULL_PROJECT);
+    setTypesState([]);
+    setPhotoTypeDrafts({});
     setCollectionsState([]);
     setPhotoCollectionDrafts({});
     setPhotosState([]);
@@ -394,12 +538,15 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
   }
 
   return {
-    photoTab, setPhotoTab, photoCollections, photoCollectionDrafts,
+    photoTab, setPhotoTab, photoTypes, photoTypeDrafts,
+    photoCollections, photoCollectionDrafts,
     photos, photoCatalog, expandedPhotoCategoryIds, setExpandedPhotoCategoryIds,
     photoAutoSaveStatus, photoAutoSaveMessage, photoLoading, photoSaving,
     hasPendingPhotoChanges, photoError, setPhotoError, photoNotice, setPhotoNotice,
     getPhotosForTarget: photosForTarget,
-    refresh, flushPendingChanges, addCollection, changeCollectionName,
+    refresh, flushPendingChanges, addPhotoType, changePhotoTypeName,
+    cancelPhotoTypeNameEdit, reorderPhotoTypes, removePhotoType,
+    addCollection, changeCollectionName,
     cancelCollectionNameEdit, deleteCollection, reorderCollections,
     upload, setPrimary, remove, movePhoto, reorderSubitems, reset,
   };
