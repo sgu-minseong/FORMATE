@@ -32,14 +32,17 @@ function createController(overrides = {}) {
     photoAutoSaveMessage: "",
     photoLoading: false,
     photoSaving: false,
+    hasPendingPhotoChanges: false,
     photoError: "",
     setPhotoError: vi.fn(),
     photoNotice: "",
     setPhotoNotice: vi.fn(),
     getPhotosForTarget: (targetType, targetId) => photos.filter((photo) => photo.target_type === targetType && photo.target_id === targetId),
     refresh: vi.fn(),
+    flushPendingChanges: vi.fn(),
     addCollection: vi.fn(),
-    saveCollectionName: vi.fn(),
+    changeCollectionName: vi.fn(),
+    cancelCollectionNameEdit: vi.fn(),
     deleteCollection: vi.fn(),
     reorderCollections: vi.fn(),
     upload: vi.fn(),
@@ -101,6 +104,7 @@ describe("common photo viewer contracts", () => {
     expect(source).toContain('event.key === "Escape"');
     expect(source).toContain("event.target === event.currentTarget");
     expect(source).toContain('aria-label="사진 확대 보기 닫기"');
+    expect(source).toContain('createPortal(viewer, document.body)');
   });
 });
 
@@ -145,5 +149,34 @@ describe("photo management rendering contracts", () => {
     expect(apiSource).toMatch(/persistPhotoPlacement[\s\S]*?\.eq\("company_id", companyId\)/);
     expect(apiSource).toMatch(/updatePhotoCollectionOrder[\s\S]*?\.eq\("company_id", companyId\)/);
     expect(apiSource).toMatch(/updatePhotoSubitemOrder[\s\S]*?\.eq\("company_id", companyId\)/);
+  });
+
+  it("keeps the add controls, removes per-name save, and exposes one page save action", () => {
+    const markup = renderToStaticMarkup(<PhotoManagementPage controller={createController({ hasPendingPhotoChanges: true })} />);
+
+    expect(markup).toContain("저장</button>");
+    expect(markup).not.toContain("이름 저장");
+    expect(markup).toContain('aria-label="사진 분류 추가"');
+    expect(markup).toContain('aria-label="1000만원대 사진 추가"');
+  });
+
+  it("uses the full-width fluid shell and viewport viewer layout contracts", () => {
+    const styles = fs.readFileSync(path.resolve(process.cwd(), "src/styles/appStyles.js"), "utf8");
+
+    expect(styles).toMatch(/\.photo-management-page\s*\{[\s\S]*?max-width:\s*none\s*!important/);
+    expect(styles).toMatch(/\.photo-management-workspace\s*\{[\s\S]*?grid-template-columns:[^;]*minmax\(0, 1fr\)/);
+    expect(styles).toMatch(/\.photo-viewer-backdrop\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?inset:\s*0;[\s\S]*?width:\s*100vw;[\s\S]*?height:\s*100dvh/);
+    expect(styles).toMatch(/\.photo-viewer-image-wrap > img\s*\{[\s\S]*?max-width:\s*100%;[\s\S]*?max-height:\s*100%;[\s\S]*?object-fit:\s*contain/);
+    expect(styles).toMatch(/\.photo-sidebar-item-label\s*\{[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap/);
+  });
+
+  it("does not leak a previously selected subitem label into project headers", () => {
+    const controller = createController({
+      photoCatalog: [{ id: "demolition", name: "철거", subitems: [{ id: "wall", name: "벽 철거" }] }],
+    });
+    const markup = renderToStaticMarkup(<PhotoManagementPage controller={controller} />);
+
+    expect(markup).toContain("1000만원대");
+    expect(markup).not.toContain("<small>철거</small>");
   });
 });

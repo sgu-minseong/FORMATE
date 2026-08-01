@@ -9925,16 +9925,53 @@ const appStyles = `
   }
   .photo-management-workspace {
     display: grid;
-    grid-template-columns: 148px 232px minmax(0, 1fr);
-    min-height: 620px;
+    grid-template-columns: clamp(144px, 10vw, 168px) clamp(220px, 16vw, 272px) minmax(0, 1fr);
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
     overflow: hidden;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
     background: var(--color-surface);
   }
+  .formate-app-shell--photo-management .formate-app-shell__main {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+  .photo-management-page {
+    width: 100%;
+    max-width: none !important;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .photo-management-page .photo-management-panel {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-1-5) var(--space-page-x) var(--space-page-y);
+  }
+  .photo-management-page .photo-autosave-status {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    margin-bottom: 0;
+  }
   .photo-type-sidebar,
   .photo-category-sidebar {
     min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     border-right: 1px solid var(--color-border);
     background: var(--color-surface);
   }
@@ -9949,14 +9986,18 @@ const appStyles = `
     color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-medium);
+    white-space: nowrap;
   }
   .photo-sidebar-header strong {
     color: var(--color-text-primary);
     font-size: inherit;
   }
   .photo-sidebar-list {
+    min-height: 0;
     display: grid;
+    align-content: start;
     gap: var(--space-1);
+    overflow-y: auto;
     padding: var(--space-2);
   }
   .photo-sidebar-list > button,
@@ -9980,6 +10021,16 @@ const appStyles = `
   }
   .photo-type-sidebar .photo-sidebar-list > button {
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .photo-type-sidebar .photo-sidebar-list > button > span,
+  .photo-sidebar-header > span,
+  .photo-sidebar-header > strong,
+  .photo-subitem-sidebar-group > strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: keep-all;
   }
   .photo-sidebar-list > button:hover,
   .photo-sidebar-list > button:focus-visible,
@@ -10064,7 +10115,9 @@ const appStyles = `
     color: var(--color-text-secondary);
   }
   .photo-subitem-sidebar-list {
-    max-height: 680px;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
     overflow-y: auto;
     padding: var(--space-1) var(--space-2) var(--space-2);
   }
@@ -10084,9 +10137,11 @@ const appStyles = `
   }
   .photo-content-panel {
     min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+    overflow-y: auto;
     padding: var(--space-2);
     background: var(--color-bg);
   }
@@ -10104,6 +10159,7 @@ const appStyles = `
     display: flex;
     align-items: baseline;
     gap: var(--space-1);
+    overflow: hidden;
   }
   .photo-content-header > div:first-child > span,
   .photo-content-header small {
@@ -10118,6 +10174,15 @@ const appStyles = `
     font-size: var(--font-size-section-title);
     font-weight: var(--font-weight-semibold);
     line-height: var(--line-height-section-title);
+    white-space: nowrap;
+  }
+  .photo-content-header h2,
+  .photo-content-header small,
+  .photo-content-header > div:first-child > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: keep-all;
   }
   .photo-content-header input {
     max-width: 280px;
@@ -10167,7 +10232,7 @@ const appStyles = `
     outline: none;
   }
   .photo-content-panel .photo-thumb-grid {
-    grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(164px, 220px));
     align-content: start;
   }
   .photo-thumb-card {
@@ -10299,22 +10364,24 @@ const appStyles = `
   .photo-viewer-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 1200;
+    width: 100vw;
+    height: 100dvh;
+    z-index: 2147483000;
     display: grid;
-    place-items: center;
-    padding: 5dvh 5vw;
+    place-items: stretch;
+    padding: 0;
     background: rgba(13, 18, 17, 0.88);
   }
   .photo-viewer {
-    width: min(90vw, 1440px);
-    height: 90dvh;
+    width: 100vw;
+    height: 100dvh;
     min-height: 0;
     display: grid;
     grid-template-rows: 44px minmax(0, 1fr) auto;
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: var(--radius-card);
-    background: var(--bg-sidebar);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     color: var(--text-inverse);
     box-shadow: var(--shadow-popover);
   }
@@ -10357,7 +10424,8 @@ const appStyles = `
     min-height: 0;
     display: grid;
     place-items: center;
-    padding: var(--space-1) 64px;
+    overflow: hidden;
+    padding: clamp(8px, 2dvh, 24px) clamp(52px, 6vw, 88px);
   }
   .photo-viewer-image-wrap {
     width: 100%;
@@ -10387,13 +10455,14 @@ const appStyles = `
     width: 42px;
     height: 54px;
     transform: translateY(-50%);
+    z-index: 1;
   }
-  .photo-viewer-nav.previous { left: var(--space-1-5); }
-  .photo-viewer-nav.next { right: var(--space-1-5); }
+  .photo-viewer-nav.previous { left: clamp(8px, 2vw, 28px); }
+  .photo-viewer-nav.next { right: clamp(8px, 2vw, 28px); }
   .photo-viewer-thumbnails {
     min-width: 0;
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
     gap: var(--space-1);
     overflow-x: auto;
     padding: var(--space-1-5);
@@ -10426,13 +10495,27 @@ const appStyles = `
   }
   @media (max-width: 1080px) {
     .photo-management-workspace {
-      grid-template-columns: 132px 210px minmax(0, 1fr);
+      grid-template-columns: 144px 220px minmax(0, 1fr);
     }
   }
   @media (max-width: 767px) {
+    .formate-app-shell--photo-management .formate-app-shell__main {
+      overflow-y: auto;
+    }
+    .photo-management-page {
+      height: auto;
+      min-height: 100%;
+      overflow: visible;
+    }
+    .photo-management-page .photo-management-panel {
+      min-height: 100%;
+      padding-right: var(--space-2);
+      padding-left: var(--space-2);
+    }
     .photo-management-workspace {
       grid-template-columns: 1fr;
       min-height: 0;
+      overflow: visible;
     }
     .photo-type-sidebar,
     .photo-category-sidebar {
@@ -10441,6 +10524,7 @@ const appStyles = `
     }
     .photo-type-sidebar .photo-sidebar-list {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+      overflow: visible;
     }
     .photo-subitem-sidebar-list {
       max-height: 260px;

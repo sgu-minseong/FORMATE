@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Image, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export const PHOTO_CLICK_SUPPRESS_MS = 320;
 
@@ -62,7 +63,7 @@ export default function PhotoViewer({
   const currentUrl = getPhotoUrl(currentPhoto);
   const hasMultiple = viewerPhotos.length > 1;
 
-  return (
+  const viewer = (
     <div
       className="photo-viewer-backdrop"
       onMouseDown={(event) => {
@@ -83,7 +84,12 @@ export default function PhotoViewer({
           </button>
         </div>
 
-        <div className="photo-viewer-stage">
+        <div
+          className="photo-viewer-stage"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) onClose?.();
+          }}
+        >
           {hasMultiple && (
             <button
               type="button"
@@ -95,7 +101,12 @@ export default function PhotoViewer({
             </button>
           )}
 
-          <div className="photo-viewer-image-wrap">
+          <div
+            className="photo-viewer-image-wrap"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) onClose?.();
+            }}
+          >
             {currentUrl ? (
               <img src={currentUrl} alt={getPhotoAlt(currentPhoto)} />
             ) : (
@@ -140,4 +151,8 @@ export default function PhotoViewer({
       </section>
     </div>
   );
+
+  return typeof document === "undefined"
+    ? viewer
+    : createPortal(viewer, document.body);
 }

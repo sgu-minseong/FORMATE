@@ -10936,7 +10936,8 @@ export default function AdminApp() {
       )}
 
       {page === "photo-management" && renderAppShell(
-        <PhotoManagementPage controller={photoManagement} />
+        <PhotoManagementPage controller={photoManagement} />,
+        { className: "formate-app-shell--photo-management" }
       )}
 
       {page === "ready" && renderAppShell(

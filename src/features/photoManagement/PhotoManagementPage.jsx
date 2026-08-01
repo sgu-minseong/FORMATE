@@ -1,4 +1,4 @@
-import { Check, GripVertical, Image, MoreVertical, Plus, RefreshCcw, Trash2, X } from "lucide-react";
+import { Check, GripVertical, Image, MoreVertical, Plus, RefreshCcw, Save, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import PhotoViewer, { shouldSuppressPhotoClick } from "../../components/PhotoViewer";
 import Button from "../../components/ui/Button";
@@ -19,10 +19,11 @@ function sameSelection(current, next) {
 
 export default function PhotoManagementPage({ controller }) {
   const {
-    photoTab, setPhotoTab, photoCollections, photoCollectionDrafts, setPhotoCollectionDrafts,
+    photoTab, setPhotoTab, photoCollections, photoCollectionDrafts,
     photoCatalog, photoAutoSaveStatus, photoAutoSaveMessage, photoLoading, photoSaving,
-    photoError, setPhotoError, photoNotice, setPhotoNotice, getPhotosForTarget,
-    refresh, addCollection, saveCollectionName, deleteCollection, reorderCollections,
+    hasPendingPhotoChanges, photoError, setPhotoError, photoNotice, setPhotoNotice, getPhotosForTarget,
+    refresh, flushPendingChanges, addCollection, changeCollectionName, cancelCollectionNameEdit,
+    deleteCollection, reorderCollections,
     upload, setPrimary, remove, movePhoto, reorderSubitems,
   } = controller;
   const [selectedCollections, setSelectedCollections] = useState({
@@ -40,6 +41,7 @@ export default function PhotoManagementPage({ controller }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteDestinationId, setDeleteDestinationId] = useState("");
   const dragEndedAtRef = useRef(0);
+  const collectionNameBeforeEditRef = useRef("");
 
   const collectionsByType = useMemo(() => ({
     [PHOTO_TYPES.FULL_PROJECT]: photoCollections.filter((entry) => entry.photo_type === PHOTO_TYPES.FULL_PROJECT),
@@ -74,10 +76,14 @@ export default function PhotoManagementPage({ controller }) {
   const selectedCollection = photoTab === PHOTO_TYPES.SUBITEM
     ? null
     : collectionsByType[photoTab]?.find((entry) => entry.id === selectedTargetId) ?? null;
-  const selectedSubitem = subitemEntries.find((entry) => entry.id === selectedSubitemId) ?? null;
+  const selectedSubitem = photoTab === PHOTO_TYPES.SUBITEM
+    ? subitemEntries.find((entry) => entry.id === selectedSubitemId) ?? null
+    : null;
   const selectedPhotos = selectedTargetId ? getPhotosForTarget(photoTab, selectedTargetId) : [];
   const primaryPhoto = getPrimaryPhoto(selectedPhotos);
-  const selectedLabel = selectedCollection?.name || selectedSubitem?.name || "사진";
+  const selectedLabel = photoTab === PHOTO_TYPES.SUBITEM
+    ? selectedSubitem?.name || "세부항목"
+    : selectedCollection?.name || "사진";
   const collectionDeletePhotos = deleteTarget
     ? getPhotosForTarget(deleteTarget.photo_type, deleteTarget.id)
     : [];
@@ -108,6 +114,14 @@ export default function PhotoManagementPage({ controller }) {
       setNewCollectionOpen(false);
       setNewCollectionName("");
     }
+  }
+
+  async function handleRefresh() {
+    if (hasPendingPhotoChanges) {
+      const shouldSave = window.confirm("저장 대기 중인 변경 사항을 먼저 저장하고 새로고침할까요?");
+      if (!shouldSave || !(await flushPendingChanges())) return;
+    }
+    await refresh();
   }
 
   function handlePhotoDragStart(event, photoId) {
@@ -352,8 +366,17 @@ export default function PhotoManagementPage({ controller }) {
   return (
     <main className="panel-page photo-management-page">
       <section className="photo-management-panel">
-        <PageHeader eyebrow="사진 관리/확인" title="업체 사진 자료실" actions={<Button variant="secondary" leftIcon={<RefreshCcw />} onClick={() => refresh()} disabled={photoLoading || photoSaving}>새로고침</Button>} />
-        {photoAutoSaveStatus !== "idle" && <div className={`photo-autosave-status ${photoAutoSaveStatus}`.trim()}><span>{photoAutoSaveStatus === "saving" ? "저장 중..." : photoAutoSaveStatus === "error" ? "저장 실패" : "저장됨"}</span><strong>{photoAutoSaveMessage}</strong></div>}
+        <PageHeader
+          eyebrow="사진 관리/확인"
+          title="업체 사진 자료실"
+          actions={(
+            <>
+              <Button variant="secondary" leftIcon={<RefreshCcw />} onClick={handleRefresh} disabled={photoLoading || photoSaving}>새로고침</Button>
+              <Button leftIcon={<Save />} onClick={flushPendingChanges} disabled={!hasPendingPhotoChanges || photoLoading || photoSaving}>저장</Button>
+            </>
+          )}
+        />
+        {photoAutoSaveStatus !== "idle" && <div className={`photo-autosave-status ${photoAutoSaveStatus}`.trim()}><span>{photoAutoSaveStatus === "dirty" ? "저장 대기" : photoAutoSaveStatus === "saving" ? "저장 중..." : photoAutoSaveStatus === "error" ? "저장 실패" : "저장됨"}</span><strong>{photoAutoSaveMessage}</strong></div>}
         {photoLoading && <div className="info-box">사진 데이터를 불러오는 중입니다.</div>}
         {photoNotice && <div className="success-box">{photoNotice}</div>}
         {photoError && <div className="error-box">{photoError}</div>}
@@ -369,23 +392,35 @@ export default function PhotoManagementPage({ controller }) {
                   {selectedCollection ? (
                     <input
                       value={photoCollectionDrafts[selectedCollection.id] ?? selectedCollection.name ?? ""}
-                      onChange={(event) => setPhotoCollectionDrafts((current) => ({ ...current, [selectedCollection.id]: event.target.value }))}
+                      onFocus={(event) => { collectionNameBeforeEditRef.current = event.currentTarget.value; }}
+                      onChange={(event) => changeCollectionName(selectedCollection.id, event.target.value)}
+                      onBlur={(event) => {
+                        if (!event.currentTarget.value.trim()) {
+                          cancelCollectionNameEdit(selectedCollection.id, collectionNameBeforeEditRef.current || selectedCollection.name);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelCollectionNameEdit(selectedCollection.id, collectionNameBeforeEditRef.current || selectedCollection.name);
+                          event.currentTarget.blur();
+                        }
+                      }}
+                      disabled={photoSaving}
                       aria-label="사진 분류명"
                     />
                   ) : (
                     <h2>{selectedLabel}</h2>
                   )}
-                  {selectedSubitem?.parentName && <small>{selectedSubitem.parentName}</small>}
+                  {photoTab === PHOTO_TYPES.SUBITEM && selectedSubitem?.parentName && <small>{selectedSubitem.parentName}</small>}
                 </div>
                 <div className="photo-content-actions">
                   <span>{selectedPhotos.length}장</span>
                   {selectedCollection && (
-                    <>
-                      <Button variant="secondary" size="sm" onClick={() => saveCollectionName(selectedCollection.id)} disabled={photoSaving}>이름 저장</Button>
-                      <button type="button" className="photo-content-menu-button" onClick={() => { setDeleteTarget(selectedCollection); setDeleteDestinationId(""); }} disabled={photoSaving} aria-label="분류 삭제" title="분류 삭제">
-                        <MoreVertical size={18} strokeWidth={1.5} />
-                      </button>
-                    </>
+                    <button type="button" className="photo-content-menu-button" onClick={() => { setDeleteTarget(selectedCollection); setDeleteDestinationId(""); }} disabled={photoSaving} aria-label="분류 삭제" title="분류 삭제">
+                      <MoreVertical size={18} strokeWidth={1.5} />
+                    </button>
                   )}
                 </div>
               </header>
