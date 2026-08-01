@@ -2,10 +2,10 @@ import { supabase } from "../../lib/supabaseClient";
 import { fetchConstructionCatalogRows } from "../priceTable/priceTableApi";
 import { normalizeAdminItems } from "../priceTable/priceTableModel";
 import {
-  PHOTO_COLLECTION_DEFAULT_NAMES,
   PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS,
   PHOTO_STORAGE_BUCKET,
   PHOTO_TYPES,
+  buildPhotoPlacementUpdates,
   buildPhotoInsertPayload,
   buildPhotoStoragePath,
 } from "./photoModel";
@@ -37,20 +37,7 @@ async function fetchCollections(companyId) {
 }
 
 export async function fetchPhotoManagementData(companyId) {
-  let collections = await fetchCollections(companyId);
-  if (!collections.length) {
-    const payloads = [PHOTO_TYPES.FULL_PROJECT, PHOTO_TYPES.PARTIAL_PROJECT].flatMap((photoType) =>
-      PHOTO_COLLECTION_DEFAULT_NAMES.map((name, sortOrder) => ({
-        company_id: companyId,
-        photo_type: photoType,
-        name,
-        sort_order: sortOrder,
-      }))
-    );
-    const { error } = await supabase.from("photo_collections").insert(payloads);
-    if (error) throw error;
-    collections = await fetchCollections(companyId);
-  }
+  const collections = await fetchCollections(companyId);
   const { data: photoRows, error: photoError } = await supabase
     .from("photos")
     .select("*")
@@ -91,11 +78,57 @@ export async function updatePhotoCollectionName({ companyId, collectionId, name 
   if (error) throw error;
 }
 
+export async function updatePhotoCollectionOrder({ companyId, collections }) {
+  for (const [sortOrder, collection] of collections.entries()) {
+    const { error } = await supabase.from("photo_collections")
+      .update({ sort_order: sortOrder })
+      .eq("id", collection.id)
+      .eq("company_id", companyId)
+      .eq("photo_type", collection.photo_type);
+    if (error) throw error;
+  }
+}
+
 export async function removePhotoCollection({ companyId, collection, photos }) {
   const paths = photos.map((photo) => photo.storage_path).filter(Boolean);
-  if (paths.length) await supabase.storage.from(PHOTO_STORAGE_BUCKET).remove(paths);
+  if (paths.length) {
+    const { error: storageError } = await supabase.storage.from(PHOTO_STORAGE_BUCKET).remove(paths);
+    if (storageError) throw storageError;
+  }
   const { error } = await supabase.from("photo_collections").delete()
     .eq("id", collection.id).eq("company_id", companyId);
+  if (error) throw error;
+}
+
+export async function moveCollectionPhotos({ companyId, collection, destination, photos }) {
+  const sourcePhotos = photos.filter((photo) => (
+    photo.company_id === companyId
+    && (photo.target_type ?? photo.photo_type) === collection.photo_type
+    && (photo.target_id ?? photo.collection_id) === collection.id
+  ));
+  const destinationPhotos = photos.filter((photo) => (
+    photo.company_id === companyId
+    && (photo.target_type ?? photo.photo_type) === destination.photo_type
+    && (photo.target_id ?? photo.collection_id) === destination.id
+  ));
+  const destinationHasPrimary = destinationPhotos.some((photo) => photo.is_primary);
+
+  for (const [index, photo] of sourcePhotos.entries()) {
+    const { error } = await supabase.from("photos").update({
+      photo_type: destination.photo_type,
+      target_type: destination.photo_type,
+      target_id: destination.id,
+      collection_id: destination.id,
+      sort_order: destinationPhotos.length + index,
+      is_primary: !destinationHasPrimary && index === 0,
+    }).eq("id", photo.id).eq("company_id", companyId);
+    if (error) throw error;
+  }
+
+  const { error } = await supabase.from("photo_collections").delete()
+    .eq("id", collection.id)
+    .eq("company_id", companyId)
+    .eq("photo_type", collection.photo_type);
   if (error) throw error;
 }
 
@@ -138,4 +171,59 @@ export async function swapPhotoOrder({ companyId, photo, sibling, currentIndex, 
   ]);
   const failed = results.find((result) => result.error);
   if (failed?.error) throw failed.error;
+}
+
+export async function persistPhotoPlacement({ companyId, photos, photoId, targetType, targetId, targetIndex }) {
+  const updates = buildPhotoPlacementUpdates({ photos, photoId, targetType, targetId, targetIndex });
+  if (!updates.length) throw new Error("이동할 사진을 찾지 못했습니다.");
+  const movedUpdate = updates.find((update) => update.id === photoId);
+
+  const { error: demoteError } = await supabase.from("photos")
+    .update({ is_primary: false })
+    .eq("id", photoId)
+    .eq("company_id", companyId);
+  if (demoteError) throw demoteError;
+
+  const { is_primary: movedPrimary, ...movedPayload } = movedUpdate;
+  const { error: movedError } = await supabase.from("photos")
+    .update({ ...movedPayload, is_primary: false })
+    .eq("id", photoId)
+    .eq("company_id", companyId);
+  if (movedError) throw movedError;
+
+  for (const update of updates.filter((entry) => entry.id !== photoId)) {
+    const { id, ...payload } = update;
+    const { error } = await supabase.from("photos")
+      .update(payload)
+      .eq("id", id)
+      .eq("company_id", companyId);
+    if (error) throw error;
+  }
+
+  if (movedPrimary) {
+    const { error } = await supabase.from("photos")
+      .update({ is_primary: true })
+      .eq("id", photoId)
+      .eq("company_id", companyId);
+    if (error) throw error;
+  }
+}
+
+export async function updatePhotoSubitemOrder({ companyId, itemId, subitems }) {
+  const { data: scopedItem, error: itemError } = await supabase
+    .from("construction_items")
+    .select("id")
+    .eq("id", itemId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (itemError) throw itemError;
+  if (!scopedItem?.id) throw new Error("현재 업체의 대분류를 찾지 못했습니다.");
+
+  for (const [sortOrder, subitem] of subitems.entries()) {
+    const { error } = await supabase.from("construction_subitems")
+      .update({ sort_order: sortOrder })
+      .eq("id", subitem.id)
+      .eq("item_id", itemId);
+    if (error) throw error;
+  }
 }

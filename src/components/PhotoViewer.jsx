@@ -1,0 +1,143 @@
+import { ChevronLeft, ChevronRight, Image, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+export const PHOTO_CLICK_SUPPRESS_MS = 320;
+
+export function normalizePhotoViewerIndex(index, length) {
+  if (!length) return 0;
+  return ((Number(index) || 0) % length + length) % length;
+}
+
+export function shouldSuppressPhotoClick(dragEndedAt, now = Date.now()) {
+  return Boolean(dragEndedAt) && now - dragEndedAt < PHOTO_CLICK_SUPPRESS_MS;
+}
+
+export default function PhotoViewer({
+  photos = [],
+  initialIndex = 0,
+  onClose,
+  getPhotoUrl = (photo) => photo?.signed_url || photo?.signedUrl || "",
+  getPhotoAlt = (photo) => photo?.original_filename || "사진",
+}) {
+  const viewerPhotos = useMemo(() => (Array.isArray(photos) ? photos : []), [photos]);
+  const [activeIndex, setActiveIndex] = useState(() => normalizePhotoViewerIndex(initialIndex, viewerPhotos.length));
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    setActiveIndex(normalizePhotoViewerIndex(initialIndex, viewerPhotos.length));
+  }, [initialIndex, viewerPhotos.length]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose?.();
+        return;
+      }
+      if (viewerPhotos.length <= 1) return;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setActiveIndex((current) => normalizePhotoViewerIndex(current - 1, viewerPhotos.length));
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setActiveIndex((current) => normalizePhotoViewerIndex(current + 1, viewerPhotos.length));
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose, viewerPhotos.length]);
+
+  if (!viewerPhotos.length) return null;
+
+  const currentPhoto = viewerPhotos[activeIndex] ?? viewerPhotos[0];
+  const currentUrl = getPhotoUrl(currentPhoto);
+  const hasMultiple = viewerPhotos.length > 1;
+
+  return (
+    <div
+      className="photo-viewer-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
+    >
+      <section
+        className="photo-viewer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="사진 확대 보기"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="photo-viewer-toolbar">
+          <span>{activeIndex + 1} / {viewerPhotos.length}</span>
+          <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="사진 확대 보기 닫기">
+            <X size={22} strokeWidth={1.5} />
+          </button>
+        </div>
+
+        <div className="photo-viewer-stage">
+          {hasMultiple && (
+            <button
+              type="button"
+              className="photo-viewer-nav previous"
+              onClick={() => setActiveIndex((current) => normalizePhotoViewerIndex(current - 1, viewerPhotos.length))}
+              aria-label="이전 사진"
+            >
+              <ChevronLeft size={28} strokeWidth={1.5} />
+            </button>
+          )}
+
+          <div className="photo-viewer-image-wrap">
+            {currentUrl ? (
+              <img src={currentUrl} alt={getPhotoAlt(currentPhoto)} />
+            ) : (
+              <div className="photo-viewer-image-fallback">
+                <Image size={32} strokeWidth={1.5} />
+                <span>사진을 표시할 수 없습니다.</span>
+              </div>
+            )}
+          </div>
+
+          {hasMultiple && (
+            <button
+              type="button"
+              className="photo-viewer-nav next"
+              onClick={() => setActiveIndex((current) => normalizePhotoViewerIndex(current + 1, viewerPhotos.length))}
+              aria-label="다음 사진"
+            >
+              <ChevronRight size={28} strokeWidth={1.5} />
+            </button>
+          )}
+        </div>
+
+        {hasMultiple && (
+          <div className="photo-viewer-thumbnails" aria-label="사진 목록">
+            {viewerPhotos.map((photo, index) => {
+              const thumbnailUrl = getPhotoUrl(photo);
+              return (
+                <button
+                  type="button"
+                  key={photo.id ?? `${thumbnailUrl}-${index}`}
+                  className={index === activeIndex ? "active" : ""}
+                  onClick={() => setActiveIndex(index)}
+                  aria-label={`${index + 1}번째 사진 보기`}
+                  aria-current={index === activeIndex ? "true" : undefined}
+                >
+                  {thumbnailUrl ? <img src={thumbnailUrl} alt="" /> : <Image size={18} strokeWidth={1.5} />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

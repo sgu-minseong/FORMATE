@@ -36,6 +36,7 @@ import {
 } from "./authApi";
 import { useAppSession } from "./useAppSession";
 import PriceText from "../components/PriceText.jsx";
+import PhotoViewer from "../components/PhotoViewer.jsx";
 import AppShell from "../components/layout/AppShell.jsx";
 import Button from "../components/ui/Button.jsx";
 import CategorySidebar from "../components/ui/CategorySidebar.jsx";
@@ -2330,6 +2331,7 @@ export default function AdminApp() {
     isLoadingEstimateItemPhotos, setIsLoadingEstimateItemPhotos,
     estimateItemPhotosError, setEstimateItemPhotosError,
   } = useEstimateDraft();
+  const [estimatePhotoViewerIndex, setEstimatePhotoViewerIndex] = useState(null);
   const [selectedAdminPyeong, setSelectedAdminPyeong] = useState("");
   const [selectedAdminBuildType, setSelectedAdminBuildType] = useState("");
   const [selectedAdminHasExtension, setSelectedAdminHasExtension] = useState(false);
@@ -2911,6 +2913,7 @@ export default function AdminApp() {
     setEstimateConditionDrawerOpen(false);
     setPyeongDropdownOpen(false);
     setConditionLabelEditOpen(false);
+    setEstimatePhotoViewerIndex(null);
   }, [page]);
 
   useEffect(() => {
@@ -5668,6 +5671,7 @@ export default function AdminApp() {
       setSelectedPhotoSubitemName("");
       setEstimateItemPhotos([]);
       setEstimateItemPhotosError("");
+      setEstimatePhotoViewerIndex(null);
       return;
     }
 
@@ -5676,6 +5680,7 @@ export default function AdminApp() {
     setSelectedPhotoSubitemName(subitemName ?? "");
     setEstimateItemPhotos([]);
     setEstimateItemPhotosError("");
+    setEstimatePhotoViewerIndex(null);
 
     if (!subitemId) {
       setEstimateItemPhotosError("이 항목은 세부항목 ID가 없어 사진을 조회할 수 없습니다.");
@@ -5712,6 +5717,7 @@ export default function AdminApp() {
     setEstimateItemPhotos([]);
     setEstimateItemPhotosError("");
     setIsLoadingEstimateItemPhotos(false);
+    setEstimatePhotoViewerIndex(null);
   }
 
   function renderEstimateItemPhotoPanel(row) {
@@ -5744,10 +5750,15 @@ export default function AdminApp() {
               const isPrimary = index === 0 && Boolean(photo.is_primary);
               return (
                 <figure className={isPrimary ? "primary" : ""} key={photo.id}>
-                  <div>
+                  <button
+                    type="button"
+                    className="estimate-item-photo-thumb"
+                    onClick={() => setEstimatePhotoViewerIndex(index)}
+                    aria-label={`${selectedPhotoSubitemName || "세부항목"} ${index + 1}번째 사진 확대 보기`}
+                  >
                     {imageUrl ? <img src={imageUrl} alt={photo.original_filename || selectedPhotoSubitemName || "세부항목 사진"} /> : <Image size={24} />}
                     {isPrimary && <span>대표</span>}
-                  </div>
+                  </button>
                   <figcaption title={photo.original_filename || ""}>{photo.original_filename || "사진"}</figcaption>
                 </figure>
               );
@@ -12912,6 +12923,15 @@ export default function AdminApp() {
           estimate={shareEstimateTarget}
           onShared={handleEstimateShared}
           onClose={() => setShareEstimateTarget(null)}
+        />
+      )}
+      {estimatePhotoViewerIndex !== null && estimateItemPhotos.length > 0 && (
+        <PhotoViewer
+          photos={estimateItemPhotos}
+          initialIndex={estimatePhotoViewerIndex}
+          onClose={() => setEstimatePhotoViewerIndex(null)}
+          getPhotoUrl={getPhotoImageUrl}
+          getPhotoAlt={(photo) => photo?.original_filename || `${selectedPhotoSubitemName || "세부항목"} 사진`}
         />
       )}
     </div>

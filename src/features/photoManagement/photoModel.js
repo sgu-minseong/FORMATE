@@ -54,6 +54,70 @@ export function getPhotoImageUrl(photo) {
   return photo?.signed_url || photo?.signedUrl || "";
 }
 
+export function reorderRowsById(rows = [], draggedId, dropId) {
+  const current = [...rows];
+  const fromIndex = current.findIndex((row) => row.id === draggedId);
+  const toIndex = current.findIndex((row) => row.id === dropId);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return current;
+  const [dragged] = current.splice(fromIndex, 1);
+  current.splice(toIndex, 0, dragged);
+  return current;
+}
+
+export function buildPhotoPlacementUpdates({ photos = [], photoId, targetType, targetId, targetIndex }) {
+  const movedPhoto = photos.find((photo) => photo.id === photoId);
+  if (!movedPhoto || !targetType || !targetId) return [];
+
+  const sourceType = movedPhoto.target_type ?? movedPhoto.photo_type;
+  const sourceId = getPhotoTargetId(movedPhoto);
+  const sameTarget = sourceType === targetType && sourceId === targetId;
+  const sourceRows = getPhotosForTarget(photos, sourceType, sourceId)
+    .filter((photo) => photo.id !== photoId);
+  const destinationRows = sameTarget
+    ? sourceRows
+    : getPhotosForTarget(photos, targetType, targetId).filter((photo) => photo.id !== photoId);
+  const insertIndex = Math.max(0, Math.min(Number.isInteger(targetIndex) ? targetIndex : destinationRows.length, destinationRows.length));
+  const nextDestination = [...destinationRows];
+  nextDestination.splice(insertIndex, 0, movedPhoto);
+
+  if (sameTarget) {
+    return nextDestination.map((photo, sortOrder) => ({
+      id: photo.id,
+      target_type: targetType,
+      target_id: targetId,
+      photo_type: targetType,
+      collection_id: targetType === PHOTO_TYPES.SUBITEM ? null : targetId,
+      sort_order: sortOrder,
+      is_primary: Boolean(photo.is_primary),
+    }));
+  }
+
+  const destinationHasPrimary = destinationRows.some((photo) => photo.is_primary);
+  const movedBecomesPrimary = !destinationHasPrimary;
+  const sourceHasPrimary = sourceRows.some((photo) => photo.is_primary);
+  const promoteSourceId = movedPhoto.is_primary && !sourceHasPrimary ? sourceRows[0]?.id : "";
+  const sourceUpdates = sourceRows.map((photo, sortOrder) => ({
+    id: photo.id,
+    target_type: sourceType,
+    target_id: sourceId,
+    photo_type: sourceType,
+    collection_id: sourceType === PHOTO_TYPES.SUBITEM ? null : sourceId,
+    sort_order: sortOrder,
+    is_primary: photo.id === promoteSourceId || Boolean(photo.is_primary),
+  }));
+  const destinationUpdates = nextDestination.map((photo, sortOrder) => ({
+    id: photo.id,
+    target_type: targetType,
+    target_id: targetId,
+    photo_type: targetType,
+    collection_id: targetType === PHOTO_TYPES.SUBITEM ? null : targetId,
+    sort_order: sortOrder,
+    is_primary: photo.id === photoId ? movedBecomesPrimary : Boolean(photo.is_primary),
+  }));
+
+  return [...sourceUpdates, ...destinationUpdates];
+}
+
 export function validatePhotoFile(file) {
   if (!file) return "업로드할 사진을 선택해 주세요.";
   if (!file.type.startsWith("image/")) return "이미지 파일만 업로드할 수 있습니다.";
