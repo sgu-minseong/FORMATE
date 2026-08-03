@@ -9946,6 +9946,8 @@ const appStyles = `
     height: 100%;
     min-width: 0;
     min-height: 0;
+    margin: 0;
+    padding: 0;
     overflow: hidden;
   }
   .photo-management-page .photo-management-panel {

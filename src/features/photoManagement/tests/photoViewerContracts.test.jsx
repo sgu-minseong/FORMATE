@@ -180,6 +180,7 @@ describe("photo management rendering contracts", () => {
     const styles = fs.readFileSync(path.resolve(process.cwd(), "src/styles/appStyles.js"), "utf8");
 
     expect(styles).toMatch(/\.photo-management-page\s*\{[\s\S]*?max-width:\s*none\s*!important/);
+    expect(styles).toMatch(/\.photo-management-page\s*\{[\s\S]*?margin:\s*0;[\s\S]*?padding:\s*0;/);
     const workspaceStart = styles.indexOf(".photo-management-workspace {");
     const workspaceBlock = styles.slice(
       workspaceStart,
