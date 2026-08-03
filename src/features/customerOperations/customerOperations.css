@@ -386,7 +386,7 @@
 
 .aftercare-workspace .ui-page-header {
   min-height: 0;
-  padding: 0;
+  padding: var(--space-1-5) var(--space-2) 0;
   border-bottom: 0;
 }
 
@@ -396,6 +396,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  padding: 0 var(--space-2);
 }
 
 .aftercare-workspace__tabs {
@@ -520,7 +521,7 @@
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-panel);
+  border-radius: 0;
   background: var(--color-surface);
 }
 
@@ -1061,6 +1062,7 @@
 @media (max-width: 767px) {
   .aftercare-workspace {
     height: auto;
+    min-height: 100%;
     overflow: visible;
   }
 
@@ -1074,6 +1076,7 @@
   }
 
   .aftercare-workspace__surface {
+    flex: 0 0 auto;
     grid-template-columns: minmax(0, 1fr);
     overflow: visible;
   }
@@ -1993,10 +1996,10 @@
 .customer-requests-inbox {
   display: flex;
   flex-direction: column;
-  width: calc(100% + var(--space-2));
+  width: 100%;
   height: 100%;
   min-height: 0;
-  margin-inline: calc(var(--space-1) * -1);
+  margin-inline: 0;
   gap: var(--space-1-5);
   overflow: hidden;
 }
@@ -2004,7 +2007,7 @@
 .customer-requests-inbox .ui-page-header {
   flex: 0 0 auto;
   min-height: 0;
-  padding: 0;
+  padding: var(--space-1-5) var(--space-2) 0;
   border-bottom: 0;
 }
 
@@ -2015,6 +2018,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-control-gap);
+  padding: 0 var(--space-2);
 }
 
 .customer-requests-inbox__status-filters,
@@ -2110,6 +2114,7 @@
 
 .customer-requests-inbox__select select {
   height: var(--button-height);
+  min-height: var(--button-height);
   padding: 0 var(--space-4) 0 var(--space-input-x);
   border: 1px solid var(--border-input);
   border-radius: var(--radius-input);
@@ -2152,7 +2157,7 @@
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--border-workspace);
-  border-radius: var(--radius-panel);
+  border-radius: 0;
   background: var(--surface-workspace);
   box-shadow: none;
 }
@@ -3002,7 +3007,7 @@
   .customer-requests-inbox {
     width: 100%;
     height: auto;
-    min-height: calc(100dvh - var(--space-1-5) - var(--space-page-y));
+    min-height: 100%;
     margin-inline: 0;
     overflow: visible;
   }

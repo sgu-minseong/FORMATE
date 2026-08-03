@@ -9426,7 +9426,8 @@ export default function AdminApp() {
       )}
 
       {page === CUSTOMER_OPERATIONS_PAGES.REQUESTS && renderAppShell(
-        <CustomerRequestsPage companyId={selectedCompanyId} onNavigate={setPage} />
+        <CustomerRequestsPage companyId={selectedCompanyId} onNavigate={setPage} />,
+        { className: "formate-app-shell--customer-requests" }
       )}
 
       {page === CUSTOMER_OPERATIONS_PAGES.CUSTOMERS_PROJECTS && renderAppShell(
@@ -9446,7 +9447,8 @@ export default function AdminApp() {
       )}
 
       {page === CUSTOMER_OPERATIONS_PAGES.AFTERCARE_SERVICE && renderAppShell(
-        <AftercareServicePage companyId={selectedCompanyId} onNavigate={setPage} />
+        <AftercareServicePage companyId={selectedCompanyId} onNavigate={setPage} />,
+        { className: "formate-app-shell--aftercare" }
       )}
 
       {page === "admin" && adminVerified && renderAppShell(

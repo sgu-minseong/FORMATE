@@ -9934,6 +9934,28 @@ const appStyles = `
     border-top: 1px solid var(--color-border);
     background: var(--color-surface);
   }
+  .formate-app-shell--customer-requests .formate-app-shell__main {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+  @media (max-width: 1099px) {
+    .formate-app-shell--customer-requests .formate-app-shell__main {
+      overflow-y: auto;
+    }
+  }
+  .formate-app-shell--aftercare .formate-app-shell__main {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+  @media (max-width: 767px) {
+    .formate-app-shell--aftercare .formate-app-shell__main {
+      overflow-y: auto;
+    }
+  }
   .formate-app-shell--photo-management .formate-app-shell__main {
     min-width: 0;
     min-height: 0;
