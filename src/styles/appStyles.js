@@ -8645,6 +8645,11 @@ const appStyles = `
     font-size: var(--font-size-caption);
     line-height: var(--line-height-caption);
   }
+  .admin-price-v2-add-action {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-2) 0;
+  }
   .admin-price-v2-empty {
     margin: 0;
     padding: var(--space-3);
@@ -9953,6 +9958,17 @@ const appStyles = `
   }
   @media (max-width: 767px) {
     .formate-app-shell--aftercare .formate-app-shell__main {
+      overflow-y: auto;
+    }
+  }
+  .formate-app-shell--customer-projects .formate-app-shell__main {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+  @media (max-width: 1099px) {
+    .formate-app-shell--customer-projects .formate-app-shell__main {
       overflow-y: auto;
     }
   }

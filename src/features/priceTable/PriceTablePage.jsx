@@ -504,15 +504,14 @@ export default function PriceTablePage({
             </p>
           )}
           {item.item_type !== "flat" && (
-            <div className="admin-add-subitem-row admin-price-v2-add-row">
-              <span>{item.name}에 소재 추가</span>
+            <div className="admin-price-v2-add-action">
               <button
                 className="secondary-button"
                 type="button"
                 disabled={adminSaving}
                 onClick={() => addAdminSubitem(item.id)}
               >
-                <Plus size={18} /> 소재 추가
+                <Plus size={18} /> 항목 추가
               </button>
             </div>
           )}
@@ -638,15 +637,14 @@ export default function PriceTablePage({
           </p>
         )}
         {item.item_type !== "flat" && (
-          <div className="admin-add-subitem-row admin-price-v2-add-row">
-            <span>{item.name}에 소재 추가</span>
+          <div className="admin-price-v2-add-action">
             <button
               className="secondary-button"
               type="button"
               disabled={adminSaving}
               onClick={() => addAdminSubitem(item.id)}
             >
-              <Plus size={18} /> 소재 추가
+              <Plus size={18} /> 항목 추가
             </button>
           </div>
         )}

@@ -9435,7 +9435,8 @@ export default function AdminApp() {
           companyId={selectedCompanyId}
           onNavigate={setPage}
           onOpenContract={handleOpenContract}
-        />
+        />,
+        { className: "formate-app-shell--customer-projects" }
       )}
 
       {page === "contract-editor" && contractEditorTarget && renderAppShell(
