@@ -984,3 +984,42 @@ Goal은 목표를 유지하는 도구이며 계획 문서를 대체하지 않습
 ## 20. 새 대화를 시작할 때 전달할 한 문장
 
 > `AGENTS.md`와 `FORMATE_REFACTORING_PLAN.md`를 최신 기준으로 먼저 읽고, `refactor/feature-boundaries` 브랜치의 첫 번째 `PENDING` Phase부터 기존 UI·동작·DB 계약을 보존하며 실행해 주세요.
+
+## 21. FORMATE Design System 운영 규칙
+
+FORMATE의 공식 UI/UX Design Skill은 `.codex/skills/formate-design-system.md`입니다.
+
+다음 작업은 UI/UX 작업으로 간주합니다.
+
+- 새로운 화면 구현
+- 기존 화면 레이아웃 변경
+- Sidebar, Header, Drawer, Modal 수정
+- Button, Input, Table, List, Card 디자인 변경
+- CSS/style 변경
+- spacing, typography, color, radius 변경
+- responsive, scroll, layout 수정
+- annotation 기반 UI 수정
+- 새 UI component 생성
+
+위 작업을 시작하기 전에 반드시 `.codex/skills/formate-design-system.md`를 먼저 읽습니다.
+구현 전에는 다음을 내부적으로 판단하고, 이 판단만으로 사용자에게 별도 승인이나 긴 설계 보고를 요구하지 않습니다.
+
+1. 화면의 공식 Page Pattern(Management, Multi-Management, Editor, Detail 등)
+2. 재사용 가능한 기존 Component의 존재 여부
+3. 기존 Design Token으로 해결 가능한지 여부
+4. 기존 Layout, Panel, Scroll Pattern의 재사용 가능 여부
+5. 페이지 전용 CSS 없이 기존 시스템을 확장할 수 있는지 여부
+
+UI 구현 우선순위는 다음과 같습니다.
+
+1. 기존 FORMATE 공통 Component
+2. 기존 Design Token
+3. 기존 Page/Layout Pattern
+4. 필요한 범위의 공통 Component 최소 확장
+5. 정말 필요한 경우의 새 공통 Pattern
+
+화면 하나만을 위한 독립 디자인 언어를 만들지 않습니다. 기존 token을 무시한 임의 HEX, 유사 Component 중복, 불필요한 페이지별 CSS, 전체를 큰 둥근 Card로 감싸는 구성, 습관적인 중앙 max-width container, 과도한 Card·radius·공백, gradient, 불필요한 shadow, 설명용 Card 남발, 한글 글자 단위 강제 줄바꿈, 기존 scroll 구조를 무시한 이중 scroll을 사용하지 않습니다. 기술적으로 페이지 전용 CSS가 필요한 경우는 허용하되 새로운 페이지별 디자인 체계를 만들지 않습니다.
+
+사용자가 특정 UI/UX 결과를 명확히 승인하거나 앞으로도 같은 방식을 사용하겠다고 승인한 경우에만, 해당 결과에서 재사용 가능한 원칙을 일반화된 Pattern으로 추출해 `.codex/skills/formate-design-system.md`의 적절한 섹션에 추가합니다. 단순히 기능이 동작한다고 확인한 것은 디자인 승인으로 해석하지 않습니다. 새 Pattern은 이후 관련 화면에서 우선 재사용합니다.
+
+전역 Sidebar/AppShell, 단가표 관리, 견적 템플릿 만들기, 기존 공통 UI Component와 Token을 기준 화면으로 보호합니다. 다른 화면을 수정할 때 이 기준 화면을 불필요하게 재디자인하거나 대규모로 함께 변경하지 않습니다. Design Skill 적용을 이유로 견적 계산, lifecycle, Supabase schema, API behavior, 데이터 저장 구조, 사용자 데이터, 기존 business logic을 변경하지 않습니다.
