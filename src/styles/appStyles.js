@@ -7987,7 +7987,7 @@ const appStyles = `
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--space-2);
-    min-height: 64px;
+    min-height: 56px;
     padding: var(--space-1-5) var(--space-2);
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
@@ -8013,8 +8013,9 @@ const appStyles = `
   }
   .estimate-condition-drawer__fields {
     display: block;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-height: 0;
+    max-height: calc(100dvh - 144px);
     overflow-y: auto;
   }
   .estimate-condition-drawer__fields .condition-static-field,
@@ -8023,7 +8024,7 @@ const appStyles = `
     grid-column: auto;
     gap: var(--space-1);
     min-height: 0;
-    padding: var(--space-2);
+    padding: var(--space-1-5) var(--space-2);
     border: 0;
     border-bottom: 1px solid var(--color-border);
     border-radius: 0;
@@ -8088,8 +8089,8 @@ const appStyles = `
     display: grid;
     gap: var(--space-1);
     margin-top: 0;
-    padding: var(--space-1-5) var(--space-2);
-    border-top: 1px solid var(--color-border);
+    padding: var(--space-2);
+    border-top: 0;
     background: var(--color-surface);
   }
   .estimate-condition-drawer__actions .ui-button {
@@ -8644,6 +8645,40 @@ const appStyles = `
     color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
     line-height: var(--line-height-caption);
+  }
+  .estimate-condition-drawer__spacer {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .items-v2-template-review {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1-5);
+    min-height: var(--table-row-height);
+    border: 1px solid var(--color-warning-border);
+    border-left: 3px solid var(--color-warning);
+    border-radius: var(--radius-button);
+    background: var(--color-warning-soft);
+    color: var(--color-text-primary);
+    padding: var(--space-1) var(--space-1-5);
+    font-size: var(--font-size-body-sm);
+    line-height: var(--line-height-body);
+  }
+  .items-v2-template-review > div {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .items-v2-table .items-v2-row--template-conflict td {
+    background: var(--color-warning-soft) !important;
+  }
+  .items-v2-table .items-v2-row--template-conflict td:first-child {
+    box-shadow: inset 3px 0 0 var(--color-warning);
   }
   .admin-price-v2-add-action {
     display: flex;

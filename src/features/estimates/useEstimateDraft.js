@@ -38,6 +38,8 @@ export function useEstimateDraft() {
   const [estimateDraftSource, setEstimateDraftSource] = useState("template");
   const [estimateConditionEditMode, setEstimateConditionEditMode] = useState(false);
   const [estimateConditionDrawerOpen, setEstimateConditionDrawerOpen] = useState(false);
+  const [estimateTemplateConflicts, setEstimateTemplateConflicts] = useState([]);
+  const [estimateTemplateConditionKey, setEstimateTemplateConditionKey] = useState("");
   const [selectedPhotoSubitemId, setSelectedPhotoSubitemId] = useState("");
   const [selectedPhotoSubitemName, setSelectedPhotoSubitemName] = useState("");
   const [estimateItemPhotos, setEstimateItemPhotos] = useState([]);
@@ -72,6 +74,8 @@ export function useEstimateDraft() {
     estimateDraftSource, setEstimateDraftSource,
     estimateConditionEditMode, setEstimateConditionEditMode,
     estimateConditionDrawerOpen, setEstimateConditionDrawerOpen,
+    estimateTemplateConflicts, setEstimateTemplateConflicts,
+    estimateTemplateConditionKey, setEstimateTemplateConditionKey,
     selectedPhotoSubitemId, setSelectedPhotoSubitemId,
     selectedPhotoSubitemName, setSelectedPhotoSubitemName,
     estimateItemPhotos, setEstimateItemPhotos,

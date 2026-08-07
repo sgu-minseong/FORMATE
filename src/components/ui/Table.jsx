@@ -33,6 +33,8 @@ export default function Table({
   emptyAsZeroMuted = false,
   draggable = false,
   onReorder,
+  getRowClassName,
+  getRowId,
   className = "",
 }) {
   const handleDragStart = (event, index) => {
@@ -85,7 +87,11 @@ export default function Table({
               return (
                 <Fragment key={rowKey}>
                   <tr
-                    className={cx(row.selected && "ui-table__row--selected")}
+                    id={getRowId?.(row, rowIndex)}
+                    className={cx(
+                      row.selected && "ui-table__row--selected",
+                      getRowClassName?.(row, rowIndex),
+                    )}
                     draggable={draggable}
                     onDragStart={draggable ? (event) => handleDragStart(event, rowIndex) : undefined}
                     onDragOver={draggable ? (event) => event.preventDefault() : undefined}

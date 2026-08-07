@@ -148,6 +148,11 @@ import {
 } from "../features/estimates/snapshot";
 import { exportEstimatePdf } from "../features/estimates/exportEstimatePdf";
 import { useEstimateDraft } from "../features/estimates/useEstimateDraft";
+import {
+  ESTIMATE_TEMPLATE_DERIVED_FIELDS,
+  getEstimateDraftRowKeys,
+  reconcileEstimateDraftItems,
+} from "../features/estimates/estimateDraftReconciliation";
 import EstimateEditorPage from "../features/estimates/EstimateEditorPage";
 import EstimatePreviewPage from "../features/estimates/EstimatePreviewPage";
 import SavedEstimatesPage from "../features/estimates/SavedEstimatesPage";
@@ -258,6 +263,13 @@ import {
 } from "../features/priceTable/priceTableApi";
 import "../features/customerOperations/customerOperations.css";
 import appStyles from "../styles/appStyles";
+import {
+  canMoveInternalPageHistory,
+  createInternalPageHistory,
+  getCurrentInternalPage,
+  moveInternalPageHistory,
+  pushInternalPage,
+} from "../shared/navigation/internalPageHistory";
 
 const pageFromHash = () => {
   const page = resolveLegacyExcelImportRoute(window.location.hash.replace("#", ""));
@@ -2294,7 +2306,14 @@ export default function AdminApp() {
     logout: logoutAppSession,
   } = useAppSession();
   const [pendingAdminPage, setPendingAdminPage] = useState("admin");
-  const [page, setPage] = useState(pageFromHash);
+  const [navigationHistory, setNavigationHistory] = useState(() =>
+    createInternalPageHistory(pageFromHash())
+  );
+  const page = getCurrentInternalPage(navigationHistory);
+
+  function setPage(nextPage) {
+    setNavigationHistory((current) => pushInternalPage(current, nextPage));
+  }
   const [contractEditorTarget, setContractEditorTarget] = useState(null);
   const [step, setStep] = useState(1);
   const {
@@ -2325,12 +2344,16 @@ export default function AdminApp() {
     estimateDraftSource, setEstimateDraftSource,
     estimateConditionEditMode, setEstimateConditionEditMode,
     estimateConditionDrawerOpen, setEstimateConditionDrawerOpen,
+    estimateTemplateConflicts, setEstimateTemplateConflicts,
+    estimateTemplateConditionKey, setEstimateTemplateConditionKey,
     selectedPhotoSubitemId, setSelectedPhotoSubitemId,
     selectedPhotoSubitemName, setSelectedPhotoSubitemName,
     estimateItemPhotos, setEstimateItemPhotos,
     isLoadingEstimateItemPhotos, setIsLoadingEstimateItemPhotos,
     estimateItemPhotosError, setEstimateItemPhotosError,
   } = useEstimateDraft();
+  const estimateItemsRef = useRef(items);
+  estimateItemsRef.current = items;
   const [estimatePhotoViewerIndex, setEstimatePhotoViewerIndex] = useState(null);
   const [selectedAdminPyeong, setSelectedAdminPyeong] = useState("");
   const [selectedAdminBuildType, setSelectedAdminBuildType] = useState("");
@@ -2566,6 +2589,14 @@ export default function AdminApp() {
   const conditionChips = useMemo(
     () => makeConditionChips(condition, estimateConditionVariantLabelMap),
     [condition, estimateConditionVariantLabelMap]
+  );
+  const estimateTemplateConflictByRowKey = useMemo(
+    () => new Map(estimateTemplateConflicts.map((conflict) => [conflict.rowKey, conflict])),
+    [estimateTemplateConflicts]
+  );
+  const estimateTemplateConflictValueCount = useMemo(
+    () => estimateTemplateConflicts.reduce((count, conflict) => count + conflict.fields.length, 0),
+    [estimateTemplateConflicts]
   );
   const activeEstimateConditionVariant = getConditionVariant(condition);
   const activeEstimateConditionVariantLabel = getConditionVariantLabel(activeEstimateConditionVariant, estimateConditionVariantLabelMap);
@@ -2909,12 +2940,27 @@ export default function AdminApp() {
   }, [page, selectedCompanyId]);
 
   useEffect(() => {
+    if (page === "condition" && USE_ITEMS_SCREEN_V2) {
+      setEstimateConditionDrawerOpen(true);
+      return;
+    }
     if (page === "items") return;
     setEstimateConditionDrawerOpen(false);
     setPyeongDropdownOpen(false);
     setConditionLabelEditOpen(false);
     setEstimatePhotoViewerIndex(null);
   }, [page]);
+
+  useEffect(() => {
+    if (page !== "items" || !estimateTemplateConflicts.length || typeof window === "undefined") return;
+    const firstConflict = estimateTemplateConflicts[0];
+    setOpenCategory(firstConflict.categoryId);
+    const frameId = window.requestAnimationFrame(() => {
+      document.getElementById(`estimate-template-conflict-${encodeURIComponent(firstConflict.rowKey)}`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [estimateTemplateConflicts, page]);
 
   useEffect(() => {
     if (!selectedCompanyId || page !== "admin-items" || !adminVerified || !USE_ADMIN_ITEMS_SCREEN_V2) return;
@@ -5384,77 +5430,13 @@ export default function AdminApp() {
     return isEstimateConditionComplete(condition);
   }
 
-  function getEstimateDraftRowKeys(row) {
-    return [
-      row?.subitemId ? `subitem:${row.subitemId}` : "",
-      row?.itemId && row?.material ? `material:${row.itemId}:${row.material}` : "",
-      row?.categoryId && row?.material ? `category:${row.categoryId}:${row.material}` : "",
-    ].filter(Boolean);
-  }
-
-  function isEstimateDraftFieldEdited(row, fieldKey, baseKey) {
-    const currentValue = row?.[fieldKey];
-    const baseValue = row?.[baseKey];
-    const currentText = `${currentValue ?? ""}`.trim();
-    const baseText = `${baseValue ?? ""}`.trim();
-    if (currentText === "" && baseText === "") return false;
-    if (hasNumericInput(currentText) || hasNumericInput(baseText)) {
-      return toNumberOrZero(currentText) !== toNumberOrZero(baseText);
-    }
-    return currentText !== baseText;
-  }
-
   function mergeEstimateDraftItems(nextItems, previousItems) {
-    const previousRowsByKey = new Map();
-    Object.entries(previousItems ?? {}).forEach(([categoryId, rows]) => {
-      (rows ?? []).forEach((row) => {
-        getEstimateDraftRowKeys({ ...row, categoryId }).forEach((key) => {
-          if (!previousRowsByKey.has(key)) previousRowsByKey.set(key, row);
-        });
-      });
+    return reconcileEstimateDraftItems({
+      nextItems,
+      previousItems,
+      applyRowPatch: applyEstimateRowPatch,
+      recalculateRow: recalculateEstimateRow,
     });
-
-    return Object.fromEntries(
-      Object.entries(nextItems ?? {}).map(([categoryId, rows]) => [
-        categoryId,
-        (rows ?? []).map((row) => {
-          const previousRow = getEstimateDraftRowKeys({ ...row, categoryId })
-            .map((key) => previousRowsByKey.get(key))
-            .find(Boolean);
-          if (!previousRow) return row;
-
-          const canKeepThickness =
-            previousRow.selectedThickness &&
-            (row.thicknessOptions ?? []).some((option) => option.thickness === previousRow.selectedThickness);
-          const templateRow = canKeepThickness
-            ? applyEstimateRowPatch(row, { selectedThickness: previousRow.selectedThickness })
-            : row;
-          const canKeepSpecOption =
-            previousRow.selectedSpecOption &&
-            (templateRow.specOptions ?? []).includes(previousRow.selectedSpecOption);
-          const mergedRow = {
-            ...templateRow,
-            selected: Boolean(previousRow.selected),
-            expanded: Boolean(previousRow.expanded),
-            contractor: previousRow.contractor ?? "",
-            selectedSpecOption: canKeepSpecOption ? previousRow.selectedSpecOption : templateRow.selectedSpecOption,
-          };
-
-          [
-            ["quantity", "baseQuantity"],
-            ["laborCount", "baseLaborCount"],
-            ["unitPrice", "baseUnitPrice"],
-            ["laborRate", "baseLaborRate"],
-          ].forEach(([fieldKey, baseKey]) => {
-            if (isEstimateDraftFieldEdited(previousRow, fieldKey, baseKey)) {
-              mergedRow[fieldKey] = previousRow[fieldKey];
-            }
-          });
-
-          return recalculateEstimateRow(mergedRow);
-        }),
-      ])
-    );
   }
 
   async function goNext() {
@@ -5480,6 +5462,48 @@ export default function AdminApp() {
       setEstimateConditionDrawerOpen(false);
       setPage("items");
     }
+  }
+
+  function openNewEstimateCondition() {
+    resetEstimateDraftForNewStart();
+    setEstimateTemplateConflicts([]);
+    setEstimateTemplateConditionKey("");
+    setEstimateConditionDrawerOpen(true);
+    setPage("condition");
+  }
+
+  function moveAppHistory(direction) {
+    if (!canMoveInternalPageHistory(navigationHistory, direction)) return;
+    const nextHistory = moveInternalPageHistory(navigationHistory, direction);
+    const nextPage = getCurrentInternalPage(nextHistory);
+
+    if (
+      direction === "forward"
+      && page === "condition"
+      && nextPage === "items"
+      && estimateTemplateConditionKey !== makeConditionKey(condition)
+    ) {
+      loadEstimateFromCondition();
+      return;
+    }
+
+    if (direction === "back" && page === "items" && nextPage === "condition") {
+      setEstimateConditionEditMode(true);
+      setEstimateConditionDrawerOpen(true);
+    }
+    if (nextPage === "items") {
+      setEstimateConditionDrawerOpen(false);
+    }
+
+    setNavigationHistory(nextHistory);
+  }
+
+  function closeEstimateConditionStage() {
+    if (page === "condition") {
+      moveAppHistory("back");
+      return;
+    }
+    setEstimateConditionDrawerOpen(false);
   }
 
   async function fetchEstimateCatalog(pyeong = condition.size, nextCondition = condition, options = {}) {
@@ -5537,18 +5561,29 @@ export default function AdminApp() {
             setEstimateNotice("저장된 견적 템플릿의 기본 수량과 기본 인원을 불러왔습니다. 이번 현장에 맞게 수정할 수 있습니다.");
           }
         } else {
-          setEstimateNotice("빈 견적서로 시작했습니다. 단가표 항목은 불러왔고, 수량과 인원은 직접 입력하세요.");
+          setEstimateNotice("저장된 견적 템플릿이 없어 단가표 항목을 불러왔습니다. 수량과 인원은 현장에 맞게 입력하세요.");
         }
       } else if (forceBlank) {
         setEstimateNotice("빈 견적서로 시작했습니다. 단가표 항목은 불러왔고, 수량과 인원은 직접 입력하세요.");
       }
 
+      if (
+        requestId !== estimateBlankCatalogRequestRef.current
+        || companyId !== selectedCompanyIdRef.current
+      ) return false;
+
       const catalog = normalizeAdminItems(itemRows, subitemRows, templateValueRows);
       const nextItems = buildEstimateItemsFromTemplate(catalog, pyeong, nextCondition.occupancy);
       const firstCategoryId = catalog[0]?.id ?? "";
 
+      const draftResult = preserveDraft
+        ? mergeEstimateDraftItems(nextItems, estimateItemsRef.current)
+        : { items: nextItems, conflicts: [] };
+
       setEstimateCatalog(catalog);
-      setItems((current) => (preserveDraft ? mergeEstimateDraftItems(nextItems, current) : nextItems));
+      setItems(draftResult.items);
+      setEstimateTemplateConflicts(draftResult.conflicts);
+      setEstimateTemplateConditionKey(makeConditionKey(nextCondition));
       if (!preserveDraft) setActiveCategories([]);
       setOpenCategory((current) =>
         preserveDraft && catalog.some((item) => item.id === current) ? current : firstCategoryId
@@ -5599,6 +5634,8 @@ export default function AdminApp() {
       setActiveCategories([]);
       setOpenCategory(catalog[0]?.id ?? "");
       setEstimateDraftSource("blank");
+      setEstimateTemplateConflicts([]);
+      setEstimateTemplateConditionKey("");
       return true;
     } catch (error) {
       if (estimateBlankCatalogRequestRef.current === requestId) {
@@ -5660,6 +5697,44 @@ export default function AdminApp() {
         rowIndex === index ? recalculateEstimateRow(applyEstimateRowPatch(row, patch)) : row
       ),
     }));
+  }
+
+  function getEstimateTemplateConflict(row, categoryId) {
+    return getEstimateDraftRowKeys({ ...row, categoryId })
+      .map((rowKey) => estimateTemplateConflictByRowKey.get(rowKey))
+      .find((conflict) => conflict?.categoryId === categoryId);
+  }
+
+  function keepEstimateTemplateOverrides() {
+    setEstimateTemplateConflicts([]);
+  }
+
+  function applyEstimateTemplateValuesToOverrides() {
+    const conflictsByRowKey = new Map(
+      estimateTemplateConflicts.map((conflict) => [conflict.rowKey, conflict])
+    );
+
+    setItems((current) =>
+      Object.fromEntries(
+        Object.entries(current).map(([categoryId, rows]) => [
+          categoryId,
+          (rows ?? []).map((row) => {
+            const conflict = getEstimateDraftRowKeys({ ...row, categoryId })
+              .map((rowKey) => conflictsByRowKey.get(rowKey))
+              .find((entry) => entry?.categoryId === categoryId);
+            if (!conflict) return row;
+
+            const nextRow = { ...row };
+            conflict.fields.forEach((fieldKey) => {
+              const field = ESTIMATE_TEMPLATE_DERIVED_FIELDS.find((entry) => entry.fieldKey === fieldKey);
+              if (field) nextRow[field.fieldKey] = nextRow[field.baseKey] ?? "";
+            });
+            return recalculateEstimateRow(nextRow);
+          }),
+        ])
+      )
+    );
+    setEstimateTemplateConflicts([]);
   }
 
   async function handleOpenItemPhotos(row) {
@@ -6118,6 +6193,8 @@ export default function AdminApp() {
     setEstimateNotice(copy ? "기존 견적서를 복사한 새 초안입니다. 고객 정보와 현장 정보를 입력한 뒤 저장하세요." : "");
     setEstimateDraftSource("template");
     setEstimateConditionEditMode(false);
+    setEstimateTemplateConflicts([]);
+    setEstimateTemplateConditionKey(makeConditionKey(restoredDraft.condition));
     estimatePhotoRequestRef.current = "";
     setSelectedPhotoSubitemId("");
     setSelectedPhotoSubitemName("");
@@ -6185,6 +6262,8 @@ export default function AdminApp() {
     setEstimateNotice("");
     setEstimateDraftSource("template");
     setEstimateConditionEditMode(false);
+    setEstimateTemplateConflicts([]);
+    setEstimateTemplateConditionKey("");
     estimatePhotoRequestRef.current = "";
     setSelectedPhotoSubitemId("");
     setSelectedPhotoSubitemName("");
@@ -6229,6 +6308,8 @@ export default function AdminApp() {
     setEstimateNotice("");
     setEstimateDraftSource("template");
     setEstimateConditionEditMode(false);
+    setEstimateTemplateConflicts([]);
+    setEstimateTemplateConditionKey("");
     estimatePhotoRequestRef.current = "";
     setSelectedPhotoSubitemId("");
     setSelectedPhotoSubitemName("");
@@ -8216,10 +8297,7 @@ export default function AdminApp() {
       return;
     }
     if (nextPage === "condition") {
-      resetEstimateDraftForNewStart();
-      setEstimateConditionDrawerOpen(true);
-      setPage("items");
-      preloadBlankEstimateCatalogForNewStart();
+      openNewEstimateCondition();
       return;
     }
     if (PROTECTED_ADMIN_PAGES.includes(nextPage)) {
@@ -8257,6 +8335,10 @@ export default function AdminApp() {
         navItems={APP_SHELL_NAV_ITEMS}
         className={shellClassName}
         workspaceHeader={workspaceHeader}
+        canNavigateBack={canMoveInternalPageHistory(navigationHistory, "back")}
+        canNavigateForward={canMoveInternalPageHistory(navigationHistory, "forward")}
+        onNavigateBack={() => moveAppHistory("back")}
+        onNavigateForward={() => moveAppHistory("forward")}
       >
         {children}
       </AppShell>
@@ -8266,9 +8348,10 @@ export default function AdminApp() {
   function renderItemsScreenV2() {
     const currentRows = items[openCategory] ?? [];
     const estimateConditionDisplay = conditionChips.length > 0 ? conditionChips.join(" · ") : "조건 미선택";
-    const estimateConditionBarDisplay = estimateConditionDrawerOpen ? "선택중" : estimateConditionDisplay;
-    const estimateConditionPanelStatus = estimateConditionDrawerOpen ? "선택중" : estimateConditionDisplay;
     const hasEstimateCondition = canGoNext();
+    const estimateConditionDrawerSummary = hasEstimateCondition && conditionChips.length > 0
+      ? conditionChips.join(" · ")
+      : "";
     const itemTableColumns = [
       { key: "selected", label: "", width: "32px" },
       { key: "material", label: "소재명" },
@@ -8288,6 +8371,7 @@ export default function AdminApp() {
 
     const renderItemCell = ({ row, column, rowIndex }) => {
       const rowLabel = row.itemType === "flat" ? row.itemName : row.material;
+      const rowConflict = getEstimateTemplateConflict(row, openCategory);
 
       if (column.key === "selected") {
         return (
@@ -8306,7 +8390,11 @@ export default function AdminApp() {
           <div className="items-v2-material-cell">
             <strong>{rowLabel}</strong>
             <span>
-              {isEstimateRowModified(row) && <em className="items-v2-badge items-v2-badge--muted">수정됨</em>}
+              {rowConflict ? (
+                <em className="items-v2-badge items-v2-badge--warning">직접 수정됨</em>
+              ) : isEstimateRowModified(row) ? (
+                <em className="items-v2-badge items-v2-badge--muted">수정됨</em>
+              ) : null}
               {row.selected && <em className="items-v2-badge items-v2-badge--selected">포함</em>}
               {!row.hasTemplateValue && <em className="items-v2-badge items-v2-badge--warning">미입력</em>}
             </span>
@@ -8468,9 +8556,9 @@ export default function AdminApp() {
             <div className="estimate-condition-drawer__header">
               <div>
                 <span>견적 조건 설정</span>
-                <strong>{estimateConditionPanelStatus}</strong>
+                {estimateConditionDrawerSummary && <strong>{estimateConditionDrawerSummary}</strong>}
               </div>
-              <Button variant="tertiary" size="sm" onClick={() => setEstimateConditionDrawerOpen(false)}>
+              <Button variant="tertiary" size="sm" onClick={closeEstimateConditionStage}>
                 닫기
               </Button>
             </div>
@@ -8666,10 +8754,8 @@ export default function AdminApp() {
               <Button variant="primary" disabled={!hasEstimateCondition || estimateLoading} onClick={() => loadEstimateFromCondition()}>
                 {estimateLoading ? "불러오는 중..." : "기본 견적 불러오기"}
               </Button>
-              <Button variant="secondary" disabled={!hasEstimateCondition || estimateLoading} onClick={() => loadEstimateFromCondition({ forceBlank: true })}>
-                빈 견적으로 시작
-              </Button>
             </div>
+            <div className="estimate-condition-drawer__spacer" aria-hidden="true" />
           </aside>
         </>
       );
@@ -8691,16 +8777,6 @@ export default function AdminApp() {
               <span>{estimateConditionDisplay}</span>
             </div>
             <div className="items-v2-header-actions">
-              <Button
-                variant="tertiary"
-                size="sm"
-                onClick={() => {
-                  setEstimateConditionEditMode(true);
-                  setEstimateConditionDrawerOpen(true);
-                }}
-              >
-                조건 변경
-              </Button>
               <Button
                 variant="primary"
                 onClick={() => {
@@ -8727,17 +8803,7 @@ export default function AdminApp() {
           <div className="items-v2-toolbar">
             <div className="items-v2-condition-summary">
               <span>현재 조건</span>
-              <strong>{estimateConditionBarDisplay}</strong>
-              <Button
-                variant="tertiary"
-                size="sm"
-                onClick={() => {
-                  setEstimateConditionEditMode(true);
-                  setEstimateConditionDrawerOpen(true);
-                }}
-              >
-                조건 변경
-              </Button>
+              <strong>{estimateConditionDisplay}</strong>
             </div>
             <div className="items-v2-pyeong-controls">
               <label htmlFor="items-v2-estimate-pyeong">견적 기준 평수</label>
@@ -8767,6 +8833,20 @@ export default function AdminApp() {
           {estimateNotice && <div className="status-box">{estimateNotice}</div>}
           {estimateError && <div className="error-box">{estimateError}</div>}
 
+          {estimateTemplateConflicts.length > 0 && (
+            <div className="items-v2-template-review" role="status">
+              <span>직접 수정한 값이 {estimateTemplateConflictValueCount}건 있습니다. 새 평형 기준값을 적용할까요?</span>
+              <div>
+                <Button variant="secondary" size="sm" onClick={keepEstimateTemplateOverrides}>
+                  수정값 유지
+                </Button>
+                <Button variant="primary" size="sm" onClick={applyEstimateTemplateValuesToOverrides}>
+                  새 평형값 적용
+                </Button>
+              </div>
+            </div>
+          )}
+
           <section className="items-v2-table-section">
             <div className="items-v2-section-header">
               <div>
@@ -8784,6 +8864,15 @@ export default function AdminApp() {
                 zebra
                 rowHeight={40}
                 emptyAsZeroMuted
+                getRowClassName={(row) => (
+                  getEstimateTemplateConflict(row, openCategory)
+                    ? "items-v2-row--template-conflict"
+                    : ""
+                )}
+                getRowId={(row) => {
+                  const conflict = getEstimateTemplateConflict(row, openCategory);
+                  return conflict ? `estimate-template-conflict-${encodeURIComponent(conflict.rowKey)}` : undefined;
+                }}
                 className="items-v2-table"
               />
             ) : (
@@ -8970,7 +9059,7 @@ export default function AdminApp() {
   }
 
   return (
-    <div className={`app-shell admin-shell-root ${page === "items" && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""} ${page === "landing" ? "home-workspace-shell" : ""}`.trim()}>
+    <div className={`app-shell admin-shell-root ${(page === "items" || page === "condition") && USE_ITEMS_SCREEN_V2 ? "items-v2-shell" : ""} ${page === "landing" ? "home-workspace-shell" : ""}`.trim()}>
       <style>{appStyles}</style>
 
       {adminVerifyOpen && (
@@ -9288,12 +9377,7 @@ export default function AdminApp() {
                   variant="primary"
                   leftIcon={<Plus />}
                   className="customer-operations-home-priority__create-estimate"
-                  onClick={() => {
-                    resetEstimateDraftForNewStart();
-                    setEstimateConditionDrawerOpen(true);
-                    setPage("items");
-                    preloadBlankEstimateCatalogForNewStart();
-                  }}
+                  onClick={openNewEstimateCondition}
                 >
                   새 견적서 작성
                 </Button>
@@ -10958,7 +11042,7 @@ export default function AdminApp() {
         </main>
       )}
 
-      {page === "condition" && renderAppShell(
+      {page === "condition" && !USE_ITEMS_SCREEN_V2 && renderAppShell(
         <main className="panel-page condition-page">
           <section className="panel condition-builder-panel">
             <div className="editor-header condition-builder-header">
@@ -11183,7 +11267,7 @@ export default function AdminApp() {
         </main>
       )}
 
-      {page === "items" && USE_ITEMS_SCREEN_V2 && (
+      {(page === "items" || page === "condition") && USE_ITEMS_SCREEN_V2 && (
         <EstimateEditorPage>{renderItemsScreenV2()}</EstimateEditorPage>
       )}
 
@@ -12868,12 +12952,12 @@ export default function AdminApp() {
         </SavedEstimatesPage>
       )}
 
-      {page === "preview" && (
+      {page === "preview" && renderAppShell(
         <EstimatePreviewPage
           previewType={estimatePreviewType}
           onPreviewTypeChange={setEstimatePreviewType}
           backLabel={previewBackPage === "admin-estimates" ? "저장 견적 보기" : "견적 재생성"}
-          onBack={() => setPage(previewBackPage === "admin-estimates" ? "admin-estimates" : "items")}
+          onBack={() => moveAppHistory("back")}
           notice={estimateNotice}
           error={estimateError}
           saving={estimateSaving}
@@ -12918,7 +13002,8 @@ export default function AdminApp() {
             onSiteMemoChange: (event) => setSiteMemo(event.target.value),
             estimateNumber,
           }}
-        />
+        />,
+        { className: "formate-app-shell--estimate-preview" }
       )}
 
       {shareEstimateTarget && (
