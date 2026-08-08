@@ -28,7 +28,7 @@ import {
   reconcileFlooringVariantRows,
   resolveActiveFlooringVariant,
 } from "./priceTableModel";
-import SashCatalogGrid from "../sash/SashCatalogGrid";
+import SashCatalogSection from "../sash/SashCatalogSection";
 import { isSashItem } from "../sash/sashCatalogModel";
 import AdminCategoryPanel from "./AdminCategoryPanel";
 
@@ -343,21 +343,48 @@ export default function PriceTablePage({
   }
 
   function renderRows(item) {
-    if (isSashItem(item)) {
-      return (
-        <SashCatalogGrid
-          companyId={companyId}
-          subitems={item.subitems ?? []}
-          title="샷시 규격"
-          description="세부항목별 실제 샷시 규격과 금액을 관리합니다."
-        />
-      );
-    }
-
+    const sashItem = isSashItem(item);
     const visibleSubitems = getVisibleAdminSubitems(item);
     const itemSubitems = isFlooringThicknessItem(item)
       ? reconcileFlooringVariantRows(visibleSubitems)
       : visibleSubitems;
+
+    if (sashItem) {
+      return (
+        <SashCatalogSection
+          companyId={companyId}
+          item={item}
+          subitems={visibleSubitems}
+          adminSaving={adminSaving}
+          canReorder={canReorderAdminCatalog}
+          dragSubitem={dragSubitem}
+          dragOverSubitem={dragOverSubitem}
+          newlyAddedSubitemId={newlyAddedSubitemId}
+          materialNamePlaceholder={materialNamePlaceholder}
+          onAddSubitem={addAdminSubitem}
+          onDeleteSubitem={deleteAdminSubitem}
+          onDragEnd={clearAdminDragState}
+          onDragOver={handleAdminSubitemDragOver}
+          onDragStart={handleAdminSubitemDragStart}
+          onDrop={reorderAdminSubitems}
+          onSubitemNameChange={(subitemId, value) => {
+            setAdminItems((current) => current.map((entry) => (
+              entry.id === item.id
+                ? {
+                    ...entry,
+                    subitems: entry.subitems.map((subitem) => (
+                      subitem.id === subitemId ? { ...subitem, name: value } : subitem
+                    )),
+                  }
+                : entry
+            )));
+            clearAdminPriceValidationErrorForSubitem(subitemId, value);
+          }}
+          onSubitemNameInput={markAdminCatalogDirty}
+          onSubitemNameBlur={renameAdminSubitem}
+        />
+      );
+    }
 
     if (isFlooringThicknessItem(item)) {
       return (

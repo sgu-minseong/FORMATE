@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
-import Button from "../../components/ui/Button";
-import EmptyState from "../../components/ui/EmptyState";
+import { Plus, Save, Trash2 } from "lucide-react";
 import Table from "../../components/ui/Table";
 import {
   formatMoneyInputValue,
@@ -40,42 +38,53 @@ function moveEntry(entries, sourceIndex, targetIndex) {
 
 export default function SashCatalogGrid({
   companyId,
-  subitems = [],
+  subitem = null,
   title = "샷시 규격",
-  description = "평형과 무관하게 실제 현장 규격을 관리합니다.",
+  onDirtyChange,
+  onPersistedCountChange,
 }) {
-  const [selectedSubitemId, setSelectedSubitemId] = useState("");
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [savingId, setSavingId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
+  const [dirtyEntryIds, setDirtyEntryIds] = useState(() => new Set());
   const firstDraftInputRef = useRef(null);
 
-  const selectedSubitem = subitems.find((subitem) => subitem.id === selectedSubitemId) ?? null;
+  const selectedSubitemId = subitem?.id ?? "";
   const hasLocalEntry = entries.some(isLocalSashCatalogEntry);
+  const persistedEntryCount = entries.filter((entry) => !isLocalSashCatalogEntry(entry)).length;
 
   useEffect(() => {
-    const nextSelectedId = subitems.some((subitem) => subitem.id === selectedSubitemId)
-      ? selectedSubitemId
-      : subitems[0]?.id ?? "";
-    if (nextSelectedId !== selectedSubitemId) setSelectedSubitemId(nextSelectedId);
-  }, [selectedSubitemId, subitems]);
+    onDirtyChange?.(dirtyEntryIds.size > 0);
+  }, [dirtyEntryIds, onDirtyChange]);
+
+  useEffect(() => {
+    if (loaded) onPersistedCountChange?.(selectedSubitemId, persistedEntryCount);
+  }, [loaded, onPersistedCountChange, persistedEntryCount, selectedSubitemId]);
 
   useEffect(() => {
     let cancelled = false;
     if (!companyId || !selectedSubitemId) {
       setEntries([]);
+      setLoaded(false);
+      setDirtyEntryIds(new Set());
       return undefined;
     }
 
     setLoading(true);
+    setLoaded(false);
+    setDirtyEntryIds(new Set());
     setError("");
     setNotice("");
     fetchActiveSashCatalogEntries(companyId, selectedSubitemId)
       .then((rows) => {
-        if (!cancelled) setEntries(rows.map(normalizeSashCatalogEntry));
+        if (!cancelled) {
+          setEntries(rows.map(normalizeSashCatalogEntry));
+          setLoaded(true);
+        }
       })
       .catch((nextError) => {
         if (!cancelled) {
@@ -96,19 +105,19 @@ export default function SashCatalogGrid({
     setEntries((current) => current.map((entry) => (
       entry.id === entryId ? { ...entry, ...patch } : entry
     )));
+    setDirtyEntryIds((current) => new Set(current).add(entryId));
   }
 
   function addEntry() {
-    if (!selectedSubitem) return;
+    if (!subitem) return;
+    const nextEntry = createLocalSashCatalogEntry({
+      constructionSubitemId: subitem.id,
+      sortOrder: entries.length,
+    });
     setError("");
     setNotice("");
-    setEntries((current) => [
-      ...current,
-      createLocalSashCatalogEntry({
-        constructionSubitemId: selectedSubitem.id,
-        sortOrder: current.length,
-      }),
-    ]);
+    setEntries((current) => [...current, nextEntry]);
+    setDirtyEntryIds((current) => new Set(current).add(nextEntry.id));
     window.requestAnimationFrame(() => firstDraftInputRef.current?.focus());
   }
 
@@ -135,6 +144,11 @@ export default function SashCatalogGrid({
           ? normalizeSashCatalogEntry(savedEntry)
           : currentEntry
       )));
+      setDirtyEntryIds((current) => {
+        const next = new Set(current);
+        next.delete(entry.id);
+        return next;
+      });
       setNotice("저장했습니다.");
     } catch (nextError) {
       setError(getFriendlySashError(nextError, "샷시 규격을 저장하지 못했습니다. 입력값과 권한을 확인해주세요."));
@@ -146,6 +160,11 @@ export default function SashCatalogGrid({
   async function archiveEntry(entry) {
     if (isLocalSashCatalogEntry(entry)) {
       setEntries((current) => current.filter((currentEntry) => currentEntry.id !== entry.id));
+      setDirtyEntryIds((current) => {
+        const next = new Set(current);
+        next.delete(entry.id);
+        return next;
+      });
       return;
     }
 
@@ -155,6 +174,11 @@ export default function SashCatalogGrid({
     try {
       await archiveSashCatalogEntry(entry.id, companyId);
       setEntries((current) => current.filter((currentEntry) => currentEntry.id !== entry.id));
+      setDirtyEntryIds((current) => {
+        const next = new Set(current);
+        next.delete(entry.id);
+        return next;
+      });
       setNotice("샷시 규격을 삭제했습니다.");
     } catch (nextError) {
       setError(getFriendlySashError(nextError, "샷시 규격을 삭제하지 못했습니다."));
@@ -179,15 +203,15 @@ export default function SashCatalogGrid({
   }
 
   const columns = [
-    { key: "brand", label: "제조사", width: "130px" },
-    { key: "product_type", label: "제품 구분", width: "130px" },
-    { key: "width_mm", label: "가로", align: "right", width: "108px" },
-    { key: "height_mm", label: "세로", align: "right", width: "108px" },
-    { key: "area_sqm", label: "헤베", align: "right", width: "92px" },
-    { key: "unit_price", label: "금액", align: "right", width: "132px" },
-    { key: "cost_price", label: "원가", align: "right", width: "132px" },
-    { key: "updated_at", label: "최종 저장일", width: "116px" },
-    { key: "actions", label: "", width: "72px" },
+    { key: "brand", label: "제조사", width: "116px" },
+    { key: "product_type", label: "제품 구분", width: "116px" },
+    { key: "width_mm", label: "가로", align: "right", width: "92px" },
+    { key: "height_mm", label: "세로", align: "right", width: "92px" },
+    { key: "area_sqm", label: "헤베", align: "right", width: "80px" },
+    { key: "unit_price", label: "금액", align: "right", width: "120px" },
+    { key: "cost_price", label: "원가", align: "right", width: "120px" },
+    { key: "updated_at", label: "최종 저장일", width: "104px" },
+    { key: "actions", label: "", width: "64px" },
   ];
 
   function renderCell({ row, column }) {
@@ -274,43 +298,20 @@ export default function SashCatalogGrid({
 
   return (
     <section className="sash-catalog-grid" aria-label={title}>
-      <header className="sash-catalog-grid__header">
-        <div>
-          <h2>{title}</h2>
-          <p>{description}</p>
-        </div>
-        <Button
-          variant="tertiary"
-          size="sm"
-          leftIcon={<RefreshCcw />}
-          disabled={loading || !selectedSubitemId}
-          onClick={() => setReloadToken((current) => current + 1)}
-        >
-          새로고침
-        </Button>
-      </header>
-
-      {subitems.length > 0 && (
-        <label className="sash-catalog-grid__subitem-select">
-          <span>세부항목</span>
-          <select value={selectedSubitemId} onChange={(event) => setSelectedSubitemId(event.target.value)}>
-            {subitems.map((subitem) => (
-              <option key={subitem.id} value={subitem.id}>{subitem.name}</option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {error && <div className="error-box sash-catalog-grid__message">{error}</div>}
+      {error && entries.length > 0 && <div className="error-box sash-catalog-grid__message">{error}</div>}
       {notice && <div className="status-box sash-catalog-grid__message">{notice}</div>}
 
-      {!selectedSubitem ? (
-        <EmptyState
-          title="등록된 샷시 세부항목이 없습니다."
-          description="샷시 대분류에 세부항목을 먼저 추가하세요."
-        />
-      ) : loading ? (
-        <div className="status-box">샷시 규격을 불러오는 중...</div>
+      {loading ? (
+        <div className="admin-items-v2-loading-table sash-catalog-grid__loading" aria-label="샷시 규격 불러오는 중">
+          <div className="admin-items-v2-loading-row" />
+          <div className="admin-items-v2-loading-row" />
+          <div className="admin-items-v2-loading-row" />
+        </div>
+      ) : error && !entries.length ? (
+        <div className="sash-catalog-grid__empty">
+          <span>샷시 규격을 불러오지 못했습니다.</span>
+          <button type="button" onClick={() => setReloadToken((current) => current + 1)}>다시 시도</button>
+        </div>
       ) : entries.length ? (
         <Table
           columns={columns}
@@ -323,13 +324,13 @@ export default function SashCatalogGrid({
           className="sash-catalog-grid__table"
         />
       ) : (
-        <EmptyState
-          title="등록된 샷시 규격이 없습니다."
-          description="아래에서 실제 현장에 사용할 샷시 규격을 추가하세요."
-        />
+        <div className="sash-catalog-grid__empty">
+          <span>등록된 샷시 규격이 없습니다.</span>
+          <button type="button" onClick={addEntry}><Plus size={16} strokeWidth={1.5} />샷시 규격 추가</button>
+        </div>
       )}
 
-      {selectedSubitem && (
+      {subitem && entries.length > 0 && (
         <button
           type="button"
           className="sash-catalog-grid__add"

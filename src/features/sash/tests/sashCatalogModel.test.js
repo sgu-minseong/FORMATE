@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSashCatalogEntryCounts,
   buildSashEstimateSelectionPatch,
   formatSashArea,
   getSashAreaPreview,
@@ -17,6 +18,19 @@ describe("sash catalog model", () => {
     expect(getSashAreaPreview(4000, 2400)).toBe(9.6);
     expect(formatSashArea(9.6)).toBe("9.6㎡");
     expect(formatSashArea(7.25)).toBe("7.25㎡");
+  });
+
+  it("counts only active catalog entries for each sash subitem", () => {
+    expect(buildSashCatalogEntryCounts([
+      { construction_subitem_id: "living", archived_at: null },
+      { construction_subitem_id: "living", archived_at: null },
+      { construction_subitem_id: "living", archived_at: "2026-08-08T00:00:00Z" },
+      { construction_subitem_id: "bedroom", archived_at: null },
+    ], ["living", "bedroom", "kitchen"])).toEqual({
+      living: 2,
+      bedroom: 1,
+      kitchen: 0,
+    });
   });
 
   it("requires only the DB-backed editable fields before a row is saved", () => {

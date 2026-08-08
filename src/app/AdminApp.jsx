@@ -247,7 +247,7 @@ import {
   writeTemplateConditionFavorites,
   writeTemplateConditionRecent,
 } from "../features/priceTable/templateConditionPreferences";
-import SashCatalogGrid from "../features/sash/SashCatalogGrid";
+import SashCatalogSection from "../features/sash/SashCatalogSection";
 import SashCatalogSelector from "../features/sash/SashCatalogSelector";
 import {
   buildSashEstimateSelectionPatch,
@@ -7783,18 +7783,44 @@ export default function AdminApp() {
   }
 
   function renderAdminItemsRows(item) {
-    if (isSashItem(item)) {
+    const sashItem = isSashItem(item);
+    const itemSubitems = getVisibleAdminSubitems(item);
+    if (sashItem) {
       return (
-        <SashCatalogGrid
+        <SashCatalogSection
           companyId={selectedCompanyId}
-          subitems={item.subitems ?? []}
-          title="샷시 규격"
-          description="이 카탈로그는 단가표 관리와 동일하게 공유되며 평형별 수량·인원은 사용하지 않습니다."
+          item={item}
+          subitems={itemSubitems}
+          adminSaving={adminSaving}
+          canReorder={canReorderAdminCatalog}
+          dragSubitem={dragSubitem}
+          dragOverSubitem={dragOverSubitem}
+          newlyAddedSubitemId={newlyAddedSubitemId}
+          materialNamePlaceholder={MATERIAL_NAME_PLACEHOLDER}
+          onAddSubitem={addAdminSubitem}
+          onDeleteSubitem={deleteAdminSubitem}
+          onDragEnd={clearAdminDragState}
+          onDragOver={handleAdminSubitemDragOver}
+          onDragStart={handleAdminSubitemDragStart}
+          onDrop={reorderAdminSubitems}
+          onSubitemNameChange={(subitemId, value) => {
+            setAdminItems((current) => current.map((entry) => (
+              entry.id === item.id
+                ? {
+                    ...entry,
+                    subitems: entry.subitems.map((subitem) => (
+                      subitem.id === subitemId ? { ...subitem, name: value } : subitem
+                    )),
+                  }
+                : entry
+            )));
+          }}
+          onSubitemNameInput={markAdminCatalogDirty}
+          onSubitemNameBlur={renameAdminSubitem}
         />
       );
     }
 
-    const itemSubitems = getVisibleAdminSubitems(item);
     if (isFlooringThicknessItem(item)) {
       return (
         <div className="quantity-table-list admin-items-v2-grid-list">

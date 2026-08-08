@@ -5,7 +5,7 @@ const appSource = readFileSync(new URL("../../../app/AdminApp.jsx", import.meta.
 const pricePageSource = readFileSync(new URL("../PriceTablePage.jsx", import.meta.url), "utf8");
 const categoryPanelSource = readFileSync(new URL("../AdminCategoryPanel.jsx", import.meta.url), "utf8");
 const switcherSource = readFileSync(new URL("../TemplateConditionSwitcher.jsx", import.meta.url), "utf8");
-const sashGridSource = readFileSync(new URL("../../sash/SashCatalogGrid.jsx", import.meta.url), "utf8");
+const sashSectionSource = readFileSync(new URL("../../sash/SashCatalogSection.jsx", import.meta.url), "utf8");
 const appStyles = readFileSync(new URL("../../../styles/appStyles.js", import.meta.url), "utf8");
 const workbenchSource = appSource.slice(
   appSource.indexOf("function renderAdminItemsWorkbench"),
@@ -36,10 +36,11 @@ describe("admin template management layout contracts", () => {
 
   it("keeps standard and sash editors inside the shared workspace without sash tabs", () => {
     expect(appSource).toContain("isSashItem(item)");
-    expect(appSource).toContain("<SashCatalogGrid");
-    expect(sashGridSource).toContain("sash-catalog-grid__subitem-select");
-    expect(sashGridSource).not.toContain('role="tablist"');
-    expect(sashGridSource).not.toContain('role="tab"');
+    expect(appSource).toContain("<SashCatalogSection");
+    expect(sashSectionSource).toContain("<SashCatalogGrid");
+    expect(sashSectionSource).not.toContain("<select");
+    expect(sashSectionSource).not.toContain('role="tablist"');
+    expect(sashSectionSource).not.toContain('role="tab"');
   });
 });
 

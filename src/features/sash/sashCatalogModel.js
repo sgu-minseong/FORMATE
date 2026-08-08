@@ -14,6 +14,20 @@ export function isLocalSashCatalogEntry(entry) {
   return String(entry?.id ?? "").startsWith(LOCAL_SASH_CATALOG_ENTRY_PREFIX);
 }
 
+export function buildSashCatalogEntryCounts(entries = [], constructionSubitemIds = []) {
+  const counts = Object.fromEntries(
+    constructionSubitemIds.map((constructionSubitemId) => [constructionSubitemId, 0])
+  );
+
+  entries.forEach((entry) => {
+    const constructionSubitemId = entry?.construction_subitem_id;
+    if (!constructionSubitemId || entry?.archived_at || !(constructionSubitemId in counts)) return;
+    counts[constructionSubitemId] += 1;
+  });
+
+  return counts;
+}
+
 export function formatSashArea(value) {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue) || numericValue <= 0) return "-";

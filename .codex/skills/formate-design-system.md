@@ -147,6 +147,18 @@ List 320-380px | Detail minmax(0, 1fr)
 - 정적 속성, 활동, 위험 행동은 Drawer나 명시적 상세 섹션으로 분리한다.
 - 선택 행은 배경과 좌측 3px 강조선으로 표시한다.
 
+### Specialized Editor Rule
+
+- 특수 데이터 타입은 해당 데이터의 Editor 영역만 특수화한다.
+- Navigation, Layout, Selection Pattern은 같은 화면 family의 기존 FORMATE 공통 Pattern을 재사용한다.
+- 특수 기능을 이유로 별도 Sidebar, Tab Navigation, Page Shell을 만들지 않는다.
+- 사용자가 익힌 탐색법과 화면 구조를 유지해 기능별 학습 비용을 최소화한다.
+- 특수 데이터에 일반 Table column을 억지로 적용해 의미 없는 placeholder, dash, 반복 설명을 만들지 않는다.
+- Collapsed 상태에는 탐색과 판단에 필요한 최소 상태 정보만 표시하고, 상세 편집 정보는 Expanded 상태에서 제공한다.
+- 동일한 source of truth를 편집하는 여러 화면은 동일 Editor Component와 interaction을 재사용한다.
+- 기존 Component를 시각적으로 복제하는 것보다 실제 Component와 Style 경로를 재사용하는 것을 우선한다.
+- 예: `standard`는 Standard Editor를 사용하고, `sash`는 같은 탐색·선택 구조 안에서 Sash Catalog Editor로 교체한다.
+
 ## 3. Color System
 
 새 화면에서 아래 Semantic Token을 사용한다. 임의 HEX, RGB, 이름 기반 색상을 추가하지 않는다.
