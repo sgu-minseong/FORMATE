@@ -19,6 +19,7 @@ export default function PhotoViewer({
   onClose,
   getPhotoUrl = (photo) => photo?.signed_url || photo?.signedUrl || "",
   getPhotoAlt = (photo) => photo?.original_filename || "사진",
+  getPhotoCaption = (photo) => photo?.caption || photo?.description || "",
 }) {
   const viewerPhotos = useMemo(() => (Array.isArray(photos) ? photos : []), [photos]);
   const [activeIndex, setActiveIndex] = useState(() => normalizePhotoViewerIndex(initialIndex, viewerPhotos.length));
@@ -61,6 +62,7 @@ export default function PhotoViewer({
 
   const currentPhoto = viewerPhotos[activeIndex] ?? viewerPhotos[0];
   const currentUrl = getPhotoUrl(currentPhoto);
+  const currentCaption = `${getPhotoCaption(currentPhoto) ?? ""}`.trim();
   const hasMultiple = viewerPhotos.length > 1;
 
   const viewer = (
@@ -129,23 +131,28 @@ export default function PhotoViewer({
           )}
         </div>
 
-        {hasMultiple && (
-          <div className="photo-viewer-thumbnails" aria-label="사진 목록">
-            {viewerPhotos.map((photo, index) => {
-              const thumbnailUrl = getPhotoUrl(photo);
-              return (
-                <button
-                  type="button"
-                  key={photo.id ?? `${thumbnailUrl}-${index}`}
-                  className={index === activeIndex ? "active" : ""}
-                  onClick={() => setActiveIndex(index)}
-                  aria-label={`${index + 1}번째 사진 보기`}
-                  aria-current={index === activeIndex ? "true" : undefined}
-                >
-                  {thumbnailUrl ? <img src={thumbnailUrl} alt="" /> : <Image size={18} strokeWidth={1.5} />}
-                </button>
-              );
-            })}
+        {(currentCaption || hasMultiple) && (
+          <div className="photo-viewer-footer">
+            {currentCaption && <p className="photo-viewer-caption">{currentCaption}</p>}
+            {hasMultiple && (
+              <div className="photo-viewer-thumbnails" aria-label="사진 목록">
+                {viewerPhotos.map((photo, index) => {
+                  const thumbnailUrl = getPhotoUrl(photo);
+                  return (
+                    <button
+                      type="button"
+                      key={photo.id ?? `${thumbnailUrl}-${index}`}
+                      className={index === activeIndex ? "active" : ""}
+                      onClick={() => setActiveIndex(index)}
+                      aria-label={`${index + 1}번째 사진 보기`}
+                      aria-current={index === activeIndex ? "true" : undefined}
+                    >
+                      {thumbnailUrl ? <img src={thumbnailUrl} alt="" /> : <Image size={18} strokeWidth={1.5} />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </section>

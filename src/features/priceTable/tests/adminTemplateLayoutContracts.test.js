@@ -11,6 +11,10 @@ const workbenchSource = appSource.slice(
   appSource.indexOf("function renderAdminItemsWorkbench"),
   appSource.indexOf("async function saveAdminPrices")
 );
+const templateRendererSource = appSource.slice(
+  appSource.indexOf("function renderAdminItemsRows"),
+  appSource.indexOf("function renderAdminTemplateConditionDrawer")
+);
 
 describe("admin template management layout contracts", () => {
   it("uses the exact same category panel component as price table management", () => {
@@ -41,6 +45,13 @@ describe("admin template management layout contracts", () => {
     expect(sashSectionSource).not.toContain("<select");
     expect(sashSectionSource).not.toContain('role="tablist"');
     expect(sashSectionSource).not.toContain('role="tab"');
+  });
+
+  it("uses the same standard renderer regardless of flat metadata or display name", () => {
+    expect(templateRendererSource).toContain("getConstructionItemRendererKind(item)");
+    expect(templateRendererSource).not.toContain("isFlooringThicknessItem(item)");
+    expect(templateRendererSource).not.toContain('item.item_type === "flat"');
+    expect(templateRendererSource).toContain("CONSTRUCTION_ITEM_RENDERER_KINDS.SASH");
   });
 });
 

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   archivePhotoType,
   deleteEmptyPhotoType,
-  fetchPhotoManagementData as fetchPhotoData,
+  fetchLegacyPhotoManagementData as fetchPhotoData,
+  fetchPhotoCatalog,
   insertPhotoCollection,
   insertPhotoType,
   moveCollectionPhotos,
@@ -45,6 +46,8 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
   const [photoAutoSaveStatus, setPhotoAutoSaveStatus] = useState("idle");
   const [photoAutoSaveMessage, setPhotoAutoSaveMessage] = useState("");
   const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoCatalogLoading, setPhotoCatalogLoading] = useState(false);
+  const [photoCatalogError, setPhotoCatalogError] = useState("");
   const [mutationSaving, setMutationSaving] = useState(false);
   const [autoSaveRunning, setAutoSaveRunning] = useState(false);
   const [hasPendingPhotoChanges, setHasPendingPhotoChanges] = useState(false);
@@ -56,6 +59,10 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
   const catalogRef = useRef([]);
   const pendingChangesRef = useRef([]);
   const mountedRef = useRef(true);
+  const companyIdRef = useRef(companyId);
+  const previousCompanyIdRef = useRef(companyId);
+  const legacyLoadRequestRef = useRef(0);
+  const catalogLoadRequestRef = useRef(0);
   const flushQueueRef = useRef(async () => true);
   const autosaveRef = useRef(null);
 
@@ -100,22 +107,78 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
     });
   }
 
-  useEffect(() => () => {
-    mountedRef.current = false;
-    autosaveRef.current?.clearTimer();
+  useEffect(() => {
+    companyIdRef.current = companyId;
+    legacyLoadRequestRef.current += 1;
+    catalogLoadRequestRef.current += 1;
+    setPhotoLoading(false);
+    setPhotoCatalogLoading(false);
+    if (previousCompanyIdRef.current !== companyId) reset();
+    previousCompanyIdRef.current = companyId;
+  }, [companyId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      legacyLoadRequestRef.current += 1;
+      catalogLoadRequestRef.current += 1;
+      autosaveRef.current?.clearTimer();
+    };
   }, []);
 
   const photoSaving = mutationSaving || autoSaveRunning;
   const photosForTarget = (targetType, targetId) =>
     getPhotosForTarget(photosRef.current, targetType, targetId);
 
-  async function refresh({ resetFeedback = true } = {}) {
+  async function refreshCatalog() {
     if (!companyId) return false;
+    const requestCompanyId = companyId;
+    const requestId = ++catalogLoadRequestRef.current;
+    setPhotoCatalogLoading(true);
+    setPhotoCatalogError("");
+    try {
+      const catalog = await fetchPhotoCatalog(requestCompanyId);
+      if (
+        !mountedRef.current
+        || requestId !== catalogLoadRequestRef.current
+        || requestCompanyId !== companyIdRef.current
+      ) return false;
+      setCatalogState(catalog);
+      return true;
+    } catch (error) {
+      if (
+        mountedRef.current
+        && requestId === catalogLoadRequestRef.current
+        && requestCompanyId === companyIdRef.current
+      ) {
+        setPhotoCatalogError(getFriendlyError(error, "사진 대분류와 세부항목을 불러오지 못했습니다."));
+      }
+      return false;
+    } finally {
+      if (
+        mountedRef.current
+        && requestId === catalogLoadRequestRef.current
+        && requestCompanyId === companyIdRef.current
+      ) setPhotoCatalogLoading(false);
+    }
+  }
+
+  async function refresh({ resetFeedback = true, includeCatalog = true } = {}) {
+    if (!companyId) return false;
+    const requestCompanyId = companyId;
+    const requestId = ++legacyLoadRequestRef.current;
+    if (includeCatalog) void refreshCatalog();
     setPhotoLoading(true);
     setPhotoError("");
     if (resetFeedback) setPhotoNotice("");
     try {
-      const data = await fetchPhotoData(companyId);
+      const data = await fetchPhotoData(requestCompanyId);
+      if (
+        !mountedRef.current
+        || requestId !== legacyLoadRequestRef.current
+        || requestCompanyId !== companyIdRef.current
+      ) return false;
       setTypesState(data.photoTypes);
       setPhotoTypeDrafts(Object.fromEntries(
         data.photoTypes.map((photoType) => [photoType.id, photoType.display_name ?? ""])
@@ -125,13 +188,22 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
         data.collections.map((collection) => [collection.id, collection.name ?? ""])
       ));
       setPhotosState(data.photos);
-      setCatalogState(data.catalog);
       return true;
     } catch (error) {
-      setPhotoError(getFriendlyError(error, "사진 관리 데이터를 불러오지 못했습니다. 사진 관리 SQL 적용 상태를 확인해 주세요."));
+      if (
+        mountedRef.current
+        && requestId === legacyLoadRequestRef.current
+        && requestCompanyId === companyIdRef.current
+      ) {
+        setPhotoError(getFriendlyError(error, "사진 관리 데이터를 불러오지 못했습니다. 사진 관리 SQL 적용 상태를 확인해 주세요."));
+      }
       return false;
     } finally {
-      setPhotoLoading(false);
+      if (
+        mountedRef.current
+        && requestId === legacyLoadRequestRef.current
+        && requestCompanyId === companyIdRef.current
+      ) setPhotoLoading(false);
     }
   }
 
@@ -144,7 +216,7 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
     setPhotoNotice("");
 
     return runQueuedPhotoChanges(changes, async (failures) => {
-      await refresh({ resetFeedback: false });
+      await refresh({ resetFeedback: false, includeCatalog: false });
       const firstError = failures[0]?.error;
       setPhotoError(getFriendlyError(firstError, "사진 변경 사항을 저장하지 못해 마지막 저장 상태로 복원했습니다."));
     });
@@ -182,7 +254,7 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
     setPhotoNotice("");
     try {
       await action();
-      await refresh({ resetFeedback: false });
+      await refresh({ resetFeedback: false, includeCatalog: false });
       setPhotoNotice(notice);
       setPhotoAutoSaveStatus("saved");
       setPhotoAutoSaveMessage(savedMessage);
@@ -519,6 +591,8 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
   }
 
   function reset() {
+    legacyLoadRequestRef.current += 1;
+    catalogLoadRequestRef.current += 1;
     autosaveRef.current?.reset();
     pendingChangesRef.current = [];
     setPhotoTab(PHOTO_TYPES.FULL_PROJECT);
@@ -531,6 +605,8 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
     setExpandedPhotoCategoryIds([]);
     setHasPendingPhotoChanges(false);
     setPhotoLoading(false);
+    setPhotoCatalogLoading(false);
+    setPhotoCatalogError("");
     setMutationSaving(false);
     setAutoSaveRunning(false);
     setPhotoError("");
@@ -538,13 +614,15 @@ export function usePhotoManagement({ companyId, createPhotoId, getFriendlyError 
   }
 
   return {
+    companyId, createPhotoId, getFriendlyError,
     photoTab, setPhotoTab, photoTypes, photoTypeDrafts,
     photoCollections, photoCollectionDrafts,
     photos, photoCatalog, expandedPhotoCategoryIds, setExpandedPhotoCategoryIds,
-    photoAutoSaveStatus, photoAutoSaveMessage, photoLoading, photoSaving,
+    photoAutoSaveStatus, photoAutoSaveMessage, photoLoading, photoCatalogLoading,
+    photoCatalogError, photoSaving,
     hasPendingPhotoChanges, photoError, setPhotoError, photoNotice, setPhotoNotice,
     getPhotosForTarget: photosForTarget,
-    refresh, flushPendingChanges, addPhotoType, changePhotoTypeName,
+    refresh, refreshCatalog, flushPendingChanges, addPhotoType, changePhotoTypeName,
     cancelPhotoTypeNameEdit, reorderPhotoTypes, removePhotoType,
     addCollection, changeCollectionName,
     cancelCollectionNameEdit, deleteCollection, reorderCollections,

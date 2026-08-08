@@ -5,6 +5,7 @@ import {
   PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS,
   PHOTO_STORAGE_BUCKET,
   PHOTO_TYPES,
+  PHOTO_V2_ERROR_CODES,
   assertPhotoLibraryFolderMove,
   assertUniqueActiveSiblingFolderName,
   buildPhotoLibraryScope,
@@ -12,6 +13,7 @@ import {
   buildPyeongSubitemPhotoScope,
   buildPhotoInsertPayload,
   buildPhotoStoragePath,
+  createPhotoV2Error,
   getActiveLibraryFolderTree,
   getVisiblePhotoLibraryFolders,
   normalizePhotoCaption,
@@ -37,7 +39,7 @@ async function fetchPhotoTypes(companyId) {
   return result.data ?? [];
 }
 
-async function attachSignedPhotoUrls(photoRows = []) {
+export async function attachSignedPhotoUrls(photoRows = []) {
   const rows = Array.isArray(photoRows) ? photoRows : [];
   const paths = Array.from(new Set(rows.map((photo) => photo.storage_path).filter(Boolean)));
   if (!paths.length) return rows;
@@ -63,7 +65,12 @@ async function fetchCollections(companyId) {
   return result.data ?? [];
 }
 
-export async function fetchPhotoManagementData(companyId) {
+export async function fetchPhotoCatalog(companyId) {
+  const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
+  return normalizeAdminItems(itemRows, subitemRows, []);
+}
+
+export async function fetchLegacyPhotoManagementData(companyId) {
   const [photoTypes, collections] = await Promise.all([
     fetchPhotoTypes(companyId),
     fetchCollections(companyId),
@@ -76,12 +83,17 @@ export async function fetchPhotoManagementData(companyId) {
     .order("created_at", { ascending: true });
   if (photoError) throw photoError;
   const photos = await attachSignedPhotoUrls(photoRows ?? []);
-  const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
+  return { photoTypes, collections, photos };
+}
+
+export async function fetchPhotoManagementData(companyId) {
+  const [legacyData, catalog] = await Promise.all([
+    fetchLegacyPhotoManagementData(companyId),
+    fetchPhotoCatalog(companyId),
+  ]);
   return {
-    photoTypes,
-    collections,
-    photos,
-    catalog: normalizeAdminItems(itemRows, subitemRows, []),
+    ...legacyData,
+    catalog,
   };
 }
 
@@ -393,7 +405,7 @@ async function fetchLibraryPhotos({ companyId, folderIds, folderId, query, limit
   return photos.map(normalizePhotoV2Photo);
 }
 
-async function uploadPhotoWithScope({ companyId, photoId, file, existingCount, scope }) {
+async function uploadPhotoWithScope({ companyId, photoId, file, existingCount, scope, isPrimary }) {
   const validationError = validatePhotoFile(file);
   if (validationError) throw new Error(validationError);
   const storagePath = buildPhotoStoragePath({
@@ -406,7 +418,13 @@ async function uploadPhotoWithScope({ companyId, photoId, file, existingCount, s
   const { error: uploadError } = await supabase.storage
     .from(PHOTO_STORAGE_BUCKET)
     .upload(storagePath, file, { contentType: file.type, upsert: false });
-  if (uploadError) throw uploadError;
+  if (uploadError) {
+    throw createPhotoV2Error(
+      PHOTO_V2_ERROR_CODES.STORAGE_UPLOAD_FAILED,
+      "사진 파일을 Storage에 업로드하지 못했습니다.",
+      uploadError
+    );
+  }
 
   const payload = {
     ...buildPhotoInsertPayload({
@@ -420,8 +438,20 @@ async function uploadPhotoWithScope({ companyId, photoId, file, existingCount, s
     }),
     ...scope,
   };
+  if (typeof isPrimary === "boolean") payload.is_primary = isPrimary;
   const { data, error } = await supabase.from("photos").insert(payload).select().single();
-  if (error) throw error;
+  if (error) {
+    const { error: cleanupError } = await supabase.storage
+      .from(PHOTO_STORAGE_BUCKET)
+      .remove([storagePath]);
+    const metadataError = createPhotoV2Error(
+      PHOTO_V2_ERROR_CODES.METADATA_INSERT_FAILED,
+      "사진 파일은 업로드됐지만 사진 정보를 저장하지 못했습니다.",
+      error
+    );
+    if (cleanupError) metadataError.cleanupError = cleanupError;
+    throw metadataError;
+  }
   const [photo] = await attachSignedPhotoUrls(data ? [data] : []);
   return normalizePhotoV2Photo(photo ?? data);
 }
@@ -461,6 +491,48 @@ export async function listPyeongSubitemPhotos({
   }, "평형별 사진을 불러오지 못했습니다.");
 }
 
+export async function listPyeongPhotoRows({ companyId, pyeong }) {
+  return runPhotoV2(async () => {
+    const normalizedPyeong = Number(pyeong);
+    if (!Number.isInteger(normalizedPyeong) || normalizedPyeong <= 0) {
+      throw new Error("평수를 확인해 주세요.");
+    }
+    const { data, error } = await supabase
+      .from("photos")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("photo_type", PHOTO_TYPES.SUBITEM)
+      .eq("target_type", PHOTO_TYPES.SUBITEM)
+      .eq("pyeong", normalizedPyeong)
+      .is("sash_catalog_entry_id", null)
+      .is("archived_at", null)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return (data ?? []).map(normalizePhotoV2Photo);
+  }, "평형별 사진을 불러오지 못했습니다.");
+}
+
+export async function resolvePyeongPhotoUrls(photoRows = []) {
+  return runPhotoV2(async () => {
+    const rawRows = (photoRows ?? []).map((photo) => ({
+      id: photo.id,
+      storage_path: photo.storagePath ?? photo.storage_path ?? "",
+    }));
+    const resolvedRows = await attachSignedPhotoUrls(rawRows);
+    const signedUrlById = new Map(resolvedRows.map((photo) => [photo.id, photo.signed_url ?? ""]));
+    return (photoRows ?? []).map((photo) => ({
+      ...photo,
+      signedUrl: signedUrlById.get(photo.id) ?? photo.signedUrl ?? "",
+    }));
+  }, "사진 미리보기를 불러오지 못했습니다.");
+}
+
+export async function listPyeongPhotos({ companyId, pyeong }) {
+  const rows = await listPyeongPhotoRows({ companyId, pyeong });
+  return resolvePyeongPhotoUrls(rows);
+}
+
 export async function uploadPyeongSubitemPhoto({
   companyId,
   photoId,
@@ -475,6 +547,7 @@ export async function uploadPyeongSubitemPhoto({
     photoId,
     file,
     existingCount,
+    isPrimary: false,
     scope: buildPyeongSubitemPhotoScope({ pyeong, constructionSubitemId, sashCatalogEntryId }),
   }), "평형별 사진을 등록하지 못했습니다.");
 }

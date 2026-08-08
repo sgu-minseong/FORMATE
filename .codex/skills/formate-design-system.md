@@ -398,8 +398,27 @@ Pretendard Variable과 기존 시스템 fallback을 사용한다. 별도 서체�
 
 - Hover와 Focus transition은 150-160ms를 사용한다.
 - 자동 장식 애니메이션을 추가하지 않는다.
-- `focus-visible`에는 2px Primary Ring과 2px offset을 제공한다.
+- `focus-visible`은 컨트롤 자체에 가까운 작고 절제된 단일 표시를 제공한다.
 - Hover만으로 필수 행동을 숨기지 않는다. Hover 노출 icon은 Focus와 Active 상태에서도 보여야 한다.
+
+### Interaction Cost Minimization Rule
+
+- FORMATE UI 설계 시 사용자가 작업을 끝내기 위해 필요한 클릭, 열기, 닫기, 화면 전환, 재입력 횟수를 핵심 평가 기준으로 사용한다.
+- 같은 정보를 확인하기 위한 불필요한 interaction을 줄이고, 반복 업무에서 안전하게 바로 노출할 수 있는 정보는 추가 interaction 뒤에 숨기지 않는다.
+- Accordion, Modal, Drawer, Popover는 화면을 정리하기 위한 목적으로 남용하지 않고 실제 복잡도가 높은 정보에만 Progressive Disclosure를 적용한다.
+- 여러 object를 빠르게 비교하거나 탐색하는 업무에서는 장식적 단순함보다 scanability와 click reduction을 우선한다.
+- 이미 선택한 Context, preference, favorite를 다른 화면에서 다시 입력하게 하지 않고 동일 의미의 상태는 가능한 하나의 source를 재사용한다.
+- 내부 상태 갱신을 위해 사용자가 별도 새로고침을 수행하도록 요구하지 않는다.
+- 구현 전 `이 작업을 끝내려면 몇 번 클릭해야 하는가`, `한 번에 볼 수 있는 정보를 불필요하게 숨기고 있는가`, `이미 아는 Context를 다시 입력시키는가`를 확인한다.
+
+### Focus Treatment Rule
+
+- 큰 초록 focus rectangle, double outline, glow, wrapper halo를 사용하지 않는다.
+- Focus는 현재 입력 위치를, Selected는 선택된 데이터 상태를 나타내며 두 상태를 같은 표현으로 혼용하지 않는다.
+- 마우스로 입력 컨트롤을 활성화할 때는 control 자체의 subtle border/state 변화로 표현하고 외부 두 번째 rectangle을 추가하지 않는다.
+- Checkbox wrapper 전체나 Editable Cell parent 전체를 focus rectangle으로 둘러싸지 않는다.
+- 키보드 `:focus-visible` 접근성은 유지하되 컨트롤에 가까운 작고 절제된 indicator를 사용한다.
+- 페이지별 임시 focus override보다 공통 Component와 Token 수준의 수정을 우선한다.
 
 ### 상태 정의
 

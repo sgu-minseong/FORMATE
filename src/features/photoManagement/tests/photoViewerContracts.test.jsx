@@ -8,7 +8,7 @@ import PhotoViewer, {
   normalizePhotoViewerIndex,
   shouldSuppressPhotoClick,
 } from "../../../components/PhotoViewer";
-import PhotoManagementPage from "../PhotoManagementPage";
+import PhotoManagementPage, { LegacyPricePhotoManagement } from "../PhotoManagementPage";
 import { PHOTO_TYPE_KINDS, PHOTO_TYPES } from "../photoModel";
 
 function createController(overrides = {}) {
@@ -121,8 +121,30 @@ describe("common photo viewer contracts", () => {
 });
 
 describe("photo management rendering contracts", () => {
-  it("shows only the selected classification photos and keeps the add tile last", () => {
+  it("starts with the three photo management modes", () => {
     const markup = renderToStaticMarkup(<PhotoManagementPage controller={createController()} />);
+
+    expect(markup).toContain("평형별 사진 관리");
+    expect(markup).toContain("평수 무관 사진 관리");
+    expect(markup).toContain("공사 가격별 사진 관리");
+    expect(markup.match(/class="photo-management-mode-card"/g)).toHaveLength(3);
+    expect(markup).not.toContain("사진 유형 추가");
+  });
+
+  it("shows the current photo description without changing viewer navigation scope", () => {
+    const markup = renderToStaticMarkup(
+      <PhotoViewer
+        photos={[{ id: "a", signedUrl: "https://example.com/a.jpg", description: "시공 완료 사진" }]}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain("시공 완료 사진");
+    expect(markup).toContain("photo-viewer-caption");
+  });
+
+  it("shows only the selected classification photos and keeps the add tile last", () => {
+    const markup = renderToStaticMarkup(<LegacyPricePhotoManagement controller={createController()} />);
 
     expect(markup).toContain("첫번째.jpg");
     expect(markup).not.toContain("다른분류.jpg");
@@ -133,7 +155,7 @@ describe("photo management rendering contracts", () => {
 
   it("shows the add tile even when the selected classification has no photos", () => {
     const controller = createController({ photos: [], getPhotosForTarget: () => [] });
-    const markup = renderToStaticMarkup(<PhotoManagementPage controller={controller} />);
+    const markup = renderToStaticMarkup(<LegacyPricePhotoManagement controller={controller} />);
 
     expect(markup).toContain('aria-label="1000만원대 사진 추가"');
   });
@@ -167,7 +189,7 @@ describe("photo management rendering contracts", () => {
   });
 
   it("keeps the add controls, removes per-name save, and exposes one page save action", () => {
-    const markup = renderToStaticMarkup(<PhotoManagementPage controller={createController({ hasPendingPhotoChanges: true })} />);
+    const markup = renderToStaticMarkup(<LegacyPricePhotoManagement controller={createController({ hasPendingPhotoChanges: true })} />);
 
     expect(markup).toContain("저장</button>");
     expect(markup).not.toContain("이름 저장");
@@ -201,7 +223,7 @@ describe("photo management rendering contracts", () => {
 
   it("renders manageable photo types and keeps behavior tied to stable kind", () => {
     const customType = { id: "type-custom", company_id: "company", storage_key: "custom_11111111-1111-4111-8111-111111111111", stable_kind: PHOTO_TYPE_KINDS.CUSTOM, display_name: "준공 사진", sort_order: 3, is_system: false };
-    const markup = renderToStaticMarkup(<PhotoManagementPage controller={createController({
+    const markup = renderToStaticMarkup(<LegacyPricePhotoManagement controller={createController({
       photoTypes: [...createController().photoTypes, customType],
       photoTypeDrafts: { "type-whole": "올공사", "type-partial": "부분공사", "type-detail": "세부항목", "type-custom": "준공 사진" },
     })} />);
@@ -218,7 +240,7 @@ describe("photo management rendering contracts", () => {
     const detailTypes = createController().photoTypes.map((entry) => entry.stable_kind === PHOTO_TYPE_KINDS.DETAIL
       ? { ...entry, display_name: "공종별 현장 사진" }
       : entry);
-    const markup = renderToStaticMarkup(<PhotoManagementPage controller={createController({
+    const markup = renderToStaticMarkup(<LegacyPricePhotoManagement controller={createController({
       photoTab: PHOTO_TYPES.SUBITEM,
       photoTypes: detailTypes,
       photoTypeDrafts: Object.fromEntries(detailTypes.map((entry) => [entry.id, entry.display_name])),
@@ -240,7 +262,7 @@ describe("photo management rendering contracts", () => {
     const controller = createController({
       photoCatalog: [{ id: "demolition", name: "철거", subitems: [{ id: "wall", name: "벽 철거" }] }],
     });
-    const markup = renderToStaticMarkup(<PhotoManagementPage controller={controller} />);
+    const markup = renderToStaticMarkup(<LegacyPricePhotoManagement controller={controller} />);
 
     expect(markup).toContain("1000만원대");
     expect(markup).not.toContain("<small>철거</small>");

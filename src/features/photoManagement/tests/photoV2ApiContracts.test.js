@@ -4,12 +4,25 @@ const mockState = vi.hoisted(() => ({
   calls: [],
   rows: {},
   resultQueues: {},
+  signedUrlCalls: [],
+  storageUploads: [],
+  storageRemovals: [],
+  storageUploadResult: { data: {}, error: null },
+  storageRemoveResult: { data: {}, error: null },
 }));
 
 function createQuery(table) {
   const query = {
     select(value = "*") {
       mockState.calls.push({ table, method: "select", value });
+      return query;
+    },
+    insert(value) {
+      mockState.calls.push({ table, method: "insert", value });
+      return query;
+    },
+    single() {
+      mockState.calls.push({ table, method: "single" });
       return query;
     },
     eq(column, value) {
@@ -50,23 +63,111 @@ vi.mock("../../../lib/supabaseClient", () => ({
     from: (table) => createQuery(table),
     storage: {
       from: () => ({
-        createSignedUrls: async () => ({ data: [], error: null }),
+        upload: async (path, file, options) => {
+          mockState.storageUploads.push({ path, file, options });
+          return mockState.storageUploadResult;
+        },
+        remove: async (paths) => {
+          mockState.storageRemovals.push(paths);
+          return mockState.storageRemoveResult;
+        },
+        createSignedUrls: async (paths) => {
+          mockState.signedUrlCalls.push(paths);
+          return { data: paths.map((path) => ({ path, signedUrl: `signed:${path}` })), error: null };
+        },
       }),
     },
   },
 }));
 
 import {
+  fetchPhotoCatalog,
   fetchPhotosForTarget,
+  listPyeongPhotoRows,
+  listPyeongPhotos,
   listPyeongSubitemPhotos,
   listRecentPhotoLibraryPhotos,
+  resolvePyeongPhotoUrls,
+  uploadPyeongSubitemPhoto,
 } from "../photoApi";
+import { PHOTO_V2_ERROR_CODES } from "../photoModel";
 
 describe("Photo v2 API contracts", () => {
   beforeEach(() => {
     mockState.calls = [];
     mockState.rows = {};
     mockState.resultQueues = {};
+    mockState.signedUrlCalls = [];
+    mockState.storageUploads = [];
+    mockState.storageRemovals = [];
+    mockState.storageUploadResult = { data: {}, error: null };
+    mockState.storageRemoveResult = { data: {}, error: null };
+  });
+
+  it("registers pyeong photos as non-primary without changing the legacy payload default", async () => {
+    mockState.rows.photos = {
+      data: {
+        id: "photo-24",
+        company_id: "company",
+        photo_type: "subitem",
+        target_type: "subitem",
+        target_id: "wallpaper",
+        pyeong: 24,
+        construction_subitem_id: "wallpaper",
+        sash_catalog_entry_id: null,
+        storage_path: "company/subitem/wallpaper/photo-24.jpg",
+      },
+      error: null,
+    };
+
+    await uploadPyeongSubitemPhoto({
+      companyId: "company",
+      photoId: "photo-24",
+      file: { name: "photo.jpg", type: "image/jpeg", size: 1024 },
+      pyeong: 24,
+      constructionSubitemId: "wallpaper",
+      existingCount: 0,
+    });
+
+    const insertCall = mockState.calls.find((call) => call.table === "photos" && call.method === "insert");
+    expect(insertCall.value).toMatchObject({
+      pyeong: 24,
+      construction_subitem_id: "wallpaper",
+      is_primary: false,
+    });
+    expect(mockState.storageRemovals).toEqual([]);
+  });
+
+  it("cleans up only the new Storage object when pyeong metadata insertion fails", async () => {
+    mockState.rows.photos = {
+      data: null,
+      error: { code: "23505", constraint: "photos_one_primary_per_target_idx" },
+    };
+
+    await expect(uploadPyeongSubitemPhoto({
+      companyId: "company",
+      photoId: "failed-photo",
+      file: { name: "failed.jpg", type: "image/jpeg", size: 1024 },
+      pyeong: 34,
+      constructionSubitemId: "wallpaper",
+    })).rejects.toMatchObject({ code: PHOTO_V2_ERROR_CODES.METADATA_INSERT_FAILED });
+
+    expect(mockState.storageRemovals).toEqual([["company/subitem/wallpaper/failed-photo.jpg"]]);
+  });
+
+  it("reports Storage upload failure separately and does not attempt a photo insert", async () => {
+    mockState.storageUploadResult = { data: null, error: { message: "bucket rejected" } };
+
+    await expect(uploadPyeongSubitemPhoto({
+      companyId: "company",
+      photoId: "storage-failed-photo",
+      file: { name: "failed.jpg", type: "image/jpeg", size: 1024 },
+      pyeong: 34,
+      constructionSubitemId: "wallpaper",
+    })).rejects.toMatchObject({ code: PHOTO_V2_ERROR_CODES.STORAGE_UPLOAD_FAILED });
+
+    expect(mockState.calls.some((call) => call.table === "photos" && call.method === "insert")).toBe(false);
+    expect(mockState.storageRemovals).toEqual([]);
   });
 
   it("keeps 24-pyeong subitem photos isolated from other pyeong and sash scopes", async () => {
@@ -90,6 +191,58 @@ describe("Photo v2 API contracts", () => {
     expect(mockState.calls).toContainEqual({ table: "photos", method: "eq", column: "pyeong", value: 24 });
     expect(mockState.calls).toContainEqual({ table: "photos", method: "is", column: "sash_catalog_entry_id", value: null });
     expect(mockState.calls).toContainEqual({ table: "photos", method: "is", column: "archived_at", value: null });
+  });
+
+  it("lists one pyeong workspace without archived or sash-specific photos", async () => {
+    mockState.rows.photos = {
+      data: [{
+        id: "photo-34", company_id: "company", photo_type: "subitem", target_type: "subitem",
+        target_id: "flooring", pyeong: 34, construction_subitem_id: "flooring",
+        sash_catalog_entry_id: null, archived_at: null, sort_order: 0,
+      }],
+      error: null,
+    };
+
+    const photos = await listPyeongPhotos({ companyId: "company", pyeong: 34 });
+
+    expect(photos).toHaveLength(1);
+    expect(photos[0]).toMatchObject({ pyeong: 34, constructionSubitemId: "flooring" });
+    expect(mockState.calls).toContainEqual({ table: "photos", method: "eq", column: "pyeong", value: 34 });
+    expect(mockState.calls).toContainEqual({ table: "photos", method: "is", column: "sash_catalog_entry_id", value: null });
+    expect(mockState.calls).toContainEqual({ table: "photos", method: "is", column: "archived_at", value: null });
+  });
+
+  it("makes photo rows ready before signed URL resolution and skips URL work for empty rows", async () => {
+    mockState.rows.photos = {
+      data: [{
+        id: "photo-row", company_id: "company", photo_type: "subitem", target_type: "subitem",
+        target_id: "flooring", pyeong: 24, construction_subitem_id: "flooring",
+        sash_catalog_entry_id: null, archived_at: null, sort_order: 0, storage_path: "company/photo.jpg",
+      }],
+      error: null,
+    };
+
+    const rows = await listPyeongPhotoRows({ companyId: "company", pyeong: 24 });
+    expect(rows[0]).toMatchObject({ pyeong: 24, signedUrl: "" });
+    expect(mockState.signedUrlCalls).toEqual([]);
+
+    const resolved = await resolvePyeongPhotoUrls(rows);
+    expect(resolved[0]).toMatchObject({ pyeong: 24, signedUrl: "signed:company/photo.jpg" });
+    expect(mockState.signedUrlCalls).toEqual([["company/photo.jpg"]]);
+
+    await resolvePyeongPhotoUrls([]);
+    expect(mockState.signedUrlCalls).toHaveLength(1);
+  });
+
+  it("loads the construction catalog without waiting for legacy photos or signed URLs", async () => {
+    mockState.rows.construction_items = { data: [{ id: "item", company_id: "company", name: "철거", sort_order: 0 }], error: null };
+    mockState.rows.construction_subitems = { data: [{ id: "subitem", company_id: "company", item_id: "item", name: "전체 철거", sort_order: 0 }], error: null };
+
+    const catalog = await fetchPhotoCatalog("company");
+
+    expect(catalog[0]).toMatchObject({ id: "item", name: "철거" });
+    expect(mockState.calls.some((call) => call.table === "photos")).toBe(false);
+    expect(mockState.signedUrlCalls).toEqual([]);
   });
 
   it("keeps recent photos within active Folder subtrees only", async () => {

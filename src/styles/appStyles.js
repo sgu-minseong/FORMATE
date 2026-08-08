@@ -709,7 +709,7 @@ const appStyles = `
     color: var(--text-secondary);
     margin-top: 0;
   }
-  select, input, textarea {
+  select, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea {
     width: 100%;
     min-height: 44px;
     padding: 10px 12px;
@@ -720,10 +720,10 @@ const appStyles = `
     outline: none;
     transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
   }
-  select:focus, input:focus, textarea:focus {
+  select:focus, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus, textarea:focus {
     border-color: var(--brand-primary);
     background: var(--bg-surface);
-    box-shadow: var(--focus-ring);
+    box-shadow: none;
   }
   .progress {
     display: grid;
@@ -811,7 +811,7 @@ const appStyles = `
   .custom-select-trigger:focus-visible,
   .custom-select-trigger.open {
     border-color: var(--brand-primary);
-    box-shadow: var(--focus-ring);
+    box-shadow: none;
     outline: none;
   }
   .custom-select-menu {
@@ -827,6 +827,13 @@ const appStyles = `
     border-radius: 10px;
     background: var(--bg-surface);
     box-shadow: var(--shadow-md);
+  }
+  .custom-select-menu--portal {
+    position: fixed;
+    right: auto;
+    z-index: 970;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .custom-select-menu button {
     width: 100%;
@@ -1251,7 +1258,7 @@ const appStyles = `
   .ai-upload-box:focus-within {
     border-color: var(--brand-primary);
     background: var(--brand-primary-subtle);
-    box-shadow: var(--focus-ring);
+    box-shadow: none;
   }
   .ai-upload-box input {
     position: absolute;
@@ -3341,7 +3348,7 @@ const appStyles = `
   .admin-search-field:focus-within {
     border-color: var(--brand-primary);
     background: var(--bg-surface);
-    box-shadow: var(--focus-ring);
+    box-shadow: none;
   }
   .admin-search-field input {
     min-height: 38px;
@@ -4509,7 +4516,7 @@ const appStyles = `
   }
   .estimate-row-quantity-cell:focus-within {
     border-color: var(--brand-primary);
-    box-shadow: 0 0 0 2px rgba(43, 53, 104, 0.1);
+    box-shadow: none;
   }
   .estimate-row-total-cell {
     justify-content: flex-end;
@@ -6000,7 +6007,7 @@ const appStyles = `
   .login-form label {
     gap: 8px;
   }
-  select, input, textarea,
+  select, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea,
   .custom-select-trigger,
   .admin-search-field {
     min-height: 50px;
@@ -6999,7 +7006,7 @@ const appStyles = `
     line-height: var(--line-height-copy);
   }
   select,
-  input,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
   textarea,
   .custom-select-trigger,
   .admin-search-field,
@@ -7007,7 +7014,7 @@ const appStyles = `
     border-radius: var(--radius-button);
   }
   select:focus,
-  input:focus,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
   textarea:focus,
   .custom-select-trigger:focus-visible,
   .custom-select-trigger.open,
@@ -7018,10 +7025,32 @@ const appStyles = `
     outline: none;
   }
   select:focus-visible,
-  input:focus-visible,
-  textarea:focus-visible,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus-visible,
+  textarea:focus-visible {
+    box-shadow: none;
+  }
   .custom-select-trigger:focus-visible {
     box-shadow: var(--focus-ring);
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: auto;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  input[type="checkbox"]:focus,
+  input[type="radio"]:focus {
+    outline: none;
+    box-shadow: none;
+  }
+  input[type="checkbox"]:focus-visible,
+  input[type="radio"]:focus-visible {
+    outline: 1px solid var(--focus-ring-color);
+    outline-offset: 1px;
+    box-shadow: none;
   }
   .empty-state,
   .estimate-empty-state,
@@ -7398,7 +7427,7 @@ const appStyles = `
     border-color: var(--color-primary);
     background: var(--color-surface);
     color: var(--color-primary);
-    box-shadow: var(--focus-ring);
+    box-shadow: none;
     outline: none;
   }
   .condition-page .segmented button.selected,
@@ -7758,7 +7787,7 @@ const appStyles = `
   }
   .items-v2-pyeong-controls > div:focus-within {
     border-color: var(--color-primary);
-    box-shadow: var(--focus-ring);
+    box-shadow: none;
   }
   .items-v2-pyeong-controls span {
     padding-right: var(--space-input-x);
@@ -7803,6 +7832,10 @@ const appStyles = `
   .items-v2-check-cell input {
     width: 16px;
     height: 16px;
+    min-width: 16px;
+    min-height: 16px;
+    margin: 0;
+    padding: 0;
     accent-color: var(--color-primary);
   }
   .items-v2-material-cell {
@@ -7958,7 +7991,7 @@ const appStyles = `
   }
   .items-v2-money-field:focus-within {
     border-color: var(--color-primary);
-    box-shadow: var(--focus-ring);
+    box-shadow: none;
   }
   .items-v2-money-field input:focus {
     outline: none;
@@ -8137,7 +8170,7 @@ const appStyles = `
   }
   .items-v2-site-memo textarea:focus {
     border-color: var(--color-primary);
-    box-shadow: var(--focus-ring);
+    box-shadow: none;
     outline: none;
   }
   .items-v2-total-bar {
@@ -8223,6 +8256,13 @@ const appStyles = `
   }
   .admin-price-v2-category-item:hover {
     background: var(--color-surface-subtle);
+  }
+  .admin-price-v2-category-item:focus {
+    outline: none;
+  }
+  .admin-price-v2-category-item:focus-visible {
+    outline: 1px solid var(--focus-ring-color);
+    outline-offset: -1px;
   }
   .admin-price-v2-category-item.active {
     background: var(--color-primary-soft);
@@ -10135,6 +10175,7 @@ const appStyles = `
     .status-box,
     .success-box,
     .autosave-pill,
+    .pyeong-photo-thumbnail-loading,
     .admin-price-v2-category-item {
       animation: none !important;
       transition: none !important;
@@ -10899,6 +10940,872 @@ const appStyles = `
     gap: var(--space-1);
     margin-top: var(--space-2);
   }
+  .photo-management-page.photo-management-landing {
+    display: block;
+    overflow-y: auto;
+    padding: var(--space-3);
+    background: var(--color-bg);
+  }
+  .photo-management-landing__header {
+    margin-bottom: var(--space-3);
+  }
+  .photo-management-landing__header h1,
+  .photo-management-landing__header p {
+    margin: 0;
+  }
+  .photo-management-landing__header h1 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-page-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-page-title);
+    white-space: nowrap;
+    word-break: keep-all;
+  }
+  .photo-management-landing__header p {
+    margin-top: var(--space-1);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+  }
+  .photo-management-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .photo-management-mode-card {
+    min-width: 0;
+    min-height: 160px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    align-items: start;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 150ms ease, background-color 150ms ease;
+  }
+  .photo-management-mode-card:hover,
+  .photo-management-mode-card:focus-visible {
+    border-color: var(--color-primary-border);
+    background: var(--color-surface-subtle);
+    outline: none;
+  }
+  .photo-management-mode-card:focus-visible {
+    box-shadow: var(--focus-ring);
+  }
+  .photo-management-mode-card:active {
+    transform: translateY(1px);
+  }
+  .photo-management-mode-card__icon {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface-subtle);
+    color: var(--color-primary);
+  }
+  .photo-management-mode-card__copy {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: var(--space-1);
+  }
+  .photo-management-mode-card__copy strong {
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+    word-break: keep-all;
+  }
+  .photo-management-mode-card__copy em {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+    font-style: normal;
+    line-height: 1.5;
+    word-break: keep-all;
+  }
+  .photo-management-mode-card__action {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-0-5);
+    color: var(--color-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+  }
+  .photo-mode-titleline,
+  .pyeong-photo-titleline {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .photo-mode-titleline > button,
+  .pyeong-photo-back {
+    width: var(--button-height-sm);
+    height: var(--button-height-sm);
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-secondary);
+  }
+  .photo-mode-titleline > button:hover,
+  .photo-mode-titleline > button:focus-visible,
+  .pyeong-photo-back:hover,
+  .pyeong-photo-back:focus-visible {
+    border-color: var(--color-border);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+    outline: none;
+  }
+  .photo-library-placeholder {
+    display: flex;
+    flex-direction: column;
+    background: var(--color-bg);
+  }
+  .photo-library-placeholder__body {
+    padding: var(--space-3);
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+  }
+  .photo-library-placeholder__body p {
+    margin: 0;
+  }
+  .photo-management-page.pyeong-photo-page {
+    display: grid;
+    grid-template-columns: var(--layout-local-sidebar) minmax(0, 1fr);
+    background: var(--color-bg);
+  }
+  .pyeong-photo-page > .admin-price-v2-sidebar {
+    position: relative;
+    top: auto;
+    width: var(--layout-local-sidebar);
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+  }
+  .pyeong-photo-workspace {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--color-bg);
+  }
+  .pyeong-photo-header {
+    min-width: 0;
+    min-height: 56px;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 0 var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .pyeong-photo-titleline > div {
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-1);
+    overflow: hidden;
+  }
+  .pyeong-photo-titleline h1,
+  .pyeong-photo-titleline span {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: keep-all;
+  }
+  .pyeong-photo-titleline h1 {
+    flex: 0 0 auto;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-page-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-page-title);
+  }
+  .pyeong-photo-titleline span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .pyeong-photo-header-actions {
+    min-width: 0;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+  }
+  .pyeong-photo-jump {
+    position: relative;
+  }
+  .pyeong-photo-jump-trigger {
+    height: var(--button-height-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0 var(--space-1-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: var(--font-size-body-sm);
+    white-space: nowrap;
+  }
+  .pyeong-photo-jump-trigger:hover,
+  .pyeong-photo-jump-trigger:focus-visible,
+  .pyeong-photo-jump-trigger[aria-expanded="true"] {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+    outline: none;
+  }
+  .pyeong-photo-jump-menu {
+    position: absolute;
+    top: calc(100% + var(--space-0-5));
+    right: 0;
+    z-index: 20;
+    width: min(280px, calc(100vw - 32px));
+    max-height: 360px;
+    overflow-y: auto;
+    padding: var(--space-0-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+  }
+  .pyeong-photo-jump-menu button {
+    width: 100%;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 0 var(--space-1);
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: var(--font-size-body-sm);
+    text-align: left;
+  }
+  .pyeong-photo-jump-menu button:hover,
+  .pyeong-photo-jump-menu button:focus-visible {
+    background: var(--color-surface-subtle);
+    outline: none;
+  }
+  .pyeong-photo-jump-menu button span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pyeong-photo-jump-menu button em {
+    flex: 0 0 auto;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+  }
+  .pyeong-photo-context-trigger {
+    min-width: 86px;
+    height: var(--button-height-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    padding: 0 var(--space-1-5);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+  }
+  .pyeong-photo-context-trigger:hover,
+  .pyeong-photo-context-trigger:focus-visible {
+    border-color: var(--color-primary);
+    outline: none;
+  }
+  .pyeong-photo-feedback {
+    flex: 0 0 auto;
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .pyeong-photo-feedback > * {
+    margin: 0;
+  }
+  .pyeong-photo-gallery-workspace {
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: auto;
+    scroll-behavior: smooth;
+    background: var(--color-bg);
+  }
+  .pyeong-photo-gallery-list {
+    min-width: 0;
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-2);
+  }
+  .pyeong-photo-gallery-section {
+    min-width: 0;
+    scroll-margin-top: var(--space-2);
+  }
+  .pyeong-photo-gallery-section__header {
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .pyeong-photo-gallery-section__header h2,
+  .pyeong-photo-gallery-section__header span {
+    margin: 0;
+    white-space: nowrap;
+  }
+  .pyeong-photo-gallery-section__header h2 {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-section-title);
+    text-overflow: ellipsis;
+    word-break: keep-all;
+  }
+  .pyeong-photo-gallery-section__header span {
+    flex: 0 0 auto;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+  }
+  .pyeong-photo-grid {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr));
+    align-items: start;
+    gap: var(--space-1-5);
+    padding-top: var(--space-1-5);
+  }
+  .pyeong-photo-card {
+    position: relative;
+    min-width: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    cursor: grab;
+    transition: border-color 150ms ease, opacity 150ms ease;
+  }
+  .pyeong-photo-card:active {
+    cursor: grabbing;
+  }
+  .pyeong-photo-card.dragging {
+    opacity: 0.48;
+  }
+  .pyeong-photo-card.drop-target {
+    border-color: var(--color-primary);
+    box-shadow: inset 0 0 0 1px var(--color-primary);
+  }
+  .pyeong-photo-thumbnail {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    display: block;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    border-radius: calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px) 0 0;
+    background: var(--color-surface-subtle);
+    cursor: zoom-in;
+  }
+  .pyeong-photo-thumbnail:focus-visible {
+    outline: 1px solid var(--color-primary);
+    outline-offset: -1px;
+  }
+  .pyeong-photo-thumbnail img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+  .pyeong-photo-thumbnail > span {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: var(--space-1);
+    color: var(--color-text-muted);
+  }
+  .pyeong-photo-thumbnail-loading {
+    background: var(--color-surface-subtle);
+    animation: formate-photo-pulse 1.2s ease-in-out infinite alternate;
+  }
+  @keyframes formate-photo-pulse {
+    from { opacity: 0.56; }
+    to { opacity: 1; }
+  }
+  .pyeong-photo-thumbnail em {
+    font-size: var(--font-size-caption);
+    font-style: normal;
+  }
+  .pyeong-photo-card-menu {
+    position: absolute;
+    top: var(--space-1);
+    right: var(--space-1);
+    z-index: 2;
+  }
+  .pyeong-photo-card-menu__trigger {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    opacity: 0;
+    transition: opacity 150ms ease, background-color 150ms ease;
+  }
+  .pyeong-photo-card:hover .pyeong-photo-card-menu__trigger,
+  .pyeong-photo-card:focus-within .pyeong-photo-card-menu__trigger,
+  .pyeong-photo-card-menu__trigger[aria-expanded="true"] {
+    opacity: 1;
+  }
+  .pyeong-photo-card-menu__trigger:hover,
+  .pyeong-photo-card-menu__trigger:focus-visible {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+    outline: none;
+  }
+  .pyeong-photo-card-menu__popover {
+    position: absolute;
+    top: calc(100% + var(--space-0-5));
+    right: 0;
+    width: 132px;
+    padding: var(--space-0-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+  }
+  .pyeong-photo-card-menu__popover button {
+    width: 100%;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0 var(--space-1);
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    font: inherit;
+    font-size: var(--font-size-caption);
+    text-align: left;
+  }
+  .pyeong-photo-card-menu__popover button:hover,
+  .pyeong-photo-card-menu__popover button:focus-visible {
+    background: var(--color-danger-bg);
+    outline: none;
+  }
+  .pyeong-photo-caption-area {
+    min-width: 0;
+    min-height: 52px;
+    border-top: 1px solid var(--color-border);
+  }
+  .pyeong-photo-caption-display {
+    width: 100%;
+    min-height: 52px;
+    display: -webkit-box;
+    overflow: hidden;
+    padding: var(--space-1) var(--space-1-5);
+    border: 0;
+    background: transparent;
+    color: var(--color-text-muted);
+    font: inherit;
+    font-size: var(--font-size-caption);
+    line-height: 18px;
+    text-align: left;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .pyeong-photo-caption-display.has-caption {
+    color: var(--color-text-primary);
+  }
+  .pyeong-photo-caption-display:not(.has-caption) {
+    display: flex;
+    align-items: center;
+    gap: var(--space-0-5);
+  }
+  .pyeong-photo-caption-display:hover,
+  .pyeong-photo-caption-display:focus-visible {
+    background: var(--color-surface-subtle);
+    outline: none;
+  }
+  .pyeong-photo-caption-editor {
+    position: relative;
+    display: grid;
+    gap: var(--space-0-5);
+    padding: var(--space-1);
+  }
+  .pyeong-photo-caption-editor textarea {
+    width: 100%;
+    min-height: 54px;
+    resize: vertical;
+    padding: var(--space-1);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: var(--font-size-caption);
+    line-height: 18px;
+  }
+  .pyeong-photo-caption-editor textarea:focus {
+    border-color: var(--color-primary);
+    box-shadow: none;
+    outline: none;
+  }
+  .pyeong-photo-caption-editor > button {
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+    gap: var(--space-0-5);
+    padding: 0 var(--space-1);
+    border: 1px solid transparent;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: var(--font-size-caption);
+  }
+  .pyeong-photo-caption-editor > button:hover,
+  .pyeong-photo-caption-editor > button:focus-visible {
+    border-color: var(--color-border);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+    outline: none;
+  }
+  .pyeong-caption-snippet-popover {
+    position: absolute;
+    right: var(--space-1);
+    bottom: 36px;
+    z-index: 12;
+    width: min(320px, calc(100vw - 64px));
+    max-height: 360px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+  }
+  .pyeong-caption-snippet-popover > header {
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    padding: 0 var(--space-1-5);
+    border-bottom: 1px solid var(--color-border);
+    font-size: var(--font-size-body-sm);
+  }
+  .pyeong-caption-snippet-popover button {
+    border: 0;
+    background: transparent;
+    color: var(--color-text-secondary);
+  }
+  .pyeong-caption-snippet-popover > header button,
+  .pyeong-caption-snippet-row > button:not(.pyeong-caption-snippet-apply),
+  .pyeong-caption-snippet-add > button {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    padding: 0;
+    border-radius: var(--radius-button);
+  }
+  .pyeong-caption-snippet-popover button:hover,
+  .pyeong-caption-snippet-popover button:focus-visible {
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+    outline: none;
+  }
+  .pyeong-caption-snippet-list {
+    min-height: 72px;
+    overflow-y: auto;
+    padding: var(--space-1);
+  }
+  .pyeong-caption-snippet-list > p {
+    margin: var(--space-1);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+  }
+  .pyeong-caption-snippet-row {
+    min-width: 0;
+    min-height: 34px;
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) 28px 28px;
+    align-items: center;
+    gap: var(--space-0-5);
+  }
+  .pyeong-caption-snippet-handle {
+    color: var(--color-text-muted);
+    cursor: grab;
+  }
+  .pyeong-caption-snippet-apply,
+  .pyeong-caption-snippet-row input {
+    width: 100%;
+    min-width: 0;
+    height: 30px;
+    padding: 0 var(--space-1);
+    overflow: hidden;
+    color: var(--color-text-primary) !important;
+    font: inherit;
+    font-size: var(--font-size-caption);
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pyeong-caption-snippet-row input {
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+  }
+  .pyeong-caption-snippet-add {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 30px;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    border-top: 1px solid var(--color-border);
+  }
+  .pyeong-caption-snippet-add input {
+    min-width: 0;
+    height: 32px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: var(--font-size-caption);
+  }
+  .pyeong-caption-snippet-add input:focus {
+    border-color: var(--color-primary);
+    outline: none;
+  }
+  .pyeong-photo-more-tile,
+  .pyeong-photo-add-tile {
+    position: relative;
+    min-height: 190px;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: var(--space-1);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+  .pyeong-photo-more-tile {
+    font: inherit;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+  }
+  .pyeong-photo-more-tile:hover,
+  .pyeong-photo-more-tile:focus-visible,
+  .pyeong-photo-add-tile:hover,
+  .pyeong-photo-add-tile:focus-within {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    outline: none;
+  }
+  .pyeong-photo-add-tile.disabled {
+    opacity: 0.48;
+    cursor: not-allowed;
+  }
+  .pyeong-photo-add-tile input,
+  .pyeong-photo-empty input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .pyeong-photo-empty {
+    min-height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-body-sm);
+  }
+  .pyeong-photo-empty label {
+    position: relative;
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-0-5);
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-button);
+    color: var(--color-primary);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+  }
+  .pyeong-photo-empty label:hover,
+  .pyeong-photo-empty label:focus-within {
+    background: var(--color-primary-soft);
+  }
+  .pyeong-photo-empty--workspace {
+    min-height: 160px;
+  }
+  .pyeong-photo-context-required {
+    min-height: 160px;
+    display: grid;
+    align-content: center;
+    justify-items: start;
+    gap: var(--space-0-5);
+    color: var(--color-text-secondary);
+  }
+  .pyeong-photo-context-required strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+  }
+  .pyeong-photo-context-required span {
+    font-size: var(--font-size-body-sm);
+  }
+  .pyeong-photo-drawer-backdrop {
+    z-index: 940;
+    align-items: stretch;
+    justify-content: flex-end;
+    padding: 0;
+  }
+  .pyeong-photo-drawer {
+    width: min(390px, 100vw);
+    height: 100dvh;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-left: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .pyeong-photo-drawer > header {
+    min-height: 56px;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 0 var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .pyeong-photo-drawer h2,
+  .pyeong-photo-drawer header span {
+    margin: 0;
+  }
+  .pyeong-photo-drawer h2 {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    line-height: var(--line-height-section-title);
+  }
+  .pyeong-photo-drawer header span {
+    display: block;
+    margin-top: var(--space-0-5);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+  }
+  .pyeong-photo-drawer header > button {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-secondary);
+  }
+  .pyeong-photo-drawer header > button:hover,
+  .pyeong-photo-drawer header > button:focus-visible {
+    background: var(--color-surface-subtle);
+    color: var(--color-text-primary);
+    outline: none;
+  }
+  .pyeong-photo-drawer-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    align-content: start;
+    gap: var(--space-2);
+    overflow: hidden;
+    padding: var(--space-2);
+  }
+  .pyeong-photo-drawer-field {
+    display: grid;
+    gap: var(--space-1);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+  }
+  .photo-pyeong-picker {
+    width: 100%;
+    max-width: none;
+  }
+  .photo-pyeong-picker .custom-select-trigger {
+    min-height: var(--button-height);
+    height: var(--button-height);
+    padding: 0 var(--space-input-x);
+    border-radius: var(--radius-input);
+    box-shadow: none;
+  }
+  .pyeong-photo-drawer-error {
+    color: var(--color-danger);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .photo-viewer-footer {
+    min-width: 0;
+    display: grid;
+    background: var(--bg-sidebar);
+  }
+  .photo-viewer-caption {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: var(--space-1) var(--space-2) 0;
+    color: var(--text-inverse);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+    text-align: center;
+    white-space: pre-wrap;
+  }
   .photo-viewer-backdrop {
     position: fixed;
     inset: 0;
@@ -11328,6 +12235,9 @@ const appStyles = `
     font-size: var(--font-size-caption);
   }
   @media (max-width: 1080px) {
+    .photo-management-mode-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
     .photo-management-workspace {
       grid-template-columns: 170px 250px minmax(0, 1fr);
     }
@@ -11340,6 +12250,64 @@ const appStyles = `
       height: auto;
       min-height: 100%;
       overflow: visible;
+    }
+    .photo-management-page.photo-management-landing {
+      padding: var(--space-2);
+    }
+    .photo-management-mode-grid {
+      grid-template-columns: 1fr;
+    }
+    .photo-management-mode-card {
+      min-height: 148px;
+      padding: var(--space-2);
+    }
+    .photo-management-page.pyeong-photo-page {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .pyeong-photo-page > .admin-price-v2-sidebar {
+      width: 100%;
+      max-height: 240px;
+      border-right: 0;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .pyeong-photo-workspace {
+      min-height: 620px;
+      overflow: visible;
+    }
+    .pyeong-photo-header {
+      align-items: flex-start;
+      flex-direction: column;
+      padding-top: var(--space-1);
+      padding-bottom: var(--space-1);
+    }
+    .pyeong-photo-titleline,
+    .pyeong-photo-header-actions {
+      width: 100%;
+    }
+    .pyeong-photo-header-actions {
+      justify-content: flex-end;
+    }
+    .pyeong-photo-titleline > div {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 0;
+    }
+    .pyeong-photo-header-actions {
+      flex-wrap: wrap;
+    }
+    .pyeong-photo-jump {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .pyeong-photo-jump-trigger {
+      max-width: 100%;
+    }
+    .pyeong-photo-jump-menu {
+      right: auto;
+      left: 0;
+    }
+    .pyeong-photo-grid {
+      grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
     }
     .photo-management-page .photo-management-panel {
       min-height: 100%;

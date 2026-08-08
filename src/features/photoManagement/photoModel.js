@@ -200,13 +200,16 @@ export const PHOTO_V2_ERROR_CODES = {
   INVALID_COVER: "invalid-cover-photo",
   INVALID_SCOPE: "invalid-photo-scope",
   DUPLICATE_CAPTION_SNIPPET: "duplicate-caption-snippet",
+  STORAGE_UPLOAD_FAILED: "photo-storage-upload-failed",
+  METADATA_INSERT_FAILED: "photo-metadata-insert-failed",
   UPLOAD_FAILED: "photo-upload-failed",
 };
 
-function createPhotoV2Error(code, message) {
+export function createPhotoV2Error(code, message, cause = null) {
   const error = new Error(message);
   error.code = code;
   error.isPhotoV2DomainError = true;
+  if (cause) error.cause = cause;
   return error;
 }
 
@@ -227,6 +230,9 @@ export function normalizePhotoV2Photo(photo = {}) {
     storageBucket: photo.storage_bucket ?? PHOTO_STORAGE_BUCKET,
     storagePath: photo.storage_path ?? "",
     signedUrl: photo.signed_url ?? photo.signedUrl ?? "",
+    originalFilename: photo.original_filename ?? "",
+    contentType: photo.content_type ?? "",
+    fileSize: photo.file_size ?? null,
     caption: photo.caption ?? null,
     description: photo.caption ?? null,
     createdAt: photo.created_at ?? null,
@@ -239,6 +245,17 @@ export function normalizePhotoV2Photo(photo = {}) {
     sashCatalogEntryId: photo.sash_catalog_entry_id ?? null,
     folderId: photo.photo_library_folder_id ?? null,
   };
+}
+
+export function getPyeongPhotoCounts(photoRows = [], subitemRows = []) {
+  const activeSubitemIds = new Set((subitemRows ?? []).map((subitem) => subitem.id).filter(Boolean));
+  return (photoRows ?? []).reduce((counts, photo) => {
+    const subitemId = photo.constructionSubitemId ?? photo.construction_subitem_id;
+    const archivedAt = photo.archivedAt ?? photo.archived_at;
+    if (!subitemId || archivedAt || !activeSubitemIds.has(subitemId)) return counts;
+    counts[subitemId] = (counts[subitemId] ?? 0) + 1;
+    return counts;
+  }, Object.fromEntries([...activeSubitemIds].map((subitemId) => [subitemId, 0])));
 }
 
 export function normalizePhotoLibraryFolder(folder = {}) {

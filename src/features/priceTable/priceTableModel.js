@@ -14,6 +14,17 @@ import {
 
 const LOCAL_SUBITEM_ID_PREFIX = "local-subitem-";
 
+export const CONSTRUCTION_ITEM_RENDERER_KINDS = Object.freeze({
+  STANDARD: "standard",
+  SASH: "sash",
+});
+
+export function getConstructionItemRendererKind(item) {
+  return item?.item_kind === CONSTRUCTION_ITEM_RENDERER_KINDS.SASH
+    ? CONSTRUCTION_ITEM_RENDERER_KINDS.SASH
+    : CONSTRUCTION_ITEM_RENDERER_KINDS.STANDARD;
+}
+
 export function normalizeFlooringThickness(value) {
   const raw = `${value ?? ""}`.trim();
   if (!raw || raw === DEFAULT_FLOORING_SPEC) return DEFAULT_FLOORING_SPEC;

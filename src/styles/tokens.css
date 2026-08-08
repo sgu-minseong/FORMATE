@@ -107,12 +107,10 @@
   --shadow-lg: none;
   --shadow-hover: 0 1px 3px rgba(16, 24, 40, 0.08);
   --shadow-popover: 0 8px 24px rgba(16, 24, 40, 0.12);
-  --focus-ring-width: 2px;
-  --focus-ring-offset: 2px;
-  --focus-ring-color: var(--color-primary);
-  --focus-ring:
-    0 0 0 var(--focus-ring-offset) var(--color-surface),
-    0 0 0 calc(var(--focus-ring-offset) + var(--focus-ring-width)) var(--focus-ring-color);
+  --focus-ring-width: 1px;
+  --focus-ring-offset: 1px;
+  --focus-ring-color: var(--color-primary-border);
+  --focus-ring: 0 0 0 var(--focus-ring-width) var(--focus-ring-color);
 
   --font-family-ui: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
   --font-sans: var(--font-family-ui);
@@ -842,7 +840,7 @@ textarea {
 
 .ui-input:focus-visible,
 .ui-select:focus-visible {
-  box-shadow: var(--focus-ring);
+  box-shadow: none;
 }
 
 .ui-input:disabled,

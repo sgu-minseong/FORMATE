@@ -17,19 +17,14 @@ import {
   stripNumberInputFormatting,
 } from "../../shared/utils/numbers";
 import {
-  buildUniqueFlooringOptions,
-  getFlooringThicknessGroups,
+  CONSTRUCTION_ITEM_RENDERER_KINDS,
+  getConstructionItemRendererKind,
   getFlooringVariantDisplayValues,
   getUnitSelectOptions,
-  isFlooringThicknessItem,
-  isFlooringThicknessSelection,
   normalizeSpecOptions,
   normalizeUnitOptionValue,
-  reconcileFlooringVariantRows,
-  resolveActiveFlooringVariant,
 } from "./priceTableModel";
 import SashCatalogSection from "../sash/SashCatalogSection";
-import { isSashItem } from "../sash/sashCatalogModel";
 import AdminCategoryPanel from "./AdminCategoryPanel";
 
 function getSpecSelectOptions(subitem, extraOptions = []) {
@@ -110,85 +105,38 @@ export default function PriceTablePage({
   updateLocalSubitemDraft,
   updateLocalSubitemPrice,
 }) {
-  function renderHeader(item, isFlooring = false) {
+  function renderHeader() {
     return (
-      <div className={`admin-price-table-header admin-price-v2-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"} ${isFlooring ? "flooring-price-table-header" : ""}`.trim()}>
-        {item.item_type !== "flat" && <span />}
+      <div className="admin-price-table-header admin-price-v2-grid standard-price-table-header">
+        <span />
         <span>소재명</span>
         <span>규격/두께</span>
         <span>단위</span>
         <span>단가</span>
         <span>인건비(빈집)</span>
         <span>인건비(살림집)</span>
-        {item.item_type !== "flat" && <span>삭제</span>}
+        <span>삭제</span>
         <span />
       </div>
     );
   }
 
-  function renderPrimarySubitemCells(subitem, flooringContext = null) {
-    const controlSubitem = subitem ?? flooringContext?.referenceSubitem ?? null;
+  function renderPrimarySubitemCells(subitem) {
+    const controlSubitem = subitem ?? null;
     const displayValues = getFlooringVariantDisplayValues(subitem);
     return (
       <>
         <label className="spec-options-field">
           <span className="field-label">규격/두께</span>
           {(() => {
-            const optionEntries = flooringContext?.optionEntries ?? [];
-            const sharedSpecOptions = flooringContext
-              ? optionEntries.flatMap((option) =>
-                  normalizeSpecOptions(option.spec_options)
-                )
-              : [];
-            const specOptions = flooringContext
-              ? buildUniqueFlooringOptions({
-                  subitems: optionEntries,
-                  baseName: flooringContext.baseName,
-                  specOptions: sharedSpecOptions,
-                })
-              : getSpecSelectOptions(controlSubitem);
-            const specValue = flooringContext?.activeThickness
-              ? getSpecSelectValue(
-                  controlSubitem,
-                  specOptions,
-                  flooringContext.activeThickness
-                )
-              : "";
+            const specOptions = getSpecSelectOptions(controlSubitem);
+            const specValue = getSpecSelectValue(controlSubitem, specOptions);
             return renderSpecOptionsControl(
               controlSubitem,
               specOptions,
               specValue,
               (event) => {
                 const nextValue = event.target.value;
-                if (flooringContext && !nextValue) {
-                  if (controlSubitem?.id) {
-                    updateLocalSubitemDraft(controlSubitem.id, {
-                      selected_spec_option: "",
-                    });
-                  }
-                  selectAdminFlooringThickness(
-                    flooringContext.itemId,
-                    flooringContext.baseName,
-                    ""
-                  );
-                  return;
-                }
-                if (
-                  flooringContext
-                  && isFlooringThicknessSelection(nextValue)
-                ) {
-                  if (controlSubitem?.id) {
-                    updateLocalSubitemDraft(controlSubitem.id, {
-                      selected_spec_option: "",
-                    });
-                  }
-                  selectAdminFlooringThickness(
-                    flooringContext.itemId,
-                    flooringContext.baseName,
-                    nextValue
-                  );
-                  return;
-                }
                 if (controlSubitem?.id) {
                   updateLocalSubitemDraft(controlSubitem.id, {
                     selected_spec_option: nextValue,
@@ -295,10 +243,10 @@ export default function PriceTablePage({
     );
   }
 
-  function renderExpandedRow(subitem, itemType = "itemized") {
+  function renderExpandedRow(subitem) {
     if (!subitem?.expanded) return null;
     return (
-      <div className={`admin-price-v2-expanded-row ${itemType === "flat" ? "flat-price-table-header" : ""}`.trim()}>
+      <div className="admin-price-v2-expanded-row">
         <div className="items-v2-detail-panel admin-price-v2-detail-panel">
           <label>
             <span>원가</span>
@@ -343,13 +291,11 @@ export default function PriceTablePage({
   }
 
   function renderRows(item) {
-    const sashItem = isSashItem(item);
+    const rendererKind = getConstructionItemRendererKind(item);
     const visibleSubitems = getVisibleAdminSubitems(item);
-    const itemSubitems = isFlooringThicknessItem(item)
-      ? reconcileFlooringVariantRows(visibleSubitems)
-      : visibleSubitems;
+    const itemSubitems = visibleSubitems;
 
-    if (sashItem) {
+    if (rendererKind === CONSTRUCTION_ITEM_RENDERER_KINDS.SASH) {
       return (
         <SashCatalogSection
           companyId={companyId}
@@ -386,139 +332,9 @@ export default function PriceTablePage({
       );
     }
 
-    if (isFlooringThicknessItem(item)) {
-      return (
-        <div className="price-table-list admin-price-v2-grid-list">
-          {renderHeader(item, true)}
-          {getFlooringThicknessGroups(itemSubitems).map((group) => {
-            const optionEntries = getFlooringOptionEntries(group);
-            const optionIds = optionEntries.map((option) => option.id);
-            const activeThickness = getAdminFlooringActiveThickness(
-              item.id,
-              group,
-              { allowEmpty: true }
-            );
-            const activeSubitem = activeThickness
-              ? resolveActiveFlooringVariant(
-                  optionEntries,
-                  group.baseName,
-                  activeThickness
-                )
-              : null;
-            const referenceSubitem =
-              activeSubitem ?? optionEntries[0] ?? null;
-            if (!referenceSubitem) return null;
-            const hasValidationError =
-              adminPriceValidationError?.subitemId === referenceSubitem.id;
-            return (
-              <div
-                key={group.baseName}
-                ref={(node) =>
-                  setAdminPriceRowRef(referenceSubitem.id, node)
-                }
-                className={`admin-value-row flooring-value-row common-price-row price-table-row admin-price-v2-grid ${referenceSubitem.expanded ? "expanded" : ""} ${hasValidationError ? "admin-price-v2-row-error" : ""} ${newlyAddedSubitemId === referenceSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
-                data-subitem-id={referenceSubitem.id}
-                onDragOver={(event) =>
-                  handleAdminSubitemDragOver(
-                    event,
-                    item.id,
-                    referenceSubitem.id,
-                    group.baseName
-                  )
-                }
-                onDrop={() =>
-                  reorderAdminFlooringGroups(item.id, group.baseName)
-                }
-                onDragEnd={clearAdminDragState}
-              >
-                <span
-                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
-                  title="소재 순서 변경"
-                  draggable={canReorderAdminCatalog && !adminSaving}
-                  onDragStart={(event) =>
-                    handleAdminSubitemDragStart(
-                      event,
-                      item.id,
-                      referenceSubitem.id,
-                      group.baseName
-                    )
-                  }
-                  onDragEnd={clearAdminDragState}
-                >
-                  ::
-                </span>
-                <label className={`admin-material-name-field ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
-                  <span className="field-label">소재명</span>
-                  <input
-                    value={group.baseName}
-                    placeholder={materialNamePlaceholder}
-                    onChange={(event) => {
-                      updateLocalFlooringGroupBaseName(
-                        optionIds,
-                        event.target.value
-                      );
-                      clearAdminPriceValidationErrorForSubitem(
-                        referenceSubitem.id,
-                        event.target.value
-                      );
-                    }}
-                    onBlur={(event) =>
-                      renameAdminFlooringGroup(
-                        item.id,
-                        optionIds,
-                        event.target.value
-                      )
-                    }
-                  />
-                  {hasValidationError && (
-                    <span className="admin-price-validation-helper">
-                      {adminPriceValidationError.message}
-                    </span>
-                  )}
-                </label>
-                {renderPrimarySubitemCells(activeSubitem, {
-                  itemId: item.id,
-                  baseName: group.baseName,
-                  optionEntries,
-                  activeThickness,
-                  referenceSubitem,
-                })}
-                <button
-                  className="danger-button admin-price-v2-danger-button"
-                  disabled={adminSaving}
-                  onClick={() => deleteAdminSubitem(referenceSubitem.id)}
-                >
-                  <Trash2 size={18} strokeWidth={1.5} />
-                </button>
-                {renderExpandButton(referenceSubitem)}
-                {renderExpandedRow(referenceSubitem)}
-              </div>
-            );
-          })}
-          {!itemSubitems.length && (
-            <p className="admin-price-v2-empty muted">
-              등록된 소재가 없습니다.
-            </p>
-          )}
-          {item.item_type !== "flat" && (
-            <div className="admin-price-v2-add-action">
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={adminSaving}
-                onClick={() => addAdminSubitem(item.id)}
-              >
-                <Plus size={18} /> 항목 추가
-              </button>
-            </div>
-          )}
-        </div>
-      );
-    }
-
     return (
-      <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} price-table-list admin-price-v2-grid-list`.trim()}>
-        {renderHeader(item)}
+      <div className="admin-subitem-list price-table-list admin-price-v2-grid-list">
+        {renderHeader()}
         {itemSubitems.map((subitem) => {
           const hasValidationError =
             adminPriceValidationError?.subitemId === subitem.id;
@@ -528,123 +344,79 @@ export default function PriceTablePage({
               ref={(node) => setAdminPriceRowRef(subitem.id, node)}
               className={`admin-value-row common-price-row price-table-row admin-price-v2-grid ${subitem.expanded ? "expanded" : ""} ${hasValidationError ? "admin-price-v2-row-error" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
               data-subitem-id={subitem.id}
-              onDragOver={(event) =>
-                item.item_type !== "flat"
-                && handleAdminSubitemDragOver(
-                  event,
-                  item.id,
-                  subitem.id
-                )
-              }
-              onDrop={() =>
-                item.item_type !== "flat"
-                && reorderAdminSubitems(item.id, subitem.id)
-              }
+              onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, subitem.id)}
+              onDrop={() => reorderAdminSubitems(item.id, subitem.id)}
               onDragEnd={clearAdminDragState}
             >
-              {item.item_type === "flat" ? (
-                <strong className={`flat-subitem-name ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
-                  {subitem.name || item.name}
-                  {hasValidationError && (
-                    <span className="admin-price-validation-helper">
-                      {adminPriceValidationError.message}
-                    </span>
-                  )}
-                </strong>
-              ) : (
-                <>
-                  <span
-                    className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
-                    title="소재 순서 변경"
-                    draggable={canReorderAdminCatalog && !adminSaving}
-                    onDragStart={(event) =>
-                      handleAdminSubitemDragStart(
-                        event,
-                        item.id,
-                        subitem.id
+              <span
+                className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                title="소재 순서 변경"
+                draggable={canReorderAdminCatalog && !adminSaving}
+                onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, subitem.id)}
+                onDragEnd={clearAdminDragState}
+              >
+                ::
+              </span>
+              <label className={`admin-material-name-field ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
+                <span className="field-label">소재명</span>
+                <input
+                  value={subitem.name}
+                  placeholder={materialNamePlaceholder}
+                  onChange={(event) => {
+                    setAdminItems((current) =>
+                      current.map((entry) =>
+                        entry.id === item.id
+                          ? {
+                              ...entry,
+                              subitems: entry.subitems.map(
+                                (entrySubitem) =>
+                                  entrySubitem.id === subitem.id
+                                    ? { ...entrySubitem, name: event.target.value }
+                                    : entrySubitem
+                              ),
+                            }
+                          : entry
                       )
-                    }
-                    onDragEnd={clearAdminDragState}
-                  >
-                    ::
+                    );
+                    clearAdminPriceValidationErrorForSubitem(subitem.id, event.target.value);
+                  }}
+                  onInput={() => markAdminCatalogDirty()}
+                  onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
+                />
+                {hasValidationError && (
+                  <span className="admin-price-validation-helper">
+                    {adminPriceValidationError.message}
                   </span>
-                  <label className={`admin-material-name-field ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
-                    <span className="field-label">소재명</span>
-                    <input
-                      value={subitem.name}
-                      placeholder={materialNamePlaceholder}
-                      onChange={(event) => {
-                        setAdminItems((current) =>
-                          current.map((entry) =>
-                            entry.id === item.id
-                              ? {
-                                  ...entry,
-                                  subitems: entry.subitems.map(
-                                    (entrySubitem) =>
-                                      entrySubitem.id === subitem.id
-                                        ? {
-                                            ...entrySubitem,
-                                            name: event.target.value,
-                                          }
-                                        : entrySubitem
-                                  ),
-                                }
-                              : entry
-                          )
-                        );
-                        clearAdminPriceValidationErrorForSubitem(
-                          subitem.id,
-                          event.target.value
-                        );
-                      }}
-                      onInput={() => markAdminCatalogDirty()}
-                      onBlur={(event) =>
-                        renameAdminSubitem(
-                          subitem.id,
-                          event.target.value
-                        )
-                      }
-                    />
-                    {hasValidationError && (
-                      <span className="admin-price-validation-helper">
-                        {adminPriceValidationError.message}
-                      </span>
-                    )}
-                  </label>
-                </>
-              )}
+                )}
+              </label>
               {renderPrimarySubitemCells(subitem)}
-              {item.item_type !== "flat" && (
-                <button
-                  className="danger-button admin-price-v2-danger-button"
-                  disabled={adminSaving}
-                  onClick={() => deleteAdminSubitem(subitem.id)}
-                >
-                  <Trash2 size={18} strokeWidth={1.5} />
-                </button>
-              )}
+              <button
+                className="danger-button admin-price-v2-danger-button"
+                disabled={adminSaving}
+                onClick={() => deleteAdminSubitem(subitem.id)}
+              >
+                <Trash2 size={18} strokeWidth={1.5} />
+              </button>
               {renderExpandButton(subitem)}
-              {renderExpandedRow(subitem, item.item_type)}
+              {renderExpandedRow(subitem)}
             </div>
           );
         })}
-        {item.item_type !== "flat" && !itemSubitems.length && (
+        {!itemSubitems.length && (
           <p className="admin-price-v2-empty muted">
             등록된 소재가 없습니다.
           </p>
         )}
-        {item.item_type !== "flat" && (
-          <div className="admin-price-v2-add-action">
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={adminSaving}
-              onClick={() => addAdminSubitem(item.id)}
-            >
-              <Plus size={18} /> 항목 추가
-            </button>
-          </div>
-        )}
+        <div className="admin-price-v2-add-action">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={adminSaving}
+            onClick={() => addAdminSubitem(item.id)}
+          >
+            <Plus size={18} /> 항목 추가
+          </button>
+        </div>
       </div>
     );
   }
@@ -711,7 +483,7 @@ export default function PriceTablePage({
             >
               되돌리기
             </Button>
-            {!isSashItem(item) && (
+            {getConstructionItemRendererKind(item) !== CONSTRUCTION_ITEM_RENDERER_KINDS.SASH && (
               <Button
                 variant="primary"
                 size="sm"

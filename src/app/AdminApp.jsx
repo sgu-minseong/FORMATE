@@ -38,6 +38,7 @@ import {
 import { useAppSession } from "./useAppSession";
 import PriceText from "../components/PriceText.jsx";
 import PhotoViewer from "../components/PhotoViewer.jsx";
+import PyeongSelector from "../components/PyeongSelector.jsx";
 import AppShell from "../components/layout/AppShell.jsx";
 import Button from "../components/ui/Button.jsx";
 import CategorySidebar from "../components/ui/CategorySidebar.jsx";
@@ -202,6 +203,7 @@ import {
 } from "../features/excelImport/excelImportModel";
 import ContractEditorPage from "../features/contracts/ContractEditorPage";
 import {
+  CONSTRUCTION_ITEM_RENDERER_KINDS,
   buildUniqueFlooringOptions,
   buildConstructionItemSavePayload,
   buildConstructionSubitemInsertPayload,
@@ -211,6 +213,7 @@ import {
   countVerifiedImportRows,
   createEmptyFlooringVariantDraft,
   formatFlooringThickness,
+  getConstructionItemRendererKind,
   getCanonicalFlooringSubitemName,
   getFlooringVariantDisplayValues,
   getFlooringThicknessGroups,
@@ -355,26 +358,8 @@ const APP_SHELL_NAV_ITEMS = [
 const USE_ITEMS_SCREEN_V2 = true;
 const USE_ADMIN_ITEMS_SCREEN_V2 = true;
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
-const FAVORITE_PYEONG_STORAGE_KEY = "formate.favoritePyeong";
 const ADMIN_TEMPLATE_ORDER_STORAGE_PREFIX = "formate.adminTemplateOrder";
 const MATERIAL_NAME_PLACEHOLDER = "추가된 항목의 이름을 입력하세요";
-
-function readFavoritePyeongs() {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(FAVORITE_PYEONG_STORAGE_KEY) ?? "[]");
-    if (!Array.isArray(parsed)) return [];
-
-    return [...new Set(
-      parsed
-        .map((value) => Number(value))
-        .filter((value) => Number.isInteger(value) && value >= 1 && value <= 90)
-    )].sort((a, b) => a - b);
-  } catch {
-    return [];
-  }
-}
 
 function createEmptyAdminTemplateConditionDraft() {
   return {
@@ -2561,7 +2546,6 @@ export default function AdminApp() {
   const [shareEstimateTarget, setShareEstimateTarget] = useState(null);
   const [pyeongDropdownOpen, setPyeongDropdownOpen] = useState(false);
   const [adminPyeongDropdownOpen, setAdminPyeongDropdownOpen] = useState(false);
-  const [favoritePyeongs, setFavoritePyeongs] = useState(readFavoritePyeongs);
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [excelImportTarget, setExcelImportTarget] = useState(EXCEL_IMPORT_TARGETS.PRICES);
   const [excelExportTarget, setExcelExportTarget] = useState("");
@@ -3181,10 +3165,6 @@ export default function AdminApp() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [estimateListView, estimateSearch, page, selectedCompanyId]);
-
-  useEffect(() => {
-    window.localStorage.setItem(FAVORITE_PYEONG_STORAGE_KEY, JSON.stringify(favoritePyeongs));
-  }, [favoritePyeongs]);
 
   useEffect(() => {
     if (!selectedAiSetupSheet) {
@@ -4252,62 +4232,6 @@ export default function AdminApp() {
     } finally {
       setAdminVerifyLoading(false);
     }
-  }
-
-  function toggleFavoritePyeong(pyeong) {
-    const nextPyeong = Number(pyeong);
-    setFavoritePyeongs((current) =>
-      current.includes(nextPyeong)
-        ? current.filter((value) => value !== nextPyeong)
-        : [...current, nextPyeong].sort((a, b) => a - b)
-    );
-  }
-
-  function renderPyeongOption(pyeong, selectedValue, onSelect) {
-    const selected = String(pyeong) === String(selectedValue);
-    const favorite = favoritePyeongs.includes(Number(pyeong));
-
-    return (
-      <div
-        key={pyeong}
-        className={`pyeong-option-row ${selected ? "selected" : ""}`.trim()}
-        role="option"
-        aria-selected={selected}
-      >
-        <button type="button" className="pyeong-option-main" onClick={() => onSelect(String(pyeong))}>
-          <span>{pyeong}평</span>
-          {selected && <Check size={16} />}
-        </button>
-        <button
-          type="button"
-          className={`favorite-pyeong-toggle ${favorite ? "active" : ""}`.trim()}
-          aria-label={`${pyeong}평 즐겨찾기 ${favorite ? "해제" : "추가"}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            toggleFavoritePyeong(pyeong);
-          }}
-        >
-          <Star size={15} fill={favorite ? "currentColor" : "none"} />
-        </button>
-      </div>
-    );
-  }
-
-  function renderPyeongDropdownMenu(selectedValue, onSelect) {
-    return (
-      <div className="custom-select-menu" role="listbox">
-        {favoritePyeongs.length > 0 && (
-          <div className="custom-select-section favorite-pyeong-section">
-            <p>즐겨찾는 평수</p>
-            {favoritePyeongs.map((pyeong) => renderPyeongOption(pyeong, selectedValue, onSelect))}
-          </div>
-        )}
-        <div className="custom-select-section">
-          <p>전체 평수</p>
-          {PYEONG_OPTIONS.map((pyeong) => renderPyeongOption(pyeong, selectedValue, onSelect))}
-        </div>
-      </div>
-    );
   }
 
   async function ensureDefaultConstructionCatalog(companyId, itemRows = [], subitemRows = []) {
@@ -7719,16 +7643,16 @@ export default function AdminApp() {
     );
   }
 
-  function renderAdminItemsHeaderV2(item, isFlooring = false) {
+  function renderAdminItemsHeaderV2() {
     return (
-      <div className={`admin-quantity-table-header admin-items-v2-table-header ${item.item_type === "flat" ? "flat-quantity-table-header" : "standard-quantity-table-header"} ${isFlooring ? "flooring-quantity-table-header" : ""}`.trim()}>
-        {item.item_type !== "flat" && <span />}
+      <div className="admin-quantity-table-header admin-items-v2-table-header standard-quantity-table-header">
+        <span />
         <span>소재명</span>
         <span>규격/두께</span>
         <span>공사기간</span>
         <span>수량</span>
         <span>인원</span>
-        {item.item_type !== "flat" && <span>삭제</span>}
+        <span>삭제</span>
       </div>
     );
   }
@@ -7783,9 +7707,9 @@ export default function AdminApp() {
   }
 
   function renderAdminItemsRows(item) {
-    const sashItem = isSashItem(item);
+    const rendererKind = getConstructionItemRendererKind(item);
     const itemSubitems = getVisibleAdminSubitems(item);
-    if (sashItem) {
+    if (rendererKind === CONSTRUCTION_ITEM_RENDERER_KINDS.SASH) {
       return (
         <SashCatalogSection
           companyId={selectedCompanyId}
@@ -7821,154 +7745,70 @@ export default function AdminApp() {
       );
     }
 
-    if (isFlooringThicknessItem(item)) {
-      return (
-        <div className="quantity-table-list admin-items-v2-grid-list">
-          {renderAdminItemsHeaderV2(item, true)}
-          {getFlooringThicknessGroups(itemSubitems).map((group) => {
-            const optionEntries = getFlooringOptionEntries(group);
-            const optionIds = optionEntries.map((option) => option.id);
-            const activeThickness = getAdminFlooringActiveThickness(item.id, group);
-            const activeSubitem = group.options[activeThickness] ?? optionEntries[0];
-            if (!activeSubitem) return null;
-            return (
-              <div
-                key={group.baseName}
-                className={`admin-value-row flooring-value-row condition-quantity-row quantity-table-row ${newlyAddedSubitemId === activeSubitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.groupBaseName === group.baseName ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.groupBaseName === group.baseName ? "drop-target" : ""}`.trim()}
-                data-subitem-id={activeSubitem.id}
-                onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, activeSubitem.id, group.baseName)}
-                onDrop={() => reorderAdminFlooringGroups(item.id, group.baseName)}
-                onDragEnd={clearAdminDragState}
-              >
-                <span
-                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
-                  title="소재 순서 변경"
-                  draggable={canReorderAdminCatalog && !adminSaving}
-                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, activeSubitem.id, group.baseName)}
-                  onDragEnd={clearAdminDragState}
-                >
-                  ::
-                </span>
-                <label className="admin-material-name-field">
-                  <span className="field-label">소재명</span>
-                  <input
-                    value={group.baseName}
-                    placeholder={MATERIAL_NAME_PLACEHOLDER}
-                    onChange={(event) => updateLocalFlooringGroupBaseName(optionIds, event.target.value)}
-                    onBlur={(event) => renameAdminFlooringGroup(item.id, optionIds, event.target.value)}
-                  />
-                </label>
-                <label>
-                  <span className="field-label">규격/두께</span>
-                  <select
-                    value={activeThickness}
-                    onChange={(event) => selectAdminFlooringThickness(item.id, group.baseName, event.target.value)}
-                  >
-                    {optionEntries.map((option) => option.thickness).map((thickness) => (
-                      <option key={thickness} value={thickness}>
-                        {formatFlooringThickness(thickness)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {renderAdminItemsQuantityCells(activeSubitem)}
-                <button
-                  className="danger-button admin-price-v2-danger-button"
-                  disabled={adminSaving}
-                  onClick={() => deleteAdminSubitem(activeSubitem.id)}
-                >
-                  <Trash2 size={18} strokeWidth={1.5} />
-                </button>
-              </div>
-            );
-          })}
-          {!itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
-          {item.item_type !== "flat" && (
-            <div className="admin-add-subitem-row admin-price-v2-add-row">
-              <span>{item.name}에 소재 추가</span>
-              <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
-                <Plus size={18} /> 소재 추가
-              </button>
-            </div>
-          )}
-        </div>
-      );
-    }
-
     return (
-      <div className={`${item.item_type === "flat" ? "admin-flat-list" : "admin-subitem-list"} quantity-table-list admin-items-v2-grid-list`.trim()}>
-        {renderAdminItemsHeaderV2(item)}
+      <div className="admin-subitem-list quantity-table-list admin-items-v2-grid-list">
+        {renderAdminItemsHeaderV2()}
         {itemSubitems.map((subitem) => (
           <div
             key={subitem.id}
-            className={`admin-value-row condition-quantity-row quantity-table-row ${item.item_type !== "flat" ? "itemized-quantity-row" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+            className={`admin-value-row condition-quantity-row quantity-table-row itemized-quantity-row ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
             data-subitem-id={subitem.id}
-            onDragOver={(event) => item.item_type !== "flat" && handleAdminSubitemDragOver(event, item.id, subitem.id)}
-            onDrop={() => item.item_type !== "flat" && reorderAdminSubitems(item.id, subitem.id)}
+            onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, subitem.id)}
+            onDrop={() => reorderAdminSubitems(item.id, subitem.id)}
             onDragEnd={clearAdminDragState}
           >
-            {item.item_type === "flat" ? (
-              <strong className="flat-subitem-name">{subitem.name || item.name}</strong>
-            ) : (
-              <>
-                <span
-                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
-                  title="소재 순서 변경"
-                  draggable={canReorderAdminCatalog && !adminSaving}
-                  onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, subitem.id)}
-                  onDragEnd={clearAdminDragState}
-                >
-                  ::
-                </span>
-                <label className="admin-material-name-field">
-                  <span className="field-label">소재명</span>
-                  <input
-                    value={subitem.name}
-                    placeholder={MATERIAL_NAME_PLACEHOLDER}
-                    onChange={(event) =>
-                      setAdminItems((current) =>
-                        current.map((entry) =>
-                          entry.id === item.id
-                            ? {
-                                ...entry,
-                                subitems: entry.subitems.map((entrySubitem) =>
-                                  entrySubitem.id === subitem.id
-                                    ? { ...entrySubitem, name: event.target.value }
-                                    : entrySubitem
-                                ),
-                              }
-                            : entry
-                        )
-                      )
-                    }
-                    onInput={() => markAdminCatalogDirty()}
-                    onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
-                  />
-                </label>
-              </>
-            )}
+            <span
+              className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+              title="소재 순서 변경"
+              draggable={canReorderAdminCatalog && !adminSaving}
+              onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, subitem.id)}
+              onDragEnd={clearAdminDragState}
+            >
+              ::
+            </span>
+            <label className="admin-material-name-field">
+              <span className="field-label">소재명</span>
+              <input
+                value={subitem.name}
+                placeholder={MATERIAL_NAME_PLACEHOLDER}
+                onChange={(event) =>
+                  setAdminItems((current) =>
+                    current.map((entry) =>
+                      entry.id === item.id
+                        ? {
+                            ...entry,
+                            subitems: entry.subitems.map((entrySubitem) =>
+                              entrySubitem.id === subitem.id
+                                ? { ...entrySubitem, name: event.target.value }
+                                : entrySubitem
+                            ),
+                          }
+                        : entry
+                    )
+                  )
+                }
+                onInput={() => markAdminCatalogDirty()}
+                onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
+              />
+            </label>
             <span className="admin-items-v2-muted-cell">-</span>
             {renderAdminItemsQuantityCells(subitem)}
-            {item.item_type !== "flat" && (
-              <button
-                className="danger-button admin-price-v2-danger-button"
-                disabled={adminSaving}
-                onClick={() => deleteAdminSubitem(subitem.id)}
-              >
-                <Trash2 size={18} strokeWidth={1.5} />
-              </button>
-            )}
-          </div>
-        ))}
-        {item.item_type !== "flat" && !itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
-        {item.item_type !== "flat" && (
-          <div className="admin-add-subitem-row admin-price-v2-add-row">
-            <span>{item.name}에 소재 추가</span>
-            <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
-              <Plus size={18} /> 소재 추가
+            <button
+              className="danger-button admin-price-v2-danger-button"
+              disabled={adminSaving}
+              onClick={() => deleteAdminSubitem(subitem.id)}
+            >
+              <Trash2 size={18} strokeWidth={1.5} />
             </button>
           </div>
-        )}
+        ))}
+        {!itemSubitems.length && <p className="admin-price-v2-empty muted">등록된 소재가 없습니다.</p>}
+        <div className="admin-add-subitem-row admin-price-v2-add-row">
+          <span>{item.name}에 소재 추가</span>
+          <button className="secondary-button" type="button" disabled={adminSaving} onClick={() => addAdminSubitem(item.id)}>
+            <Plus size={18} /> 소재 추가
+          </button>
+        </div>
       </div>
     );
   }
@@ -8004,22 +7844,13 @@ export default function AdminApp() {
         <div className="condition-static-grid estimate-condition-drawer__fields formate-scroll-light">
           <div className="condition-static-field">
             <p className="field-label">평수</p>
-            <div className="custom-select admin-pyeong-select">
-              <button
-                type="button"
-                className={`custom-select-trigger ${adminTemplateConditionDraft.pyeong ? "has-value" : ""} ${adminPyeongDropdownOpen ? "open" : ""}`.trim()}
-                onClick={() => setAdminPyeongDropdownOpen((current) => !current)}
-                aria-expanded={adminPyeongDropdownOpen}
-              >
-                <span>{adminTemplateConditionDraft.pyeong ? `${adminTemplateConditionDraft.pyeong}평` : "평수 선택"}</span>
-                <span aria-hidden="true">⌄</span>
-              </button>
-              {adminPyeongDropdownOpen &&
-                renderPyeongDropdownMenu(adminTemplateConditionDraft.pyeong, (value) => {
-                  updateAdminTemplateConditionDraft({ pyeong: value });
-                  setAdminPyeongDropdownOpen(false);
-                })}
-            </div>
+            <PyeongSelector
+              className="admin-pyeong-select"
+              value={adminTemplateConditionDraft.pyeong}
+              open={adminPyeongDropdownOpen}
+              onOpenChange={setAdminPyeongDropdownOpen}
+              onChange={(value) => updateAdminTemplateConditionDraft({ pyeong: value })}
+            />
           </div>
 
           <div className="condition-static-field">
@@ -8938,22 +8769,12 @@ export default function AdminApp() {
             <div className="condition-static-grid estimate-condition-drawer__fields formate-scroll-light">
               <div className="condition-static-field">
                 <p className="field-label">평수</p>
-                <div className="custom-select">
-                  <button
-                    type="button"
-                    className={`custom-select-trigger ${condition.size ? "has-value" : ""} ${pyeongDropdownOpen ? "open" : ""}`.trim()}
-                    onClick={() => setPyeongDropdownOpen((current) => !current)}
-                    aria-expanded={pyeongDropdownOpen}
-                  >
-                    <span>{condition.size ? `${condition.size}평` : "평수 선택"}</span>
-                    <span aria-hidden="true">⌄</span>
-                  </button>
-                  {pyeongDropdownOpen &&
-                    renderPyeongDropdownMenu(condition.size, (value) => {
-                      updateCondition({ size: value });
-                      setPyeongDropdownOpen(false);
-                    })}
-                </div>
+                <PyeongSelector
+                  value={condition.size}
+                  open={pyeongDropdownOpen}
+                  onOpenChange={setPyeongDropdownOpen}
+                  onChange={(value) => updateCondition({ size: value })}
+                />
               </div>
 
               <div className="condition-static-field">
@@ -11434,22 +11255,12 @@ export default function AdminApp() {
             <div className="condition-static-grid">
               <div className="condition-static-field">
                 <p className="field-label">평수 선택</p>
-                <div className="custom-select">
-                  <button
-                    type="button"
-                    className={`custom-select-trigger ${condition.size ? "has-value" : ""} ${pyeongDropdownOpen ? "open" : ""}`.trim()}
-                    onClick={() => setPyeongDropdownOpen((current) => !current)}
-                    aria-expanded={pyeongDropdownOpen}
-                  >
-                    <span>{condition.size ? `${condition.size}평` : "평수 선택"}</span>
-                    <span aria-hidden="true">⌄</span>
-                  </button>
-                  {pyeongDropdownOpen &&
-                    renderPyeongDropdownMenu(condition.size, (value) => {
-                      updateCondition({ size: value });
-                      setPyeongDropdownOpen(false);
-                    })}
-                </div>
+                <PyeongSelector
+                  value={condition.size}
+                  open={pyeongDropdownOpen}
+                  onOpenChange={setPyeongDropdownOpen}
+                  onChange={(value) => updateCondition({ size: value })}
+                />
               </div>
 
               <div className="condition-static-field">
@@ -12052,24 +11863,18 @@ export default function AdminApp() {
             <div className="admin-condition-grid">
               <label className="admin-condition-field">
                 <span className="admin-condition-field-title">평수 선택</span>
-                <div className="custom-select admin-pyeong-select">
-                  <button
-                    type="button"
-                    className={`custom-select-trigger ${adminPyeongDropdownOpen ? "open" : ""}`.trim()}
-                    onClick={() => setAdminPyeongDropdownOpen((current) => !current)}
-                    aria-expanded={adminPyeongDropdownOpen}
-                  >
-                    <span>{selectedAdminPyeong ? `${selectedAdminPyeong}평` : "관리할 평수 선택"}</span>
-                    <span aria-hidden="true">⌄</span>
-                  </button>
-                  {adminPyeongDropdownOpen &&
-                    renderPyeongDropdownMenu(selectedAdminPyeong, (value) => {
-                      setSelectedAdminPyeong(value);
-                      setAdminConditionLoaded(false);
-                      setCurrentAdminTemplateId("");
-                      setAdminPyeongDropdownOpen(false);
-                    })}
-                </div>
+                <PyeongSelector
+                  className="admin-pyeong-select"
+                  value={selectedAdminPyeong}
+                  placeholder="관리할 평수 선택"
+                  open={adminPyeongDropdownOpen}
+                  onOpenChange={setAdminPyeongDropdownOpen}
+                  onChange={(value) => {
+                    setSelectedAdminPyeong(value);
+                    setAdminConditionLoaded(false);
+                    setCurrentAdminTemplateId("");
+                  }}
+                />
               </label>
               <div className="admin-condition-field">
                 <span className="admin-condition-field-title">주택 유형</span>

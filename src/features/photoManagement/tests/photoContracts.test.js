@@ -14,6 +14,7 @@ import {
   buildPyeongSubitemPhotoScope,
   buildPhotoStoragePath,
   getActiveLibraryFolderTree,
+  getPyeongPhotoCounts,
   getPrimaryPhoto,
   isDetailPhotoType,
   isGeneralPhotoType,
@@ -152,6 +153,19 @@ describe("photo management contracts", () => {
       construction_subitem_id: "living-sash",
       sash_catalog_entry_id: "sash-spec-a",
     });
+  });
+
+  it("counts only active photos for known subitems", () => {
+    expect(getPyeongPhotoCounts([
+      { id: "a", constructionSubitemId: "wall" },
+      { id: "b", constructionSubitemId: "wall", archivedAt: "2026-08-08" },
+      { id: "c", constructionSubitemId: "floor" },
+      { id: "d", constructionSubitemId: "unknown" },
+    ], [
+      { id: "wall" },
+      { id: "floor" },
+      { id: "empty" },
+    ])).toEqual({ wall: 1, floor: 1, empty: 0 });
   });
 
   it("keeps Library photos in the stable photo_library contract", () => {
