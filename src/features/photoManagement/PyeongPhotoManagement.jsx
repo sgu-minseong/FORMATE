@@ -15,7 +15,10 @@ import PhotoViewer, { shouldSuppressPhotoClick } from "../../components/PhotoVie
 import PyeongSelector from "../../components/PyeongSelector";
 import Button from "../../components/ui/Button";
 import AdminCategoryPanel from "../priceTable/AdminCategoryPanel";
-import { getPyeongPhotoCounts } from "./photoModel";
+import {
+  buildStableSubitemSections,
+  formatConstructionSubitemVariantLabel,
+} from "../priceTable/subitemVariantModel";
 import { PYEONG_PHOTO_STATUS, usePyeongPhotoManagement } from "./usePyeongPhotoManagement";
 
 export const PYEONG_GALLERY_INITIAL_LIMIT = 8;
@@ -202,6 +205,8 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
   const catalog = controller.photoCatalog ?? [];
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [expandedGalleryIds, setExpandedGalleryIds] = useState([]);
+  const [activeVariantByGroupId, setActiveVariantByGroupId] = useState({});
+  const [variantMenuGroupId, setVariantMenuGroupId] = useState("");
   const [jumpMenuOpen, setJumpMenuOpen] = useState(false);
   const [viewerState, setViewerState] = useState(null);
   const [editingCaptionId, setEditingCaptionId] = useState("");
@@ -219,6 +224,7 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
 
   useEffect(() => {
     setExpandedGalleryIds([]);
+    setVariantMenuGroupId("");
     setJumpMenuOpen(false);
     setPhotoMenuId("");
     setViewerState(null);
@@ -226,11 +232,47 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
 
   const selectedCategory = catalog.find((item) => item.id === selectedCategoryId) ?? null;
   const subitems = selectedCategory?.subitems ?? [];
-  const photoCounts = useMemo(() => getPyeongPhotoCounts(photos, catalog.flatMap((item) => item.subitems ?? [])), [catalog, photos]);
+  const gallerySections = useMemo(() => buildStableSubitemSections({
+    subitems,
+    variantGroups: selectedCategory?.variantGroups ?? [],
+  }), [selectedCategory, subitems]);
+  const resolvedGallerySections = useMemo(() => gallerySections.map((section) => {
+    if (section.kind !== "variant-group") return {
+      ...section,
+      activeSubitemId: section.subitemId,
+    };
+    const selectedSubitemId = activeVariantByGroupId[section.groupId];
+    const activeVariant = section.variants.find((variant) => variant.subitemId === selectedSubitemId)
+      ?? section.variants[0];
+    return {
+      ...section,
+      activeSubitemId: activeVariant?.subitemId ?? "",
+      activeVariant,
+    };
+  }), [activeVariantByGroupId, gallerySections]);
   const photosBySubitem = useMemo(() => Object.fromEntries(subitems.map((subitem) => [
     subitem.id,
     photos.filter((photo) => photo.constructionSubitemId === subitem.id),
   ])), [photos, subitems]);
+
+  useEffect(() => {
+    setActiveVariantByGroupId((current) => {
+      const next = Object.fromEntries(gallerySections
+        .filter((section) => section.kind === "variant-group")
+        .map((section) => {
+          const currentSubitemId = current[section.groupId];
+          const activeSubitemId = section.variants.some((variant) => variant.subitemId === currentSubitemId)
+            ? currentSubitemId
+            : section.variants[0]?.subitemId ?? "";
+          return [section.groupId, activeSubitemId];
+        }));
+      const currentEntries = Object.entries(current);
+      const nextEntries = Object.entries(next);
+      const unchanged = currentEntries.length === nextEntries.length
+        && nextEntries.every(([groupId, subitemId]) => current[groupId] === subitemId);
+      return unchanged ? current : next;
+    });
+  }, [gallerySections]);
 
   function openViewer(subitemId, index) {
     if (shouldSuppressPhotoClick(dragEndedAtRef.current)) return;
@@ -242,12 +284,22 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
     else setPyeongDrawerOpen(false);
   }
 
-  function jumpToSubitem(subitemId) {
-    const section = sectionRefs.current.get(subitemId);
+  function jumpToSection(sectionId) {
+    const section = sectionRefs.current.get(sectionId);
     if (!section) return;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     section.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
     setJumpMenuOpen(false);
+  }
+
+  async function selectVariant(groupId, subitemId) {
+    if (editingCaptionId) await flushCaption(editingCaptionId);
+    setActiveVariantByGroupId((current) => ({ ...current, [groupId]: subitemId }));
+    setVariantMenuGroupId("");
+    setPhotoMenuId("");
+    setEditingCaptionId("");
+    setSnippetPhotoId("");
+    setViewerState(null);
   }
 
   return (
@@ -264,23 +316,26 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
           <div className="pyeong-photo-titleline">
             <button type="button" className="pyeong-photo-back" onClick={onBack} aria-label="사진 관리 모드 선택으로 돌아가기"><ArrowLeft size={18} /></button>
             <div>
-              <h1>평형별 사진 관리</h1>
-              <span>{selectedCategory?.name || "대분류를 선택하세요."}</span>
+              <h1>
+                평형별 사진 관리
+                <span aria-hidden="true">·</span>
+                <em>{selectedCategory?.name || "대분류를 선택하세요."}</em>
+              </h1>
             </div>
           </div>
           <div className="pyeong-photo-header-actions">
             {captionSaveStatus !== "idle" && <span className={`autosave-pill ${captionSaveStatus}`.trim()} title={captionSaveMessage}>{captionSaveStatus === "saving" ? "저장 중" : captionSaveStatus === "error" ? "저장 실패" : captionSaveStatus === "dirty" ? "저장 대기" : "저장됨"}</span>}
-            {committedPyeong && subitems.length > 0 && (
+            {committedPyeong && resolvedGallerySections.length > 0 && (
               <div className="pyeong-photo-jump">
                 <button type="button" className="pyeong-photo-jump-trigger" onClick={() => setJumpMenuOpen((current) => !current)} aria-expanded={jumpMenuOpen}>
                   <span>세부항목 바로가기</span><ChevronDown size={16} />
                 </button>
                 {jumpMenuOpen && (
                   <div className="pyeong-photo-jump-menu formate-scroll-light" role="menu">
-                    {subitems.map((subitem) => (
-                      <button type="button" key={subitem.id} onClick={() => jumpToSubitem(subitem.id)} role="menuitem">
-                        <span>{subitem.name}</span>
-                        <em>{photoCounts[subitem.id] ? `${photoCounts[subitem.id]}장` : "0장"}</em>
+                    {resolvedGallerySections.map((section) => (
+                      <button type="button" key={section.id} onClick={() => jumpToSection(section.id)} role="menuitem">
+                        <span>{section.label}</span>
+                        <em>{(photosBySubitem[section.activeSubitemId] ?? []).length}장</em>
                       </button>
                     ))}
                   </div>
@@ -311,9 +366,10 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
                 <strong>평형을 선택해 주세요.</strong>
                 <span>평형이 확정되면 해당 평형의 사진을 조회하고 편집할 수 있습니다.</span>
               </div>
-            ) : subitems.length ? subitems.map((subitem) => {
-              const scopedPhotos = photosBySubitem[subitem.id] ?? [];
-              const galleryExpanded = expandedGalleryIds.includes(subitem.id);
+            ) : resolvedGallerySections.length ? resolvedGallerySections.map((section) => {
+              const activeSubitemId = section.activeSubitemId;
+              const scopedPhotos = photosBySubitem[activeSubitemId] ?? [];
+              const galleryExpanded = expandedGalleryIds.includes(activeSubitemId);
               const visiblePhotos = galleryExpanded
                 ? scopedPhotos
                 : scopedPhotos.slice(0, PYEONG_GALLERY_INITIAL_LIMIT);
@@ -321,17 +377,56 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
               return (
                 <section
                   className="pyeong-photo-gallery-section"
-                  key={subitem.id}
+                  key={section.id}
                   ref={(node) => {
-                    if (node) sectionRefs.current.set(subitem.id, node);
-                    else sectionRefs.current.delete(subitem.id);
+                    if (node) sectionRefs.current.set(section.id, node);
+                    else sectionRefs.current.delete(section.id);
                   }}
                 >
                   <header className="pyeong-photo-gallery-section__header">
-                    <h2>{subitem.name}</h2>
-                    <span>{photoCounts[subitem.id] ? `${photoCounts[subitem.id]}장` : "사진 없음"}</span>
+                    <div className="pyeong-photo-gallery-section__title">
+                      <h2>{section.label}</h2>
+                      {section.kind === "variant-group" && section.activeVariant && (
+                        <div className="pyeong-photo-variant-select">
+                          <button
+                            type="button"
+                            className="pyeong-photo-variant-trigger"
+                            onClick={() => setVariantMenuGroupId((current) => current === section.groupId ? "" : section.groupId)}
+                            aria-label={`${section.label} 두께 선택`}
+                            aria-expanded={variantMenuGroupId === section.groupId}
+                          >
+                            <span>{formatConstructionSubitemVariantLabel(section.activeVariant.value, section.activeVariant.unit)}</span>
+                            <ChevronDown size={14} />
+                          </button>
+                          {variantMenuGroupId === section.groupId && (
+                            <div className="pyeong-photo-variant-menu formate-scroll-light" role="menu">
+                              {section.variants.map((variant) => (
+                                <button
+                                  type="button"
+                                  key={variant.subitemId}
+                                  className={variant.subitemId === activeSubitemId ? "active" : ""}
+                                  onClick={() => selectVariant(section.groupId, variant.subitemId)}
+                                  role="menuitemradio"
+                                  aria-checked={variant.subitemId === activeSubitemId}
+                                >
+                                  {formatConstructionSubitemVariantLabel(variant.value, variant.unit)}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="pyeong-photo-gallery-section__actions">
+                      <span>{scopedPhotos.length ? `${scopedPhotos.length}장` : "사진 없음"}</span>
+                      <label className={`pyeong-photo-add-action ${!canEdit || saving ? "disabled" : ""}`.trim()}>
+                        <Plus size={15} /><span>사진 추가</span>
+                        <input type="file" accept="image/*" multiple disabled={!canEdit || saving} onChange={(event) => { uploadPhotos({ constructionSubitemId: activeSubitemId, files: event.target.files }); event.target.value = ""; }} />
+                      </label>
+                    </div>
                   </header>
-                  <div className="pyeong-photo-grid">
+                  {scopedPhotos.length > 0 && <>
+                    <div className="pyeong-photo-grid">
                     {visiblePhotos.map((photo, index) => (
                       <article
                         className={`pyeong-photo-card ${draggedPhotoId === photo.id ? "dragging" : ""} ${dropPhotoId === photo.id ? "drop-target" : ""}`.trim()}
@@ -339,7 +434,7 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
                         draggable={canEdit && !editingCaptionId && !saving && photoMenuId !== photo.id}
                         onDragStart={(event) => { setDraggedPhotoId(photo.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", photo.id); }}
                         onDragOver={(event) => { if (draggedPhotoId) { event.preventDefault(); setDropPhotoId(photo.id); } }}
-                        onDrop={async (event) => { event.preventDefault(); await reorderPhotos(subitem.id, draggedPhotoId, photo.id); dragEndedAtRef.current = Date.now(); setDraggedPhotoId(""); setDropPhotoId(""); }}
+                        onDrop={async (event) => { event.preventDefault(); await reorderPhotos(activeSubitemId, draggedPhotoId, photo.id); dragEndedAtRef.current = Date.now(); setDraggedPhotoId(""); setDropPhotoId(""); }}
                         onDragEnd={() => { dragEndedAtRef.current = Date.now(); setDraggedPhotoId(""); setDropPhotoId(""); }}
                       >
                         <div className="pyeong-photo-card-menu">
@@ -361,9 +456,9 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
                             </div>
                           )}
                         </div>
-                        <button type="button" className="pyeong-photo-thumbnail" onClick={() => openViewer(subitem.id, index)} aria-label={`${subitem.name} ${index + 1}번째 사진 확대 보기`}>
+                        <button type="button" className="pyeong-photo-thumbnail" onClick={() => openViewer(activeSubitemId, index)} aria-label={`${section.label} ${index + 1}번째 사진 확대 보기`}>
                           {photo.signedUrl ? (
-                            <img src={photo.signedUrl} alt={photo.originalFilename || `${subitem.name} 사진`} />
+                            <img src={photo.signedUrl} alt={photo.originalFilename || `${section.label} 사진`} />
                           ) : photoUrlLoading && photo.storagePath ? (
                             <span className="pyeong-photo-thumbnail-loading" aria-label="사진 미리보기 불러오는 중" />
                           ) : (
@@ -405,20 +500,17 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
                         </div>
                       </article>
                     ))}
+                    </div>
                     {hiddenPhotoCount > 0 && (
                       <button
                         type="button"
-                        className="pyeong-photo-more-tile"
-                        onClick={() => setExpandedGalleryIds((current) => [...current, subitem.id])}
+                        className="pyeong-photo-more-button"
+                        onClick={() => setExpandedGalleryIds((current) => [...current, activeSubitemId])}
                       >
                         + {hiddenPhotoCount}장 더 보기
                       </button>
                     )}
-                    <label className={`pyeong-photo-add-tile ${!canEdit || saving ? "disabled" : ""}`.trim()}>
-                      <Plus size={22} /><span>사진 추가</span>
-                      <input type="file" accept="image/*" multiple disabled={!canEdit || saving} onChange={(event) => { uploadPhotos({ constructionSubitemId: subitem.id, files: event.target.files }); event.target.value = ""; }} />
-                    </label>
-                  </div>
+                  </>}
                 </section>
               );
             }) : <div className="pyeong-photo-empty pyeong-photo-empty--workspace">등록된 세부항목이 없습니다.</div>}

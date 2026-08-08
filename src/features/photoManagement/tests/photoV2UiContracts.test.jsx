@@ -111,7 +111,13 @@ describe("Photo v2 management UI contracts", () => {
     expect(pageSource).toContain("photos={photosBySubitem[viewerState.subitemId]}");
     expect(pageSource).toContain("CaptionSnippetPopover");
     expect(pageSource).toContain("pyeong-photo-caption-area");
-    expect(pageSource).toContain("pyeong-photo-add-tile");
+    expect(pageSource).toContain("pyeong-photo-add-action");
+    expect(pageSource).not.toContain("pyeong-photo-add-tile");
+    expect(pageSource).toContain("buildStableSubitemSections");
+    expect(pageSource).toContain("formatConstructionSubitemVariantLabel");
+    expect(pageSource).toContain('section.kind === "variant-group"');
+    expect(pageSource).toContain("activeSubitemId");
+    expect(pageSource).toContain("resolvedGallerySections.map");
     expect(pageSource).not.toContain("등록된 사진이 없습니다.");
     expect(controllerSource).toContain("listPyeongPhotoRows");
     expect(controllerSource).toContain("resolvePyeongPhotoUrls");

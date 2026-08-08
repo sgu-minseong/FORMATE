@@ -236,11 +236,29 @@ describe("Photo v2 API contracts", () => {
 
   it("loads the construction catalog without waiting for legacy photos or signed URLs", async () => {
     mockState.rows.construction_items = { data: [{ id: "item", company_id: "company", name: "철거", sort_order: 0 }], error: null };
-    mockState.rows.construction_subitems = { data: [{ id: "subitem", company_id: "company", item_id: "item", name: "전체 철거", sort_order: 0 }], error: null };
+    mockState.rows.construction_subitems = { data: [{
+      id: "subitem", company_id: "company", item_id: "item", name: "전체 철거", sort_order: 0,
+      variant_group_id: "group", variant_value: 1.8, variant_unit: "T",
+    }], error: null };
+    mockState.rows.construction_subitem_variant_groups = { data: [{
+      id: "group", construction_item_id: "item", display_name: "KCC장판",
+      variant_kind: "thickness", base_subitem_id: null, sort_order: 0, archived_at: null,
+    }], error: null };
 
     const catalog = await fetchPhotoCatalog("company");
 
     expect(catalog[0]).toMatchObject({ id: "item", name: "철거" });
+    expect(catalog[0].variantGroups).toEqual([expect.objectContaining({
+      id: "group",
+      constructionItemId: "item",
+      displayName: "KCC장판",
+    })]);
+    expect(mockState.calls).toContainEqual({
+      table: "construction_subitem_variant_groups",
+      method: "in",
+      column: "construction_item_id",
+      value: ["item"],
+    });
     expect(mockState.calls.some((call) => call.table === "photos")).toBe(false);
     expect(mockState.signedUrlCalls).toEqual([]);
   });

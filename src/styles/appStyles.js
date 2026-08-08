@@ -11122,8 +11122,7 @@ const appStyles = `
     gap: var(--space-1);
     overflow: hidden;
   }
-  .pyeong-photo-titleline h1,
-  .pyeong-photo-titleline span {
+  .pyeong-photo-titleline h1 {
     min-width: 0;
     margin: 0;
     overflow: hidden;
@@ -11132,15 +11131,28 @@ const appStyles = `
     word-break: keep-all;
   }
   .pyeong-photo-titleline h1 {
-    flex: 0 0 auto;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-1);
     color: var(--color-text-primary);
-    font-size: var(--font-size-page-title);
+    font-size: var(--font-size-title-md);
     font-weight: var(--font-weight-semibold);
-    line-height: var(--line-height-page-title);
+    line-height: var(--line-height-work-title);
   }
-  .pyeong-photo-titleline span {
+  .pyeong-photo-titleline h1 > span {
+    flex: 0 0 auto;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-regular);
+  }
+  .pyeong-photo-titleline h1 > em {
+    min-width: 0;
+    overflow: hidden;
     color: var(--color-text-secondary);
-    font-size: var(--font-size-caption);
+    font-size: var(--font-size-body);
+    font-style: normal;
+    font-weight: var(--font-weight-medium);
+    text-overflow: ellipsis;
   }
   .pyeong-photo-header-actions {
     min-width: 0;
@@ -11246,12 +11258,18 @@ const appStyles = `
   }
   .pyeong-photo-feedback {
     flex: 0 0 auto;
-    padding: var(--space-1) var(--space-2);
+    padding: var(--space-0-5) var(--space-2);
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
   }
   .pyeong-photo-feedback > * {
     margin: 0;
+  }
+  .pyeong-photo-feedback .error-box,
+  .pyeong-photo-feedback .success-box {
+    min-height: 32px;
+    padding: var(--space-0-5) var(--space-1);
+    font-size: var(--font-size-caption);
   }
   .pyeong-photo-gallery-workspace {
     min-width: 0;
@@ -11272,15 +11290,25 @@ const appStyles = `
     scroll-margin-top: var(--space-2);
   }
   .pyeong-photo-gallery-section__header {
-    min-height: 40px;
+    min-height: 46px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
     border-bottom: 1px solid var(--color-border);
   }
+  .pyeong-photo-gallery-section__title,
+  .pyeong-photo-gallery-section__actions {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .pyeong-photo-gallery-section__actions {
+    flex: 0 0 auto;
+  }
   .pyeong-photo-gallery-section__header h2,
-  .pyeong-photo-gallery-section__header span {
+  .pyeong-photo-gallery-section__actions > span {
     margin: 0;
     white-space: nowrap;
   }
@@ -11294,16 +11322,105 @@ const appStyles = `
     text-overflow: ellipsis;
     word-break: keep-all;
   }
-  .pyeong-photo-gallery-section__header span {
+  .pyeong-photo-gallery-section__actions > span {
     flex: 0 0 auto;
     color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
     font-variant-numeric: tabular-nums;
   }
+  .pyeong-photo-variant-select {
+    position: relative;
+    flex: 0 0 auto;
+  }
+  .pyeong-photo-variant-trigger {
+    min-width: 70px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-0-5);
+    padding: 0 var(--space-1);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+  }
+  .pyeong-photo-variant-trigger:hover,
+  .pyeong-photo-variant-trigger:focus-visible,
+  .pyeong-photo-variant-trigger[aria-expanded="true"] {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-subtle);
+    outline: none;
+  }
+  .pyeong-photo-variant-menu {
+    position: absolute;
+    top: calc(100% + var(--space-0-5));
+    left: 0;
+    z-index: 18;
+    width: 96px;
+    max-height: 260px;
+    overflow-y: auto;
+    padding: var(--space-0-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+  }
+  .pyeong-photo-variant-menu button {
+    width: 100%;
+    min-height: 32px;
+    padding: 0 var(--space-1);
+    border: 0;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+    text-align: left;
+  }
+  .pyeong-photo-variant-menu button:hover,
+  .pyeong-photo-variant-menu button:focus-visible,
+  .pyeong-photo-variant-menu button.active {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    outline: none;
+  }
+  .pyeong-photo-add-action {
+    position: relative;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-0-5);
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-button);
+    color: var(--color-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .pyeong-photo-add-action:hover,
+  .pyeong-photo-add-action:focus-within {
+    background: var(--color-primary-soft);
+  }
+  .pyeong-photo-add-action.disabled {
+    opacity: 0.56;
+    cursor: not-allowed;
+  }
+  .pyeong-photo-add-action input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
   .pyeong-photo-grid {
     min-width: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 260px));
     align-items: start;
     gap: var(--space-1-5);
     padding-top: var(--space-1-5);
@@ -11619,39 +11736,27 @@ const appStyles = `
     border-color: var(--color-primary);
     outline: none;
   }
-  .pyeong-photo-more-tile,
-  .pyeong-photo-add-tile {
-    position: relative;
-    min-height: 190px;
-    display: grid;
-    place-items: center;
-    align-content: center;
-    gap: var(--space-1);
-    border: 1px dashed var(--color-border-strong);
-    border-radius: var(--radius-card);
-    background: var(--color-surface);
-    color: var(--color-text-muted);
+  .pyeong-photo-more-button {
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    margin-top: var(--space-1);
+    padding: 0 var(--space-1);
+    border: 1px solid transparent;
+    border-radius: var(--radius-button);
+    background: transparent;
+    color: var(--color-primary);
+    font: inherit;
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
     cursor: pointer;
   }
-  .pyeong-photo-more-tile {
-    font: inherit;
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-medium);
-  }
-  .pyeong-photo-more-tile:hover,
-  .pyeong-photo-more-tile:focus-visible,
-  .pyeong-photo-add-tile:hover,
-  .pyeong-photo-add-tile:focus-within {
-    border-color: var(--color-primary);
+  .pyeong-photo-more-button:hover,
+  .pyeong-photo-more-button:focus-visible {
+    border-color: var(--color-primary-border);
     background: var(--color-primary-soft);
-    color: var(--color-primary);
     outline: none;
   }
-  .pyeong-photo-add-tile.disabled {
-    opacity: 0.48;
-    cursor: not-allowed;
-  }
-  .pyeong-photo-add-tile input,
   .pyeong-photo-empty input {
     position: absolute;
     inset: 0;

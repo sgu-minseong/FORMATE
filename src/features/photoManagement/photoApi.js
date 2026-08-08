@@ -1,6 +1,7 @@
 import { supabase } from "../../lib/supabaseClient";
 import { fetchConstructionCatalogRows } from "../priceTable/priceTableApi";
 import { normalizeAdminItems } from "../priceTable/priceTableModel";
+import { normalizeConstructionSubitemVariantGroup } from "../priceTable/subitemVariantModel";
 import {
   PHOTO_SIGNED_URL_EXPIRES_IN_SECONDS,
   PHOTO_STORAGE_BUCKET,
@@ -67,7 +68,27 @@ async function fetchCollections(companyId) {
 
 export async function fetchPhotoCatalog(companyId) {
   const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
-  return normalizeAdminItems(itemRows, subitemRows, []);
+  const itemIds = (itemRows ?? []).map((item) => item.id);
+  let variantGroupRows = [];
+  if (itemIds.length) {
+    const { data, error } = await supabase
+      .from("construction_subitem_variant_groups")
+      .select("*")
+      .in("construction_item_id", itemIds)
+      .is("archived_at", null)
+      .order("sort_order", { ascending: true });
+    if (error) throw error;
+    variantGroupRows = data ?? [];
+  }
+
+  const variantGroups = variantGroupRows.map(normalizeConstructionSubitemVariantGroup);
+  return normalizeAdminItems(itemRows, subitemRows, []).map((item) => {
+    const sourceItemIds = new Set((item.subitems ?? []).map((subitem) => subitem.item_id));
+    return {
+      ...item,
+      variantGroups: variantGroups.filter((group) => sourceItemIds.has(group.constructionItemId)),
+    };
+  });
 }
 
 export async function fetchLegacyPhotoManagementData(companyId) {
