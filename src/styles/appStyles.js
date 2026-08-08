@@ -7846,8 +7846,9 @@ const appStyles = `
   }
   .items-v2-badge--warning {
     border-color: var(--color-warning-border);
-    background: var(--color-surface-subtle);
+    background: var(--color-warning-soft);
     color: var(--color-warning);
+    font-weight: var(--font-weight-semibold);
   }
   .items-v2-inline-input,
   .items-v2-inline-select {
@@ -8663,22 +8664,44 @@ const appStyles = `
     border-left: 3px solid var(--color-warning);
     border-radius: var(--radius-button);
     background: var(--color-warning-soft);
+    background: color-mix(in srgb, var(--color-warning-soft) 82%, var(--color-warning-border));
     color: var(--color-text-primary);
     padding: var(--space-1) var(--space-1-5);
     font-size: var(--font-size-body-sm);
     line-height: var(--line-height-body);
   }
-  .items-v2-template-review > div {
+  .items-v2-template-review__message,
+  .items-v2-template-review__actions {
     display: inline-flex;
     flex: 0 0 auto;
     align-items: center;
     gap: var(--space-1);
   }
+  .items-v2-template-review__message {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .items-v2-template-review__message svg {
+    flex: 0 0 auto;
+    color: var(--color-warning);
+  }
+  .items-v2-template-review__message strong {
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-semibold);
+  }
   .items-v2-table .items-v2-row--template-conflict td {
     background: var(--color-warning-soft) !important;
+    background: color-mix(in srgb, var(--color-warning-soft) 90%, var(--color-warning-border)) !important;
+    border-bottom-color: var(--color-warning-border);
   }
   .items-v2-table .items-v2-row--template-conflict td:first-child {
     box-shadow: inset 3px 0 0 var(--color-warning);
+  }
+  .items-v2-inline-input--template-conflict,
+  .items-v2-money-field--template-conflict {
+    border-color: var(--color-warning-border) !important;
+    background: var(--color-warning-soft) !important;
+    color: var(--color-text-primary);
   }
   .admin-price-v2-add-action {
     display: flex;
@@ -9701,7 +9724,7 @@ const appStyles = `
   }
   .home-sidebar-workspace {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
     gap: var(--space-1);
     min-height: 44px;

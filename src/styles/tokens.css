@@ -445,10 +445,8 @@ textarea {
 }
 
 .formate-app-shell__workspace-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-1);
+  position: relative;
+  display: block;
   flex: 0 0 auto;
 }
 
@@ -457,6 +455,9 @@ textarea {
 }
 
 .formate-app-shell__history-controls {
+  position: absolute;
+  top: 6px;
+  right: 0;
   display: inline-flex;
   align-items: center;
   gap: var(--space-0-5);

@@ -22,6 +22,7 @@ import {
   SlidersHorizontal,
   Upload,
   Star,
+  TriangleAlert,
   Trash2,
   Users,
   Wrench,
@@ -153,6 +154,10 @@ import {
   getEstimateDraftRowKeys,
   reconcileEstimateDraftItems,
 } from "../features/estimates/estimateDraftReconciliation";
+import {
+  applyEstimateConditionChange as runEstimateConditionChange,
+  createEstimatePyeongChange,
+} from "../features/estimates/estimateConditionChange";
 import EstimateEditorPage from "../features/estimates/EstimateEditorPage";
 import EstimatePreviewPage from "../features/estimates/EstimatePreviewPage";
 import SavedEstimatesPage from "../features/estimates/SavedEstimatesPage";
@@ -2290,6 +2295,12 @@ export default function AdminApp() {
   const estimateAggregateIdRef = useRef(null);
   const estimateClientDraftKeyRef = useRef(createEstimateDraftKey());
   const currentAdminTemplateConditionRef = useRef(null);
+  const estimateConditionRef = useRef(null);
+  const estimatePyeongApplyRef = useRef(null);
+  const estimatePyeongInvalidateRef = useRef(null);
+  const estimatePyeongChangeRef = useRef(null);
+  const skipNextEstimatePyeongBlurRef = useRef(false);
+  const estimateTemplateConflictScrollRef = useRef(null);
   const {
     companySession,
     authUser,
@@ -2352,6 +2363,13 @@ export default function AdminApp() {
     isLoadingEstimateItemPhotos, setIsLoadingEstimateItemPhotos,
     estimateItemPhotosError, setEstimateItemPhotosError,
   } = useEstimateDraft();
+  estimateConditionRef.current = condition;
+  if (!estimatePyeongChangeRef.current) {
+    estimatePyeongChangeRef.current = createEstimatePyeongChange({
+      apply: (pyeong) => estimatePyeongApplyRef.current?.(pyeong),
+      invalidate: () => estimatePyeongInvalidateRef.current?.(),
+    });
+  }
   const estimateItemsRef = useRef(items);
   estimateItemsRef.current = items;
   const [estimatePhotoViewerIndex, setEstimatePhotoViewerIndex] = useState(null);
@@ -2951,8 +2969,21 @@ export default function AdminApp() {
     setEstimatePhotoViewerIndex(null);
   }, [page]);
 
+  useEffect(() => () => {
+    estimatePyeongChangeRef.current?.reset();
+  }, []);
+
   useEffect(() => {
-    if (page !== "items" || !estimateTemplateConflicts.length || typeof window === "undefined") return;
+    if (!estimateTemplateConflicts.length) {
+      estimateTemplateConflictScrollRef.current = null;
+      return;
+    }
+    if (
+      page !== "items"
+      || estimateTemplateConflictScrollRef.current === estimateTemplateConflicts
+      || typeof window === "undefined"
+    ) return;
+    estimateTemplateConflictScrollRef.current = estimateTemplateConflicts;
     const firstConflict = estimateTemplateConflicts[0];
     setOpenCategory(firstConflict.categoryId);
     const frameId = window.requestAnimationFrame(() => {
@@ -5439,32 +5470,90 @@ export default function AdminApp() {
     });
   }
 
-  async function goNext() {
-    if (!canGoNext()) return;
-    const loaded = await fetchEstimateCatalog(condition.size, condition, {
-      preserveDraft: estimateConditionEditMode,
+  async function applyEstimateConditionChangePipeline(nextCondition, {
+    forceBlank = false,
+    navigateToItems = false,
+    preserveDraft = estimateConditionEditMode,
+  } = {}) {
+    if (!isEstimateConditionComplete(nextCondition)) return false;
+
+    const result = await runEstimateConditionChange({
+      nextCondition,
+      preserveDraft,
+      forceBlank,
+      updateCondition: (resolvedCondition) => {
+        estimateConditionRef.current = resolvedCondition;
+        setCondition(resolvedCondition);
+      },
+      loadCatalog: fetchEstimateCatalog,
     });
-    if (loaded) {
+
+    if (result.applied && navigateToItems) {
       setEstimateConditionEditMode(false);
       setEstimateConditionDrawerOpen(false);
       setPage("items");
     }
+    return result.applied;
   }
 
-  async function loadEstimateFromCondition({ forceBlank = false } = {}) {
-    if (!canGoNext()) return;
-    const loaded = await fetchEstimateCatalog(condition.size, condition, {
+  function loadEstimateFromCondition({ forceBlank = false } = {}) {
+    estimatePyeongChangeRef.current?.reset();
+    return applyEstimateConditionChangePipeline(condition, {
       preserveDraft: estimateConditionEditMode,
       forceBlank,
+      navigateToItems: true,
     });
-    if (loaded) {
-      setEstimateConditionEditMode(false);
-      setEstimateConditionDrawerOpen(false);
-      setPage("items");
+  }
+
+  function invalidatePendingEstimatePyeongChange() {
+    estimateBlankCatalogRequestRef.current += 1;
+    setEstimateLoading(false);
+  }
+
+  function applyEstimatePyeongCondition(pyeong) {
+    const nextCondition = {
+      ...estimateConditionRef.current,
+      size: pyeong,
+    };
+    return applyEstimateConditionChangePipeline(nextCondition, {
+      preserveDraft: true,
+      navigateToItems: false,
+    });
+  }
+
+  estimatePyeongApplyRef.current = applyEstimatePyeongCondition;
+  estimatePyeongInvalidateRef.current = invalidatePendingEstimatePyeongChange;
+
+  function handleEstimatePyeongInputChange(event) {
+    const value = event.target.value;
+    skipNextEstimatePyeongBlurRef.current = false;
+    setEstimatePyeong(value);
+    estimatePyeongChangeRef.current.queue(value);
+  }
+
+  function flushEstimatePyeongInput(value) {
+    const applied = estimatePyeongChangeRef.current.flush(value);
+    if (!applied) setEstimatePyeong(estimateConditionRef.current?.size ?? "");
+    return applied;
+  }
+
+  function handleEstimatePyeongInputBlur(event) {
+    if (skipNextEstimatePyeongBlurRef.current) {
+      skipNextEstimatePyeongBlurRef.current = false;
+      return;
     }
+    flushEstimatePyeongInput(event.currentTarget.value);
+  }
+
+  function handleEstimatePyeongInputKeyDown(event) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    skipNextEstimatePyeongBlurRef.current = true;
+    flushEstimatePyeongInput(event.currentTarget.value);
   }
 
   function openNewEstimateCondition() {
+    estimatePyeongChangeRef.current?.reset();
     resetEstimateDraftForNewStart();
     setEstimateTemplateConflicts([]);
     setEstimateTemplateConditionKey("");
@@ -5705,6 +5794,13 @@ export default function AdminApp() {
       .find((conflict) => conflict?.categoryId === categoryId);
   }
 
+  function getEstimateTemplateConflictFieldLabel(conflict) {
+    return (conflict?.fields ?? [])
+      .map((fieldKey) => (fieldKey === "quantity" ? "수량" : fieldKey === "laborCount" ? "인원" : ""))
+      .filter(Boolean)
+      .join("·");
+  }
+
   function keepEstimateTemplateOverrides() {
     setEstimateTemplateConflicts([]);
   }
@@ -5841,24 +5937,6 @@ export default function AdminApp() {
           </div>
         )}
       </div>
-    );
-  }
-
-  function applyEstimatePyeongToPyeongUnits() {
-    const nextQuantity = `${estimatePyeong ?? ""}`.trim();
-    if (!nextQuantity) return;
-
-    setItems((current) =>
-      Object.fromEntries(
-        Object.entries(current).map(([categoryId, rows]) => [
-          categoryId,
-          (rows ?? []).map((row) =>
-            `${row.unit ?? ""}`.trim() === "평"
-              ? recalculateEstimateRow({ ...row, quantity: nextQuantity })
-              : row
-          ),
-        ])
-      )
     );
   }
 
@@ -8391,7 +8469,9 @@ export default function AdminApp() {
             <strong>{rowLabel}</strong>
             <span>
               {rowConflict ? (
-                <em className="items-v2-badge items-v2-badge--warning">직접 수정됨</em>
+                <em className="items-v2-badge items-v2-badge--warning">
+                  직접 수정됨 · {getEstimateTemplateConflictFieldLabel(rowConflict)}
+                </em>
               ) : isEstimateRowModified(row) ? (
                 <em className="items-v2-badge items-v2-badge--muted">수정됨</em>
               ) : null}
@@ -8427,7 +8507,7 @@ export default function AdminApp() {
       if (column.key === "quantity") {
         return (
           <input
-            className="items-v2-inline-input items-v2-inline-input--number"
+            className={`items-v2-inline-input items-v2-inline-input--number ${rowConflict?.fields.includes("quantity") ? "items-v2-inline-input--template-conflict" : ""}`.trim()}
             type="text"
             inputMode="decimal"
             aria-label={`${rowLabel} 수량`}
@@ -8478,6 +8558,7 @@ export default function AdminApp() {
 
     const renderItemExpandedRow = ({ row, rowIndex }) => {
       const photoPanel = renderEstimateItemPhotoPanel(row);
+      const rowConflict = getEstimateTemplateConflict(row, openCategory);
       if (!row.expanded && !photoPanel) return null;
 
       return (
@@ -8506,7 +8587,7 @@ export default function AdminApp() {
               </label>
               <label>
                 <span>인원</span>
-                <div className="items-v2-money-field">
+                <div className={`items-v2-money-field ${rowConflict?.fields.includes("laborCount") ? "items-v2-money-field--template-conflict" : ""}`.trim()}>
                   <input
                     type="number"
                     min="0"
@@ -8814,18 +8895,12 @@ export default function AdminApp() {
                   min="1"
                   max="90"
                   value={estimatePyeong}
-                  onChange={(event) => setEstimatePyeong(event.target.value)}
+                  onChange={handleEstimatePyeongInputChange}
+                  onBlur={handleEstimatePyeongInputBlur}
+                  onKeyDown={handleEstimatePyeongInputKeyDown}
                 />
                 <span>평</span>
               </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={!estimatePyeong}
-                onClick={applyEstimatePyeongToPyeongUnits}
-              >
-                평 단위 수량에 적용
-              </Button>
             </div>
           </div>
 
@@ -8835,13 +8910,19 @@ export default function AdminApp() {
 
           {estimateTemplateConflicts.length > 0 && (
             <div className="items-v2-template-review" role="status">
-              <span>직접 수정한 값이 {estimateTemplateConflictValueCount}건 있습니다. 새 평형 기준값을 적용할까요?</span>
-              <div>
+              <div className="items-v2-template-review__message">
+                <TriangleAlert size={18} strokeWidth={1.7} aria-hidden="true" />
+                <span>
+                  <strong>{condition.size}평으로 변경했습니다.</strong>{" "}
+                  직접 입력한 수량·인원 {estimateTemplateConflictValueCount}건은 자동으로 변경하지 않았습니다.
+                </span>
+              </div>
+              <div className="items-v2-template-review__actions">
                 <Button variant="secondary" size="sm" onClick={keepEstimateTemplateOverrides}>
-                  수정값 유지
+                  내가 입력한 값 유지
                 </Button>
                 <Button variant="primary" size="sm" onClick={applyEstimateTemplateValuesToOverrides}>
-                  새 평형값 적용
+                  {condition.size}평 기준값으로 변경
                 </Button>
               </div>
             </div>
@@ -9503,7 +9584,6 @@ export default function AdminApp() {
                 <strong>FORMATE</strong>
                 <em>운영 워크스페이스</em>
               </span>
-              <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" />
             </div>
           ),
         }
@@ -11255,7 +11335,7 @@ export default function AdminApp() {
             {estimateError && <div className="error-box">{estimateError}</div>}
 
             <div className="condition-start-row">
-              <Button variant="primary" disabled={!canGoNext() || estimateLoading} onClick={() => goNext()}>
+              <Button variant="primary" disabled={!canGoNext() || estimateLoading} onClick={() => loadEstimateFromCondition()}>
                 {estimateLoading
                   ? "템플릿 불러오는 중..."
                   : estimateConditionEditMode
@@ -11333,18 +11413,12 @@ export default function AdminApp() {
                     min="1"
                     max="90"
                     value={estimatePyeong}
-                    onChange={(event) => setEstimatePyeong(event.target.value)}
+                    onChange={handleEstimatePyeongInputChange}
+                    onBlur={handleEstimatePyeongInputBlur}
+                    onKeyDown={handleEstimatePyeongInputKeyDown}
                   />
                   <span>평</span>
                 </label>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={!estimatePyeong}
-                  onClick={applyEstimatePyeongToPyeongUnits}
-                >
-                  평 단위 수량에 적용
-                </button>
               </div>
             </div>
             {estimateLoading && <div className="status-box">시공 항목을 불러오는 중...</div>}
