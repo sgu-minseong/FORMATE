@@ -95,15 +95,23 @@ describe("Photo v2 management UI contracts", () => {
     expect(pageSource).not.toContain("pyeong-photo-loading-sections");
   });
 
-  it("renders grouped galleries without a subitem accordion and limits only large galleries", () => {
+  it("keeps an eight-photo preview and opens the full section in a floating gallery", () => {
     const pageSource = fs.readFileSync(path.resolve(process.cwd(), "src/features/photoManagement/PyeongPhotoManagement.jsx"), "utf8");
     const controllerSource = fs.readFileSync(path.resolve(process.cwd(), "src/features/photoManagement/usePyeongPhotoManagement.js"), "utf8");
+    const styleSource = fs.readFileSync(path.resolve(process.cwd(), "src/styles/appStyles.js"), "utf8");
 
     expect(pageSource).toContain("export const PYEONG_GALLERY_INITIAL_LIMIT = 8");
     expect(pageSource).toContain('className="pyeong-photo-gallery-section"');
     expect(pageSource).toContain("scopedPhotos.slice(0, PYEONG_GALLERY_INITIAL_LIMIT)");
     expect(pageSource).toContain("hiddenPhotoCount");
-    expect(pageSource).toContain("장 더 보기");
+    expect(pageSource).toContain("장 더보기");
+    expect(pageSource).toContain("pyeong-photo-add-inline");
+    expect(pageSource).toContain('title="사진 추가"');
+    expect(pageSource).toContain("pyeong-photo-gallery-section__footer");
+    expect(pageSource).toContain("pyeong-photo-gallery-modal-backdrop");
+    expect(pageSource).toContain("pyeong-photo-gallery-modal__grid");
+    expect(pageSource).toContain('event.key === "Escape"');
+    expect(pageSource).not.toContain("expandedGalleryIds");
     expect(pageSource).not.toContain("expandedSubitemId");
     expect(pageSource).not.toContain("aria-expanded={expanded}");
     expect(pageSource).toContain("scrollIntoView");
@@ -119,6 +127,10 @@ describe("Photo v2 management UI contracts", () => {
     expect(pageSource).toContain("activeSubitemId");
     expect(pageSource).toContain("resolvedGallerySections.map");
     expect(pageSource).not.toContain("등록된 사진이 없습니다.");
+    expect(styleSource).toMatch(/\.pyeong-photo-card\s*\{[^}]*border-radius:\s*0;[^}]*box-shadow:\s*none;/s);
+    expect(styleSource).toMatch(/\.pyeong-photo-thumbnail\s*\{[^}]*border-radius:\s*0;/s);
+    expect(styleSource).toMatch(/\.pyeong-photo-gallery-modal\s*\{[^}]*max-height:\s*80dvh;/s);
+    expect(styleSource).toMatch(/\.pyeong-photo-gallery-modal__body\s*\{[^}]*overflow:\s*auto;/s);
     expect(controllerSource).toContain("listPyeongPhotoRows");
     expect(controllerSource).toContain("resolvePyeongPhotoUrls");
     expect(controllerSource).toContain("pyeong: scopePyeong");

@@ -68,13 +68,15 @@ async function fetchCollections(companyId) {
 
 export async function fetchPhotoCatalog(companyId) {
   const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
-  const itemIds = (itemRows ?? []).map((item) => item.id);
+  const variantGroupIds = Array.from(new Set(
+    (subitemRows ?? []).map((subitem) => subitem.variant_group_id).filter(Boolean)
+  ));
   let variantGroupRows = [];
-  if (itemIds.length) {
+  if (variantGroupIds.length) {
     const { data, error } = await supabase
       .from("construction_subitem_variant_groups")
       .select("*")
-      .in("construction_item_id", itemIds)
+      .in("id", variantGroupIds)
       .is("archived_at", null)
       .order("sort_order", { ascending: true });
     if (error) throw error;
@@ -82,11 +84,19 @@ export async function fetchPhotoCatalog(companyId) {
   }
 
   const variantGroups = variantGroupRows.map(normalizeConstructionSubitemVariantGroup);
+  const loadedVariantGroupIds = new Set(variantGroups.map((group) => group.id));
+  const missingVariantGroupIds = variantGroupIds.filter((groupId) => !loadedVariantGroupIds.has(groupId));
+  if (missingVariantGroupIds.length) {
+    throw new Error("세부항목의 variant group metadata를 불러오지 못했습니다.");
+  }
+
   return normalizeAdminItems(itemRows, subitemRows, []).map((item) => {
-    const sourceItemIds = new Set((item.subitems ?? []).map((subitem) => subitem.item_id));
+    const referencedVariantGroupIds = new Set(
+      (item.subitems ?? []).map((subitem) => subitem.variant_group_id).filter(Boolean)
+    );
     return {
       ...item,
-      variantGroups: variantGroups.filter((group) => sourceItemIds.has(group.constructionItemId)),
+      variantGroups: variantGroups.filter((group) => referencedVariantGroupIds.has(group.id)),
     };
   });
 }

@@ -91,6 +91,7 @@ import {
   uploadPyeongSubitemPhoto,
 } from "../photoApi";
 import { PHOTO_V2_ERROR_CODES } from "../photoModel";
+import { buildStableSubitemSections } from "../../priceTable/subitemVariantModel";
 
 describe("Photo v2 API contracts", () => {
   beforeEach(() => {
@@ -236,13 +237,23 @@ describe("Photo v2 API contracts", () => {
 
   it("loads the construction catalog without waiting for legacy photos or signed URLs", async () => {
     mockState.rows.construction_items = { data: [{ id: "item", company_id: "company", name: "철거", sort_order: 0 }], error: null };
-    mockState.rows.construction_subitems = { data: [{
-      id: "subitem", company_id: "company", item_id: "item", name: "전체 철거", sort_order: 0,
-      variant_group_id: "group", variant_value: 1.8, variant_unit: "T",
-    }], error: null };
+    mockState.rows.construction_subitems = { data: [
+      {
+        id: "base", company_id: "company", item_id: "item", name: "KCC장판", sort_order: 0,
+        variant_group_id: null, variant_value: null, variant_unit: null,
+      },
+      {
+        id: "variant-18", company_id: "company", item_id: "item", name: "KCC장판 1.8T", sort_order: 1,
+        variant_group_id: "group", variant_value: 1.8, variant_unit: "T",
+      },
+      {
+        id: "variant-22", company_id: "company", item_id: "item", name: "KCC장판 2.2T", sort_order: 2,
+        variant_group_id: "group", variant_value: 2.2, variant_unit: "T",
+      },
+    ], error: null };
     mockState.rows.construction_subitem_variant_groups = { data: [{
       id: "group", construction_item_id: "item", display_name: "KCC장판",
-      variant_kind: "thickness", base_subitem_id: null, sort_order: 0, archived_at: null,
+      variant_kind: "thickness", base_subitem_id: "base", sort_order: 0, archived_at: null,
     }], error: null };
 
     const catalog = await fetchPhotoCatalog("company");
@@ -256,11 +267,33 @@ describe("Photo v2 API contracts", () => {
     expect(mockState.calls).toContainEqual({
       table: "construction_subitem_variant_groups",
       method: "in",
-      column: "construction_item_id",
-      value: ["item"],
+      column: "id",
+      value: ["group"],
     });
+    const sections = buildStableSubitemSections({
+      subitems: catalog[0].subitems,
+      variantGroups: catalog[0].variantGroups,
+    });
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toMatchObject({
+      id: "variant-group:group",
+      label: "KCC장판",
+    });
+    expect(sections[0].variants.map((variant) => variant.subitemId)).toEqual(["variant-18", "variant-22"]);
     expect(mockState.calls.some((call) => call.table === "photos")).toBe(false);
     expect(mockState.signedUrlCalls).toEqual([]);
+  });
+
+  it("does not silently render referenced variants as ordinary subitems when group metadata is unavailable", async () => {
+    mockState.rows.construction_items = { data: [{ id: "item", company_id: "company", name: "장판", sort_order: 0 }], error: null };
+    mockState.rows.construction_subitems = { data: [{
+      id: "variant-18", company_id: "company", item_id: "item", name: "장판 1.8T",
+      variant_group_id: "missing-group", variant_value: 1.8, variant_unit: "T", sort_order: 0,
+    }], error: null };
+    mockState.rows.construction_subitem_variant_groups = { data: [], error: null };
+
+    await expect(fetchPhotoCatalog("company"))
+      .rejects.toThrow("variant group metadata");
   });
 
   it("keeps recent photos within active Folder subtrees only", async () => {
