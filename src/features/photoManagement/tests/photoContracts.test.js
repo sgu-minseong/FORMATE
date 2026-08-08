@@ -4,14 +4,23 @@ import {
   PHOTO_STORAGE_BUCKET,
   PHOTO_TYPE_KINDS,
   PHOTO_TYPES,
+  PHOTO_V2_ERROR_CODES,
+  assertPhotoLibraryFolderMove,
+  assertUniqueActiveSiblingFolderName,
   buildCustomPhotoType,
   buildPhotoInsertPayload,
+  buildPhotoLibraryScope,
   buildPhotoPlacementUpdates,
+  buildPyeongSubitemPhotoScope,
   buildPhotoStoragePath,
+  getActiveLibraryFolderTree,
   getPrimaryPhoto,
   isDetailPhotoType,
   isGeneralPhotoType,
+  normalizePhotoCaption,
+  normalizePhotoV2Error,
   reorderRowsById,
+  resolveVisibleFolderIds,
   sortPhotos,
   sortPhotoTypes,
   validatePhotoFile,
@@ -119,5 +128,85 @@ describe("photo management contracts", () => {
     expect(updates.map((row) => row.id)).toEqual(["b", "a"]);
     expect(updates.every((row) => row.target_id === "wallpaper")).toBe(true);
     expect(updates.filter((row) => row.is_primary).map((row) => row.id)).toEqual(["a"]);
+  });
+
+  it("keeps pyeong/subitem photos separate by pyeong and optional sash specification", () => {
+    expect(buildPyeongSubitemPhotoScope({
+      pyeong: 24,
+      constructionSubitemId: "flooring-18t",
+    })).toMatchObject({
+      photo_type: PHOTO_TYPES.SUBITEM,
+      target_type: PHOTO_TYPES.SUBITEM,
+      target_id: "flooring-18t",
+      pyeong: 24,
+      construction_subitem_id: "flooring-18t",
+      sash_catalog_entry_id: null,
+      photo_library_folder_id: null,
+    });
+    expect(buildPyeongSubitemPhotoScope({
+      pyeong: 34,
+      constructionSubitemId: "living-sash",
+      sashCatalogEntryId: "sash-spec-a",
+    })).toMatchObject({
+      pyeong: 34,
+      construction_subitem_id: "living-sash",
+      sash_catalog_entry_id: "sash-spec-a",
+    });
+  });
+
+  it("keeps Library photos in the stable photo_library contract", () => {
+    expect(buildPhotoLibraryScope("folder-a")).toEqual({
+      photo_type: PHOTO_TYPES.LIBRARY,
+      target_type: PHOTO_TYPES.LIBRARY,
+      target_id: "folder-a",
+      collection_id: null,
+      pyeong: null,
+      construction_subitem_id: null,
+      sash_catalog_entry_id: null,
+      photo_library_folder_id: "folder-a",
+    });
+  });
+
+  it("hides archived Folder subtrees from every active Library view", () => {
+    const folders = [
+      { id: "active", name: "활성", parent_folder_id: null, archived_at: null, sort_order: 0 },
+      { id: "archived", name: "보관", parent_folder_id: null, archived_at: "2026-01-01", sort_order: 1 },
+      { id: "hidden-child", name: "하위", parent_folder_id: "archived", archived_at: null, sort_order: 0 },
+      { id: "active-child", name: "하위", parent_folder_id: "active", archived_at: null, sort_order: 0 },
+    ];
+    expect([...resolveVisibleFolderIds(folders)]).toEqual(["active", "active-child"]);
+    expect(getActiveLibraryFolderTree(folders)).toMatchObject([{
+      id: "active",
+      children: [{ id: "active-child" }],
+    }]);
+  });
+
+  it("normalizes caption and folder errors for shared Photo v2 UI handling", () => {
+    expect(normalizePhotoCaption("  시공 완료  ")).toBe("시공 완료");
+    expect(normalizePhotoCaption("  ")).toBeNull();
+    const duplicate = normalizePhotoV2Error({
+      code: "23505",
+      message: 'duplicate key value violates unique constraint "photo_library_folders_company_root_name_active_uidx"',
+    });
+    expect(duplicate.code).toBe(PHOTO_V2_ERROR_CODES.DUPLICATE_FOLDER_NAME);
+    expect(normalizePhotoV2Error({
+      code: "23505",
+      message: 'duplicate key value violates unique constraint "photo_caption_snippets_company_content_active_uidx"',
+    }).code).toBe(PHOTO_V2_ERROR_CODES.DUPLICATE_CAPTION_SNIPPET);
+    expect(() => assertUniqueActiveSiblingFolderName({
+      companyId: "company",
+      parentFolderId: null,
+      name: " photo ",
+      folderRows: [{ id: "folder", company_id: "company", parent_folder_id: null, name: "Photo", archived_at: null }],
+    })).toThrow("같은 위치");
+  });
+
+  it("rejects moves into self or a descendant before the Folder trigger is reached", () => {
+    const folderRows = [
+      { id: "root", parent_folder_id: null, archived_at: null },
+      { id: "child", parent_folder_id: "root", archived_at: null },
+    ];
+    expect(() => assertPhotoLibraryFolderMove({ folderId: "root", parentFolderId: "root", folderRows })).toThrow("자기 자신");
+    expect(() => assertPhotoLibraryFolderMove({ folderId: "root", parentFolderId: "child", folderRows })).toThrow("하위 폴더");
   });
 });

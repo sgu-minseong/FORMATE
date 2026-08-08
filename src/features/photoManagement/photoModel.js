@@ -4,11 +4,13 @@ export const PHOTO_TYPES = {
   FULL_PROJECT: "full_project",
   PARTIAL_PROJECT: "partial_project",
   SUBITEM: "subitem",
+  LIBRARY: "photo_library",
 };
 export const PHOTO_TYPE_KINDS = {
   WHOLE: "whole",
   PARTIAL: "partial",
   DETAIL: "detail",
+  LIBRARY: "library",
   CUSTOM: "custom",
 };
 export const PHOTO_TAB_OPTIONS = [
@@ -189,4 +191,236 @@ export function buildPhotoInsertPayload({
     is_primary: existingCount === 0,
     sort_order: existingCount,
   };
+}
+
+export const PHOTO_V2_ERROR_CODES = {
+  DUPLICATE_FOLDER_NAME: "duplicate-folder-name",
+  INVALID_FOLDER_MOVE: "invalid-folder-move",
+  COMPANY_SCOPE: "company-scope",
+  INVALID_COVER: "invalid-cover-photo",
+  INVALID_SCOPE: "invalid-photo-scope",
+  DUPLICATE_CAPTION_SNIPPET: "duplicate-caption-snippet",
+  UPLOAD_FAILED: "photo-upload-failed",
+};
+
+function createPhotoV2Error(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  error.isPhotoV2DomainError = true;
+  return error;
+}
+
+export function normalizePhotoCaption(value) {
+  const caption = `${value ?? ""}`.trim();
+  return caption || null;
+}
+
+export function normalizePositivePyeong(value) {
+  const pyeong = Number(value);
+  return Number.isInteger(pyeong) && pyeong > 0 ? pyeong : null;
+}
+
+export function normalizePhotoV2Photo(photo = {}) {
+  return {
+    id: photo.id ?? "",
+    companyId: photo.company_id ?? "",
+    storageBucket: photo.storage_bucket ?? PHOTO_STORAGE_BUCKET,
+    storagePath: photo.storage_path ?? "",
+    signedUrl: photo.signed_url ?? photo.signedUrl ?? "",
+    caption: photo.caption ?? null,
+    description: photo.caption ?? null,
+    createdAt: photo.created_at ?? null,
+    updatedAt: photo.updated_at ?? null,
+    archivedAt: photo.archived_at ?? null,
+    sortOrder: photo.sort_order ?? 0,
+    photoType: photo.photo_type ?? "",
+    pyeong: photo.pyeong ?? null,
+    constructionSubitemId: photo.construction_subitem_id ?? null,
+    sashCatalogEntryId: photo.sash_catalog_entry_id ?? null,
+    folderId: photo.photo_library_folder_id ?? null,
+  };
+}
+
+export function normalizePhotoLibraryFolder(folder = {}) {
+  return {
+    id: folder.id ?? "",
+    companyId: folder.company_id ?? "",
+    parentFolderId: folder.parent_folder_id ?? null,
+    name: folder.name ?? "",
+    sortOrder: folder.sort_order ?? 0,
+    coverPhotoId: folder.cover_photo_id ?? null,
+    archivedAt: folder.archived_at ?? null,
+    createdAt: folder.created_at ?? null,
+    updatedAt: folder.updated_at ?? null,
+  };
+}
+
+export function normalizePhotoCaptionSnippet(snippet = {}) {
+  return {
+    id: snippet.id ?? "",
+    companyId: snippet.company_id ?? "",
+    content: snippet.content ?? "",
+    sortOrder: snippet.sort_order ?? 0,
+    archivedAt: snippet.archived_at ?? null,
+    createdAt: snippet.created_at ?? null,
+    updatedAt: snippet.updated_at ?? null,
+  };
+}
+
+export function sortPhotoLibraryFolders(folderRows = []) {
+  return [...folderRows].sort((a, b) => {
+    const orderDiff = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+    return orderDiff !== 0
+      ? orderDiff
+      : `${a.created_at ?? ""}`.localeCompare(`${b.created_at ?? ""}`);
+  });
+}
+
+export function resolveVisibleFolderIds(folderRows = []) {
+  const foldersById = new Map((folderRows ?? []).filter((folder) => folder?.id).map((folder) => [folder.id, folder]));
+  const visibilityById = new Map();
+  const visiting = new Set();
+
+  function isVisible(folderId) {
+    if (visibilityById.has(folderId)) return visibilityById.get(folderId);
+    const folder = foldersById.get(folderId);
+    if (!folder || folder.archived_at || visiting.has(folderId)) {
+      visibilityById.set(folderId, false);
+      return false;
+    }
+    visiting.add(folderId);
+    const visible = !folder.parent_folder_id || isVisible(folder.parent_folder_id);
+    visiting.delete(folderId);
+    visibilityById.set(folderId, visible);
+    return visible;
+  }
+
+  return new Set([...foldersById.keys()].filter(isVisible));
+}
+
+export function getActiveLibraryFolderTree(folderRows = []) {
+  const visibleIds = resolveVisibleFolderIds(folderRows);
+  const folders = sortPhotoLibraryFolders((folderRows ?? []).filter((folder) => visibleIds.has(folder.id)));
+  const nodesById = new Map(folders.map((folder) => [folder.id, { ...normalizePhotoLibraryFolder(folder), children: [] }]));
+  const roots = [];
+
+  for (const folder of folders) {
+    const node = nodesById.get(folder.id);
+    const parent = folder.parent_folder_id ? nodesById.get(folder.parent_folder_id) : null;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+
+  return roots;
+}
+
+export function getVisiblePhotoLibraryFolders(folderRows = [], parentFolderId = null) {
+  const visibleIds = resolveVisibleFolderIds(folderRows);
+  return sortPhotoLibraryFolders((folderRows ?? []).filter((folder) => (
+    visibleIds.has(folder.id) && (folder.parent_folder_id ?? null) === (parentFolderId ?? null)
+  ))).map(normalizePhotoLibraryFolder);
+}
+
+export function assertPhotoLibraryFolderMove({ folderId, parentFolderId, folderRows = [] }) {
+  if (folderId === parentFolderId) {
+    throw createPhotoV2Error(PHOTO_V2_ERROR_CODES.INVALID_FOLDER_MOVE, "폴더를 자기 자신 아래로 이동할 수 없습니다.");
+  }
+
+  const foldersById = new Map((folderRows ?? []).filter((folder) => folder?.id).map((folder) => [folder.id, folder]));
+  const folder = foldersById.get(folderId);
+  const parent = parentFolderId ? foldersById.get(parentFolderId) : null;
+  if (!folder || (parentFolderId && !parent)) {
+    throw createPhotoV2Error(PHOTO_V2_ERROR_CODES.INVALID_FOLDER_MOVE, "이동할 폴더 위치를 찾지 못했습니다.");
+  }
+  if (parentFolderId && parent.archived_at) {
+    throw createPhotoV2Error(PHOTO_V2_ERROR_CODES.INVALID_FOLDER_MOVE, "보관된 폴더 아래로 이동할 수 없습니다.");
+  }
+
+  let cursor = parent;
+  const visited = new Set();
+  while (cursor) {
+    if (cursor.id === folderId || visited.has(cursor.id)) {
+      throw createPhotoV2Error(PHOTO_V2_ERROR_CODES.INVALID_FOLDER_MOVE, "폴더를 자신의 하위 폴더로 이동할 수 없습니다.");
+    }
+    visited.add(cursor.id);
+    cursor = cursor.parent_folder_id ? foldersById.get(cursor.parent_folder_id) : null;
+  }
+}
+
+export function assertUniqueActiveSiblingFolderName({ folderRows = [], companyId, parentFolderId = null, name, excludeFolderId = "" }) {
+  const normalizedName = `${name ?? ""}`.trim();
+  if (!normalizedName) {
+    throw createPhotoV2Error(PHOTO_V2_ERROR_CODES.INVALID_FOLDER_MOVE, "폴더 이름을 입력해 주세요.");
+  }
+  const duplicate = (folderRows ?? []).some((folder) => (
+    folder.id !== excludeFolderId
+    && folder.company_id === companyId
+    && !folder.archived_at
+    && (folder.parent_folder_id ?? null) === (parentFolderId ?? null)
+    && `${folder.name ?? ""}`.trim().toLocaleLowerCase() === normalizedName.toLocaleLowerCase()
+  ));
+  if (duplicate) {
+    throw createPhotoV2Error(PHOTO_V2_ERROR_CODES.DUPLICATE_FOLDER_NAME, "같은 위치에 같은 이름의 폴더가 이미 있습니다.");
+  }
+  return normalizedName;
+}
+
+export function buildPyeongSubitemPhotoScope({ pyeong, constructionSubitemId, sashCatalogEntryId = null }) {
+  const normalizedPyeong = normalizePositivePyeong(pyeong);
+  if (!normalizedPyeong || !constructionSubitemId) {
+    throw createPhotoV2Error(PHOTO_V2_ERROR_CODES.INVALID_SCOPE, "평수와 세부항목을 확인해 주세요.");
+  }
+  return {
+    photo_type: PHOTO_TYPES.SUBITEM,
+    target_type: PHOTO_TYPES.SUBITEM,
+    target_id: constructionSubitemId,
+    collection_id: null,
+    pyeong: normalizedPyeong,
+    construction_subitem_id: constructionSubitemId,
+    sash_catalog_entry_id: sashCatalogEntryId || null,
+    photo_library_folder_id: null,
+  };
+}
+
+export function buildPhotoLibraryScope(folderId) {
+  if (!folderId) {
+    throw createPhotoV2Error(PHOTO_V2_ERROR_CODES.INVALID_SCOPE, "사진을 저장할 폴더를 선택해 주세요.");
+  }
+  return {
+    photo_type: PHOTO_TYPES.LIBRARY,
+    target_type: PHOTO_TYPES.LIBRARY,
+    target_id: folderId,
+    collection_id: null,
+    pyeong: null,
+    construction_subitem_id: null,
+    sash_catalog_entry_id: null,
+    photo_library_folder_id: folderId,
+  };
+}
+
+export function normalizePhotoV2Error(error, fallback = "사진 정보를 저장하지 못했습니다.") {
+  if (error?.isPhotoV2DomainError) return error;
+  const code = error?.code ?? "";
+  const message = [error?.message, error?.details, error?.hint, error?.constraint]
+    .filter(Boolean)
+    .join(" ");
+  if (code === "23505" && message.includes("photo_library_folders_company_")) {
+    return createPhotoV2Error(PHOTO_V2_ERROR_CODES.DUPLICATE_FOLDER_NAME, "같은 위치에 같은 이름의 폴더가 이미 있습니다.");
+  }
+  if (code === "23505" && message.includes("photo_caption_snippets_company_content_active_uidx")) {
+    return createPhotoV2Error(PHOTO_V2_ERROR_CODES.DUPLICATE_CAPTION_SNIPPET, "같은 자주 쓰는 설명이 이미 있습니다.");
+  }
+  if (message.includes("cannot be its own parent") || message.includes("descendant")) {
+    return createPhotoV2Error(PHOTO_V2_ERROR_CODES.INVALID_FOLDER_MOVE, "폴더를 자신의 하위 폴더로 이동할 수 없습니다.");
+  }
+  if (message.includes("cover")) {
+    return createPhotoV2Error(PHOTO_V2_ERROR_CODES.INVALID_COVER, "같은 폴더 안의 사진만 대표사진으로 지정할 수 있습니다.");
+  }
+  if (code === "42501" || code === "PGRST116" || message.includes("same company")) {
+    return createPhotoV2Error(PHOTO_V2_ERROR_CODES.COMPANY_SCOPE, "현재 업체 범위에서 사진 정보를 변경할 수 없습니다.");
+  }
+  if (message.includes("Photo subitem scope") || message.includes("sash specification") || message.includes("Photo Library image")) {
+    return createPhotoV2Error(PHOTO_V2_ERROR_CODES.INVALID_SCOPE, "사진의 평수·세부항목·샷시 규격 범위를 확인해 주세요.");
+  }
+  return createPhotoV2Error(PHOTO_V2_ERROR_CODES.UPLOAD_FAILED, fallback);
 }
