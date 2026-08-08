@@ -74,6 +74,28 @@ export function reconcileEstimateDraftItems({
         const templateRow = canKeepThickness
           ? applyRowPatch(row, { selectedThickness: previousRow.selectedThickness })
           : row;
+        if (templateRow.itemKind === "sash" || previousRow.itemKind === "sash") {
+          const hasSelectedSashSpec = Boolean(previousRow.sashSpec);
+          return recalculateRow({
+            ...templateRow,
+            selected: Boolean(previousRow.selected),
+            expanded: Boolean(previousRow.expanded),
+            contractor: previousRow.contractor ?? "",
+            sashCatalogEntryId: previousRow.sashCatalogEntryId ?? "",
+            selectedSashCatalogEntryId: previousRow.selectedSashCatalogEntryId ?? "",
+            sashSpec: previousRow.sashSpec ?? null,
+            quantity: hasSelectedSashSpec ? previousRow.quantity : templateRow.quantity,
+            baseQuantity: hasSelectedSashSpec ? previousRow.baseQuantity : templateRow.baseQuantity,
+            laborCount: hasSelectedSashSpec ? previousRow.laborCount : templateRow.laborCount,
+            baseLaborCount: hasSelectedSashSpec ? previousRow.baseLaborCount : templateRow.baseLaborCount,
+            laborRate: hasSelectedSashSpec ? previousRow.laborRate : templateRow.laborRate,
+            baseLaborRate: hasSelectedSashSpec ? previousRow.baseLaborRate : templateRow.baseLaborRate,
+            unitPrice: hasSelectedSashSpec ? previousRow.unitPrice : templateRow.unitPrice,
+            baseUnitPrice: hasSelectedSashSpec ? previousRow.baseUnitPrice : templateRow.baseUnitPrice,
+            unit: hasSelectedSashSpec ? previousRow.unit : templateRow.unit,
+            hasTemplateValue: hasSelectedSashSpec,
+          });
+        }
         const canKeepSpecOption =
           previousRow.selectedSpecOption
           && (templateRow.specOptions ?? []).includes(previousRow.selectedSpecOption);

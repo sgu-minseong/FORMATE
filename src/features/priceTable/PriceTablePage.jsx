@@ -6,7 +6,6 @@ import {
   RefreshCcw,
   Save,
   Search,
-  Star,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -29,6 +28,9 @@ import {
   reconcileFlooringVariantRows,
   resolveActiveFlooringVariant,
 } from "./priceTableModel";
+import SashCatalogGrid from "../sash/SashCatalogGrid";
+import { isSashItem } from "../sash/sashCatalogModel";
+import AdminCategoryPanel from "./AdminCategoryPanel";
 
 function getSpecSelectOptions(subitem, extraOptions = []) {
   return normalizeSpecOptions([
@@ -49,6 +51,7 @@ function getSpecSelectValue(subitem, options = [], fallback = "") {
 }
 
 export default function PriceTablePage({
+  companyId,
   addAdminSubitem,
   adminError,
   adminFavoriteOnly,
@@ -107,50 +110,6 @@ export default function PriceTablePage({
   updateLocalSubitemDraft,
   updateLocalSubitemPrice,
 }) {
-  function renderCategorySidebar() {
-    return (
-      <aside className="admin-price-v2-sidebar formate-scroll-light" aria-label="단가표 대분류">
-        <div className="admin-price-v2-sidebar-header">
-          <span>대분류</span>
-          <strong>{filteredAdminItems.length}개</strong>
-        </div>
-        <div className="admin-price-v2-category-list">
-          {filteredAdminItems.map((item) => {
-            const active = selectedAdminPriceItem?.id === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`admin-price-v2-category-item ${active ? "active" : ""} ${dragItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drop-target" : ""}`.trim()}
-                onClick={() => setSelectedAdminCategoryId(item.id)}
-                onDragOver={(event) => handleAdminItemDragOver(event, item.id)}
-                onDrop={() => reorderAdminItems(item.id)}
-                onDragEnd={clearAdminDragState}
-              >
-                <span
-                  className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
-                  title="대분류 순서 변경"
-                  draggable={canReorderAdminCatalog && !adminSaving}
-                  onDragStart={(event) => handleAdminItemDragStart(event, item.id)}
-                  onDragEnd={clearAdminDragState}
-                >
-                  ::
-                </span>
-                <span className="admin-price-v2-category-name">
-                  {item.is_favorite && <Star size={14} fill="currentColor" />}
-                  <span>{item.name}</span>
-                </span>
-                <span className="admin-price-v2-category-count">
-                  {(item.subitems ?? []).length}개
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-    );
-  }
-
   function renderHeader(item, isFlooring = false) {
     return (
       <div className={`admin-price-table-header admin-price-v2-grid ${item.item_type === "flat" ? "flat-price-table-header" : "standard-price-table-header"} ${isFlooring ? "flooring-price-table-header" : ""}`.trim()}>
@@ -384,6 +343,17 @@ export default function PriceTablePage({
   }
 
   function renderRows(item) {
+    if (isSashItem(item)) {
+      return (
+        <SashCatalogGrid
+          companyId={companyId}
+          subitems={item.subitems ?? []}
+          title="샷시 규격"
+          description="세부항목별 실제 샷시 규격과 금액을 관리합니다."
+        />
+      );
+    }
+
     const visibleSubitems = getVisibleAdminSubitems(item);
     const itemSubitems = isFlooringThicknessItem(item)
       ? reconcileFlooringVariantRows(visibleSubitems)
@@ -656,7 +626,20 @@ export default function PriceTablePage({
 
   return (
     <main className="admin-price-v2-page">
-      {renderCategorySidebar()}
+      <AdminCategoryPanel
+        ariaLabel="단가표 대분류"
+        items={filteredAdminItems}
+        selectedItemId={selectedAdminPriceItem?.id}
+        canReorder={canReorderAdminCatalog}
+        disabled={adminSaving}
+        dragItemId={dragItemId}
+        dragOverItemId={dragOverItemId}
+        onSelect={setSelectedAdminCategoryId}
+        onDragOver={handleAdminItemDragOver}
+        onDrop={reorderAdminItems}
+        onDragStart={handleAdminItemDragStart}
+        onDragEnd={clearAdminDragState}
+      />
       <section className="admin-price-v2-workspace">
         <header className="admin-price-v2-header">
           <div className="items-v2-titleline">
@@ -701,15 +684,17 @@ export default function PriceTablePage({
             >
               되돌리기
             </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Save />}
-              disabled={adminLoading || adminSaving}
-              onClick={() => saveAdminPrices({ target: "prices" })}
-            >
-              저장하기
-            </Button>
+            {!isSashItem(item) && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Save />}
+                disabled={adminLoading || adminSaving}
+                onClick={() => saveAdminPrices({ target: "prices" })}
+              >
+                저장하기
+              </Button>
+            )}
           </div>
         </header>
 

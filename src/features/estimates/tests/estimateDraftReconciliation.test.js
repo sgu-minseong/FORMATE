@@ -82,4 +82,58 @@ describe("estimate draft reconciliation", () => {
       expect.objectContaining({ categoryId: "wall", fields: ["quantity"] }),
     ]);
   });
+
+  it("keeps a selected sash snapshot out of pyeong template reconciliation", () => {
+    const result = reconcileEstimateDraftItems({
+      previousItems: {
+        sash: [{
+          itemId: "sash",
+          subitemId: "living-window",
+          material: "거실 샷시",
+          itemKind: "sash",
+          selected: true,
+          sashCatalogEntryId: "entry-1",
+          selectedSashCatalogEntryId: "entry-1",
+          sashSpec: { brand: "LG", width_mm: 4000, height_mm: 2400, unit_price: 1500000 },
+          quantity: 1,
+          baseQuantity: 1,
+          laborCount: 0,
+          baseLaborCount: 0,
+          unitPrice: 1600000,
+          baseUnitPrice: 1500000,
+          laborRate: 0,
+          baseLaborRate: 0,
+          unit: "식",
+        }],
+      },
+      nextItems: {
+        sash: [{
+          itemId: "sash",
+          subitemId: "living-window",
+          material: "거실 샷시",
+          itemKind: "sash",
+          selected: false,
+          sashCatalogEntryId: "",
+          sashSpec: null,
+          quantity: 1,
+          baseQuantity: 1,
+          laborCount: 0,
+          baseLaborCount: 0,
+          unitPrice: 0,
+          baseUnitPrice: 0,
+          laborRate: 0,
+          baseLaborRate: 0,
+          unit: "식",
+        }],
+      },
+    });
+
+    expect(result.items.sash[0]).toMatchObject({
+      selected: true,
+      sashCatalogEntryId: "entry-1",
+      sashSpec: { brand: "LG", unit_price: 1500000 },
+      unitPrice: 1600000,
+    });
+    expect(result.conflicts).toEqual([]);
+  });
 });

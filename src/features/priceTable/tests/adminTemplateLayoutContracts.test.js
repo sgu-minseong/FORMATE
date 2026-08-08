@@ -1,0 +1,65 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+const appSource = readFileSync(new URL("../../../app/AdminApp.jsx", import.meta.url), "utf8");
+const pricePageSource = readFileSync(new URL("../PriceTablePage.jsx", import.meta.url), "utf8");
+const categoryPanelSource = readFileSync(new URL("../AdminCategoryPanel.jsx", import.meta.url), "utf8");
+const switcherSource = readFileSync(new URL("../TemplateConditionSwitcher.jsx", import.meta.url), "utf8");
+const sashGridSource = readFileSync(new URL("../../sash/SashCatalogGrid.jsx", import.meta.url), "utf8");
+const appStyles = readFileSync(new URL("../../../styles/appStyles.js", import.meta.url), "utf8");
+const workbenchSource = appSource.slice(
+  appSource.indexOf("function renderAdminItemsWorkbench"),
+  appSource.indexOf("async function saveAdminPrices")
+);
+
+describe("admin template management layout contracts", () => {
+  it("uses the exact same category panel component as price table management", () => {
+    expect(pricePageSource).toContain("<AdminCategoryPanel");
+    expect(workbenchSource).toContain("<AdminCategoryPanel");
+    expect(categoryPanelSource).toContain("admin-price-v2-sidebar");
+    expect(categoryPanelSource).toContain("admin-price-v2-category-item");
+  });
+
+  it("removes the fixed condition sidebar and keeps category plus workspace geometry", () => {
+    expect(workbenchSource).not.toContain("renderAdminTemplateConditionSidebar");
+    expect(workbenchSource).not.toContain("admin-template-condition-sidebar");
+    expect(workbenchSource).toContain("<TemplateConditionSwitcher");
+    expect(appStyles).toMatch(/\.admin-items-v2-page\s*\{[\s\S]*?grid-template-columns:\s*var\(--layout-local-sidebar\) minmax\(0, 1fr\);/);
+  });
+
+  it("keeps the final shell during loading and does not render an editor before context is ready", () => {
+    expect(workbenchSource).toContain("const editorReady = adminConditionLoaded");
+    expect(workbenchSource).toContain("initialLoading || (currentAdminTemplateId && !editorReady)");
+    expect(workbenchSource).toContain('aria-label="견적 템플릿 로딩"');
+    expect(workbenchSource).not.toContain("불러오는 중...</div>");
+  });
+
+  it("keeps standard and sash editors inside the shared workspace without sash tabs", () => {
+    expect(appSource).toContain("isSashItem(item)");
+    expect(appSource).toContain("<SashCatalogGrid");
+    expect(sashGridSource).toContain("sash-catalog-grid__subitem-select");
+    expect(sashGridSource).not.toContain('role="tablist"');
+    expect(sashGridSource).not.toContain('role="tab"');
+  });
+});
+
+describe("condition context switcher contracts", () => {
+  it("provides search, current selection, recent, favorites, and explicit CRUD actions", () => {
+    expect(switcherSource).toContain('placeholder="조건 검색"');
+    expect(switcherSource).toContain('renderSection("최근 사용"');
+    expect(switcherSource).toContain('renderSection("즐겨찾기"');
+    expect(switcherSource).toContain('renderSection("모든 조건"');
+    expect(switcherSource).toContain("active={");
+    expect(switcherSource).toContain("조건 수정");
+    expect(switcherSource).toContain("복제");
+    expect(switcherSource).toContain("삭제");
+    expect(switcherSource).toContain("새 조건 만들기");
+  });
+
+  it("reuses the compact drawer and clones template values when duplicating", () => {
+    expect(appSource).toContain('setAdminTemplateConditionDrawerMode("edit")');
+    expect(appSource).toContain('setAdminTemplateConditionDrawerMode("duplicate")');
+    expect(appSource).toContain("const sourceValues = await fetchAdminTemplateValues");
+    expect(appSource).toContain("await upsertAdminTemplateValues(clonedValues)");
+  });
+});

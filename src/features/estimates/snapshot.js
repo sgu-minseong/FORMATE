@@ -151,6 +151,7 @@ export function restoreEstimateDraft(estimate) {
         id: categoryId,
         name: categoryName,
         item_type: item.itemType ?? "itemized",
+        item_kind: item.itemKind ?? "standard",
         subitems: [],
       });
     }
@@ -158,8 +159,12 @@ export function restoreEstimateDraft(estimate) {
       itemId: item.itemId ?? categoryId,
       itemName: categoryName,
       itemType: item.itemType ?? "itemized",
+      itemKind: item.itemKind ?? "standard",
       subitemId: item.subitemId ?? `${categoryId}-${index}`,
       material: item.material ?? item.name ?? item.description ?? "소재",
+      sashCatalogEntryId: item.sashCatalogEntryId ?? "",
+      selectedSashCatalogEntryId: item.sashCatalogEntryId ?? "",
+      sashSpec: item.sashSpec ?? null,
       displayMaterial: item.material ?? item.name ?? item.description ?? "소재",
       selectedThickness: item.selectedThickness ?? null,
       selectedSpecOption: item.selectedSpecOption ?? "",
