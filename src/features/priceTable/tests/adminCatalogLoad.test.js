@@ -9,6 +9,8 @@ describe("admin catalog loading", () => {
     const snapshot = {
       itemRows: Array.from({ length: 18 }, (_, index) => ({ id: `item-${index}` })),
       subitemRows: Array.from({ length: 202 }, (_, index) => ({ id: `subitem-${index}` })),
+      variantGroupRows: [{ id: "stable-product" }],
+      canonicalCatalog: { items: [{ id: "item-0" }], products: [] },
     };
     const readCatalog = vi.fn().mockResolvedValue(snapshot);
     const bootstrapCatalog = vi.fn();
@@ -21,6 +23,8 @@ describe("admin catalog loading", () => {
     });
 
     expect(result.itemRows).toHaveLength(18);
+    expect(result.variantGroupRows).toEqual([{ id: "stable-product" }]);
+    expect(result.canonicalCatalog).toBe(snapshot.canonicalCatalog);
     expect(readCatalog).toHaveBeenCalledTimes(1);
     expect(bootstrapCatalog).not.toHaveBeenCalled();
   });

@@ -4,31 +4,6 @@ function throwIfError(error) {
   if (error) throw error;
 }
 
-export async function fetchConstructionCatalogRows(companyId) {
-  const { data: itemRows, error: itemError } = await supabase
-    .from("construction_items")
-    .select("*")
-    .eq("company_id", companyId)
-    .order("is_favorite", { ascending: false })
-    .order("sort_order", { ascending: true });
-
-  throwIfError(itemError);
-
-  const itemIds = (itemRows ?? []).map((item) => item.id);
-  if (!itemIds.length) {
-    return { itemRows: itemRows ?? [], subitemRows: [] };
-  }
-
-  const { data: subitemRows, error: subitemError } = await supabase
-    .from("construction_subitems")
-    .select("*")
-    .in("item_id", itemIds)
-    .order("sort_order", { ascending: true });
-
-  throwIfError(subitemError);
-  return { itemRows: itemRows ?? [], subitemRows: subitemRows ?? [] };
-}
-
 export async function fetchAiSetupCatalogRows(companyId) {
   const { data: itemRows, error: itemError } = await supabase
     .from("construction_items")

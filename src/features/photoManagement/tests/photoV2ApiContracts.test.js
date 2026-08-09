@@ -91,7 +91,7 @@ import {
   uploadPyeongSubitemPhoto,
 } from "../photoApi";
 import { PHOTO_V2_ERROR_CODES } from "../photoModel";
-import { buildStableSubitemSections } from "../../priceTable/subitemVariantModel";
+import { buildCanonicalConstructionProductModel } from "../../constructionCatalog/constructionCatalogModel";
 
 describe("Photo v2 API contracts", () => {
   beforeEach(() => {
@@ -267,19 +267,20 @@ describe("Photo v2 API contracts", () => {
     expect(mockState.calls).toContainEqual({
       table: "construction_subitem_variant_groups",
       method: "in",
-      column: "id",
-      value: ["group"],
+      column: "construction_item_id",
+      value: ["item"],
     });
-    const sections = buildStableSubitemSections({
+    const sections = buildCanonicalConstructionProductModel({
       subitems: catalog[0].subitems,
       variantGroups: catalog[0].variantGroups,
-    });
+    }).products;
     expect(sections).toHaveLength(1);
     expect(sections[0]).toMatchObject({
-      id: "variant-group:group",
+      id: "group",
       label: "KCC장판",
     });
-    expect(sections[0].variants.map((variant) => variant.subitemId)).toEqual(["variant-18", "variant-22"]);
+    expect(sections[0].variants.map((variant) => variant.constructionSubitemId))
+      .toEqual(["variant-18", "variant-22"]);
     expect(mockState.calls.some((call) => call.table === "photos")).toBe(false);
     expect(mockState.signedUrlCalls).toEqual([]);
   });

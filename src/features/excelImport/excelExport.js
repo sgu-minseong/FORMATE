@@ -9,8 +9,8 @@ import {
 import {
   fetchAdminTemplateRows,
   fetchAdminTemplateValues,
-  fetchConstructionCatalogRows,
 } from "../priceTable/priceTableApi";
+import { fetchConstructionCatalogRows } from "../constructionCatalog/constructionCatalogApi";
 
 function groupCatalog(itemRows, subitemRows) {
   return itemRows.map((item) => ({

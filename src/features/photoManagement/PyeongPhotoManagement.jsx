@@ -16,9 +16,9 @@ import PyeongSelector from "../../components/PyeongSelector";
 import Button from "../../components/ui/Button";
 import AdminCategoryPanel from "../priceTable/AdminCategoryPanel";
 import {
-  buildStableSubitemSections,
-  formatConstructionSubitemVariantLabel,
-} from "../priceTable/subitemVariantModel";
+  CONSTRUCTION_PRODUCT_KINDS,
+  buildCanonicalConstructionProductModel,
+} from "../constructionCatalog/constructionCatalogModel";
 import { PYEONG_PHOTO_STATUS, usePyeongPhotoManagement } from "./usePyeongPhotoManagement";
 
 export const PYEONG_GALLERY_INITIAL_LIMIT = 8;
@@ -232,21 +232,23 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
 
   const selectedCategory = catalog.find((item) => item.id === selectedCategoryId) ?? null;
   const subitems = selectedCategory?.subitems ?? [];
-  const gallerySections = useMemo(() => buildStableSubitemSections({
+  const gallerySections = useMemo(() => buildCanonicalConstructionProductModel({
     subitems,
     variantGroups: selectedCategory?.variantGroups ?? [],
-  }), [selectedCategory, subitems]);
+  }).products, [selectedCategory, subitems]);
   const resolvedGallerySections = useMemo(() => gallerySections.map((section) => {
-    if (section.kind !== "variant-group") return {
+    if (section.kind !== CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP) return {
       ...section,
       activeSubitemId: section.subitemId,
     };
-    const selectedSubitemId = activeVariantByGroupId[section.groupId];
-    const activeVariant = section.variants.find((variant) => variant.subitemId === selectedSubitemId)
+    const selectedSubitemId = activeVariantByGroupId[section.variantGroupId];
+    const activeVariant = section.variants.find(
+      (variant) => variant.constructionSubitemId === selectedSubitemId
+    )
       ?? section.variants[0];
     return {
       ...section,
-      activeSubitemId: activeVariant?.subitemId ?? "",
+      activeSubitemId: activeVariant?.constructionSubitemId ?? "",
       activeVariant,
     };
   }), [activeVariantByGroupId, gallerySections]);
@@ -258,13 +260,15 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
   useEffect(() => {
     setActiveVariantByGroupId((current) => {
       const next = Object.fromEntries(gallerySections
-        .filter((section) => section.kind === "variant-group")
+        .filter((section) => section.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP)
         .map((section) => {
-          const currentSubitemId = current[section.groupId];
-          const activeSubitemId = section.variants.some((variant) => variant.subitemId === currentSubitemId)
+          const currentSubitemId = current[section.variantGroupId];
+          const activeSubitemId = section.variants.some(
+            (variant) => variant.constructionSubitemId === currentSubitemId
+          )
             ? currentSubitemId
-            : section.variants[0]?.subitemId ?? "";
-          return [section.groupId, activeSubitemId];
+            : section.variants[0]?.constructionSubitemId ?? "";
+          return [section.variantGroupId, activeSubitemId];
         }));
       const currentEntries = Object.entries(current);
       const nextEntries = Object.entries(next);
@@ -472,30 +476,33 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
                   <header className="pyeong-photo-gallery-section__header">
                     <div className="pyeong-photo-gallery-section__title">
                       <h2>{section.label}</h2>
-                      {section.kind === "variant-group" && section.activeVariant && (
+                      {section.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP && section.activeVariant && (
                         <div className="pyeong-photo-variant-select">
                           <button
                             type="button"
                             className="pyeong-photo-variant-trigger"
-                            onClick={() => setVariantMenuGroupId((current) => current === section.groupId ? "" : section.groupId)}
-                            aria-label={`${section.label} 두께 선택`}
-                            aria-expanded={variantMenuGroupId === section.groupId}
+                            onClick={() => setVariantMenuGroupId((current) => current === section.variantGroupId ? "" : section.variantGroupId)}
+                            aria-label={`${section.label} 규격 선택`}
+                            aria-expanded={variantMenuGroupId === section.variantGroupId}
                           >
-                            <span>{formatConstructionSubitemVariantLabel(section.activeVariant.value, section.activeVariant.unit)}</span>
+                            <span>{section.activeVariant.label}</span>
                             <ChevronDown size={14} />
                           </button>
-                          {variantMenuGroupId === section.groupId && (
+                          {variantMenuGroupId === section.variantGroupId && (
                             <div className="pyeong-photo-variant-menu formate-scroll-light" role="menu">
                               {section.variants.map((variant) => (
                                 <button
                                   type="button"
-                                  key={variant.subitemId}
-                                  className={variant.subitemId === activeSubitemId ? "active" : ""}
-                                  onClick={() => selectVariant(section.groupId, variant.subitemId)}
+                                  key={variant.constructionSubitemId}
+                                  className={variant.constructionSubitemId === activeSubitemId ? "active" : ""}
+                                  onClick={() => selectVariant(
+                                    section.variantGroupId,
+                                    variant.constructionSubitemId
+                                  )}
                                   role="menuitemradio"
-                                  aria-checked={variant.subitemId === activeSubitemId}
+                                  aria-checked={variant.constructionSubitemId === activeSubitemId}
                                 >
-                                  {formatConstructionSubitemVariantLabel(variant.value, variant.unit)}
+                                  {variant.label}
                                 </button>
                               ))}
                             </div>

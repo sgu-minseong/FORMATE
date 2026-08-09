@@ -1,120 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  CONSTRUCTION_SUBITEM_VARIANT_KINDS,
-  buildStableSubitemSections,
-  buildStableSubitemVariantModel,
-  formatConstructionSubitemVariantLabel,
-  getConstructionSubitemVariantMetadata,
-  resolveStableSubitemVariant,
-} from "../subitemVariantModel";
 
-const groups = [
-  {
-    id: "kcc-group",
-    construction_item_id: "flooring-item",
-    display_name: "KCC장판",
-    base_subitem_id: "standard-subitem",
-    variant_kind: CONSTRUCTION_SUBITEM_VARIANT_KINDS.THICKNESS,
-    sort_order: 1,
-  },
-  {
-    id: "lx-group",
-    construction_item_id: "flooring-item",
-    display_name: "LX장판",
-    variant_kind: CONSTRUCTION_SUBITEM_VARIANT_KINDS.THICKNESS,
-    sort_order: 2,
-  },
-];
-
-const subitems = [
-  {
-    id: "kcc-22",
-    item_id: "flooring-item",
-    name: "표시명은 관계 판정에 사용하지 않음 A",
-    variant_group_id: "kcc-group",
-    variant_value: "2.2",
-    variant_unit: "T",
-    sort_order: 2,
-  },
-  {
-    id: "kcc-18",
-    item_id: "flooring-item",
-    name: "표시명은 관계 판정에 사용하지 않음 B",
-    variant_group_id: "kcc-group",
-    variant_value: 1.8,
-    variant_unit: "T",
-    sort_order: 1,
-  },
-  {
-    id: "lx-18",
-    item_id: "flooring-item",
-    name: "같은 두께의 다른 제품",
-    variant_group_id: "lx-group",
-    variant_value: 1.8,
-    variant_unit: "T",
-  },
-  {
-    id: "standard-subitem",
-    item_id: "flooring-item",
-    name: "일반 항목",
-    variant_group_id: null,
-    variant_value: null,
-    variant_unit: null,
-  },
-];
-
-describe("stable construction subitem variant metadata", () => {
-  it("groups renamed subitems only by stable group metadata", () => {
-    const result = buildStableSubitemVariantModel({ subitems, variantGroups: groups });
-
-    expect(result.groups.map((group) => group.id)).toEqual(["kcc-group", "lx-group"]);
-    expect(result.groups[0].variants.map((variant) => variant.subitemId)).toEqual(["kcc-18", "kcc-22"]);
-    expect(result.groups[0].baseSubitemId).toBe("standard-subitem");
-    expect(result.groups[1].variants.map((variant) => variant.subitemId)).toEqual(["lx-18"]);
-    expect(result.ungroupedSubitems.map((subitem) => subitem.id)).toEqual(["standard-subitem"]);
-  });
-
-  it("keeps standard and incomplete metadata on the existing ungrouped path", () => {
-    expect(getConstructionSubitemVariantMetadata(subitems[3])).toBeNull();
-    expect(getConstructionSubitemVariantMetadata({
-      variant_group_id: "kcc-group",
-      variant_value: 1.8,
-      variant_unit: null,
-    })).toBeNull();
-  });
-
-  it("builds one stable section per group and suppresses only its explicit base subitem", () => {
-    const sections = buildStableSubitemSections({ subitems, variantGroups: groups });
-
-    expect(sections.map((section) => section.id)).toEqual([
-      "variant-group:kcc-group",
-      "variant-group:lx-group",
-    ]);
-    expect(sections[0]).toMatchObject({
-      kind: "variant-group",
-      label: groups[0].display_name,
-      groupId: "kcc-group",
-    });
-    expect(sections[0].variants.map((variant) => variant.subitemId)).toEqual(["kcc-18", "kcc-22"]);
-    expect(formatConstructionSubitemVariantLabel(2, "T")).toBe("2T");
-    expect(formatConstructionSubitemVariantLabel(2.2, "T")).toBe("2.2T");
-  });
-
-  it("resolves equal thicknesses without mixing product groups", () => {
-    expect(resolveStableSubitemVariant(subitems, {
-      groupId: "kcc-group",
-      value: "1.8",
-      unit: "T",
-    })?.id).toBe("kcc-18");
-    expect(resolveStableSubitemVariant(subitems, {
-      groupId: "lx-group",
-      value: 1.8,
-      unit: "T",
-    })?.id).toBe("lx-18");
-  });
-
+describe("construction subitem variant schema", () => {
   it("defines an additive SQL contract without legacy name backfill", () => {
     const sql = fs.readFileSync(path.resolve(
       process.cwd(),
@@ -159,9 +47,11 @@ describe("stable construction subitem variant metadata", () => {
       sql.indexOf("insert into formate_variant_value_seed"),
       sql.indexOf("create temporary table formate_base_subitem_seed")
     );
-    const groupIds = [...groupSeed.matchAll(/^\s*\('([0-9a-f-]{36})'/gim)].map((match) => match[1]);
-    const mappingGroupIds = [...mappingSeed.matchAll(/^\s*\('[0-9a-f-]{36}',\s*'([0-9a-f-]{36})'/gim)]
+    const groupIds = [...groupSeed.matchAll(/^\s*\('([0-9a-f-]{36})'/gim)]
       .map((match) => match[1]);
+    const mappingGroupIds = [...mappingSeed.matchAll(
+      /^\s*\('[0-9a-f-]{36}',\s*'([0-9a-f-]{36})'/gim
+    )].map((match) => match[1]);
 
     expect(mappingGroupIds).toHaveLength(80);
     expect([...new Set(mappingGroupIds)].sort()).toEqual([...groupIds].sort());

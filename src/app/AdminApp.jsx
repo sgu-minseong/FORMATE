@@ -210,6 +210,10 @@ import {
 } from "../features/excelImport/excelImportModel";
 import ContractEditorPage from "../features/contracts/ContractEditorPage";
 import {
+  fetchCanonicalConstructionCatalogRows,
+  fetchConstructionCatalogRows,
+} from "../features/constructionCatalog/constructionCatalogApi";
+import {
   CONSTRUCTION_ITEM_RENDERER_KINDS,
   buildUniqueFlooringOptions,
   buildConstructionItemSavePayload,
@@ -275,7 +279,6 @@ import {
   fetchAdminTemplateValues,
   fetchConditionVariantLabelRows,
   fetchAiSetupCatalogRows,
-  fetchConstructionCatalogRows,
   fetchConstructionSubitems,
   insertAdminTemplate,
   insertAdminTemplateValue,
@@ -4390,7 +4393,7 @@ export default function AdminApp() {
       const shouldLoadConditionValues = mode === "condition";
       const snapshot = await loadAdminCatalogSnapshot({
         companyId,
-        readCatalog: fetchConstructionCatalogRows,
+        readCatalog: fetchCanonicalConstructionCatalogRows,
         bootstrapCatalog: ensureDefaultConstructionCatalog,
         allowBootstrap,
         hasBootstrapBeenAttempted: () => adminCatalogBootstrapAttemptedRef.current.has(companyId),

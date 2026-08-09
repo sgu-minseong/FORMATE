@@ -270,6 +270,25 @@ describe("estimate flooring variant identity", () => {
     });
   });
 
+  it("does not revive an archived stable product through its base or legacy name path", () => {
+    const archivedItems = buildEstimateItemsFromTemplate(
+      catalog,
+      24,
+      "empty",
+      variantGroupRows.map((group) => ({
+        ...group,
+        archived_at: "2026-08-09T00:00:00.000Z",
+      }))
+    );
+
+    expect(archivedItems["floor-item"].map((row) => row.subitemId)).toEqual([
+      "floor-standard",
+    ]);
+    expect(archivedItems["floor-item"].some((row) => (
+      row.subitemId === "floor-base" || row.variantGroupId === "floor-group"
+    ))).toBe(false);
+  });
+
   it("keeps a non-variant subitem on the standard identity and calculation path", () => {
     const initialRow = estimateItems["wall-item"][0];
     const choice = getEstimateRowSpecChoices(initialRow)[0];

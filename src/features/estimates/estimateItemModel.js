@@ -12,10 +12,9 @@ import {
   normalizeSpecOptions,
 } from "../priceTable/priceTableModel";
 import {
-  buildStableSubitemSections,
-  formatConstructionSubitemVariantLabel,
-  normalizeConstructionSubitemVariantGroup,
-} from "../priceTable/subitemVariantModel";
+  CONSTRUCTION_PRODUCT_KINDS,
+  buildCanonicalConstructionProductModel,
+} from "../constructionCatalog/constructionCatalogModel";
 import { isSashItem } from "../sash/sashCatalogModel";
 import {
   calculateEstimateRow,
@@ -296,46 +295,21 @@ function createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus = "
   });
 }
 
-function getStableVariantIdentity(variant) {
-  const value = Number(variant?.value);
-  const unit = `${variant?.unit ?? ""}`.trim().toLowerCase();
-  return Number.isFinite(value) && unit ? `${value}:${unit}` : "";
-}
-
-function getCanonicalStableVariants(section) {
-  const seenIdentities = new Set();
-  return [...(section?.variants ?? [])]
-    .sort((a, b) => (
-      Number(a.value) - Number(b.value)
-      || `${a.unit ?? ""}`.localeCompare(`${b.unit ?? ""}`)
-      || `${a.subitemId ?? ""}`.localeCompare(`${b.subitemId ?? ""}`)
-    ))
-    .filter((variant) => {
-      const identity = getStableVariantIdentity(variant);
-      if (!identity || seenIdentities.has(identity)) {
-        throw new Error("Duplicate or invalid stable variant metadata.");
-      }
-      seenIdentities.add(identity);
-      return true;
-    });
-}
-
-function buildStableVariantGroupRow(item, section, group, pyeong, residenceStatus) {
-  const material = `${group.displayName || section.label || ""}`.trim();
+function buildStableVariantGroupRow(item, product, pyeong, residenceStatus) {
+  const material = `${product.displayName || product.label || ""}`.trim();
   // The base row suppresses its legacy presentation only; it is not selectable in a stable group.
-  const variantOptions = getCanonicalStableVariants(section).map((variant) => {
-    const label = formatConstructionSubitemVariantLabel(variant.value, variant.unit);
+  const variantOptions = product.variants.map((variant) => {
     return createVariantEstimateOption({
       subitem: variant.subitem,
-      label,
+      label: variant.label,
       material,
       residenceStatus,
-      thickness: variant.unit.toUpperCase() === "T" ? variant.value : "",
+      thickness: variant.legacyNumericValue ?? "",
     });
   });
   const options = uniqueEstimateOptions(variantOptions);
   const row = createEstimateRowFromOptions(item, material, options, pyeong, options[0]?.id);
-  return row ? { ...row, variantGroupId: section.groupId } : null;
+  return row ? { ...row, variantGroupId: product.variantGroupId } : null;
 }
 
 function buildLegacyFlooringRows(item, subitems, pyeong, residenceStatus) {
@@ -382,34 +356,40 @@ function buildEstimateItemRows(item, pyeong, residenceStatus, variantGroups) {
     }));
   }
 
-  const normalizedGroups = (variantGroups ?? [])
-    .map(normalizeConstructionSubitemVariantGroup);
-  const groupsById = new Map(normalizedGroups.map((group) => [group.id, group]));
-  const sections = buildStableSubitemSections({
+  const productModel = buildCanonicalConstructionProductModel({
     subitems: itemSubitems,
-    variantGroups: normalizedGroups,
+    variantGroups: (variantGroups ?? []).filter((group) => (
+      `${group?.construction_item_id ?? group?.constructionItemId ?? ""}` === `${item.id}`
+    )),
   });
+  const sections = productModel.products;
   const stableRowsBySectionId = new Map();
   sections
-    .filter((section) => section.kind === "variant-group")
+    .filter((section) => section.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP)
     .forEach((section) => {
-      const group = groupsById.get(section.groupId);
-      const row = group
-        ? buildStableVariantGroupRow(item, section, group, pyeong, residenceStatus)
-        : null;
+      const row = buildStableVariantGroupRow(item, section, pyeong, residenceStatus);
       if (row) stableRowsBySectionId.set(section.id, row);
     });
 
-  const ungroupedSections = sections.filter((section) => section.kind === "subitem");
+  const ungroupedSections = sections.filter(
+    (section) => section.kind === CONSTRUCTION_PRODUCT_KINDS.SUBITEM
+  );
   if (!stableRowsBySectionId.size) {
     return isFlooringThicknessItem(item)
-      ? buildLegacyFlooringRows(item, itemSubitems, pyeong, residenceStatus)
-      : itemSubitems.map((subitem) => createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus));
+      ? buildLegacyFlooringRows(
+          item,
+          ungroupedSections.map((section) => section.subitem),
+          pyeong,
+          residenceStatus
+        )
+      : ungroupedSections.map(
+          (section) => createEstimateRowFromSubitem(item, section.subitem, pyeong, residenceStatus)
+        );
   }
 
   if (!isFlooringThicknessItem(item)) {
     return sections.map((section) => (
-      section.kind === "variant-group"
+      section.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP
         ? stableRowsBySectionId.get(section.id)
         : createEstimateRowFromSubitem(item, section.subitem, pyeong, residenceStatus)
     )).filter(Boolean);
@@ -425,7 +405,7 @@ function buildEstimateItemRows(item, pyeong, residenceStatus, variantGroups) {
   const emittedLegacyMaterials = new Set();
   const rows = [];
   sections.forEach((section) => {
-    if (section.kind === "variant-group") {
+    if (section.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP) {
       const row = stableRowsBySectionId.get(section.id);
       if (row) rows.push(row);
       return;

@@ -1,5 +1,5 @@
 import { supabase } from "../../lib/supabaseClient";
-import { fetchConstructionCatalogRows } from "../priceTable/priceTableApi";
+import { fetchConstructionCatalogRows } from "../constructionCatalog/constructionCatalogApi";
 import { buildDetailSubitems } from "./detailCostModel";
 
 export async function fetchDetailSubitems(companyId) {
