@@ -68,10 +68,18 @@ export function reconcileEstimateDraftItems({
           .find(Boolean);
         if (!previousRow) return row;
 
+        const canKeepEstimateOption =
+          previousRow.selectedEstimateOptionId
+          && (row.estimateOptions ?? []).some(
+            (option) => option.id === previousRow.selectedEstimateOptionId
+          );
         const canKeepThickness =
-          previousRow.selectedThickness
+          !canKeepEstimateOption
+          && previousRow.selectedThickness
           && (row.thicknessOptions ?? []).some((option) => option.thickness === previousRow.selectedThickness);
-        const templateRow = canKeepThickness
+        const templateRow = canKeepEstimateOption
+          ? applyRowPatch(row, { selectedEstimateOptionId: previousRow.selectedEstimateOptionId })
+          : canKeepThickness
           ? applyRowPatch(row, { selectedThickness: previousRow.selectedThickness })
           : row;
         if (templateRow.itemKind === "sash" || previousRow.itemKind === "sash") {

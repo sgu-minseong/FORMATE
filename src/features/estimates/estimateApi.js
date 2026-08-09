@@ -6,6 +6,7 @@ import {
   SAVED_ESTIMATE_RESTORE_RESULT,
   SAVED_ESTIMATE_TRASH_RESULT,
 } from "./api";
+import { fetchConstructionCatalogRows } from "../priceTable/priceTableApi";
 
 const ESTIMATE_SELECT = `
   *,
@@ -21,6 +22,34 @@ const ESTIMATE_SELECT = `
     project:projects(id, deleted_at)
   )
 `;
+
+export async function fetchEstimateConstructionCatalogRows(companyId) {
+  const catalog = await fetchConstructionCatalogRows(companyId);
+  const variantGroupIds = [...new Set(
+    (catalog.subitemRows ?? [])
+      .map((row) => row.variant_group_id)
+      .filter(Boolean)
+  )];
+  if (!variantGroupIds.length) return { ...catalog, variantGroupRows: [] };
+
+  const constructionItemIds = [...new Set((catalog.itemRows ?? []).map((row) => row.id).filter(Boolean))];
+  const { data, error } = await supabase
+    .from("construction_subitem_variant_groups")
+    .select("*")
+    .in("id", variantGroupIds)
+    .in("construction_item_id", constructionItemIds)
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+
+  const variantGroupRows = data ?? [];
+  const loadedGroupIds = new Set(variantGroupRows.map((row) => row.id));
+  if (variantGroupIds.some((groupId) => !loadedGroupIds.has(groupId))) {
+    throw new Error("Estimate variant group metadata could not be loaded.");
+  }
+  return { ...catalog, variantGroupRows };
+}
 
 export async function fetchSavedEstimateLists(companyId) {
   const [activeResult, trashResult] = await Promise.all([

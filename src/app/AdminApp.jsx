@@ -118,6 +118,7 @@ import {
 } from "../features/customerOperations/utils";
 import DeleteSavedEstimateDialog from "../features/estimates/DeleteSavedEstimateDialog";
 import {
+  fetchEstimateConstructionCatalogRows,
   fetchSavedEstimateLists,
   saveEstimateDraft,
   moveSavedEstimateToTrash,
@@ -137,11 +138,17 @@ import {
   getEstimateItemsDataItems,
   getEstimateItemsDataMeta,
   getEstimateItemsDataSiteMemo,
-  getLaborRateForResidence,
   getTemporaryTaxAmount,
   isEstimateRowModified,
   toConstructionDays,
 } from "../features/estimates/calculation";
+import {
+  applyEstimateRowPatch,
+  buildEstimateItemsFromTemplate,
+  getEstimateRowSpecChoices,
+  getEstimateRowSpecChoiceValue,
+  getEstimateRowSpecPatchFromChoice,
+} from "../features/estimates/estimateItemModel";
 import {
   buildConditionSnapshot,
   buildEstimateInsertPayload,
@@ -750,46 +757,6 @@ function getEstimateRowSpecLabel(row) {
   return `${row?.spec ?? ""}`.trim();
 }
 
-function getEstimateRowSpecChoices(row) {
-  const thicknessChoices = (row?.thicknessOptions ?? [])
-    .map((option) => ({
-      key: `thickness:${option.thickness}`,
-      type: "thickness",
-      value: option.thickness,
-      label: option.label ?? formatFlooringThickness(option.thickness),
-    }))
-    .filter((option) => option.value && option.value !== DEFAULT_FLOORING_SPEC);
-  const specChoices = normalizeSpecOptions(row?.specOptions).map((option) => ({
-    key: `spec:${option}`,
-    type: "spec",
-    value: option,
-    label: option,
-  }));
-  const seenLabels = new Set();
-  return [...thicknessChoices, ...specChoices].filter((option) => {
-    const key = `${option.label}`.trim();
-    if (!key || seenLabels.has(key)) return false;
-    seenLabels.add(key);
-    return true;
-  });
-}
-
-function getEstimateRowSpecChoiceValue(row) {
-  if (row?.selectedSpecOption) return `spec:${row.selectedSpecOption}`;
-  if (row?.selectedThickness && normalizeFlooringThickness(row.selectedThickness) !== DEFAULT_FLOORING_SPEC) {
-    return `thickness:${row.selectedThickness}`;
-  }
-  return "";
-}
-
-function getEstimateRowSpecPatchFromChoice(value) {
-  const [type, ...rest] = `${value ?? ""}`.split(":");
-  const optionValue = rest.join(":");
-  if (type === "thickness") return { selectedThickness: optionValue, selectedSpecOption: "" };
-  if (type === "spec") return { selectedSpecOption: optionValue };
-  return { selectedSpecOption: "", selectedThickness: "" };
-}
-
 function getFlooringThicknessSelectOptions(currentThickness) {
   return [
     ...new Set([
@@ -875,120 +842,8 @@ function getFriendlyError(error, fallback = "일시적인 문제가 발생했어
   return getSupabaseFriendlyError(error, fallback);
 }
 
-function hasTemplateValue(row) {
-  return hasNumericInput(row?.quantity) || hasNumericInput(row?.labor_count ?? row?.laborCount);
-}
-
-function createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus = "empty", patch = {}) {
-  const isReady = hasTemplateValue(subitem);
-  const quantity = subitem.quantity ?? "";
-  const laborCount = subitem.labor_count ?? "";
-  const constructionDays = toConstructionDays(subitem.construction_days);
-  const unitPrice = toNonNegativeNumberOrZero(subitem.unit_price);
-  const laborRate = getLaborRateForResidence(subitem, residenceStatus);
-  const specOptions = normalizeSpecOptions(subitem.spec_options);
-  return calculateEstimateRow({
-    itemId: item.id,
-    itemName: item.name,
-    itemType: item.item_type ?? "itemized",
-    itemKind: item.item_kind ?? "standard",
-    subitemId: subitem.id,
-    material: subitem.name,
-    displayMaterial: subitem.name,
-    unit: subitem.unit ?? "평",
-    pyeong: Number(pyeong),
-    baseQuantity: quantity,
-    baseUnitPrice: unitPrice,
-    baseLaborCount: laborCount,
-    baseLaborRate: laborRate,
-    specOptions,
-    selectedSpecOption: specOptions[0] ?? "",
-    quantity,
-    laborCount,
-    constructionDays,
-    unitPrice,
-    laborRate,
-    contractor: "",
-    hasTemplateRecord: Boolean(subitem.template_value_id),
-    hasTemplateValue: isReady,
-    expanded: false,
-    selected: false,
-    ...patch,
-  });
-}
-
 function createEstimateDraftKey() {
   return globalThis.crypto.randomUUID();
-}
-
-function buildEstimateItemsFromTemplate(catalog, pyeong, residenceStatus = "empty") {
-  return Object.fromEntries(
-    catalog.map((item) => {
-      const itemSubitems = item.subitems;
-      const rows = isSashItem(item)
-        ? itemSubitems.map((subitem) => createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus, {
-            itemKind: "sash",
-            unit: "식",
-            quantity: 1,
-            baseQuantity: 1,
-            laborCount: 0,
-            baseLaborCount: 0,
-            laborRate: 0,
-            baseLaborRate: 0,
-            unitPrice: 0,
-            baseUnitPrice: 0,
-            sashCatalogEntryId: "",
-            selectedSashCatalogEntryId: "",
-            sashSpec: null,
-            hasTemplateRecord: false,
-            hasTemplateValue: false,
-          }))
-        : isFlooringThicknessItem(item)
-        ? getFlooringThicknessGroups(itemSubitems).map((group) => {
-            const optionKeys = Object.keys(group.options).sort(compareFlooringThickness);
-            const templateValueThickness = optionKeys.find((thickness) => hasTemplateValue(group.options[thickness]));
-            const selectedThickness = templateValueThickness
-              ?? (group.options[DEFAULT_FLOORING_SPEC]
-              ? DEFAULT_FLOORING_SPEC
-              : group.options["1.8"]
-                ? "1.8"
-                : optionKeys[0]);
-            const selectedOption = group.options[selectedThickness];
-            return createEstimateRowFromSubitem(item, selectedOption, pyeong, residenceStatus, {
-              material: group.baseName,
-              displayMaterial: composeFlooringSubitemName(group.baseName, selectedThickness),
-              selectedThickness,
-              selectedSpecOption: "",
-              thicknessOptions: optionKeys.map((thickness) => {
-                const option = group.options[thickness];
-                return option
-                  ? {
-                      thickness,
-                      label: formatFlooringThickness(thickness),
-                      subitemId: option.id,
-                      quantity: option.quantity ?? "",
-                      laborCount: option.labor_count ?? "",
-                      constructionDays: toConstructionDays(option.construction_days),
-                      unitPrice: toNonNegativeNumberOrZero(option.unit_price),
-                      laborRate: getLaborRateForResidence(option, residenceStatus),
-                      baseQuantity: option.quantity ?? "",
-                      baseLaborCount: option.labor_count ?? "",
-                      baseUnitPrice: toNonNegativeNumberOrZero(option.unit_price),
-                      baseLaborRate: getLaborRateForResidence(option, residenceStatus),
-                      specOptions: normalizeSpecOptions(option.spec_options),
-                      templateValueId: option.template_value_id ?? null,
-                      hasTemplateRecord: Boolean(option.template_value_id),
-                      hasTemplateValue: hasTemplateValue(option),
-                    }
-                  : null;
-              }).filter(Boolean),
-            });
-          })
-        : itemSubitems.map((subitem) => createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus));
-
-      return [item.id, rows];
-    })
-  );
 }
 
 function createLocalId(prefix = "row") {
@@ -5720,7 +5575,7 @@ export default function AdminApp() {
 
       const snapshot = await loadAdminCatalogSnapshot({
         companyId,
-        readCatalog: fetchConstructionCatalogRows,
+        readCatalog: fetchEstimateConstructionCatalogRows,
         bootstrapCatalog: ensureDefaultConstructionCatalog,
         allowBootstrap: true,
         hasBootstrapBeenAttempted: () => adminCatalogBootstrapAttemptedRef.current.has(companyId),
@@ -5737,7 +5592,7 @@ export default function AdminApp() {
         requestId !== estimateBlankCatalogRequestRef.current
         || companyId !== selectedCompanyIdRef.current
       ) return false;
-      const { itemRows, subitemRows } = snapshot;
+      const { itemRows, subitemRows, variantGroupRows } = snapshot;
       const defaultCatalogPrepared = snapshot.bootstrapped;
 
       let templateValueRows = [];
@@ -5767,7 +5622,12 @@ export default function AdminApp() {
       ) return false;
 
       const catalog = normalizeAdminItems(itemRows, subitemRows, templateValueRows);
-      const nextItems = buildEstimateItemsFromTemplate(catalog, pyeong, nextCondition.occupancy);
+      const nextItems = buildEstimateItemsFromTemplate(
+        catalog,
+        pyeong,
+        nextCondition.occupancy,
+        variantGroupRows
+      );
       const firstCategoryId = catalog[0]?.id ?? "";
 
       const draftResult = preserveDraft
@@ -5817,11 +5677,11 @@ export default function AdminApp() {
       }
 
       const companyId = requireSelectedCompanyId();
-      const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
+      const { itemRows, subitemRows, variantGroupRows } = await fetchEstimateConstructionCatalogRows(companyId);
       if (estimateBlankCatalogRequestRef.current !== requestId) return false;
 
       const catalog = normalizeAdminItems(itemRows, subitemRows, []);
-      const nextItems = buildEstimateItemsFromTemplate(catalog, "", "empty");
+      const nextItems = buildEstimateItemsFromTemplate(catalog, "", "empty", variantGroupRows);
 
       setEstimateCatalog(catalog);
       setItems(nextItems);
@@ -5850,38 +5710,6 @@ export default function AdminApp() {
 
   function recalculateEstimateRow(row) {
     return calculateEstimateRow(row);
-  }
-
-  function applyEstimateRowPatch(row, patch) {
-    if (!patch.selectedThickness) return { ...row, ...patch };
-
-    const matchedOption = (row.thicknessOptions ?? []).find(
-      (option) => option.thickness === patch.selectedThickness
-    );
-
-    if (!matchedOption) return { ...row, ...patch };
-
-    return {
-      ...row,
-      ...patch,
-      subitemId: matchedOption.subitemId,
-      template_value_id: matchedOption.templateValueId,
-      quantity: matchedOption.quantity,
-      laborCount: matchedOption.laborCount,
-      constructionDays: matchedOption.constructionDays,
-      unitPrice: matchedOption.unitPrice,
-      laborRate: matchedOption.laborRate,
-      baseQuantity: matchedOption.baseQuantity,
-      baseLaborCount: matchedOption.baseLaborCount,
-      baseUnitPrice: matchedOption.baseUnitPrice,
-      baseLaborRate: matchedOption.baseLaborRate,
-      specOptions: matchedOption.specOptions ?? [],
-      selectedSpecOption: "",
-      hasTemplateRecord: matchedOption.hasTemplateRecord,
-      hasTemplateValue: matchedOption.hasTemplateValue,
-      selected: row.selected,
-      displayMaterial: composeFlooringSubitemName(row.material, matchedOption.thickness),
-    };
   }
 
   function updateItem(categoryId, index, patch) {
