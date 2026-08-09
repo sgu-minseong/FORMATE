@@ -22,7 +22,7 @@ describe("generic construction Product/Variant persistence contract", () => {
     expect(sql).not.toContain("variant_kind in ('thickness')");
   });
 
-  it("protects group representation, active semantic uniqueness, and base ownership", () => {
+  it("protects stable variant identity and base ownership without using names as identity", () => {
     const sql = fs.readFileSync(migrationPath, "utf8");
 
     expect(sql).toContain("formate_validate_construction_subitem_variant_persistence");
@@ -30,7 +30,10 @@ describe("generic construction Product/Variant persistence contract", () => {
     expect(sql).toContain("construction_subitems_active_numeric_variant_identity_uidx");
     expect(sql).toContain("construction_subitems_active_text_variant_identity_uidx");
     expect(sql).toContain("construction_subitem_variant_groups_base_subitem_uidx");
-    expect(sql).toContain("construction_subitems_active_item_name_uidx");
+    expect(sql).not.toMatch(/create\s+unique\s+index[^;]*construction_subitems_active_item_name_uidx/i);
+    expect(sql).toContain("drop index if exists public.construction_subitems_active_item_name_uidx");
+    expect(sql).toContain("drop index if exists public.construction_subitems_item_name_uidx");
+    expect(sql).toContain("A subitem name is presentation data, not entity identity");
     expect(sql).toContain("where variant_group_id is not null");
     expect(sql).toContain("and archived_at is null");
   });

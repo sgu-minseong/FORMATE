@@ -284,6 +284,44 @@ describe("canonical construction Product/Variant contract", () => {
     ]);
   });
 
+  it("keeps same-name standard products distinct by construction subitem ID", () => {
+    const model = buildCanonicalConstructionProductModel({
+      subitems: [
+        {
+          id: "same-name-b",
+          item_id: "finish-item",
+          name: "사용자 정의 동일 이름",
+          sort_order: 2,
+        },
+        {
+          id: "same-name-a",
+          item_id: "finish-item",
+          name: "사용자 정의 동일 이름",
+          sort_order: 1,
+        },
+      ],
+      variantGroups: [],
+    });
+
+    expect(model.standardProducts).toHaveLength(2);
+    expect(model.standardProducts.map((product) => ({
+      productId: product.productId,
+      subitemId: product.subitemId,
+      displayName: product.displayName,
+    }))).toEqual(expect.arrayContaining([
+      {
+        productId: "same-name-a",
+        subitemId: "same-name-a",
+        displayName: "사용자 정의 동일 이름",
+      },
+      {
+        productId: "same-name-b",
+        subitemId: "same-name-b",
+        displayName: "사용자 정의 동일 이름",
+      },
+    ]));
+  });
+
   it("represents an empty active group without inventing a selectable variant", () => {
     const model = buildCanonicalConstructionProductModel({
       subitems: [

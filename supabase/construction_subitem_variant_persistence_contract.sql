@@ -276,11 +276,12 @@ create unique index if not exists construction_subitem_variant_groups_base_subit
   on public.construction_subitem_variant_groups (base_subitem_id)
   where base_subitem_id is not null;
 
-create unique index if not exists construction_subitems_active_item_name_uidx
-  on public.construction_subitems (item_id, name)
-  where archived_at is null;
-
 drop index if exists public.construction_subitems_variant_identity_uidx;
+-- A subitem name is presentation data, not entity identity. Distinct standard
+-- products and variants may intentionally share the same user-defined name.
+-- Remove both the legacy and the briefly proposed active-name restrictions;
+-- stable IDs and variant metadata enforce the canonical identities instead.
+drop index if exists public.construction_subitems_active_item_name_uidx;
 drop index if exists public.construction_subitems_item_name_uidx;
 
 create index if not exists construction_subitems_active_variant_group_order_idx
@@ -305,6 +306,9 @@ comment on column public.construction_subitems.variant_unit is
 
 comment on column public.construction_subitems.archived_at is
   'Non-destructive variant or standard-subitem archive timestamp. Existing foreign-key references remain valid.';
+
+comment on column public.construction_subitems.name is
+  'User-defined presentation name. It is not an identity key and does not need to be unique within a construction item.';
 
 notify pgrst, 'reload schema';
 
