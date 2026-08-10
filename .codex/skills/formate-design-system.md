@@ -290,6 +290,14 @@ Pretendard Variable과 기존 시스템 fallback을 사용한다. 별도 서체�
 - Table 내부: 32px, 투명 Border와 Background로 시작하고 Focus에서만 Surface와 Primary Border를 표시한다.
 - 금지: Placeholder를 레이블로 대체, 숫자 좌측 정렬, 행마다 두꺼운 입력 상자 노출.
 
+### Canonical Variant Dropdown
+
+- Table 셀 trigger에는 선택된 canonical `variant value + unit`과 Chevron만 표시하고 별도 관리 버튼을 두지 않는다.
+- dropdown은 canonical ordering의 variant를 `construction_subitem_id`로 선택하며, 목록 아래 구분선과 `관리` action을 둔다.
+- `관리`는 Modal이나 두 번째 Popover를 열지 않고 같은 dropdown surface를 관리 mode로 전환한다. 추가·수정·비파괴 보관 후 `완료`하면 선택 mode로 돌아간다.
+- 행 높이 32px, 기존 Surface/Border/Primary Soft token, focus-visible, Escape와 바깥 클릭 닫기를 유지한다.
+- 기준 구현: `src/features/constructionCatalog/CanonicalVariantSelect.jsx`, `CanonicalVariantManager.jsx`, `src/features/priceTable/PriceTablePage.jsx`.
+
 ### Table/List Row
 
 - 목적: 반복 업무 데이터의 비교와 편집.

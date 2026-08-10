@@ -18,32 +18,17 @@ import {
 } from "../../shared/utils/numbers";
 import {
   CONSTRUCTION_ITEM_RENDERER_KINDS,
+  getAdminProductSelectedSubitemId,
   getConstructionItemRendererKind,
-  getFlooringVariantDisplayValues,
   getUnitSelectOptions,
-  normalizeSpecOptions,
+  isLocalPriceTableSubitem,
   normalizeUnitOptionValue,
+  resolveAdminProductSubitem,
 } from "./priceTableModel";
+import { CONSTRUCTION_PRODUCT_KINDS } from "../constructionCatalog/constructionCatalogModel";
+import CanonicalVariantSelect from "../constructionCatalog/CanonicalVariantSelect";
 import SashCatalogSection from "../sash/SashCatalogSection";
 import AdminCategoryPanel from "./AdminCategoryPanel";
-
-function getSpecSelectOptions(subitem, extraOptions = []) {
-  return normalizeSpecOptions([
-    ...extraOptions,
-    ...normalizeSpecOptions(subitem?.spec_options),
-  ]);
-}
-
-function getSpecSelectValue(subitem, options = [], fallback = "") {
-  if (
-    subitem?.selected_spec_option
-    && options.includes(subitem.selected_spec_option)
-  ) {
-    return subitem.selected_spec_option;
-  }
-  if (fallback && options.includes(fallback)) return fallback;
-  return "";
-}
 
 export default function PriceTablePage({
   companyId,
@@ -60,7 +45,9 @@ export default function PriceTablePage({
   canReorderAdminCatalog,
   clearAdminDragState,
   clearAdminPriceValidationErrorForSubitem,
-  deleteAdminItem,
+  archiveAdminProduct,
+  archiveAdminProductVariant,
+  createAdminProductVariant,
   deleteAdminSubitem,
   dragItemId,
   dragOverItemId,
@@ -70,12 +57,13 @@ export default function PriceTablePage({
   excelExporting,
   excelExportError,
   filteredAdminItems,
-  getAdminFlooringActiveThickness,
   getAutoSaveStatusLabel,
-  getFlooringOptionEntries,
+  getVisibleAdminProducts,
   getVisibleAdminSubitems,
   handleAdminItemDragOver,
   handleAdminItemDragStart,
+  handleAdminProductDragOver,
+  handleAdminProductDragStart,
   handleAdminSubitemDragOver,
   handleAdminSubitemDragStart,
   materialNamePlaceholder,
@@ -83,25 +71,24 @@ export default function PriceTablePage({
   newlyAddedSubitemId,
   onExcelExport,
   onExcelImport,
-  renameAdminFlooringGroup,
-  renameAdminItem,
+  renameAdminProduct,
   renameAdminSubitem,
-  renderSpecOptionsControl,
-  reorderAdminFlooringGroups,
   reorderAdminItems,
+  reorderAdminProducts,
   reorderAdminSubitems,
   requestAdminCatalogLeave,
   saveAdminPrices,
-  selectAdminFlooringThickness,
+  selectAdminCanonicalVariant,
   selectedAdminPriceItem,
+  selectedSubitemIdByProduct,
   setAdminFavoriteOnly,
   setAdminItems,
   setAdminPriceRowRef,
   setAdminSearch,
   setSelectedAdminCategoryId,
-  toggleAdminFavorite,
+  updateAdminProductVariant,
+  updateAdminProductVariantKind,
   updateAdminSubitemUnit,
-  updateLocalFlooringGroupBaseName,
   updateLocalSubitemDraft,
   updateLocalSubitemPrice,
 }) {
@@ -121,46 +108,45 @@ export default function PriceTablePage({
     );
   }
 
-  function renderPrimarySubitemCells(subitem) {
-    const controlSubitem = subitem ?? null;
-    const displayValues = getFlooringVariantDisplayValues(subitem);
+  function renderPrimarySubitemCells(item, product, subitem) {
+    const selectedSubitemId = getAdminProductSelectedSubitemId(
+      product,
+      selectedSubitemIdByProduct
+    );
     return (
       <>
-        <label className="spec-options-field">
+        <div className="spec-options-field">
           <span className="field-label">규격/두께</span>
-          {(() => {
-            const specOptions = getSpecSelectOptions(controlSubitem);
-            const specValue = getSpecSelectValue(controlSubitem, specOptions);
-            return renderSpecOptionsControl(
-              controlSubitem,
-              specOptions,
-              specValue,
-              (event) => {
-                const nextValue = event.target.value;
-                if (controlSubitem?.id) {
-                  updateLocalSubitemDraft(controlSubitem.id, {
-                    selected_spec_option: nextValue,
-                  });
-                }
-              },
-              { manageInSelect: true }
-            );
-          })()}
-        </label>
+          <CanonicalVariantSelect
+            product={product}
+            value={selectedSubitemId}
+            disabled={adminSaving}
+            onChange={(constructionSubitemId) => (
+              selectAdminCanonicalVariant(product.productId, constructionSubitemId)
+            )}
+            management={{
+              canConvertStandard: !isLocalPriceTableSubitem(subitem),
+              onAdd: (draft) => createAdminProductVariant(item, product, draft),
+              onUpdate: (variant, draft) => updateAdminProductVariant(item, product, variant, draft),
+              onArchive: (variant) => archiveAdminProductVariant(item, product, variant),
+              onUpdateKind: (variantKind) => updateAdminProductVariantKind(item, product, variantKind),
+            }}
+          />
+        </div>
         <label className="price-unit-field">
           <span className="field-label">단위</span>
           <select
-            value={normalizeUnitOptionValue(controlSubitem?.unit)}
+            value={normalizeUnitOptionValue(subitem?.unit)}
             onChange={(event) => {
-              if (controlSubitem?.id) {
+              if (subitem?.id) {
                 updateAdminSubitemUnit(
-                  controlSubitem.id,
+                  subitem.id,
                   event.target.value
                 );
               }
             }}
           >
-            {getUnitSelectOptions(controlSubitem?.unit).map((unit) => (
+            {getUnitSelectOptions(subitem?.unit).map((unit) => (
               <option key={unit} value={unit}>
                 {unit}
               </option>
@@ -170,11 +156,11 @@ export default function PriceTablePage({
         <label>
           <span className="field-label">단가</span>
           <input
-            className={isEmptyOrZeroDisplayValue(displayValues.unit_price) ? "items-v2-muted-value" : ""}
+            className={isEmptyOrZeroDisplayValue(subitem?.unit_price) ? "items-v2-muted-value" : ""}
             type="text"
             inputMode="numeric"
-            value={formatMoneyInputValue(displayValues.unit_price)}
-            disabled={displayValues.disabled}
+            value={formatMoneyInputValue(subitem?.unit_price)}
+            disabled={!subitem}
             onChange={(event) => {
               if (!subitem?.id) return;
               updateLocalSubitemPrice(subitem.id, {
@@ -186,11 +172,11 @@ export default function PriceTablePage({
         <label className="price-number-field price-sale-field">
           <span className="field-label">인건비(빈집)</span>
           <input
-            className={isEmptyOrZeroDisplayValue(displayValues.labor_rate_empty) ? "items-v2-muted-value" : ""}
+            className={isEmptyOrZeroDisplayValue(subitem?.labor_rate_empty ?? subitem?.labor_rate) ? "items-v2-muted-value" : ""}
             type="text"
             inputMode="numeric"
-            value={formatMoneyInputValue(displayValues.labor_rate_empty)}
-            disabled={displayValues.disabled}
+            value={formatMoneyInputValue(subitem?.labor_rate_empty ?? subitem?.labor_rate)}
+            disabled={!subitem}
             onChange={(event) => {
               if (!subitem?.id) return;
               const nextValue = stripNumberInputFormatting(event.target.value);
@@ -204,11 +190,11 @@ export default function PriceTablePage({
         <label className="price-number-field price-sale-field">
           <span className="field-label">인건비(살림집)</span>
           <input
-            className={isEmptyOrZeroDisplayValue(displayValues.labor_rate_occupied) ? "items-v2-muted-value" : ""}
+            className={isEmptyOrZeroDisplayValue(subitem?.labor_rate_occupied ?? subitem?.labor_rate) ? "items-v2-muted-value" : ""}
             type="text"
             inputMode="numeric"
-            value={formatMoneyInputValue(displayValues.labor_rate_occupied)}
-            disabled={displayValues.disabled}
+            value={formatMoneyInputValue(subitem?.labor_rate_occupied ?? subitem?.labor_rate)}
+            disabled={!subitem}
             onChange={(event) => {
               if (!subitem?.id) return;
               updateLocalSubitemPrice(subitem.id, {
@@ -293,7 +279,11 @@ export default function PriceTablePage({
   function renderRows(item) {
     const rendererKind = getConstructionItemRendererKind(item);
     const visibleSubitems = getVisibleAdminSubitems(item);
-    const itemSubitems = visibleSubitems;
+    const itemProducts = getVisibleAdminProducts(item);
+    const canReorderProducts = canReorderAdminCatalog && !itemProducts.some((product) => (
+      product.kind === CONSTRUCTION_PRODUCT_KINDS.SUBITEM
+      && isLocalPriceTableSubitem(product.subitemId)
+    ));
 
     if (rendererKind === CONSTRUCTION_ITEM_RENDERER_KINDS.SASH) {
       return (
@@ -335,65 +325,82 @@ export default function PriceTablePage({
     return (
       <div className="admin-subitem-list price-table-list admin-price-v2-grid-list">
         {renderHeader()}
-        {itemSubitems.map((subitem) => {
+        {itemProducts.map((product) => {
+          const subitem = resolveAdminProductSubitem(
+            item,
+            product,
+            selectedSubitemIdByProduct
+          );
+          if (!subitem) return null;
           const hasValidationError =
             adminPriceValidationError?.subitemId === subitem.id;
           return (
             <div
-              key={subitem.id}
+              key={product.productId}
               ref={(node) => setAdminPriceRowRef(subitem.id, node)}
-              className={`admin-value-row common-price-row price-table-row admin-price-v2-grid ${subitem.expanded ? "expanded" : ""} ${hasValidationError ? "admin-price-v2-row-error" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.subitemId === subitem.id ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.subitemId === subitem.id ? "drop-target" : ""}`.trim()}
+              className={`admin-value-row common-price-row price-table-row admin-price-v2-grid ${subitem.expanded ? "expanded" : ""} ${hasValidationError ? "admin-price-v2-row-error" : ""} ${newlyAddedSubitemId === subitem.id ? "newly-added" : ""} ${dragSubitem?.itemId === item.id && dragSubitem?.productId === product.productId ? "dragging" : ""} ${dragOverSubitem?.itemId === item.id && dragOverSubitem?.productId === product.productId ? "drop-target" : ""}`.trim()}
+              data-product-id={product.productId}
               data-subitem-id={subitem.id}
-              onDragOver={(event) => handleAdminSubitemDragOver(event, item.id, subitem.id)}
-              onDrop={() => reorderAdminSubitems(item.id, subitem.id)}
+              onDragOver={(event) => handleAdminProductDragOver(event, item.id, product.productId)}
+              onDrop={() => reorderAdminProducts(item.id, product.productId)}
               onDragEnd={clearAdminDragState}
             >
               <span
-                className={`drag-handle admin-price-v2-drag-handle ${canReorderAdminCatalog ? "enabled" : ""}`.trim()}
+                className={`drag-handle admin-price-v2-drag-handle ${canReorderProducts ? "enabled" : ""}`.trim()}
                 title="소재 순서 변경"
-                draggable={canReorderAdminCatalog && !adminSaving}
-                onDragStart={(event) => handleAdminSubitemDragStart(event, item.id, subitem.id)}
+                draggable={canReorderProducts && !adminSaving}
+                onDragStart={(event) => handleAdminProductDragStart(event, item.id, product.productId)}
                 onDragEnd={clearAdminDragState}
               >
                 ::
               </span>
               <label className={`admin-material-name-field ${hasValidationError ? "admin-material-name-field--error" : ""}`.trim()}>
                 <span className="field-label">소재명</span>
-                <input
-                  value={subitem.name}
-                  placeholder={materialNamePlaceholder}
-                  onChange={(event) => {
-                    setAdminItems((current) =>
-                      current.map((entry) =>
-                        entry.id === item.id
-                          ? {
-                              ...entry,
-                              subitems: entry.subitems.map(
-                                (entrySubitem) =>
-                                  entrySubitem.id === subitem.id
-                                    ? { ...entrySubitem, name: event.target.value }
-                                    : entrySubitem
-                              ),
-                            }
-                          : entry
-                      )
-                    );
-                    clearAdminPriceValidationErrorForSubitem(subitem.id, event.target.value);
-                  }}
-                  onInput={() => markAdminCatalogDirty()}
-                  onBlur={(event) => renameAdminSubitem(subitem.id, event.target.value)}
-                />
+                {product.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP ? (
+                  <input
+                    key={`${product.productId}:${product.displayName}`}
+                    defaultValue={product.displayName}
+                    placeholder={materialNamePlaceholder}
+                    onBlur={(event) => renameAdminProduct(item, product, event.target.value)}
+                  />
+                ) : (
+                  <input
+                    value={subitem.name}
+                    placeholder={materialNamePlaceholder}
+                    onChange={(event) => {
+                      setAdminItems((current) =>
+                        current.map((entry) =>
+                          entry.id === item.id
+                            ? {
+                                ...entry,
+                                subitems: entry.subitems.map(
+                                  (entrySubitem) =>
+                                    entrySubitem.id === subitem.id
+                                      ? { ...entrySubitem, name: event.target.value }
+                                      : entrySubitem
+                                ),
+                              }
+                            : entry
+                        )
+                      );
+                      clearAdminPriceValidationErrorForSubitem(subitem.id, event.target.value);
+                    }}
+                    onInput={() => markAdminCatalogDirty()}
+                    onBlur={(event) => renameAdminProduct(item, product, event.target.value)}
+                  />
+                )}
                 {hasValidationError && (
                   <span className="admin-price-validation-helper">
                     {adminPriceValidationError.message}
                   </span>
                 )}
               </label>
-              {renderPrimarySubitemCells(subitem)}
+              {renderPrimarySubitemCells(item, product, subitem)}
               <button
                 className="danger-button admin-price-v2-danger-button"
                 disabled={adminSaving}
-                onClick={() => deleteAdminSubitem(subitem.id)}
+                aria-label={`${product.displayName} 보관`}
+                onClick={() => archiveAdminProduct(item, product)}
               >
                 <Trash2 size={18} strokeWidth={1.5} />
               </button>
@@ -402,7 +409,7 @@ export default function PriceTablePage({
             </div>
           );
         })}
-        {!itemSubitems.length && (
+        {!itemProducts.length && (
           <p className="admin-price-v2-empty muted">
             등록된 소재가 없습니다.
           </p>

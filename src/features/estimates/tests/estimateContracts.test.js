@@ -14,6 +14,7 @@ import {
   buildEstimateItemsData,
   restoreEstimateDraft,
 } from "../snapshot";
+import { ESTIMATE_HISTORY_COMPATIBILITY_KIND } from "../estimateHistoryCompatibility";
 import {
   buildEstimatePdfFileName,
   exportEstimatePdf,
@@ -173,6 +174,10 @@ describe("estimate snapshot and persistence contracts", () => {
     });
     expect(objectDraft.items.floor[0].totalAmount).toBe(660000);
     expect(legacyDraft.items.floor[0].totalAmount).toBe(660000);
+    expect(objectDraft.items.floor[0].estimateHistoryCompatibility)
+      .toBe(ESTIMATE_HISTORY_COMPATIBILITY_KIND);
+    expect(legacyDraft.items.floor[0].estimateHistoryCompatibility)
+      .toBe(ESTIMATE_HISTORY_COMPATIBILITY_KIND);
   });
 });
 

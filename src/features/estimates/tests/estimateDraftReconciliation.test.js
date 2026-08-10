@@ -4,6 +4,8 @@ import {
   isEstimateDraftFieldEdited,
   reconcileEstimateDraftItems,
 } from "../estimateDraftReconciliation";
+import { ESTIMATE_HISTORY_COMPATIBILITY_KIND } from "../estimateHistoryCompatibility";
+import { applyEstimateRowPatch } from "../estimateItemModel";
 
 describe("estimate draft reconciliation", () => {
   it("updates untouched template fields without treating formatting as an override", () => {
@@ -81,6 +83,115 @@ describe("estimate draft reconciliation", () => {
     expect(result.conflicts).toEqual([
       expect.objectContaining({ categoryId: "wall", fields: ["quantity"] }),
     ]);
+  });
+
+  it("matches a canonical product by variant_group_id across variant and display-name changes", () => {
+    const result = reconcileEstimateDraftItems({
+      previousItems: {
+        floor: [{
+          itemId: "floor",
+          variantGroupId: "stable-product-id",
+          subitemId: "variant-b-id",
+          material: "이전 표시명",
+          selected: true,
+          contractor: "담당자",
+        }],
+      },
+      nextItems: {
+        floor: [{
+          itemId: "floor",
+          variantGroupId: "stable-product-id",
+          subitemId: "variant-a-id",
+          material: "변경된 표시명",
+          selected: false,
+          contractor: "",
+        }],
+      },
+    });
+
+    expect(result.items.floor[0]).toMatchObject({
+      variantGroupId: "stable-product-id",
+      subitemId: "variant-a-id",
+      material: "변경된 표시명",
+      selected: true,
+      contractor: "담당자",
+    });
+  });
+
+  it("rehydrates a saved snapshot only from its exact construction_subitem UUID", () => {
+    const result = reconcileEstimateDraftItems({
+      previousItems: {
+        floor: [{
+          estimateHistoryCompatibility: ESTIMATE_HISTORY_COMPATIBILITY_KIND,
+          itemId: "floor",
+          subitemId: "variant-b-id",
+          material: "이전 표시명",
+          selectedThickness: "2.2",
+          selected: true,
+        }],
+      },
+      nextItems: {
+        floor: [{
+          itemId: "floor",
+          variantGroupId: "stable-product-id",
+          subitemId: "variant-a-id",
+          material: "변경된 표시명",
+          selectedEstimateOptionId: "variant:variant-a-id",
+          selected: false,
+          estimateOptions: [
+            { id: "variant:variant-a-id", subitemId: "variant-a-id", quantity: 10 },
+            { id: "variant:variant-b-id", subitemId: "variant-b-id", quantity: 20 },
+          ],
+        }],
+      },
+      applyRowPatch: applyEstimateRowPatch,
+    });
+
+    expect(result.items.floor[0]).toMatchObject({
+      selectedEstimateOptionId: "variant:variant-b-id",
+      subitemId: "variant-b-id",
+      quantity: 20,
+      selected: true,
+    });
+  });
+
+  it("does not infer a canonical variant from a legacy thickness or display name", () => {
+    const result = reconcileEstimateDraftItems({
+      previousItems: {
+        floor: [{
+          estimateHistoryCompatibility: ESTIMATE_HISTORY_COMPATIBILITY_KIND,
+          itemId: "floor",
+          subitemId: "missing-legacy-id",
+          material: "같은 표시명",
+          selectedThickness: "2.2",
+          quantity: 99,
+          selected: true,
+        }],
+      },
+      nextItems: {
+        floor: [{
+          itemId: "floor",
+          variantGroupId: "stable-product-id",
+          subitemId: "variant-a-id",
+          material: "같은 표시명",
+          selectedEstimateOptionId: "variant:variant-a-id",
+          quantity: 10,
+          selected: false,
+          estimateOptions: [
+            { id: "variant:variant-a-id", subitemId: "variant-a-id", selectedThickness: "1.8" },
+            { id: "variant:variant-b-id", subitemId: "variant-b-id", selectedThickness: "2.2" },
+          ],
+        }],
+      },
+      applyRowPatch: applyEstimateRowPatch,
+    });
+
+    expect(result.items.floor[0]).toMatchObject({
+      selectedEstimateOptionId: "variant:variant-a-id",
+      subitemId: "variant-a-id",
+      quantity: 10,
+      selected: false,
+    });
   });
 
   it("keeps a selected sash snapshot out of pyeong template reconciliation", () => {

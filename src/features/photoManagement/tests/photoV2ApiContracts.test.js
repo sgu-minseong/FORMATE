@@ -21,6 +21,10 @@ function createQuery(table) {
       mockState.calls.push({ table, method: "insert", value });
       return query;
     },
+    update(value) {
+      mockState.calls.push({ table, method: "update", value });
+      return query;
+    },
     single() {
       mockState.calls.push({ table, method: "single" });
       return query;
@@ -81,17 +85,17 @@ vi.mock("../../../lib/supabaseClient", () => ({
 }));
 
 import {
+  archivePhotoV2,
   fetchPhotoCatalog,
-  fetchPhotosForTarget,
   listPyeongPhotoRows,
   listPyeongPhotos,
   listPyeongSubitemPhotos,
   listRecentPhotoLibraryPhotos,
+  reorderPhotoV2Rows,
   resolvePyeongPhotoUrls,
   uploadPyeongSubitemPhoto,
 } from "../photoApi";
 import { PHOTO_V2_ERROR_CODES } from "../photoModel";
-import { buildCanonicalConstructionProductModel } from "../../constructionCatalog/constructionCatalogModel";
 
 describe("Photo v2 API contracts", () => {
   beforeEach(() => {
@@ -105,7 +109,7 @@ describe("Photo v2 API contracts", () => {
     mockState.storageRemoveResult = { data: {}, error: null };
   });
 
-  it("registers pyeong photos as non-primary without changing the legacy payload default", async () => {
+  it("registers pyeong photos as non-primary", async () => {
     mockState.rows.photos = {
       data: {
         id: "photo-24",
@@ -132,6 +136,10 @@ describe("Photo v2 API contracts", () => {
 
     const insertCall = mockState.calls.find((call) => call.table === "photos" && call.method === "insert");
     expect(insertCall.value).toMatchObject({
+      company_id: "company",
+      photo_type: "subitem",
+      target_type: "subitem",
+      target_id: "wallpaper",
       pyeong: 24,
       construction_subitem_id: "wallpaper",
       is_primary: false,
@@ -189,9 +197,66 @@ describe("Photo v2 API contracts", () => {
 
     expect(photos).toHaveLength(1);
     expect(photos[0]).toMatchObject({ pyeong: 24, constructionSubitemId: "flooring-18t" });
+    expect(mockState.calls).toContainEqual({ table: "photos", method: "eq", column: "company_id", value: "company" });
+    expect(mockState.calls).toContainEqual({ table: "photos", method: "eq", column: "photo_type", value: "subitem" });
+    expect(mockState.calls).toContainEqual({ table: "photos", method: "eq", column: "target_type", value: "subitem" });
+    expect(mockState.calls).toContainEqual({ table: "photos", method: "eq", column: "target_id", value: "flooring-18t" });
     expect(mockState.calls).toContainEqual({ table: "photos", method: "eq", column: "pyeong", value: 24 });
+    expect(mockState.calls).toContainEqual({ table: "photos", method: "eq", column: "construction_subitem_id", value: "flooring-18t" });
     expect(mockState.calls).toContainEqual({ table: "photos", method: "is", column: "sash_catalog_entry_id", value: null });
     expect(mockState.calls).toContainEqual({ table: "photos", method: "is", column: "archived_at", value: null });
+  });
+
+  it("uses the exact optional sash UUID instead of widening the subitem scope", async () => {
+    mockState.rows.photos = { data: [], error: null };
+
+    await listPyeongSubitemPhotos({
+      companyId: "company",
+      pyeong: 34,
+      constructionSubitemId: "sash-subitem",
+      sashCatalogEntryId: "sash-spec",
+    });
+
+    expect(mockState.calls).toContainEqual({
+      table: "photos",
+      method: "eq",
+      column: "sash_catalog_entry_id",
+      value: "sash-spec",
+    });
+    expect(mockState.calls).not.toContainEqual({
+      table: "photos",
+      method: "is",
+      column: "sash_catalog_entry_id",
+      value: null,
+    });
+  });
+
+  it("keeps reorder and archive writes company-scoped and archive-only", async () => {
+    mockState.rows.photos = {
+      data: { id: "photo-a", company_id: "company", archived_at: "2026-08-10T00:00:00.000Z" },
+      error: null,
+    };
+
+    await reorderPhotoV2Rows({
+      companyId: "company",
+      photos: [{ id: "photo-b" }, { id: "photo-a" }],
+    });
+    await archivePhotoV2({ companyId: "company", photoId: "photo-a" });
+
+    expect(mockState.calls.filter((call) => call.method === "update"))
+      .toEqual([
+        { table: "photos", method: "update", value: { sort_order: 0 } },
+        { table: "photos", method: "update", value: { sort_order: 1 } },
+        {
+          table: "photos",
+          method: "update",
+          value: { archived_at: expect.any(String) },
+        },
+      ]);
+    expect(mockState.calls.filter((call) => (
+      call.method === "eq" && call.column === "company_id" && call.value === "company"
+    ))).toHaveLength(3);
+    expect(mockState.calls.some((call) => call.method === "delete")).toBe(false);
   });
 
   it("lists one pyeong workspace without archived or sash-specific photos", async () => {
@@ -270,10 +335,7 @@ describe("Photo v2 API contracts", () => {
       column: "construction_item_id",
       value: ["item"],
     });
-    const sections = buildCanonicalConstructionProductModel({
-      subitems: catalog[0].subitems,
-      variantGroups: catalog[0].variantGroups,
-    }).products;
+    const sections = catalog[0].products;
     expect(sections).toHaveLength(1);
     expect(sections[0]).toMatchObject({
       id: "group",
@@ -321,19 +383,6 @@ describe("Photo v2 API contracts", () => {
       table: "photos", method: "in", column: "photo_library_folder_id", value: ["active"],
     });
     expect(mockState.calls).toContainEqual({ table: "photos", method: "limit", value: 12 });
-  });
-
-  it("does not change the legacy price-photo target query", async () => {
-    mockState.rows.photos = {
-      data: [{ id: "legacy", company_id: "company", target_type: "full_project", target_id: "price-1000" }],
-      error: null,
-    };
-
-    await fetchPhotosForTarget({ companyId: "company", targetType: "full_project", targetId: "price-1000" });
-
-    expect(mockState.calls).toContainEqual({ table: "photos", method: "eq", column: "target_type", value: "full_project" });
-    expect(mockState.calls).toContainEqual({ table: "photos", method: "eq", column: "target_id", value: "price-1000" });
-    expect(mockState.calls.some((call) => call.column === "pyeong" || call.column === "photo_library_folder_id")).toBe(false);
   });
 
   it("uses the same active Folder visibility rule for Library search", async () => {

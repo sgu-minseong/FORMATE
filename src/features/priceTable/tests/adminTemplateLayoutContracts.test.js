@@ -15,6 +15,14 @@ const templateRendererSource = appSource.slice(
   appSource.indexOf("function renderAdminItemsRows"),
   appSource.indexOf("function renderAdminTemplateConditionDrawer")
 );
+const templateSaveSource = appSource.slice(
+  appSource.indexOf("async function saveAdminPrices"),
+  appSource.indexOf("async function saveEstimateToSupabase")
+);
+const estimateTemplateWriterSource = appSource.slice(
+  appSource.indexOf("function getEstimateTemplateValuePayloads"),
+  appSource.indexOf("async function saveBlankEstimateAsTemplate")
+);
 
 describe("admin template management layout contracts", () => {
   it("uses the exact same category panel component as price table management", () => {
@@ -52,6 +60,25 @@ describe("admin template management layout contracts", () => {
     expect(templateRendererSource).not.toContain("isFlooringThicknessItem(item)");
     expect(templateRendererSource).not.toContain('item.item_type === "flat"');
     expect(templateRendererSource).toContain("CONSTRUCTION_ITEM_RENDERER_KINDS.SASH");
+  });
+
+  it("uses one canonical product row with a construction_subitem UUID selector", () => {
+    expect(templateRendererSource).toContain("getVisibleAdminProducts(item)");
+    expect(templateRendererSource).toContain("resolveAdminProductSubitem");
+    expect(templateRendererSource).toContain("<CanonicalVariantSelect");
+    expect(templateRendererSource).toContain("constructionSubitemId");
+    expect(templateRendererSource).not.toContain("spec_options");
+    expect(templateRendererSource).not.toContain("getTemplateOptionValue");
+  });
+
+  it("saves template values by exact UUID without legacy option parsing", () => {
+    expect(templateSaveSource).toContain("buildAdminTemplateValueSaveOperations");
+    expect(templateSaveSource).toContain("updateAdminTemplateValue(operation.valueId");
+    expect(templateSaveSource).toContain("insertAdminTemplateValue(operation.payload)");
+    expect(templateSaveSource).not.toContain("getTemplateOptionValue");
+    expect(templateSaveSource).not.toContain("spec_options");
+    expect(estimateTemplateWriterSource).toContain('option_value: ""');
+    expect(estimateTemplateWriterSource).not.toContain("getTemplateOptionValue");
   });
 });
 

@@ -15,10 +15,7 @@ import PhotoViewer, { shouldSuppressPhotoClick } from "../../components/PhotoVie
 import PyeongSelector from "../../components/PyeongSelector";
 import Button from "../../components/ui/Button";
 import AdminCategoryPanel from "../priceTable/AdminCategoryPanel";
-import {
-  CONSTRUCTION_PRODUCT_KINDS,
-  buildCanonicalConstructionProductModel,
-} from "../constructionCatalog/constructionCatalogModel";
+import { CONSTRUCTION_PRODUCT_KINDS } from "../constructionCatalog/constructionCatalogModel";
 import { PYEONG_PHOTO_STATUS, usePyeongPhotoManagement } from "./usePyeongPhotoManagement";
 
 export const PYEONG_GALLERY_INITIAL_LIMIT = 8;
@@ -232,10 +229,7 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
 
   const selectedCategory = catalog.find((item) => item.id === selectedCategoryId) ?? null;
   const subitems = selectedCategory?.subitems ?? [];
-  const gallerySections = useMemo(() => buildCanonicalConstructionProductModel({
-    subitems,
-    variantGroups: selectedCategory?.variantGroups ?? [],
-  }).products, [selectedCategory, subitems]);
+  const gallerySections = selectedCategory?.products ?? [];
   const resolvedGallerySections = useMemo(() => gallerySections.map((section) => {
     if (section.kind !== CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP) return {
       ...section,

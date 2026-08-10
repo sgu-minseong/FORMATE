@@ -55,7 +55,7 @@ export default function AdminCategoryPanel({
                 <span>{item.name}</span>
               </span>
               <span className="admin-price-v2-category-count">
-                {(item.subitems ?? []).length}개
+                {(item.products ?? item.subitems ?? []).length}개
               </span>
             </button>
           );

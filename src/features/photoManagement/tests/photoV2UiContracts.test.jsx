@@ -7,17 +7,16 @@ import { normalizeFavoritePyeongs } from "../../estimates/pyeongPreferences";
 import { PHOTO_MANAGEMENT_MODES, PhotoManagementLanding } from "../PhotoManagementPage";
 
 describe("Photo v2 management UI contracts", () => {
-  it("offers exactly the three approved management modes", () => {
+  it("offers only canonical photo management modes", () => {
     const onSelectMode = vi.fn();
     const markup = renderToStaticMarkup(<PhotoManagementLanding onSelectMode={onSelectMode} />);
 
-    expect(PHOTO_MANAGEMENT_MODES.map((mode) => mode.id)).toEqual(["pyeong", "library", "price"]);
+    expect(PHOTO_MANAGEMENT_MODES.map((mode) => mode.id)).toEqual(["pyeong", "library"]);
     expect(PHOTO_MANAGEMENT_MODES.map((mode) => mode.title)).toEqual([
       "평형별 사진 관리",
       "평수 무관 사진 관리",
-      "공사 가격별 사진 관리",
     ]);
-    expect(markup.match(/class="photo-management-mode-card"/g)).toHaveLength(3);
+    expect(markup.match(/class="photo-management-mode-card"/g)).toHaveLength(2);
   });
 
   it("normalizes the shared estimate/photo pyeong favorites", () => {
@@ -84,10 +83,9 @@ describe("Photo v2 management UI contracts", () => {
     const pageSource = fs.readFileSync(path.resolve(process.cwd(), "src/features/photoManagement/PyeongPhotoManagement.jsx"), "utf8");
 
     expect(managementSource).toContain("fetchPhotoCatalog");
-    expect(managementSource).toContain("fetchLegacyPhotoManagementData as fetchPhotoData");
     expect(managementSource).toContain("photoCatalogLoading");
-    expect(managementSource).toContain("catalogLoadRequestRef");
-    expect(managementSource).toContain("legacyLoadRequestRef");
+    expect(managementSource).toContain("requestRef");
+    expect(managementSource).not.toContain("fetchLegacyPhotoManagementData");
     expect(pyeongSource).toContain("photoRowsLoading");
     expect(pyeongSource).toContain("photoUrlLoading");
     expect(pyeongSource).toContain("setStatus(getReadyStatus(rows))");
@@ -121,7 +119,8 @@ describe("Photo v2 management UI contracts", () => {
     expect(pageSource).toContain("pyeong-photo-caption-area");
     expect(pageSource).toContain("pyeong-photo-add-action");
     expect(pageSource).not.toContain("pyeong-photo-add-tile");
-    expect(pageSource).toContain("buildCanonicalConstructionProductModel");
+    expect(pageSource).toContain("selectedCategory?.products ?? []");
+    expect(pageSource).not.toContain("buildCanonicalConstructionProductModel");
     expect(pageSource).toContain("section.activeVariant.label");
     expect(pageSource).not.toContain("formatConstructionSubitemVariantLabel");
     expect(pageSource).toContain("section.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP");
@@ -171,10 +170,11 @@ describe("Photo v2 management UI contracts", () => {
     expect(styleSource).not.toContain("*:focus { outline: none");
   });
 
-  it("routes price photos to the existing legacy surface and leaves Library as a placeholder", () => {
+  it("does not expose the legacy price-photo surface and leaves Library as a placeholder", () => {
     const source = fs.readFileSync(path.resolve(process.cwd(), "src/features/photoManagement/PhotoManagementPage.jsx"), "utf8");
 
-    expect(source).toContain("return <LegacyPricePhotoManagement");
+    expect(source).not.toContain("LegacyPricePhotoManagement");
+    expect(source).not.toContain('id: "price"');
     expect(source).toContain("평수 무관 사진 관리는 다음 단계에서 연결됩니다.");
     expect(source).not.toContain("breadcrumb");
     expect(source).not.toContain("context menu");

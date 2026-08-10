@@ -1,3 +1,8 @@
+import {
+  formatConstructionSubitemVariantLabel,
+  getConstructionSubitemVariantMetadata,
+} from "../constructionCatalog/constructionCatalogModel";
+
 export const EXCEL_IMPORT_TARGETS = Object.freeze({
   PRICES: "prices",
   TEMPLATES: "templates",
@@ -233,21 +238,26 @@ export function readFormateWorkbookMetadata(sheets = []) {
 
 export function buildPriceExportRows(catalogItems = []) {
   return catalogItems.flatMap((item) =>
-    (item.subitems ?? []).map((subitem) => ({
-      대분류: item.name,
-      세부항목: subitem.name,
-      "규격 또는 옵션": subitem.selected_spec_option || (subitem.spec_options ?? []).join(", "),
-      단위: subitem.unit ?? "",
-      "자재 단가": subitem.unit_price ?? 0,
-      "인건비(빈집)": subitem.labor_rate_empty ?? subitem.labor_rate ?? 0,
-      "인건비(살림집)": subitem.labor_rate_occupied ?? subitem.labor_rate ?? 0,
-      비고: "",
-      "묶음 여부": item.item_type === LUMP_SUM_ITEM_TYPE ? "1식" : "일반",
-      "계산 기준": item.item_type === LUMP_SUM_ITEM_TYPE ? LUMP_SUM_CALCULATION_BASIS : "line_items",
-      FORMATE_ITEM_ID: item.id,
-      FORMATE_SUBITEM_ID: subitem.id,
-      FORMATE_ITEM_TYPE: item.item_type ?? "itemized",
-    }))
+    (item.subitems ?? []).map((subitem) => {
+      const variantMetadata = getConstructionSubitemVariantMetadata(subitem);
+      return {
+        대분류: item.name,
+        세부항목: subitem.name,
+        "규격 또는 옵션": variantMetadata
+          ? formatConstructionSubitemVariantLabel(variantMetadata.value, variantMetadata.unit)
+          : "",
+        단위: subitem.unit ?? "",
+        "자재 단가": subitem.unit_price ?? 0,
+        "인건비(빈집)": subitem.labor_rate_empty ?? subitem.labor_rate ?? 0,
+        "인건비(살림집)": subitem.labor_rate_occupied ?? subitem.labor_rate ?? 0,
+        비고: "",
+        "묶음 여부": item.item_type === LUMP_SUM_ITEM_TYPE ? "1식" : "일반",
+        "계산 기준": item.item_type === LUMP_SUM_ITEM_TYPE ? LUMP_SUM_CALCULATION_BASIS : "line_items",
+        FORMATE_ITEM_ID: item.id,
+        FORMATE_SUBITEM_ID: subitem.id,
+        FORMATE_ITEM_TYPE: item.item_type ?? "itemized",
+      };
+    })
   );
 }
 

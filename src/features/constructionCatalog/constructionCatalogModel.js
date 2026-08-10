@@ -16,6 +16,7 @@ export const CONSTRUCTION_CATALOG_CONTRACT_ERROR_CODES = Object.freeze({
   INVALID_BASE_SUBITEM: "invalid-base-subitem",
   INVALID_CONSTRUCTION_ITEM: "invalid-construction-item",
   INVALID_VARIANT_GROUP: "invalid-variant-group",
+  INVALID_VARIANT_WRITE: "invalid-variant-write",
   INVALID_VARIANT_VALUE_TYPE: "invalid-variant-value-type",
   MISSING_VARIANT_GROUP: "missing-variant-group",
   VARIANT_ITEM_MISMATCH: "variant-item-mismatch",
@@ -161,6 +162,159 @@ export function formatConstructionSubitemVariantLabel(value, unit) {
   const normalizedUnit = `${unit ?? ""}`.trim();
   if (!normalizedValue) return "";
   return `${normalizedValue}${normalizedUnit}`;
+}
+
+/**
+ * Builds the persistence payload for a user-authored canonical product group.
+ * Display fields remain presentation metadata; the database-generated group ID
+ * is the only product identity used after insertion.
+ */
+export function buildConstructionVariantGroupWritePayload({
+  constructionItemId,
+  displayName,
+  variantKind,
+  variantValueType,
+  sortOrder = 0,
+} = {}) {
+  const normalizedItemId = normalizeId(constructionItemId);
+  const normalizedDisplayName = `${displayName ?? ""}`.trim();
+  const normalizedVariantKind = `${variantKind ?? ""}`.trim();
+  const normalizedValueType = normalizeVariantValueType(variantValueType);
+
+  if (
+    !normalizedItemId
+    || !normalizedDisplayName
+    || !normalizedVariantKind
+    || !normalizedValueType
+  ) {
+    throw createContractError(
+      CONSTRUCTION_CATALOG_CONTRACT_ERROR_CODES.INVALID_VARIANT_WRITE,
+      "A canonical variant group write requires explicit product and variant metadata.",
+      {
+        constructionItemId: normalizedItemId,
+        displayName: normalizedDisplayName,
+        variantKind: normalizedVariantKind,
+        variantValueType: normalizedValueType,
+      }
+    );
+  }
+
+  return {
+    construction_item_id: normalizedItemId,
+    display_name: normalizedDisplayName,
+    variant_kind: normalizedVariantKind,
+    variant_value_type: normalizedValueType,
+    sort_order: normalizeSortOrder(sortOrder),
+    archived_at: null,
+  };
+}
+
+/**
+ * Builds the mutually-exclusive numeric/text metadata written to one stable
+ * construction_subitem UUID. No display name, label, or spec_options value is
+ * consulted to determine identity.
+ */
+export function buildConstructionVariantMetadataWritePayload({
+  variantGroupId,
+  variantValueType,
+  value,
+  unit,
+} = {}) {
+  const normalizedGroupId = normalizeId(variantGroupId);
+  const normalizedValueType = normalizeVariantValueType(variantValueType);
+  const normalizedUnit = `${unit ?? ""}`.trim();
+
+  if (!normalizedGroupId || !normalizedValueType) {
+    throw createContractError(
+      CONSTRUCTION_CATALOG_CONTRACT_ERROR_CODES.INVALID_VARIANT_WRITE,
+      "A canonical variant write requires an explicit group ID and value type.",
+      { variantGroupId: normalizedGroupId, variantValueType: normalizedValueType }
+    );
+  }
+
+  if (normalizedValueType === CONSTRUCTION_VARIANT_VALUE_TYPES.NUMBER) {
+    const numericValue = normalizeNumericVariantValue(value);
+    if (numericValue === null || !normalizedUnit) {
+      throw createContractError(
+        CONSTRUCTION_CATALOG_CONTRACT_ERROR_CODES.INVALID_VARIANT_WRITE,
+        "A numeric canonical variant requires a finite value and non-blank unit.",
+        { variantGroupId: normalizedGroupId, value, unit: normalizedUnit }
+      );
+    }
+    return {
+      variant_group_id: normalizedGroupId,
+      variant_value: numericValue,
+      variant_value_text: null,
+      variant_unit: normalizedUnit,
+      archived_at: null,
+    };
+  }
+
+  const textValue = normalizeTextVariantValue(value);
+  if (textValue === null) {
+    throw createContractError(
+      CONSTRUCTION_CATALOG_CONTRACT_ERROR_CODES.INVALID_VARIANT_WRITE,
+      "A text canonical variant requires a non-blank value.",
+      { variantGroupId: normalizedGroupId, value }
+    );
+  }
+  return {
+    variant_group_id: normalizedGroupId,
+    variant_value: null,
+    variant_value_text: textValue,
+    variant_unit: normalizedUnit || null,
+    archived_at: null,
+  };
+}
+
+/**
+ * Creates a new selectable variant row with intentionally empty commercial
+ * values. Work-unit presentation may be inherited, but price/labor values are
+ * never copied from the currently selected sibling variant.
+ */
+export function buildConstructionVariantSubitemInsertPayload({
+  constructionItemId,
+  variantGroupId,
+  displayName,
+  variantValueType,
+  value,
+  unit,
+  workUnit = "평",
+  sortOrder = 0,
+} = {}) {
+  const normalizedItemId = normalizeId(constructionItemId);
+  const normalizedDisplayName = `${displayName ?? ""}`.trim();
+  const metadata = buildConstructionVariantMetadataWritePayload({
+    variantGroupId,
+    variantValueType,
+    value,
+    unit,
+  });
+  if (!normalizedItemId || !normalizedDisplayName) {
+    throw createContractError(
+      CONSTRUCTION_CATALOG_CONTRACT_ERROR_CODES.INVALID_VARIANT_WRITE,
+      "A canonical variant row requires an owning construction item and product label.",
+      { constructionItemId: normalizedItemId, displayName: normalizedDisplayName }
+    );
+  }
+
+  const variantLabel = formatConstructionSubitemVariantLabel(
+    metadata.variant_value ?? metadata.variant_value_text,
+    metadata.variant_unit
+  );
+  return {
+    item_id: normalizedItemId,
+    name: `${normalizedDisplayName} ${variantLabel}`.trim(),
+    unit: `${workUnit ?? ""}`.trim() || "평",
+    cost_price: 0,
+    cost_unit: "",
+    unit_price: 0,
+    labor_rate: 0,
+    labor_rate_empty: 0,
+    labor_rate_occupied: 0,
+    sort_order: normalizeSortOrder(sortOrder),
+    ...metadata,
+  };
 }
 
 function createContractError(code, message, context) {

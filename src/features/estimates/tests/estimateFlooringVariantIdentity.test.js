@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildCanonicalConstructionCatalog } from "../../constructionCatalog/constructionCatalogModel";
 import { normalizeAdminItems } from "../../priceTable/priceTableModel";
 import { calculateEstimateRow } from "../calculation";
 import { reconcileEstimateDraftItems } from "../estimateDraftReconciliation";
@@ -123,12 +124,18 @@ function getFinancialIdentity(row) {
 }
 
 describe("estimate flooring variant identity", () => {
+  const canonicalCatalog = buildCanonicalConstructionCatalog({
+    itemRows,
+    subitemRows,
+    variantGroupRows,
+  });
   const catalog = normalizeAdminItems(
     itemRows,
     subitemRows,
-    templateValueRows
+    templateValueRows,
+    canonicalCatalog
   );
-  const estimateItems = buildEstimateItemsFromTemplate(catalog, 24, "empty", variantGroupRows);
+  const estimateItems = buildEstimateItemsFromTemplate(catalog, 24, "empty");
   const getStableFlooringRow = () => estimateItems["floor-item"]
     .find((row) => row.variantGroupId === "floor-group");
 
@@ -212,13 +219,13 @@ describe("estimate flooring variant identity", () => {
     const catalogWithoutSmallestTemplate = normalizeAdminItems(
       itemRows,
       subitemRows,
-      templateValueRows.filter((row) => row.subitem_id !== "variant-18")
+      templateValueRows.filter((row) => row.subitem_id !== "variant-18"),
+      canonicalCatalog
     );
     const row = buildEstimateItemsFromTemplate(
       catalogWithoutSmallestTemplate,
       24,
-      "empty",
-      variantGroupRows
+      "empty"
     )["floor-item"].find((entry) => entry.variantGroupId === "floor-group");
 
     expect(row).toMatchObject({
@@ -233,7 +240,7 @@ describe("estimate flooring variant identity", () => {
 
   it("restores the explicit option identity when template data is reloaded", () => {
     const selectedVariant = changeOption(getStableFlooringRow(), "variant:variant-27");
-    const refreshedItems = buildEstimateItemsFromTemplate(catalog, 24, "empty", variantGroupRows);
+    const refreshedItems = buildEstimateItemsFromTemplate(catalog, 24, "empty");
     const result = reconcileEstimateDraftItems({
       previousItems: { "floor-item": [selectedVariant] },
       nextItems: {
@@ -271,15 +278,21 @@ describe("estimate flooring variant identity", () => {
   });
 
   it("does not revive an archived stable product through its base or legacy name path", () => {
-    const archivedItems = buildEstimateItemsFromTemplate(
-      catalog,
-      24,
-      "empty",
-      variantGroupRows.map((group) => ({
+    const archivedCanonicalCatalog = buildCanonicalConstructionCatalog({
+      itemRows,
+      subitemRows,
+      variantGroupRows: variantGroupRows.map((group) => ({
         ...group,
         archived_at: "2026-08-09T00:00:00.000Z",
-      }))
+      })),
+    });
+    const archivedCatalog = normalizeAdminItems(
+      itemRows,
+      subitemRows,
+      templateValueRows,
+      archivedCanonicalCatalog
     );
+    const archivedItems = buildEstimateItemsFromTemplate(archivedCatalog, 24, "empty");
 
     expect(archivedItems["floor-item"].map((row) => row.subitemId)).toEqual([
       "floor-standard",
@@ -291,16 +304,10 @@ describe("estimate flooring variant identity", () => {
 
   it("keeps a non-variant subitem on the standard identity and calculation path", () => {
     const initialRow = estimateItems["wall-item"][0];
-    const choice = getEstimateRowSpecChoices(initialRow)[0];
-    const nextRow = changeOption(initialRow, choice.key);
-
-    expect(choice).toMatchObject({
-      key: "base-spec:wall-standard:%EC%9D%BC%EB%B0%98",
-      label: "일반",
-    });
-    expect(nextRow).toMatchObject({
+    expect(getEstimateRowSpecChoices(initialRow)).toEqual([]);
+    expect(initialRow).toMatchObject({
       subitemId: "wall-standard",
-      selectedSpecOption: "일반",
+      selectedSpecOption: "",
       quantity: 24,
       unitPrice: 25000,
       laborCount: 1,

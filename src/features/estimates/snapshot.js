@@ -14,7 +14,10 @@ import {
   getEstimateItemsDataSiteMemo,
   toConstructionDays,
 } from "./calculation";
-import { normalizeSpecOptions } from "../priceTable/priceTableModel";
+import {
+  ESTIMATE_HISTORY_COMPATIBILITY_KIND,
+  normalizeLegacyEstimateSpecOptions,
+} from "./estimateHistoryCompatibility";
 
 function isExtendedHouseType(value) {
   return value === "new"
@@ -156,6 +159,7 @@ export function restoreEstimateDraft(estimate) {
       });
     }
     groupedItems[categoryId].push({
+      estimateHistoryCompatibility: ESTIMATE_HISTORY_COMPATIBILITY_KIND,
       itemId: item.itemId ?? categoryId,
       itemName: categoryName,
       itemType: item.itemType ?? "itemized",
@@ -169,7 +173,7 @@ export function restoreEstimateDraft(estimate) {
       selectedThickness: item.selectedThickness ?? null,
       selectedSpecOption: item.selectedSpecOption ?? "",
       spec: item.spec ?? "",
-      specOptions: normalizeSpecOptions(item.specOptions),
+      specOptions: normalizeLegacyEstimateSpecOptions(item.specOptions),
       unit: item.unit ?? "평",
       pyeong: toNumberOrZero(item.pyeong ?? snapshot.estimate_pyeong ?? snapshot.condition_pyeong),
       baseQuantity: item.baseQuantity ?? item.quantity ?? "",

@@ -29,8 +29,8 @@ const catalog = [{
   name: "바닥",
   item_type: "itemized",
   subitems: [
-    { id: "sub-22", item_id: "item-floor", name: "장판 (2.2T)", unit: "평", unit_price: 11000, labor_rate_empty: 9000, labor_rate_occupied: 12000 },
-    { id: "sub-27", item_id: "item-floor", name: "장판 (2.7T)", unit: "평", unit_price: 17000, labor_rate_empty: 9500, labor_rate_occupied: 12500 },
+    { id: "sub-22", item_id: "item-floor", name: "장판 (2.2T)", unit: "평", unit_price: 11000, labor_rate_empty: 9000, labor_rate_occupied: 12000, variant_group_id: "floor-group", variant_value: 2.2, variant_value_text: null, variant_unit: "T" },
+    { id: "sub-27", item_id: "item-floor", name: "장판 (2.7T)", unit: "평", unit_price: 17000, labor_rate_empty: 9500, labor_rate_occupied: 12500, variant_group_id: "floor-group", variant_value: 2.7, variant_value_text: null, variant_unit: "T" },
   ],
 }];
 
@@ -39,6 +39,7 @@ describe("shared Excel import model", () => {
     const rows = buildPriceExportRows(catalog);
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row["자재 단가"])).toEqual([11000, 17000]);
+    expect(rows.map((row) => row["규격 또는 옵션"])).toEqual(["2.2T", "2.7T"]);
 
     const headers = Object.keys(rows[0]);
     const sheet = { rows: [headers, ...rows.map((row) => headers.map((header) => row[header]))], columnCount: headers.length };

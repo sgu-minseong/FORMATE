@@ -1,16 +1,12 @@
-import {
-  DEFAULT_FLOORING_SPEC,
-  FLOORING_NAME_KEYWORDS,
-  FLOORING_MATERIAL_KEYWORDS,
-  FLOORING_THICKNESS_OPTIONS,
-  UNIT_OPTIONS,
-} from "../../shared/constants/estimateOptions";
+import { UNIT_OPTIONS } from "../../shared/constants/estimateOptions";
 import { CATEGORY_DISPLAY_TARGETS } from "../../shared/constants/defaultConstructionCatalog";
 import {
   hasNumericInput,
   toNonNegativeNumberOrZero,
+  toNullableNumber,
   toNumberOrZero,
 } from "../../shared/utils/numbers";
+import { CONSTRUCTION_PRODUCT_KINDS } from "../constructionCatalog/constructionCatalogModel";
 
 const LOCAL_SUBITEM_ID_PREFIX = "local-subitem-";
 
@@ -23,125 +19,6 @@ export function getConstructionItemRendererKind(item) {
   return item?.item_kind === CONSTRUCTION_ITEM_RENDERER_KINDS.SASH
     ? CONSTRUCTION_ITEM_RENDERER_KINDS.SASH
     : CONSTRUCTION_ITEM_RENDERER_KINDS.STANDARD;
-}
-
-export function normalizeFlooringThickness(value) {
-  const raw = `${value ?? ""}`.trim();
-  if (!raw || raw === DEFAULT_FLOORING_SPEC) return DEFAULT_FLOORING_SPEC;
-
-  const numericValue = Number(raw.replace(/t$/i, ""));
-  if (!Number.isFinite(numericValue)) return DEFAULT_FLOORING_SPEC;
-
-  const normalized = numericValue.toFixed(1);
-  return FLOORING_THICKNESS_OPTIONS.includes(normalized)
-    ? normalized
-    : DEFAULT_FLOORING_SPEC;
-}
-
-export function isFlooringMaterialName(name) {
-  const normalized = `${name ?? ""}`.trim();
-  return FLOORING_MATERIAL_KEYWORDS.some((keyword) => normalized.includes(keyword));
-}
-
-export function parseFlooringThicknessName(name) {
-  const normalized = `${name ?? ""}`.trim();
-  const directThickness = normalized.match(/^([1-4](?:\.\d)?)T?$/i);
-  if (directThickness) {
-    return {
-      baseName: "장판",
-      thickness: normalizeFlooringThickness(directThickness[1]),
-    };
-  }
-
-  const match = normalized.match(/^(.+?)\s+(기본|[1-4](?:\.\d)?T?)$/i);
-  if (match) {
-    const thickness = match[2] === DEFAULT_FLOORING_SPEC
-      ? DEFAULT_FLOORING_SPEC
-      : normalizeFlooringThickness(match[2]);
-    if (thickness === DEFAULT_FLOORING_SPEC && match[2] !== DEFAULT_FLOORING_SPEC) {
-      return null;
-    }
-    return {
-      baseName: match[1].trim(),
-      thickness,
-    };
-  }
-
-  if (!isFlooringMaterialName(normalized)) return null;
-  return {
-    baseName: normalized,
-    thickness: DEFAULT_FLOORING_SPEC,
-  };
-}
-
-export function getCanonicalFlooringSubitemName(name) {
-  const parsed = parseFlooringThicknessName(name);
-  if (!parsed || parsed.thickness === DEFAULT_FLOORING_SPEC) {
-    return `${name ?? ""}`.trim();
-  }
-  const displayThickness = Number(parsed.thickness);
-  const thicknessLabel = Number.isInteger(displayThickness)
-    ? `${displayThickness}`
-    : parsed.thickness;
-  return `${parsed.baseName} ${thicknessLabel}T`;
-}
-
-export function formatFlooringThickness(thickness) {
-  const normalized = normalizeFlooringThickness(thickness);
-  if (normalized === DEFAULT_FLOORING_SPEC) return DEFAULT_FLOORING_SPEC;
-  const numericValue = Number(normalized);
-  const displayValue = Number.isInteger(numericValue) ? `${numericValue}` : normalized;
-  return `${displayValue}T`;
-}
-
-export function composeFlooringSubitemName(baseName, thickness) {
-  const nextBaseName = `${baseName ?? ""}`.trim() || "장판";
-  const normalizedThickness = normalizeFlooringThickness(thickness);
-  if (normalizedThickness === DEFAULT_FLOORING_SPEC) return nextBaseName;
-  return `${nextBaseName} ${formatFlooringThickness(normalizedThickness)}`;
-}
-
-export function compareFlooringThickness(a, b) {
-  if (a === b) return 0;
-  if (a === DEFAULT_FLOORING_SPEC) return -1;
-  if (b === DEFAULT_FLOORING_SPEC) return 1;
-  return Number(a) - Number(b);
-}
-
-export function isFlooringThicknessItem(item) {
-  const normalized = `${item?.name ?? ""}`.trim();
-  return FLOORING_NAME_KEYWORDS.some((keyword) => normalized.includes(keyword));
-}
-
-export function getFlooringThicknessGroups(subitems = []) {
-  const groupsByName = new Map();
-
-  subitems.forEach((subitem) => {
-    const parsed = parseFlooringThicknessName(subitem.name);
-    const baseName = parsed?.baseName ?? subitem.name;
-    const thickness = parsed?.thickness ?? DEFAULT_FLOORING_SPEC;
-
-    if (!groupsByName.has(baseName)) {
-      groupsByName.set(baseName, {
-        baseName,
-        sort_order: subitem.sort_order ?? 0,
-        options: {},
-      });
-    }
-
-    const group = groupsByName.get(baseName);
-    group.sort_order = Math.min(group.sort_order, subitem.sort_order ?? group.sort_order);
-    if (!group.options[thickness]) {
-      group.options[thickness] = {
-        ...subitem,
-        baseName,
-        thickness,
-      };
-    }
-  });
-
-  return [...groupsByName.values()]
-    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 }
 
 export function normalizeUnitOptionValue(value) {
@@ -159,156 +36,12 @@ export function getUnitSelectOptions(currentUnit = "") {
   return UNIT_OPTIONS;
 }
 
-export function normalizeSpecOptions(value) {
-  let rawOptions = value;
-  if (typeof rawOptions === "string") {
-    try {
-      rawOptions = JSON.parse(rawOptions);
-    } catch {
-      rawOptions = [];
-    }
-  }
-  if (!Array.isArray(rawOptions)) return [];
-
-  return [
-    ...new Set(
-      rawOptions
-        .map((entry) => `${entry ?? ""}`.trim())
-        .filter(
-          (entry) =>
-            entry
-            && entry !== DEFAULT_FLOORING_SPEC
-            && entry !== "기본(삭제예정)"
-        )
-    ),
-  ];
-}
-
 export function getLaborRateEmptyValue(subitem) {
   return subitem?.labor_rate_empty ?? subitem?.labor_rate ?? "";
 }
 
 export function getLaborRateOccupiedValue(subitem) {
   return subitem?.labor_rate_occupied ?? subitem?.labor_rate ?? "";
-}
-
-export function getTemplateOptionValue(subitem) {
-  const thickness = parseFlooringThicknessName(subitem?.name)?.thickness;
-  return thickness && thickness !== DEFAULT_FLOORING_SPEC ? thickness : "";
-}
-
-export function resolveFlooringVariant(subitems, baseName, thickness) {
-  const requestedBaseName = `${baseName ?? ""}`.trim();
-  const requestedThickness = normalizeFlooringThickness(thickness);
-
-  return (subitems ?? []).find((subitem) => {
-    const parsed = parseFlooringThicknessName(subitem?.name);
-    return (
-      parsed?.baseName === requestedBaseName
-      && parsed.thickness === requestedThickness
-    );
-  }) ?? null;
-}
-
-export function isFlooringThicknessSelection(value) {
-  const rawValue = `${value ?? ""}`.trim();
-  return (
-    /^[1-4](?:\.\d)?T?$/i.test(rawValue)
-    && normalizeFlooringThickness(rawValue) !== DEFAULT_FLOORING_SPEC
-  );
-}
-
-export function normalizeFlooringOptionKey(value) {
-  return isFlooringThicknessSelection(value)
-    ? normalizeFlooringThickness(value)
-    : "";
-}
-
-export function buildUniqueFlooringOptions({
-  subitems,
-  baseName,
-  specOptions = [],
-}) {
-  const rowOptions = (subitems ?? [])
-    .map((subitem) => parseFlooringThicknessName(subitem?.name))
-    .filter((parsed) => parsed?.baseName === `${baseName ?? ""}`.trim())
-    .map((parsed) => parsed.thickness)
-    .filter((thickness) => thickness && thickness !== DEFAULT_FLOORING_SPEC);
-
-  const uniqueOptions = [];
-  const seenKeys = new Set();
-  const appendOption = (option) => {
-    const rawOption = `${option ?? ""}`.trim();
-    if (
-      !rawOption
-      || rawOption === "\uC120\uD0DD"
-      || rawOption.startsWith("__formate_")
-    ) {
-      return;
-    }
-
-    const canonicalThickness = normalizeFlooringOptionKey(rawOption);
-    const key = canonicalThickness
-      ? `thickness:${canonicalThickness}`
-      : `spec:${rawOption}`;
-    if (seenKeys.has(key)) return;
-
-    seenKeys.add(key);
-    uniqueOptions.push(canonicalThickness || rawOption);
-  };
-
-  rowOptions.forEach(appendOption);
-  (specOptions ?? []).forEach(appendOption);
-  return uniqueOptions;
-}
-
-export function resolveActiveFlooringVariant(subitems, baseName, thickness) {
-  if (!`${thickness ?? ""}`.trim()) return null;
-  return resolveFlooringVariant(subitems, baseName, thickness);
-}
-
-export function createEmptyFlooringVariantDraft({
-  id,
-  itemId,
-  baseName,
-  thickness,
-  source,
-  sortOrder = 0,
-}) {
-  const normalizedThickness = normalizeFlooringThickness(thickness);
-  const canonicalName = getCanonicalFlooringSubitemName(
-    `${`${baseName ?? ""}`.trim()} ${normalizedThickness}T`
-  );
-
-  return {
-    id,
-    item_id: itemId,
-    name: canonicalName,
-    option_value: normalizedThickness,
-    unit: source?.unit ?? "평",
-    cost_price: "",
-    cost_unit: source?.cost_unit ?? "",
-    unit_price: "",
-    labor_rate: "",
-    labor_rate_empty: "",
-    labor_rate_occupied: "",
-    spec_options: [],
-    spec_option_draft: "",
-    selected_spec_option: "",
-    quantity: "",
-    labor_count: "",
-    template_value_id: null,
-    sort_order: sortOrder,
-  };
-}
-
-export function getFlooringVariantDisplayValues(variant) {
-  return {
-    disabled: !variant,
-    unit_price: variant?.unit_price ?? "",
-    labor_rate_empty: variant?.labor_rate_empty ?? variant?.labor_rate ?? "",
-    labor_rate_occupied: variant?.labor_rate_occupied ?? variant?.labor_rate ?? "",
-  };
 }
 
 export function patchSubitemPriceById(items, subitemId, patch) {
@@ -325,6 +58,78 @@ export function patchSubitemPriceById(items, subitemId, patch) {
   });
 
   return changed ? nextItems : items;
+}
+
+export function getAdminProductRows(item) {
+  return Array.isArray(item?.products) ? item.products : [];
+}
+
+export function getAdminProductSelectedSubitemId(
+  product,
+  selectedSubitemIdByProduct = {}
+) {
+  if (!product) return "";
+  if (product.kind === CONSTRUCTION_PRODUCT_KINDS.SUBITEM) {
+    return product.subitemId ?? product.selectableSubitemIds?.[0] ?? "";
+  }
+  if (product.kind !== CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP) return "";
+
+  const requestedSubitemId = `${
+    selectedSubitemIdByProduct?.[product.productId] ?? ""
+  }`.trim();
+  return product.selectableSubitemIds?.includes(requestedSubitemId)
+    ? requestedSubitemId
+    : product.selectableSubitemIds?.[0] ?? "";
+}
+
+export function resolveAdminProductSubitem(
+  item,
+  product,
+  selectedSubitemIdByProduct = {}
+) {
+  const selectedSubitemId = getAdminProductSelectedSubitemId(
+    product,
+    selectedSubitemIdByProduct
+  );
+  if (!selectedSubitemId) return null;
+  return (item?.subitems ?? []).find(
+    (subitem) => subitem.id === selectedSubitemId
+  ) ?? null;
+}
+
+export function reconcileAdminProductSelections(
+  items,
+  selectedSubitemIdByProduct = {}
+) {
+  const nextSelections = {};
+  (items ?? []).forEach((item) => {
+    getAdminProductRows(item).forEach((product) => {
+      if (product.kind !== CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP) return;
+      const selectedSubitemId = getAdminProductSelectedSubitemId(
+        product,
+        selectedSubitemIdByProduct
+      );
+      if (selectedSubitemId) {
+        nextSelections[product.productId] = selectedSubitemId;
+      }
+    });
+  });
+  return nextSelections;
+}
+
+export function filterAdminProductRows(item, searchTerm = "") {
+  const normalizedSearchTerm = `${searchTerm ?? ""}`.trim().toLowerCase();
+  const products = getAdminProductRows(item);
+  if (!normalizedSearchTerm) return products;
+  if (`${item?.name ?? ""}`.toLowerCase().includes(normalizedSearchTerm)) {
+    return products;
+  }
+  return products.filter((product) => (
+    `${product.displayName ?? ""}`.toLowerCase().includes(normalizedSearchTerm)
+    || (product.variants ?? []).some((variant) => (
+      `${variant.label ?? ""}`.toLowerCase().includes(normalizedSearchTerm)
+    ))
+  ));
 }
 
 export function buildSubitemPricePayload(subitem) {
@@ -353,7 +158,7 @@ export function buildConstructionSubitemSavePayload(
   { includePrices = false } = {}
 ) {
   const payload = {
-    name: getCanonicalFlooringSubitemName(subitem?.name),
+    name: `${subitem?.name ?? ""}`.trim(),
     unit: normalizeUnitOptionValue(subitem?.unit) || "평",
     sort_order: subitem?.sort_order ?? 0,
   };
@@ -362,7 +167,6 @@ export function buildConstructionSubitemSavePayload(
     payload.cost_price = toNonNegativeNumberOrZero(subitem?.cost_price);
     payload.cost_unit = normalizeUnitOptionValue(subitem?.cost_unit);
     Object.assign(payload, buildSubitemPricePayload(subitem));
-    payload.spec_options = normalizeSpecOptions(subitem?.spec_options);
   }
 
   return payload;
@@ -374,6 +178,11 @@ export function buildConstructionSubitemInsertPayload(subitem) {
     ...buildConstructionSubitemSavePayload(subitem, {
       includePrices: true,
     }),
+    variant_group_id: null,
+    variant_value: null,
+    variant_value_text: null,
+    variant_unit: null,
+    archived_at: null,
   };
 }
 
@@ -406,15 +215,11 @@ export function isEmptyLocalPriceTableSubitemPlaceholder(subitem, materialNamePl
     return false;
   }
 
-  if (`${subitem?.selected_spec_option ?? ""}`.trim()) return false;
-  if (`${subitem?.spec_option_draft ?? ""}`.trim()) return false;
-  if (normalizeSpecOptions(subitem?.spec_options).length) return false;
-
   const dirtyFields = new Set(
     Array.isArray(subitem?._dirtyFields) ? subitem._dirtyFields : []
   );
   if (
-    ["unit", "cost_unit", "selected_spec_option", "spec_option_draft", "spec_options"]
+    ["unit", "cost_unit"]
       .some((field) => dirtyFields.has(field))
   ) {
     return false;
@@ -423,78 +228,18 @@ export function isEmptyLocalPriceTableSubitemPlaceholder(subitem, materialNamePl
   return true;
 }
 
-export function buildSubitemSaveOperation(subitem) {
-  if (!subitem?.id) return null;
-  const operation = isLocalPriceTableSubitem(subitem) ? "insert" : "update";
-  return {
-    operation,
-    ...(operation === "update" ? { id: subitem.id } : {}),
-    payload: {
-      item_id: subitem.item_id,
-      name: getCanonicalFlooringSubitemName(subitem.name),
-      ...buildSubitemPricePayload(subitem),
-    },
-  };
-}
-
-function getSubitemPersistenceKey(subitem) {
-  return `${subitem?.item_id ?? ""}::${getCanonicalFlooringSubitemName(subitem?.name)}`;
-}
-
-export function reconcileFlooringVariantRows(subitems) {
-  const reconciled = [];
-  const indexByKey = new Map();
-
-  (subitems ?? []).forEach((subitem) => {
-    const parsed = parseFlooringThicknessName(subitem?.name);
-    if (!parsed || parsed.thickness === DEFAULT_FLOORING_SPEC) {
-      reconciled.push(subitem);
-      return;
-    }
-
-    const key = `${parsed.baseName}::${parsed.thickness}`;
-    const existingIndex = indexByKey.get(key);
-    if (existingIndex === undefined) {
-      indexByKey.set(key, reconciled.length);
-      reconciled.push(subitem);
-      return;
-    }
-
-    const existing = reconciled[existingIndex];
-    if (
-      isLocalPriceTableSubitem(existing)
-      && !isLocalPriceTableSubitem(subitem)
-    ) {
-      reconciled[existingIndex] = subitem;
-    }
-  });
-
-  return reconciled;
-}
-
-export function reconcileInsertedSubitems(localSubitems, insertedSubitems) {
-  const insertedByKey = new Map(
-    (insertedSubitems ?? []).map((subitem) => [
-      getSubitemPersistenceKey(subitem),
-      subitem,
+export function reconcileInsertedSubitems(localSubitems, insertResults) {
+  const insertedByLocalId = new Map(
+    (insertResults ?? []).map((result) => [
+      result.localId,
+      result.persistedSubitem,
     ])
   );
 
   return (localSubitems ?? []).map((subitem) => {
-    const persisted = insertedByKey.get(getSubitemPersistenceKey(subitem));
+    const persisted = insertedByLocalId.get(subitem.id);
     return persisted ? { ...subitem, ...persisted } : subitem;
   });
-}
-
-export function normalizePriceTableRows(rows) {
-  return (rows ?? []).map((row) => ({
-    ...row,
-    name: getCanonicalFlooringSubitemName(row.name),
-    unit_price: row.unit_price ?? "",
-    labor_rate: row.labor_rate ?? "",
-    labor_rate_empty: row.labor_rate_empty ?? row.labor_rate ?? "",
-    labor_rate_occupied: row.labor_rate_occupied ?? row.labor_rate ?? "",
-  }));
 }
 
 function sortPriceTableItems(rows) {
@@ -553,6 +298,25 @@ function mergeDisplayCategoryItems(items) {
       sort_order: Math.min(parent.sort_order ?? 0, other.sort_order ?? 0),
       subitems: [...(existing.subitems ?? []), ...(normalizedItem.subitems ?? [])]
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+      ...(Array.isArray(existing.products) || Array.isArray(normalizedItem.products)
+        ? {
+            products: [
+              ...(existing.products ?? []),
+              ...(normalizedItem.products ?? []),
+            ].sort((a, b) => (
+              (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+              || `${a.productId ?? ""}`.localeCompare(`${b.productId ?? ""}`)
+            )),
+            variantGroups: [
+              ...(existing.variantGroups ?? []),
+              ...(normalizedItem.variantGroups ?? []),
+            ],
+            canonicalSourceSubitems: [
+              ...(existing.canonicalSourceSubitems ?? []),
+              ...(normalizedItem.canonicalSourceSubitems ?? []),
+            ],
+          }
+        : {}),
       _sourceName: parent._sourceName,
     });
   });
@@ -570,28 +334,63 @@ function toConstructionDaysValue(value) {
 export function normalizeAdminItems(
   itemRows,
   subitemRows,
-  templateValueRows = []
+  templateValueRows = [],
+  canonicalCatalog
 ) {
+  if (!canonicalCatalog) {
+    throw new Error("Admin catalog normalization requires the canonical construction catalog.");
+  }
+  const canonicalItemsById = new Map(
+    (canonicalCatalog.items ?? []).map((item) => [item.constructionItemId, item])
+  );
+  const selectableSubitemIds = new Set(
+    (canonicalCatalog.products ?? [])
+      .flatMap((product) => product.selectableSubitemIds ?? [])
+  );
   const subitemsByItemId = (subitemRows ?? []).reduce((acc, row) => {
     acc[row.item_id] = acc[row.item_id] ?? [];
     acc[row.item_id].push(row);
     return acc;
   }, {});
-  const templateValueBySubitemId = Object.fromEntries(
-    (templateValueRows ?? []).map((row) => [row.subitem_id, row])
-  );
+  const templateValueBySubitemId = new Map();
+  (templateValueRows ?? []).forEach((row) => {
+    if (!selectableSubitemIds.has(row.subitem_id)) return;
+    if (templateValueBySubitemId.has(row.subitem_id)) {
+      const error = new Error(
+        "A canonical template contains more than one value row for the same construction_subitem UUID."
+      );
+      error.code = "duplicate-template-subitem-id";
+      error.context = { constructionSubitemId: row.subitem_id };
+      throw error;
+    }
+    templateValueBySubitemId.set(row.subitem_id, row);
+  });
 
   return mergeDisplayCategoryItems(
-    (itemRows ?? []).map((item) => ({
-      ...item,
-      item_type: item.item_type ?? "itemized",
-      subitems: [...(subitemsByItemId[item.id] ?? [])]
+    (itemRows ?? []).map((item) => {
+      const canonicalItem = canonicalItemsById.get(item.id);
+      const itemSelectableSubitemIds = new Set(
+        (canonicalItem?.products ?? [])
+          .flatMap((product) => product.selectableSubitemIds ?? [])
+      );
+      return {
+        ...item,
+        item_type: item.item_type ?? "itemized",
+        products: canonicalItem?.products ?? [],
+        variantGroups: [
+          ...(canonicalItem?.variantGroups ?? []),
+          ...(canonicalItem?.archivedVariantGroups ?? []),
+        ],
+        canonicalSourceSubitems: [...(subitemsByItemId[item.id] ?? [])],
+        subitems: [...(subitemsByItemId[item.id] ?? [])]
+        .filter((subitem) => itemSelectableSubitemIds.has(subitem.id))
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
         .map((subitem) => {
-          const templateValue = templateValueBySubitemId[subitem.id];
+          const templateValue = templateValueBySubitemId.get(subitem.id);
           return {
             ...subitem,
-            option_value: getTemplateOptionValue(subitem),
+            option_value: "",
+            template_option_value: "",
             cost_price: subitem.cost_price ?? "",
             cost_unit: normalizeUnitOptionValue(subitem.cost_unit),
             unit_price: subitem.unit_price ?? "",
@@ -600,9 +399,6 @@ export function normalizeAdminItems(
               subitem.labor_rate_empty ?? subitem.labor_rate ?? "",
             labor_rate_occupied:
               subitem.labor_rate_occupied ?? subitem.labor_rate ?? "",
-            spec_options: normalizeSpecOptions(subitem.spec_options),
-            spec_option_draft: "",
-            selected_spec_option: "",
             quantity: templateValue?.quantity ?? "",
             labor_count: templateValue?.labor_count ?? "",
             construction_days:
@@ -610,8 +406,80 @@ export function normalizeAdminItems(
             template_value_id: templateValue?.id ?? null,
           };
         }),
-    }))
+      };
+    })
   );
+}
+
+export function buildAdminTemplateValueSaveOperations({
+  templateId,
+  items,
+  excludedItemIds = [],
+} = {}) {
+  const excludedIds = excludedItemIds instanceof Set
+    ? excludedItemIds
+    : new Set(excludedItemIds ?? []);
+
+  return (items ?? []).flatMap((item) => (
+    excludedIds.has(item.id)
+      ? []
+      : (item.subitems ?? []).map((subitem) => {
+          const values = {
+            quantity: toNullableNumber(subitem.quantity),
+            labor_count: toNullableNumber(subitem.labor_count),
+            construction_days: toConstructionDaysValue(subitem.construction_days),
+          };
+          if (subitem.template_value_id) {
+            return {
+              operation: "update",
+              valueId: subitem.template_value_id,
+              itemId: subitem.item_id,
+              subitemId: subitem.id,
+              payload: values,
+            };
+          }
+          return {
+            operation: "insert",
+            itemId: subitem.item_id,
+            subitemId: subitem.id,
+            payload: {
+              template_id: templateId,
+              item_id: subitem.item_id,
+              subitem_id: subitem.id,
+              option_value: "",
+              ...values,
+            },
+          };
+        })
+  ));
+}
+
+export function buildAdminTemplateValueClonePayloads({
+  templateId,
+  values,
+} = {}) {
+  const seenSubitemIds = new Set();
+  return (values ?? []).map((value) => {
+    const constructionSubitemId = `${value?.subitem_id ?? ""}`.trim();
+    if (!constructionSubitemId || seenSubitemIds.has(constructionSubitemId)) {
+      const error = new Error(
+        "A canonical template clone requires exactly one value row per construction_subitem UUID."
+      );
+      error.code = "duplicate-template-subitem-id";
+      error.context = { constructionSubitemId };
+      throw error;
+    }
+    seenSubitemIds.add(constructionSubitemId);
+    return {
+      template_id: templateId,
+      item_id: value.item_id,
+      subitem_id: constructionSubitemId,
+      option_value: "",
+      quantity: value.quantity,
+      labor_count: value.labor_count,
+      construction_days: value.construction_days,
+    };
+  });
 }
 
 export function shouldBootstrapAdminCatalog({

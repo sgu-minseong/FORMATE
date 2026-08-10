@@ -127,23 +127,6 @@ export async function updateConstructionSubitemForItem(
   return data ?? [];
 }
 
-export async function deleteConstructionSubitem(subitemId) {
-  const { error } = await supabase
-    .from("construction_subitems")
-    .delete()
-    .eq("id", subitemId);
-  throwIfError(error);
-}
-
-export async function deleteConstructionSubitems(subitemIds) {
-  if (!(subitemIds ?? []).length) return;
-  const { error } = await supabase
-    .from("construction_subitems")
-    .delete()
-    .in("id", subitemIds);
-  throwIfError(error);
-}
-
 export async function upsertSubitemPyeongValues(payloads) {
   const { error } = await supabase
     .from("subitem_pyeong_values")
@@ -244,17 +227,23 @@ export async function fetchAdminTemplateValues(templateId) {
 
 export async function fetchAdminTemplateValueCandidate(
   templateId,
-  subitemId,
-  optionValue
+  subitemId
 ) {
   const { data, error } = await supabase
     .from("admin_condition_template_values")
-    .select("id, quantity, labor_count")
+    .select("id, quantity, labor_count, construction_days")
     .eq("template_id", templateId)
     .eq("subitem_id", subitemId)
-    .eq("option_value", optionValue)
-    .limit(1);
+    .limit(2);
   throwIfError(error);
+  if ((data ?? []).length > 1) {
+    const contractError = new Error(
+      "A canonical template contains more than one value row for the same construction_subitem UUID."
+    );
+    contractError.code = "duplicate-template-subitem-id";
+    contractError.context = { templateId, constructionSubitemId: subitemId };
+    throw contractError;
+  }
   return data?.[0] ?? null;
 }
 

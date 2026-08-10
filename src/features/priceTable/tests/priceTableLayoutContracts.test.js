@@ -13,6 +13,18 @@ const appStyles = readFileSync(
   new URL("../../../styles/appStyles.js", import.meta.url),
   "utf8"
 );
+const canonicalSelectSource = readFileSync(
+  new URL("../../constructionCatalog/CanonicalVariantSelect.jsx", import.meta.url),
+  "utf8"
+);
+const canonicalManagerSource = readFileSync(
+  new URL("../../constructionCatalog/CanonicalVariantManager.jsx", import.meta.url),
+  "utf8"
+);
+const adminAppSource = readFileSync(
+  new URL("../../../app/AdminApp.jsx", import.meta.url),
+  "utf8"
+);
 
 describe("price table add action layout contracts", () => {
   it("replaces the full-width material add rows with centered item actions", () => {
@@ -45,5 +57,39 @@ describe("construction item renderer contracts", () => {
     expect(pageSource).toContain("getConstructionItemRendererKind(item)");
     expect(pageSource).not.toContain("isFlooringThicknessItem(item)");
     expect(pageSource).not.toContain('item.item_type === "flat"');
+  });
+
+  it("renders canonical product rows and UUID-valued variant options only", () => {
+    expect(pageSource).toContain("getVisibleAdminProducts(item)");
+    expect(pageSource).toContain("<CanonicalVariantSelect");
+    expect(canonicalSelectSource).toContain("value={variant.constructionSubitemId}");
+    expect(canonicalSelectSource).toContain("key={variant.constructionSubitemId}");
+    expect(canonicalSelectSource).toContain("onChange?.(variant.constructionSubitemId)");
+    expect(pageSource).not.toContain("spec_options");
+    expect(pageSource).not.toContain("selected_spec_option");
+    expect(pageSource).not.toContain("normalizeSpecOptions");
+  });
+
+  it("shares one dropdown surface between variant selection and management", () => {
+    expect(pageSource).toContain("management={{");
+    expect(pageSource).not.toContain("<CanonicalVariantManager");
+    expect(pageSource).not.toContain("onManage=");
+    expect(canonicalSelectSource).toContain('mode === "manage"');
+    expect(canonicalSelectSource).toContain("<CanonicalVariantManager");
+    expect(canonicalSelectSource).toContain('onClose={() => setMode("select")}');
+    expect(canonicalSelectSource).toContain("canonical-variant-dropdown__manage-action");
+    expect(canonicalSelectSource).not.toContain("spec-options-manage-button");
+    expect(canonicalManagerSource).toContain('<div className="canonical-variant-manager">');
+    expect(canonicalManagerSource).not.toContain("spec-options-popover canonical-variant-manager");
+  });
+
+  it("routes variant create and archive actions through the canonical writers", () => {
+    expect(pageSource).toContain("onAdd: (draft) => createAdminProductVariant(item, product, draft)");
+    expect(pageSource).toContain("onArchive: (variant) => archiveAdminProductVariant(item, product, variant)");
+    expect(canonicalManagerSource).toContain("await onAdd?.({");
+    expect(canonicalManagerSource).toContain("onClick={() => onArchive?.(variant)}");
+    expect(adminAppSource).toContain("await insertCanonicalVariantSubitem(");
+    expect(adminAppSource).toContain("await archiveCanonicalConstructionSubitem(");
+    expect(adminAppSource).toContain("await archiveCanonicalVariantGroup(");
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPriceTableAutosave } from "./priceTableAutosave";
+import { filterAdminProductRows } from "./priceTableModel";
 
 export default function usePriceTableController({
   page,
@@ -18,11 +19,8 @@ export default function usePriceTableController({
   const [expandedAdminItemIds, setExpandedAdminItemIds] = useState([]);
   const [selectedAdminCategoryId, setSelectedAdminCategoryId] = useState("");
   const [adminCommonPriceSavedAt, setAdminCommonPriceSavedAt] = useState("");
-  const [adminBulkInputs, setAdminBulkInputs] = useState({});
-  const [activeFlooringThicknessByGroup, setActiveFlooringThicknessByGroup] =
+  const [selectedSubitemIdByProduct, setSelectedSubitemIdByProduct] =
     useState({});
-  const [activeSpecOptionsPopoverId, setActiveSpecOptionsPopoverId] =
-    useState("");
   const [newlyAddedSubitemId, setNewlyAddedSubitemId] = useState("");
   const [adminPriceValidationError, setAdminPriceValidationError] =
     useState(null);
@@ -75,10 +73,12 @@ export default function usePriceTableController({
       if (adminFavoriteOnly && !item.is_favorite) return false;
       if (!adminSearchTerm) return true;
       const itemMatches = item.name.toLowerCase().includes(adminSearchTerm);
-      const subitemMatches = (item.subitems ?? []).some((subitem) =>
-        subitem.name.toLowerCase().includes(adminSearchTerm)
-      );
-      return itemMatches || subitemMatches;
+      const productMatches = Array.isArray(item.products)
+        ? filterAdminProductRows(item, adminSearchTerm).length > 0
+        : (item.subitems ?? []).some((subitem) =>
+            subitem.name.toLowerCase().includes(adminSearchTerm)
+          );
+      return itemMatches || productMatches;
     });
   }, [adminFavoriteOnly, adminItems, adminSearchTerm]);
 
@@ -220,9 +220,6 @@ export default function usePriceTableController({
   }
 
   return {
-    activeFlooringThicknessByGroup,
-    activeSpecOptionsPopoverId,
-    adminBulkInputs,
     adminCommonPriceSavedAt,
     adminError,
     adminFavoriteOnly,
@@ -265,9 +262,7 @@ export default function usePriceTableController({
     runAdminAutoSave,
     scrollToAdminPriceRow,
     selectedAdminCategoryId,
-    setActiveFlooringThicknessByGroup,
-    setActiveSpecOptionsPopoverId,
-    setAdminBulkInputs,
+    selectedSubitemIdByProduct,
     setAdminCommonPriceSavedAt,
     setAdminError,
     setAdminFavoriteOnly,
@@ -292,5 +287,6 @@ export default function usePriceTableController({
     setExpandedAdminItemIds,
     setNewlyAddedSubitemId,
     setSelectedAdminCategoryId,
+    setSelectedSubitemIdByProduct,
   };
 }

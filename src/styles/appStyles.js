@@ -6545,12 +6545,6 @@ const appStyles = `
     background-position: right 6px center;
     font-size: 13px;
   }
-  .spec-options-manage-button {
-    min-height: 32px;
-    padding: 5px 8px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
   .spec-options-popover {
     position: absolute;
     z-index: 35;
@@ -6632,6 +6626,134 @@ const appStyles = `
     display: flex;
     justify-content: flex-end;
     margin-top: 6px;
+  }
+  .canonical-variant-control {
+    position: relative;
+    width: 100%;
+  }
+  .canonical-variant-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-width: 0;
+    min-height: 32px;
+    padding: 5px 8px;
+    border: 1px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: var(--line-height-table-cell);
+    text-align: left;
+  }
+  .canonical-variant-trigger:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+  }
+  .canonical-variant-trigger:focus-visible {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    outline: none;
+  }
+  .canonical-variant-trigger span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .canonical-variant-trigger svg {
+    flex: 0 0 auto;
+    margin-left: var(--space-1);
+  }
+  .canonical-variant-dropdown {
+    width: 180px;
+    max-width: calc(100vw - 32px);
+    padding: 4px;
+  }
+  .canonical-variant-dropdown--manage {
+    width: 320px;
+    padding: 8px;
+  }
+  .canonical-variant-dropdown__options {
+    display: grid;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .canonical-variant-dropdown__option,
+  .canonical-variant-dropdown__manage-action {
+    width: 100%;
+    min-height: 30px;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    font-size: var(--font-size-table-cell);
+    line-height: var(--line-height-table-cell);
+    text-align: left;
+  }
+  .canonical-variant-dropdown__option:hover,
+  .canonical-variant-dropdown__manage-action:hover,
+  .canonical-variant-dropdown__option:focus-visible,
+  .canonical-variant-dropdown__manage-action:focus-visible {
+    background: var(--color-surface-subtle);
+    outline: none;
+  }
+  .canonical-variant-dropdown__option.selected {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+  .canonical-variant-dropdown__separator {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--border-subtle);
+  }
+  .canonical-variant-dropdown__manage-action {
+    color: var(--color-text-secondary);
+  }
+  .canonical-variant-manager {
+    width: 100%;
+  }
+  .canonical-variant-manager__metadata {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 92px;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+  .canonical-variant-manager__metadata label {
+    display: grid;
+    gap: var(--space-1);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .canonical-variant-manager__metadata input,
+  .canonical-variant-manager__metadata select,
+  .canonical-variant-manager__row input,
+  .canonical-variant-manager__add input {
+    min-width: 0;
+    min-height: 30px;
+    padding: 5px 8px;
+    font-size: var(--font-size-table-cell);
+  }
+  .canonical-variant-manager__row {
+    grid-template-columns: minmax(0, 1fr) 52px;
+  }
+  .canonical-variant-manager__value-fields {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 72px;
+    gap: var(--space-1) !important;
+    min-width: 0;
+  }
+  .canonical-variant-manager__add {
+    grid-template-columns: minmax(0, 1fr) 88px auto;
+  }
+  .canonical-variant-manager__row-actions {
+    display: inline-flex;
+    gap: var(--space-1);
   }
   .price-table-list .admin-value-row.common-price-row .danger-button {
     width: 30px;
@@ -8631,12 +8753,6 @@ const appStyles = `
   }
   .admin-price-v2-grid-list .spec-options-control--select-manage {
     display: block;
-  }
-  .admin-price-v2-grid-list .spec-options-manage-button {
-    height: var(--button-height-sm);
-    min-height: var(--button-height-sm);
-    padding: 0 var(--space-1);
-    font-size: var(--font-size-caption);
   }
   .admin-price-v2-danger-button {
     width: var(--button-height-sm);

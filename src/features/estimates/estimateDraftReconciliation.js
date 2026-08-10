@@ -2,6 +2,7 @@ import {
   hasNumericInput,
   toNumberOrZero,
 } from "../../shared/utils/numbers";
+import { isEstimateHistoryCompatibilityRow } from "./estimateHistoryCompatibility";
 
 export const ESTIMATE_TEMPLATE_DERIVED_FIELDS = [
   { fieldKey: "quantity", baseKey: "baseQuantity" },
@@ -14,11 +15,21 @@ export const ESTIMATE_PRICE_SOURCE_FIELDS = [
 ];
 
 export function getEstimateDraftRowKeys(row) {
-  return [
+  const stableKeys = [
+    row?.variantGroupId ? `variant-group:${row.variantGroupId}` : "",
+    ...(row?.estimateOptions ?? []).map((option) => (
+      option?.subitemId ? `subitem:${option.subitemId}` : ""
+    )),
     row?.subitemId ? `subitem:${row.subitemId}` : "",
+  ].filter(Boolean);
+  if (!isEstimateHistoryCompatibilityRow(row)) {
+    return [...new Set(stableKeys)];
+  }
+  return [...new Set([
+    ...stableKeys,
     row?.itemId && row?.material ? `material:${row.itemId}:${row.material}` : "",
     row?.categoryId && row?.material ? `category:${row.categoryId}:${row.material}` : "",
-  ].filter(Boolean);
+  ].filter(Boolean))];
 }
 
 export function isEstimateDraftFieldEdited(row, fieldKey, baseKey) {
@@ -68,19 +79,13 @@ export function reconcileEstimateDraftItems({
           .find(Boolean);
         if (!previousRow) return row;
 
-        const canKeepEstimateOption =
-          previousRow.selectedEstimateOptionId
-          && (row.estimateOptions ?? []).some(
-            (option) => option.id === previousRow.selectedEstimateOptionId
-          );
-        const canKeepThickness =
-          !canKeepEstimateOption
-          && previousRow.selectedThickness
-          && (row.thicknessOptions ?? []).some((option) => option.thickness === previousRow.selectedThickness);
-        const templateRow = canKeepEstimateOption
-          ? applyRowPatch(row, { selectedEstimateOptionId: previousRow.selectedEstimateOptionId })
-          : canKeepThickness
-          ? applyRowPatch(row, { selectedThickness: previousRow.selectedThickness })
+        const previousOptionId = previousRow.selectedEstimateOptionId;
+        const exactOption = (row.estimateOptions ?? []).find((option) => (
+          (previousOptionId && option.id === previousOptionId)
+          || (previousRow.subitemId && option.subitemId === previousRow.subitemId)
+        ));
+        const templateRow = exactOption
+          ? applyRowPatch(row, { selectedEstimateOptionId: exactOption.id })
           : row;
         if (templateRow.itemKind === "sash" || previousRow.itemKind === "sash") {
           const hasSelectedSashSpec = Boolean(previousRow.sashSpec);
@@ -104,15 +109,12 @@ export function reconcileEstimateDraftItems({
             hasTemplateValue: hasSelectedSashSpec,
           });
         }
-        const canKeepSpecOption =
-          previousRow.selectedSpecOption
-          && (templateRow.specOptions ?? []).includes(previousRow.selectedSpecOption);
         const mergedRow = {
           ...templateRow,
           selected: Boolean(previousRow.selected),
           expanded: Boolean(previousRow.expanded),
           contractor: previousRow.contractor ?? "",
-          selectedSpecOption: canKeepSpecOption ? previousRow.selectedSpecOption : templateRow.selectedSpecOption,
+          selectedSpecOption: templateRow.selectedSpecOption,
         };
 
         [...ESTIMATE_TEMPLATE_DERIVED_FIELDS, ...ESTIMATE_PRICE_SOURCE_FIELDS].forEach(({ fieldKey, baseKey }) => {

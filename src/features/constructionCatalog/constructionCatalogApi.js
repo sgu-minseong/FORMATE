@@ -66,3 +66,79 @@ export async function fetchCanonicalConstructionCatalogRows(companyId) {
 
   return { ...catalogRows, variantGroupRows, canonicalCatalog };
 }
+
+export async function insertCanonicalVariantGroup(payload) {
+  const { data, error } = await supabase
+    .from("construction_subitem_variant_groups")
+    .insert(payload)
+    .select("*")
+    .single();
+  throwIfError(error);
+  return data;
+}
+
+export async function updateCanonicalVariantGroup(
+  variantGroupId,
+  constructionItemId,
+  payload
+) {
+  const { data, error } = await supabase
+    .from("construction_subitem_variant_groups")
+    .update(payload)
+    .eq("id", variantGroupId)
+    .eq("construction_item_id", constructionItemId)
+    .select("*")
+    .single();
+  throwIfError(error);
+  return data;
+}
+
+export async function insertCanonicalVariantSubitem(payload) {
+  const { data, error } = await supabase
+    .from("construction_subitems")
+    .insert(payload)
+    .select("*")
+    .single();
+  throwIfError(error);
+  return data;
+}
+
+export async function updateCanonicalConstructionSubitem(
+  constructionSubitemId,
+  constructionItemId,
+  payload
+) {
+  const { data, error } = await supabase
+    .from("construction_subitems")
+    .update(payload)
+    .eq("id", constructionSubitemId)
+    .eq("item_id", constructionItemId)
+    .select("*")
+    .single();
+  throwIfError(error);
+  return data;
+}
+
+export function archiveCanonicalVariantGroup(
+  variantGroupId,
+  constructionItemId,
+  archivedAt = new Date().toISOString()
+) {
+  return updateCanonicalVariantGroup(
+    variantGroupId,
+    constructionItemId,
+    { archived_at: archivedAt }
+  );
+}
+
+export function archiveCanonicalConstructionSubitem(
+  constructionSubitemId,
+  constructionItemId,
+  archivedAt = new Date().toISOString()
+) {
+  return updateCanonicalConstructionSubitem(
+    constructionSubitemId,
+    constructionItemId,
+    { archived_at: archivedAt }
+  );
+}
