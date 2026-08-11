@@ -19,6 +19,42 @@ export const AI_EXCEL_FIELD_DEFINITIONS = [
     aliases: ["FORMATE_TEMPLATE_ID"],
   },
   {
+    key: "formate_product_kind",
+    label: "FORMATE 제품 유형",
+    type: "stable_key",
+    aliases: ["FORMATE_PRODUCT_KIND"],
+  },
+  {
+    key: "formate_variant_kind",
+    label: "FORMATE 규격 유형",
+    type: "stable_key",
+    aliases: ["FORMATE_VARIANT_KIND"],
+  },
+  {
+    key: "formate_variant_value_type",
+    label: "FORMATE 규격 값 유형",
+    type: "stable_key",
+    aliases: ["FORMATE_VARIANT_VALUE_TYPE"],
+  },
+  {
+    key: "formate_variant_value_number",
+    label: "FORMATE 숫자 규격 값",
+    type: "stable_key",
+    aliases: ["FORMATE_VARIANT_VALUE_NUMBER"],
+  },
+  {
+    key: "formate_variant_value_text",
+    label: "FORMATE 문자 규격 값",
+    type: "stable_key",
+    aliases: ["FORMATE_VARIANT_VALUE_TEXT"],
+  },
+  {
+    key: "formate_variant_unit",
+    label: "FORMATE 규격 단위",
+    type: "stable_key",
+    aliases: ["FORMATE_VARIANT_UNIT"],
+  },
+  {
     key: "category",
     label: "대분류",
     type: "basic_field",

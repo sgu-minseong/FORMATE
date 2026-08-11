@@ -7,6 +7,8 @@ const mockState = vi.hoisted(() => ({
   signedUrlCalls: [],
   storageUploads: [],
   storageRemovals: [],
+  rpcCalls: [],
+  rpcResults: {},
   storageUploadResult: { data: {}, error: null },
   storageRemoveResult: { data: {}, error: null },
 }));
@@ -65,6 +67,10 @@ function createQuery(table) {
 vi.mock("../../../lib/supabaseClient", () => ({
   supabase: {
     from: (table) => createQuery(table),
+    rpc: async (name, args) => {
+      mockState.rpcCalls.push({ name, args });
+      return mockState.rpcResults[name] ?? { data: { ok: true }, error: null };
+    },
     storage: {
       from: () => ({
         upload: async (path, file, options) => {
@@ -86,6 +92,7 @@ vi.mock("../../../lib/supabaseClient", () => ({
 
 import {
   archivePhotoV2,
+  compensatePhotoUploadBatchAtomic,
   fetchPhotoCatalog,
   listPyeongPhotoRows,
   listPyeongPhotos,
@@ -93,6 +100,7 @@ import {
   listRecentPhotoLibraryPhotos,
   reorderPhotoV2Rows,
   resolvePyeongPhotoUrls,
+  updatePhotoDescriptionsAtomic,
   uploadPyeongSubitemPhoto,
 } from "../photoApi";
 import { PHOTO_V2_ERROR_CODES } from "../photoModel";
@@ -105,6 +113,8 @@ describe("Photo v2 API contracts", () => {
     mockState.signedUrlCalls = [];
     mockState.storageUploads = [];
     mockState.storageRemovals = [];
+    mockState.rpcCalls = [];
+    mockState.rpcResults = {};
     mockState.storageUploadResult = { data: {}, error: null };
     mockState.storageRemoveResult = { data: {}, error: null };
   });
@@ -231,7 +241,7 @@ describe("Photo v2 API contracts", () => {
     });
   });
 
-  it("keeps reorder and archive writes company-scoped and archive-only", async () => {
+  it("keeps reorder atomic and archive writes company-scoped and archive-only", async () => {
     mockState.rows.photos = {
       data: { id: "photo-a", company_id: "company", archived_at: "2026-08-10T00:00:00.000Z" },
       error: null,
@@ -243,20 +253,67 @@ describe("Photo v2 API contracts", () => {
     });
     await archivePhotoV2({ companyId: "company", photoId: "photo-a" });
 
+    expect(mockState.rpcCalls).toContainEqual({
+      name: "reorder_photo_entities_atomic",
+      args: {
+        p_company_id: "company",
+        p_entity_type: "photo",
+        p_ordered_ids: ["photo-b", "photo-a"],
+      },
+    });
     expect(mockState.calls.filter((call) => call.method === "update"))
-      .toEqual([
-        { table: "photos", method: "update", value: { sort_order: 0 } },
-        { table: "photos", method: "update", value: { sort_order: 1 } },
-        {
-          table: "photos",
-          method: "update",
-          value: { archived_at: expect.any(String) },
-        },
-      ]);
+      .toEqual([{
+        table: "photos",
+        method: "update",
+        value: { archived_at: expect.any(String) },
+      }]);
     expect(mockState.calls.filter((call) => (
       call.method === "eq" && call.column === "company_id" && call.value === "company"
-    ))).toHaveLength(3);
+    ))).toHaveLength(1);
     expect(mockState.calls.some((call) => call.method === "delete")).toBe(false);
+  });
+
+  it("uses one transaction for caption batches and upload compensation", async () => {
+    mockState.rpcResults.update_photo_captions_atomic = {
+      data: {
+        ok: true,
+        photos: [{ id: "photo-a", company_id: "company", caption: "완료" }],
+      },
+      error: null,
+    };
+    mockState.rpcResults.compensate_photo_upload_batch_atomic = {
+      data: {
+        ok: true,
+        photos: [{ id: "photo-a", company_id: "company", archived_at: "2026-08-10" }],
+      },
+      error: null,
+    };
+
+    await expect(updatePhotoDescriptionsAtomic({
+      companyId: "company",
+      updates: [{ photoId: "photo-a", description: " 완료 " }],
+    })).resolves.toEqual([expect.objectContaining({ id: "photo-a", caption: "완료" })]);
+    await compensatePhotoUploadBatchAtomic({
+      companyId: "company",
+      photoIds: ["photo-a", "photo-missing"],
+    });
+
+    expect(mockState.rpcCalls).toEqual(expect.arrayContaining([
+      {
+        name: "update_photo_captions_atomic",
+        args: {
+          p_company_id: "company",
+          p_updates: [{ photo_id: "photo-a", caption: "완료" }],
+        },
+      },
+      {
+        name: "compensate_photo_upload_batch_atomic",
+        args: {
+          p_company_id: "company",
+          p_photo_ids: ["photo-a", "photo-missing"],
+        },
+      },
+    ]));
   });
 
   it("lists one pyeong workspace without archived or sash-specific photos", async () => {

@@ -73,6 +73,14 @@ async function runPhotoV2(operation, fallback) {
   }
 }
 
+function assertPhotoAtomicResult(data, fallbackCode) {
+  if (data?.ok) return data;
+  throw createPhotoV2Error(
+    data?.code || fallbackCode,
+    data?.message || "사진 변경을 원자적으로 저장하지 못했습니다."
+  );
+}
+
 async function fetchPhotoLibraryFolderRows(companyId) {
   const { data, error } = await supabase
     .from("photo_library_folders")
@@ -269,29 +277,45 @@ export async function uploadPyeongSubitemPhoto({
   }), "평형별 사진을 등록하지 못했습니다.");
 }
 
-export async function updatePhotoDescription({ companyId, photoId, description }) {
+export async function reorderPhotoV2Rows({ companyId, photos = [] }) {
   return runPhotoV2(async () => {
-    const { data, error } = await supabase.from("photos")
-      .update({ caption: normalizePhotoCaption(description) })
-      .eq("id", photoId)
-      .eq("company_id", companyId)
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc("reorder_photo_entities_atomic", {
+      p_company_id: companyId,
+      p_entity_type: "photo",
+      p_ordered_ids: photos.map((photo) => photo.id),
+    });
     if (error) throw error;
-    return normalizePhotoV2Photo(data);
+    return assertPhotoAtomicResult(data, "photo_atomic_reorder_failed");
+  }, "사진 순서를 저장하지 못했습니다.");
+}
+
+export async function updatePhotoDescriptionsAtomic({ companyId, updates = [] }) {
+  return runPhotoV2(async () => {
+    const { data, error } = await supabase.rpc("update_photo_captions_atomic", {
+      p_company_id: companyId,
+      p_updates: updates.map((update) => ({
+        photo_id: update.photoId,
+        caption: normalizePhotoCaption(update.description),
+      })),
+    });
+    if (error) throw error;
+    const result = assertPhotoAtomicResult(data, "photo_caption_atomic_save_failed");
+    return (result.photos ?? []).map(normalizePhotoV2Photo);
   }, "사진 설명을 저장하지 못했습니다.");
 }
 
-export async function reorderPhotoV2Rows({ companyId, photos = [] }) {
+export async function compensatePhotoUploadBatchAtomic({ companyId, photoIds = [] }) {
+  const ids = [...new Set((photoIds ?? []).filter(Boolean))];
+  if (!ids.length) return [];
   return runPhotoV2(async () => {
-    for (const [sortOrder, photo] of photos.entries()) {
-      const { error } = await supabase.from("photos")
-        .update({ sort_order: sortOrder })
-        .eq("id", photo.id)
-        .eq("company_id", companyId);
-      if (error) throw error;
-    }
-  }, "사진 순서를 저장하지 못했습니다.");
+    const { data, error } = await supabase.rpc("compensate_photo_upload_batch_atomic", {
+      p_company_id: companyId,
+      p_photo_ids: ids,
+    });
+    if (error) throw error;
+    const result = assertPhotoAtomicResult(data, "photo_upload_compensation_failed");
+    return (result.photos ?? []).map(normalizePhotoV2Photo);
+  }, "완료되지 않은 사진 업로드를 정리하지 못했습니다.");
 }
 
 export async function archivePhotoV2({ companyId, photoId }) {
@@ -381,14 +405,13 @@ export async function movePhotoLibraryFolder({ companyId, folderId, parentFolder
 
 export async function reorderPhotoLibraryFolders({ companyId, folders = [] }) {
   return runPhotoV2(async () => {
-    for (const [sortOrder, folder] of folders.entries()) {
-      const { error } = await supabase.from("photo_library_folders")
-        .update({ sort_order: sortOrder })
-        .eq("id", folder.id)
-        .eq("company_id", companyId)
-        .is("archived_at", null);
-      if (error) throw error;
-    }
+    const { data, error } = await supabase.rpc("reorder_photo_entities_atomic", {
+      p_company_id: companyId,
+      p_entity_type: "folder",
+      p_ordered_ids: folders.map((folder) => folder.id),
+    });
+    if (error) throw error;
+    return assertPhotoAtomicResult(data, "photo_folder_atomic_reorder_failed");
   }, "사진 폴더 순서를 저장하지 못했습니다.");
 }
 
@@ -462,19 +485,14 @@ export async function uploadPhotoLibraryPhoto({ companyId, folderId, photoId, fi
 export async function movePhotoLibraryPhoto({ companyId, photoId, destinationFolderId }) {
   return runPhotoV2(async () => {
     await assertActivePhotoLibraryFolder(companyId, destinationFolderId);
-    const { error: clearCoverError } = await supabase.from("photo_library_folders")
-      .update({ cover_photo_id: null })
-      .eq("company_id", companyId)
-      .eq("cover_photo_id", photoId);
-    if (clearCoverError) throw clearCoverError;
-    const { data, error } = await supabase.from("photos")
-      .update(buildPhotoLibraryScope(destinationFolderId))
-      .eq("id", photoId)
-      .eq("company_id", companyId)
-      .eq("photo_type", PHOTO_TYPES.LIBRARY)
-      .select().single();
+    const { data, error } = await supabase.rpc("move_photo_library_photo_atomic", {
+      p_company_id: companyId,
+      p_photo_id: photoId,
+      p_destination_folder_id: destinationFolderId,
+    });
     if (error) throw error;
-    return normalizePhotoV2Photo(data);
+    const result = assertPhotoAtomicResult(data, "photo_library_move_failed");
+    return normalizePhotoV2Photo(result.photo);
   }, "사진을 다른 폴더로 이동하지 못했습니다.");
 }
 
@@ -559,14 +577,13 @@ export async function updatePhotoCaptionSnippet({ companyId, snippetId, content 
 
 export async function reorderPhotoCaptionSnippets({ companyId, snippets = [] }) {
   return runPhotoV2(async () => {
-    for (const [sortOrder, snippet] of snippets.entries()) {
-      const { error } = await supabase.from("photo_caption_snippets")
-        .update({ sort_order: sortOrder })
-        .eq("id", snippet.id)
-        .eq("company_id", companyId)
-        .is("archived_at", null);
-      if (error) throw error;
-    }
+    const { data, error } = await supabase.rpc("reorder_photo_entities_atomic", {
+      p_company_id: companyId,
+      p_entity_type: "snippet",
+      p_ordered_ids: snippets.map((snippet) => snippet.id),
+    });
+    if (error) throw error;
+    return assertPhotoAtomicResult(data, "photo_snippet_atomic_reorder_failed");
   }, "자주 쓰는 설명 순서를 저장하지 못했습니다.");
 }
 

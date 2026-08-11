@@ -50,7 +50,7 @@ export async function fetchSavedEstimateLists(companyId) {
   };
 }
 
-export async function saveEstimateDraft({
+function buildEstimateDraftRpcArgs({
   estimate,
   estimateId = null,
   clientDraftKey,
@@ -60,7 +60,7 @@ export async function saveEstimateDraft({
   projectName = "",
   projectDetailAddress = "",
 }) {
-  const { data, error } = await supabase.rpc("save_estimate_draft", {
+  return {
     p_company_id: estimate.company_id,
     p_client_draft_key: clientDraftKey,
     p_estimate_id: estimateId,
@@ -75,14 +75,40 @@ export async function saveEstimateDraft({
     p_customer_email: customerEmail,
     p_project_name: projectName,
     p_project_detail_address: projectDetailAddress,
-  });
+  };
+}
+
+function assertEstimateDraftSaveResult(data) {
+  if (data?.ok) return data;
+  const lifecycleError = new Error(data?.message || "견적 작업본을 저장하지 못했습니다.");
+  lifecycleError.code = data?.code || "estimate_save_failed";
+  throw lifecycleError;
+}
+
+export async function saveEstimateDraft(options) {
+  const { data, error } = await supabase.rpc(
+    "save_estimate_draft",
+    buildEstimateDraftRpcArgs(options)
+  );
   if (error) throw error;
-  if (!data?.ok) {
-    const lifecycleError = new Error(data?.message || "견적 작업본을 저장하지 못했습니다.");
-    lifecycleError.code = data?.code || "estimate_save_failed";
-    throw lifecycleError;
-  }
-  return data;
+  return assertEstimateDraftSaveResult(data);
+}
+
+export async function saveEstimateDraftWithTemplate({
+  templateCondition = null,
+  templateValues = [],
+  ...options
+}) {
+  const { data, error } = await supabase.rpc(
+    "save_estimate_draft_with_template",
+    {
+      ...buildEstimateDraftRpcArgs(options),
+      p_template_condition: templateCondition,
+      p_template_values: templateValues,
+    }
+  );
+  if (error) throw error;
+  return assertEstimateDraftSaveResult(data);
 }
 
 export {

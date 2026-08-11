@@ -135,7 +135,10 @@ describe("Photo v2 management UI contracts", () => {
     expect(controllerSource).toContain("resolvePyeongPhotoUrls");
     expect(controllerSource).toContain("pyeong: scopePyeong");
     expect(controllerSource).toContain("constructionSubitemId");
-    expect(controllerSource).toContain("updatePhotoDescription");
+    expect(controllerSource).toContain("updatePhotoDescriptionsAtomic");
+    expect(controllerSource).toContain("compensatePhotoUploadBatchAtomic");
+    expect(controllerSource).toContain("attemptedPhotoIds.push(photoId)");
+    expect(controllerSource).toContain("const scopeCompanyId = companyIdRef.current");
     expect(controllerSource).toContain("archivePhotoV2");
     expect(controllerSource).not.toContain("storage.remove");
   });

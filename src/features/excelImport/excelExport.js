@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import {
   EXCEL_IMPORT_TARGETS,
+  buildCanonicalExcelCatalogItems,
   buildPriceExportRows,
   buildTemplateExportRows,
   createScopedExcelExportRequest,
@@ -10,14 +11,7 @@ import {
   fetchAdminTemplateRows,
   fetchAdminTemplateValues,
 } from "../priceTable/priceTableApi";
-import { fetchConstructionCatalogRows } from "../constructionCatalog/constructionCatalogApi";
-
-function groupCatalog(itemRows, subitemRows) {
-  return itemRows.map((item) => ({
-    ...item,
-    subitems: subitemRows.filter((subitem) => subitem.item_id === item.id),
-  }));
-}
+import { fetchCanonicalConstructionCatalogRows } from "../constructionCatalog/constructionCatalogApi";
 
 function hideStableColumns(worksheet, rows) {
   const headers = Object.keys(rows[0] ?? {});
@@ -33,7 +27,7 @@ function hideStableColumns(worksheet, rows) {
 
 function appendMetadataSheet(workbook, { companyId, target }) {
   const metadata = XLSX.utils.aoa_to_sheet([
-    ["FORMATE_EXPORT_VERSION", "1"],
+    ["FORMATE_EXPORT_VERSION", "2"],
     ["TARGET", target],
     ["COMPANY_ID", companyId],
     ["EXPORTED_AT", new Date().toISOString()],
@@ -109,8 +103,8 @@ export function createFormateExportWorkbook({
 
 export async function exportFormateExcel({ companyId, companyName, target }) {
   createScopedExcelExportRequest(companyId, target);
-  const { itemRows, subitemRows } = await fetchConstructionCatalogRows(companyId);
-  const catalog = groupCatalog(itemRows, subitemRows);
+  const { canonicalCatalog } = await fetchCanonicalConstructionCatalogRows(companyId);
+  const catalog = buildCanonicalExcelCatalogItems(canonicalCatalog);
   let templates = [];
   let valuesByTemplateId = {};
 

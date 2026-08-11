@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
+import { buildCanonicalConstructionCatalog } from "../../constructionCatalog/constructionCatalogModel";
 import {
   createFormateExportWorkbook,
   inspectFormateExportWorkbook,
 } from "../excelExport";
-import { EXCEL_IMPORT_TARGETS } from "../excelImportModel";
+import {
+  EXCEL_IMPORT_TARGETS,
+  buildCanonicalExcelCatalogItems,
+} from "../excelImportModel";
 
-const catalog = [{
-  id: "item-floor",
-  name: "바닥",
-  item_type: "itemized",
-  subitems: [{
+const catalog = buildCanonicalExcelCatalogItems(buildCanonicalConstructionCatalog({
+  itemRows: [{ id: "item-floor", name: "바닥", item_type: "itemized" }],
+  subitemRows: [{
     id: "sub-vinyl-22",
     item_id: "item-floor",
     name: "장판 (2.2T)",
@@ -18,8 +20,20 @@ const catalog = [{
     unit_price: 11000,
     labor_rate_empty: 9000,
     labor_rate_occupied: 12000,
+    variant_group_id: "floor-group",
+    variant_value: 2.2,
+    variant_value_text: null,
+    variant_unit: "T",
   }],
-}];
+  variantGroupRows: [{
+    id: "floor-group",
+    construction_item_id: "item-floor",
+    display_name: "장판",
+    variant_kind: "thickness",
+    variant_value_type: "number",
+    sort_order: 0,
+  }],
+}));
 
 function roundTripWorkbook(workbook) {
   const bytes = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
@@ -61,7 +75,7 @@ describe("FORMATE Excel export workbook", () => {
         "template-24-old": [{
           item_id: "item-floor",
           subitem_id: "sub-vinyl-22",
-          option_value: "2.2T",
+          option_value: "legacy-wrong-value",
           quantity: 20,
           labor_count: 2,
           construction_days: 1,
@@ -72,8 +86,8 @@ describe("FORMATE Excel export workbook", () => {
     const rows = XLSX.utils.sheet_to_json(reread.Sheets["기본 견적 설정"], { header: 1, defval: "" });
 
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toEqual(expect.arrayContaining(["평수", "주택 유형", "대분류", "수량", "FORMATE_TEMPLATE_ID"]));
-    expect(rows[1]).toEqual(expect.arrayContaining([24, "구축", "바닥", "장판 (2.2T)", 20, "template-24-old"]));
+    expect(rows[0]).toEqual(expect.arrayContaining(["평수", "주택 유형", "대분류", "규격", "수량", "FORMATE_TEMPLATE_ID", "FORMATE_VARIANT_VALUE_NUMBER"]));
+    expect(rows[1]).toEqual(expect.arrayContaining([24, "구축", "바닥", "장판 (2.2T)", "2.2T", 20, "template-24-old", 2.2]));
     expect(inspectFormateExportWorkbook(reread, "기본 견적 설정").rowCount).toBe(1);
   });
 

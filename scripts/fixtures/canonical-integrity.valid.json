@@ -1,0 +1,201 @@
+{
+  "constructionItems": [
+    { "id": "item-number", "company_id": "company-a", "name": "숫자 옵션 제품", "item_kind": "standard" },
+    { "id": "item-text", "company_id": "company-a", "name": "문자 옵션 제품", "item_kind": "standard" },
+    { "id": "item-standard", "company_id": "company-a", "name": "일반 제품", "item_kind": "standard" }
+  ],
+  "variantGroups": [
+    {
+      "id": "group-number",
+      "construction_item_id": "item-number",
+      "display_name": "사용자 숫자 제품",
+      "variant_kind": "규격",
+      "variant_value_type": "number",
+      "base_subitem_id": null,
+      "archived_at": null
+    },
+    {
+      "id": "group-text",
+      "construction_item_id": "item-text",
+      "display_name": "사용자 문자 제품",
+      "variant_kind": "색상",
+      "variant_value_type": "text",
+      "base_subitem_id": null,
+      "archived_at": null
+    }
+  ],
+  "constructionSubitems": [
+    {
+      "id": "variant-number-a",
+      "item_id": "item-number",
+      "name": "표시명 A",
+      "variant_group_id": "group-number",
+      "variant_value": 1.8,
+      "variant_value_text": null,
+      "variant_unit": "T",
+      "archived_at": null
+    },
+    {
+      "id": "variant-number-b",
+      "item_id": "item-number",
+      "name": "표시명 B",
+      "variant_group_id": "group-number",
+      "variant_value": 2.2,
+      "variant_value_text": null,
+      "variant_unit": "T",
+      "archived_at": null
+    },
+    {
+      "id": "variant-number-archived",
+      "item_id": "item-number",
+      "name": "과거 표시명",
+      "variant_group_id": "group-number",
+      "variant_value": 1.8,
+      "variant_value_text": null,
+      "variant_unit": "T",
+      "archived_at": "2026-08-01T00:00:00.000Z"
+    },
+    {
+      "id": "variant-text-red",
+      "item_id": "item-text",
+      "name": "임의 표시명 1",
+      "variant_group_id": "group-text",
+      "variant_value": null,
+      "variant_value_text": "Ocean Red",
+      "variant_unit": null,
+      "archived_at": null
+    },
+    {
+      "id": "variant-text-blue",
+      "item_id": "item-text",
+      "name": "임의 표시명 2",
+      "variant_group_id": "group-text",
+      "variant_value": null,
+      "variant_value_text": "Ocean Blue",
+      "variant_unit": null,
+      "archived_at": null
+    },
+    {
+      "id": "ordinary-subitem",
+      "item_id": "item-standard",
+      "name": "일반 세부항목",
+      "variant_group_id": null,
+      "variant_value": null,
+      "variant_value_text": null,
+      "variant_unit": null,
+      "archived_at": null
+    }
+  ],
+  "templates": [
+    {
+      "id": "template-a",
+      "company_id": "company-a",
+      "pyeong": 24,
+      "build_type": "확장형",
+      "has_extension": false,
+      "condition_variant": "확장형1"
+    }
+  ],
+  "templateValues": [
+    {
+      "id": "template-value-number-a",
+      "template_id": "template-a",
+      "item_id": "item-number",
+      "subitem_id": "variant-number-a",
+      "option_value": "",
+      "quantity": 4,
+      "labor_count": 2,
+      "construction_days": 1
+    },
+    {
+      "id": "template-value-number-b",
+      "template_id": "template-a",
+      "item_id": "item-number",
+      "subitem_id": "variant-number-b",
+      "option_value": "",
+      "quantity": 7,
+      "labor_count": 3,
+      "construction_days": 2
+    },
+    {
+      "id": "template-value-standard",
+      "template_id": "template-a",
+      "item_id": "item-standard",
+      "subitem_id": "ordinary-subitem",
+      "option_value": "",
+      "quantity": 1,
+      "labor_count": 1,
+      "construction_days": 1
+    }
+  ],
+  "photoLibraryFolders": [
+    {
+      "id": "folder-a",
+      "company_id": "company-a",
+      "parent_folder_id": null,
+      "cover_photo_id": "photo-library",
+      "archived_at": null
+    }
+  ],
+  "photoCollections": [],
+  "photos": [
+    {
+      "id": "photo-subitem",
+      "company_id": "company-a",
+      "photo_type": "subitem",
+      "target_type": "subitem",
+      "target_id": "variant-number-a",
+      "pyeong": 24,
+      "construction_subitem_id": "variant-number-a",
+      "sash_catalog_entry_id": null,
+      "photo_library_folder_id": null,
+      "storage_bucket": "formate-photos",
+      "storage_path": "company-a/subitem/variant-number-a/photo-subitem.jpg",
+      "archived_at": null
+    },
+    {
+      "id": "photo-library",
+      "company_id": "company-a",
+      "photo_type": "photo_library",
+      "target_type": "photo_library",
+      "target_id": "folder-a",
+      "pyeong": null,
+      "construction_subitem_id": null,
+      "sash_catalog_entry_id": null,
+      "photo_library_folder_id": "folder-a",
+      "storage_bucket": "formate-photos",
+      "storage_path": "company-a/photo_library/folder-a/photo-library.jpg",
+      "archived_at": null
+    }
+  ],
+  "sashCatalogEntries": [],
+  "detailCosts": [],
+  "estimates": [
+    {
+      "id": "estimate-a",
+      "company_id": "company-a",
+      "condition_snapshot": { "company_id": "company-a", "pyeong": 24 },
+      "items_data": {
+        "items": [
+          {
+            "itemId": "item-number",
+            "subitemId": "variant-number-a",
+            "totalAmount": 100
+          }
+        ],
+        "adjustments": [
+          { "type": "discount", "amount": 10 }
+        ],
+        "selectedItemsTotal": 100,
+        "adjustmentTotal": -10,
+        "finalTotal": 90
+      },
+      "total_amount": 90
+    }
+  ],
+  "priceConditions": [],
+  "storageObjects": [
+    "company-a/subitem/variant-number-a/photo-subitem.jpg",
+    "company-a/photo_library/folder-a/photo-library.jpg"
+  ]
+}

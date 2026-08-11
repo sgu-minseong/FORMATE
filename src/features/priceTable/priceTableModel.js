@@ -454,6 +454,32 @@ export function buildAdminTemplateValueSaveOperations({
   ));
 }
 
+/**
+ * Builds the UUID-based value payload consumed by the atomic Template RPC.
+ * `subitem_ref` can temporarily contain a local UI ID; the catalog RPC resolves
+ * it to the newly inserted construction_subitem UUID in the same transaction.
+ */
+export function buildAdminTemplateValueAtomicWrites({
+  items,
+  excludedItemIds = [],
+} = {}) {
+  const excludedIds = excludedItemIds instanceof Set
+    ? excludedItemIds
+    : new Set(excludedItemIds ?? []);
+
+  return (items ?? []).flatMap((item) => (
+    excludedIds.has(item.id)
+      ? []
+      : (item.subitems ?? []).map((subitem) => ({
+          item_id: subitem.item_id,
+          subitem_ref: subitem.id,
+          quantity: toNullableNumber(subitem.quantity),
+          labor_count: toNullableNumber(subitem.labor_count),
+          construction_days: toConstructionDaysValue(subitem.construction_days),
+        }))
+  ));
+}
+
 export function buildAdminTemplateValueClonePayloads({
   templateId,
   values,

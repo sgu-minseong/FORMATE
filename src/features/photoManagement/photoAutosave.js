@@ -11,19 +11,3 @@ export function createPhotoAutosave(options) {
     ...options,
   });
 }
-
-export async function runQueuedPhotoChanges(changes = [], onFailure = async () => {}) {
-  const failures = [];
-
-  for (const change of changes) {
-    try {
-      await change.execute();
-    } catch (error) {
-      failures.push({ change, error });
-    }
-  }
-
-  if (!failures.length) return true;
-  await onFailure(failures);
-  throw failures[0].error;
-}

@@ -4,28 +4,11 @@ function throwIfError(error) {
   if (error) throw error;
 }
 
-export async function fetchAiSetupCatalogRows(companyId) {
-  const { data: itemRows, error: itemError } = await supabase
-    .from("construction_items")
-    .select("id, name, sort_order, is_favorite")
-    .eq("company_id", companyId)
-    .order("sort_order", { ascending: true })
-    .order("name", { ascending: true });
-  throwIfError(itemError);
-
-  const itemIds = (itemRows ?? []).map((item) => item.id);
-  if (!itemIds.length) {
-    return { itemRows: itemRows ?? [], subitemRows: [] };
-  }
-
-  const { data: subitemRows, error: subitemError } = await supabase
-    .from("construction_subitems")
-    .select("*")
-    .in("item_id", itemIds)
-    .order("sort_order", { ascending: true })
-    .order("name", { ascending: true });
-  throwIfError(subitemError);
-  return { itemRows: itemRows ?? [], subitemRows: subitemRows ?? [] };
+function assertAtomicWriteResult(data, fallbackCode) {
+  if (data?.ok) return data;
+  const error = new Error(data?.message || "원자적 저장을 완료하지 못했습니다.");
+  error.code = data?.code || fallbackCode;
+  throw error;
 }
 
 export async function fetchConstructionSubitems(itemIds) {
@@ -39,30 +22,11 @@ export async function fetchConstructionSubitems(itemIds) {
   return data ?? [];
 }
 
-export async function insertConstructionItems(payloads) {
-  const { data, error } = await supabase
-    .from("construction_items")
-    .insert(payloads)
-    .select("*");
-  throwIfError(error);
-  return data ?? [];
-}
-
 export async function insertConstructionItem(payload) {
   const { data, error } = await supabase
     .from("construction_items")
     .insert(payload)
     .select("id, name")
-    .single();
-  throwIfError(error);
-  return data;
-}
-
-export async function insertConstructionItemRow(payload) {
-  const { data, error } = await supabase
-    .from("construction_items")
-    .insert(payload)
-    .select("*")
     .single();
   throwIfError(error);
   return data;
@@ -84,47 +48,6 @@ export async function deleteConstructionItem(itemId, companyId) {
     .eq("id", itemId)
     .eq("company_id", companyId);
   throwIfError(error);
-}
-
-export async function insertConstructionSubitems(payloads, { select = false } = {}) {
-  let query = supabase.from("construction_subitems").insert(payloads);
-  if (select) query = query.select("*");
-  const { data, error } = await query;
-  throwIfError(error);
-  return data ?? [];
-}
-
-export async function insertConstructionSubitemRow(payload) {
-  const { data, error } = await supabase
-    .from("construction_subitems")
-    .insert(payload)
-    .select("*")
-    .single();
-  throwIfError(error);
-  return data;
-}
-
-export async function updateConstructionSubitem(subitemId, payload) {
-  const { error } = await supabase
-    .from("construction_subitems")
-    .update(payload)
-    .eq("id", subitemId);
-  throwIfError(error);
-}
-
-export async function updateConstructionSubitemForItem(
-  subitemId,
-  itemId,
-  payload
-) {
-  const { data, error } = await supabase
-    .from("construction_subitems")
-    .update(payload)
-    .eq("id", subitemId)
-    .eq("item_id", itemId)
-    .select("id");
-  throwIfError(error);
-  return data ?? [];
 }
 
 export async function upsertSubitemPyeongValues(payloads) {
@@ -182,27 +105,6 @@ export async function fetchAdminTemplateCandidates(companyId, condition) {
   return data ?? [];
 }
 
-export async function insertAdminTemplate(payload, { idOnly = false } = {}) {
-  const { data, error } = await supabase
-    .from("admin_condition_templates")
-    .insert(payload)
-    .select(idOnly ? "id" : "*")
-    .single();
-  throwIfError(error);
-  return data;
-}
-
-export async function updateAdminTemplate(templateId, payload, { idOnly = false } = {}) {
-  const { data, error } = await supabase
-    .from("admin_condition_templates")
-    .update(payload)
-    .eq("id", templateId)
-    .select(idOnly ? "id" : "*")
-    .single();
-  throwIfError(error);
-  return data;
-}
-
 export async function deleteAdminTemplate(templateId, companyId) {
   const { data, error } = await supabase
     .from("admin_condition_templates")
@@ -218,7 +120,7 @@ export async function fetchAdminTemplateValues(templateId) {
   const { data, error } = await supabase
     .from("admin_condition_template_values")
     .select(
-      "id, template_id, item_id, subitem_id, option_value, quantity, labor_count, construction_days"
+      "id, template_id, item_id, subitem_id, quantity, labor_count, construction_days"
     )
     .eq("template_id", templateId);
   throwIfError(error);
@@ -247,38 +149,84 @@ export async function fetchAdminTemplateValueCandidate(
   return data?.[0] ?? null;
 }
 
-export async function updateAdminTemplateValue(valueId, payload) {
-  const { data, error } = await supabase
-    .from("admin_condition_template_values")
-    .update(payload)
-    .eq("id", valueId)
-    .select("id");
+/**
+ * Persists one PriceTable/Template save action inside one Postgres transaction.
+ * Local subitem IDs are request-scoped references only; the RPC returns their
+ * database UUID mapping and template value IDs after every write succeeds.
+ */
+export async function saveAdminCatalogAtomic({
+  companyId,
+  itemUpdates = [],
+  subitemUpdates = [],
+  subitemInserts = [],
+  templateCondition = null,
+  templateValues = [],
+}) {
+  const { data, error } = await supabase.rpc("save_admin_catalog_atomic", {
+    p_company_id: companyId,
+    p_item_updates: itemUpdates,
+    p_subitem_updates: subitemUpdates,
+    p_subitem_inserts: subitemInserts,
+    p_template_condition: templateCondition,
+    p_template_values: templateValues,
+  });
   throwIfError(error);
-  return data ?? [];
+  return assertAtomicWriteResult(data, "admin_catalog_atomic_save_failed");
 }
 
-export async function insertAdminTemplateValue(payload) {
-  const { data, error } = await supabase
-    .from("admin_condition_template_values")
-    .insert(payload)
-    .select("id");
+/**
+ * Creates/updates one canonical Template and all supplied values atomically.
+ * `mode` is deliberately narrow: upsert, create_if_absent, edit, or duplicate.
+ */
+export async function saveAdminTemplateAtomic({
+  companyId,
+  condition,
+  values = [],
+  mode = "upsert",
+  templateId = null,
+  sourceTemplateId = null,
+}) {
+  const { data, error } = await supabase.rpc("save_admin_template_atomic", {
+    p_company_id: companyId,
+    p_condition: condition,
+    p_values: values,
+    p_mode: mode,
+    p_template_id: templateId,
+    p_source_template_id: sourceTemplateId,
+  });
   throwIfError(error);
-  return data ?? [];
+  return assertAtomicWriteResult(data, "admin_template_atomic_save_failed");
 }
 
-export async function deleteAdminTemplateValues(templateId) {
-  const { error } = await supabase
-    .from("admin_condition_template_values")
-    .delete()
-    .eq("template_id", templateId);
+export async function reorderAdminCatalogAtomic({ companyId, entries = [] }) {
+  const { data, error } = await supabase.rpc("reorder_admin_catalog_atomic", {
+    p_company_id: companyId,
+    p_entries: entries,
+  });
   throwIfError(error);
+  return assertAtomicWriteResult(data, "admin_catalog_atomic_reorder_failed");
 }
 
-export async function upsertAdminTemplateValues(payloads) {
-  const { error } = await supabase
-    .from("admin_condition_template_values")
-    .upsert(payloads, {
-      onConflict: "template_id,subitem_id,option_value",
-    });
+export async function initializeDefaultConstructionCatalogAtomic({ companyId, catalog }) {
+  const { data, error } = await supabase.rpc(
+    "initialize_default_construction_catalog_atomic",
+    {
+      p_company_id: companyId,
+      p_catalog: catalog,
+    }
+  );
   throwIfError(error);
+  return assertAtomicWriteResult(data, "default_catalog_atomic_initialize_failed");
+}
+
+export async function createStandardCatalogEntriesAtomic({ companyId, entries = [] }) {
+  const { data, error } = await supabase.rpc(
+    "create_standard_catalog_entries_atomic",
+    {
+      p_company_id: companyId,
+      p_entries: entries,
+    }
+  );
+  throwIfError(error);
+  return assertAtomicWriteResult(data, "standard_catalog_entries_atomic_create_failed");
 }

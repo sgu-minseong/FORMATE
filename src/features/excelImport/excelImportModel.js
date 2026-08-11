@@ -1,4 +1,6 @@
 import {
+  CONSTRUCTION_PRODUCT_KINDS,
+  CONSTRUCTION_VARIANT_VALUE_TYPES,
   formatConstructionSubitemVariantLabel,
   getConstructionSubitemVariantMetadata,
 } from "../constructionCatalog/constructionCatalogModel";
@@ -19,6 +21,218 @@ export const CROSS_COMPANY_IMPORT_NOTICE =
 export const LUMP_SUM_CATEGORY_NAME = "1식 공사";
 export const LUMP_SUM_ITEM_TYPE = "flat";
 export const LUMP_SUM_CALCULATION_BASIS = "parent_total";
+
+const PORTABLE_VARIANT_FIELDS = Object.freeze({
+  PRODUCT_KIND: "formate_product_kind",
+  VARIANT_KIND: "formate_variant_kind",
+  VALUE_TYPE: "formate_variant_value_type",
+  NUMBER_VALUE: "formate_variant_value_number",
+  TEXT_VALUE: "formate_variant_value_text",
+  UNIT: "formate_variant_unit",
+});
+
+function normalizePortableText(value) {
+  return `${value ?? ""}`.trim();
+}
+
+function normalizePortableIdentityText(value) {
+  return normalizePortableText(value).toLowerCase();
+}
+
+function findCanonicalProductForSubitem(item, subitemId) {
+  return (item?.canonicalAllProducts ?? item?.canonicalProducts ?? []).find((product) => (
+    product.subitemId === subitemId
+    || (product.allVariants ?? product.variants ?? []).some(
+      (variant) => variant.constructionSubitemId === subitemId
+    )
+  )) ?? null;
+}
+
+function getCanonicalExcelDescriptor(item, subitem) {
+  const variantMetadata = getConstructionSubitemVariantMetadata(subitem);
+  if (!variantMetadata) {
+    return {
+      productKind: CONSTRUCTION_PRODUCT_KINDS.SUBITEM,
+      variantKind: "",
+      valueType: "",
+      numericValue: null,
+      textValue: null,
+      unit: "",
+    };
+  }
+
+  const product = findCanonicalProductForSubitem(item, subitem.id);
+  if (
+    !product
+    || product.kind !== CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP
+    || product.variantGroupId !== variantMetadata.groupId
+    || product.variantValueType !== variantMetadata.valueType
+  ) {
+    throw new Error(
+      "Excel variant export requires the shared canonical constructionCatalog product model."
+    );
+  }
+
+  return {
+    productKind: CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP,
+    variantKind: product.variantKind,
+    valueType: variantMetadata.valueType,
+    numericValue: variantMetadata.numericValue,
+    textValue: variantMetadata.textValue,
+    unit: variantMetadata.unit ?? "",
+  };
+}
+
+function buildCanonicalExcelColumns(item, subitem) {
+  if (!subitem) {
+    return {
+      FORMATE_PRODUCT_KIND: "",
+      FORMATE_VARIANT_KIND: "",
+      FORMATE_VARIANT_VALUE_TYPE: "",
+      FORMATE_VARIANT_VALUE_NUMBER: "",
+      FORMATE_VARIANT_VALUE_TEXT: "",
+      FORMATE_VARIANT_UNIT: "",
+    };
+  }
+  const descriptor = getCanonicalExcelDescriptor(item, subitem);
+  return {
+    FORMATE_PRODUCT_KIND: descriptor.productKind,
+    FORMATE_VARIANT_KIND: descriptor.variantKind,
+    FORMATE_VARIANT_VALUE_TYPE: descriptor.valueType,
+    FORMATE_VARIANT_VALUE_NUMBER:
+      descriptor.valueType === CONSTRUCTION_VARIANT_VALUE_TYPES.NUMBER
+        ? descriptor.numericValue
+        : "",
+    FORMATE_VARIANT_VALUE_TEXT:
+      descriptor.valueType === CONSTRUCTION_VARIANT_VALUE_TYPES.TEXT
+        ? descriptor.textValue
+        : "",
+    FORMATE_VARIANT_UNIT: descriptor.unit,
+  };
+}
+
+function formatCanonicalExcelSpec(item, subitem) {
+  if (!subitem) return "";
+  const descriptor = getCanonicalExcelDescriptor(item, subitem);
+  if (descriptor.productKind !== CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP) return "";
+  return formatConstructionSubitemVariantLabel(
+    descriptor.valueType === CONSTRUCTION_VARIANT_VALUE_TYPES.NUMBER
+      ? descriptor.numericValue
+      : descriptor.textValue,
+    descriptor.unit
+  );
+}
+
+function parsePortableExcelDescriptor(row = {}) {
+  const productKind = normalizePortableText(row[PORTABLE_VARIANT_FIELDS.PRODUCT_KIND]);
+  const hasPortableFields = Object.values(PORTABLE_VARIANT_FIELDS).some((field) =>
+    normalizePortableText(row[field]) !== ""
+  );
+  if (!hasPortableFields) return { present: false, valid: false, descriptor: null };
+
+  if (productKind === CONSTRUCTION_PRODUCT_KINDS.SUBITEM) {
+    return {
+      present: true,
+      valid: true,
+      descriptor: {
+        productKind,
+        variantKind: "",
+        valueType: "",
+        numericValue: null,
+        textValue: null,
+        unit: "",
+      },
+    };
+  }
+
+  const variantKind = normalizePortableText(row[PORTABLE_VARIANT_FIELDS.VARIANT_KIND]);
+  const valueType = normalizePortableText(row[PORTABLE_VARIANT_FIELDS.VALUE_TYPE]);
+  const unit = normalizePortableText(row[PORTABLE_VARIANT_FIELDS.UNIT]);
+  if (
+    productKind !== CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP
+    || !variantKind
+    || !Object.values(CONSTRUCTION_VARIANT_VALUE_TYPES).includes(valueType)
+  ) {
+    return { present: true, valid: false, descriptor: null };
+  }
+
+  if (valueType === CONSTRUCTION_VARIANT_VALUE_TYPES.NUMBER) {
+    const rawValue = normalizePortableText(row[PORTABLE_VARIANT_FIELDS.NUMBER_VALUE]);
+    const numericValue = rawValue === "" ? NaN : Number(rawValue);
+    if (!Number.isFinite(numericValue) || !unit) {
+      return { present: true, valid: false, descriptor: null };
+    }
+    return {
+      present: true,
+      valid: true,
+      descriptor: {
+        productKind,
+        variantKind,
+        valueType,
+        numericValue,
+        textValue: null,
+        unit,
+      },
+    };
+  }
+
+  const textValue = normalizePortableText(row[PORTABLE_VARIANT_FIELDS.TEXT_VALUE]);
+  if (!textValue) return { present: true, valid: false, descriptor: null };
+  return {
+    present: true,
+    valid: true,
+    descriptor: {
+      productKind,
+      variantKind,
+      valueType,
+      numericValue: null,
+      textValue,
+      unit,
+    },
+  };
+}
+
+function canonicalExcelDescriptorsEqual(source, target) {
+  if (!source || !target || source.productKind !== target.productKind) return false;
+  if (source.productKind === CONSTRUCTION_PRODUCT_KINDS.SUBITEM) return true;
+  if (
+    source.variantKind !== target.variantKind
+    || source.valueType !== target.valueType
+    || normalizePortableIdentityText(source.unit) !== normalizePortableIdentityText(target.unit)
+  ) return false;
+  if (source.valueType === CONSTRUCTION_VARIANT_VALUE_TYPES.NUMBER) {
+    return Number(source.numericValue) === Number(target.numericValue);
+  }
+  return normalizePortableIdentityText(source.textValue)
+    === normalizePortableIdentityText(target.textValue);
+}
+
+export function buildCanonicalExcelCatalogItems(canonicalCatalog = {}) {
+  return (canonicalCatalog.items ?? []).map((canonicalItem) => {
+    const canonicalProducts = canonicalItem.products ?? [];
+    const canonicalAllProducts = [
+      ...(canonicalItem.variantProducts ?? []),
+      ...(canonicalItem.archivedVariantProducts ?? []),
+      ...(canonicalItem.unselectableVariantGroups ?? []),
+      ...(canonicalItem.standardProducts ?? []),
+      ...(canonicalItem.archivedStandardProducts ?? []),
+    ];
+    const flattenProducts = (products) => products.flatMap((product) => (
+      product.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP
+        ? (product.allVariants ?? product.variants ?? []).map((variant) => variant.subitem)
+        : product.subitem
+          ? [product.subitem]
+          : []
+    ));
+    return {
+      ...canonicalItem.item,
+      canonicalProducts,
+      canonicalAllProducts,
+      subitems: flattenProducts(canonicalProducts).filter((subitem) => !subitem.archived_at),
+      allSubitems: flattenProducts(canonicalAllProducts),
+    };
+  });
+}
 
 export function normalizeExcelStableKey(value) {
   return `${value ?? ""}`
@@ -91,13 +305,14 @@ function getCopyMatchScore(sourceValues, targetValues) {
 }
 
 export function findCatalogCopyMatch(catalogItems = [], row = {}) {
+  const portable = parsePortableExcelDescriptor(row);
   const sourceCategoryValues = getCopyMatchValues(row.category, row.category_aliases);
   const sourceItemName = `${row.item_name ?? ""}`.trim();
   const sourceSpec = `${row.spec ?? ""}`.trim();
   const sourceItemValues = getCopyMatchValues(
     sourceItemName,
     [
-      buildImportSubitemName(sourceItemName, sourceSpec),
+      ...(!portable.present ? [buildImportSubitemName(sourceItemName, sourceSpec)] : []),
       ...(Array.isArray(row.item_aliases) ? row.item_aliases : []),
     ]
   );
@@ -118,7 +333,17 @@ export function findCatalogCopyMatch(catalogItems = [], row = {}) {
     : (catalogItems ?? []).flatMap((item) =>
       (item.subitems ?? []).map((subitem) => ({ item, subitem }))
     );
-  const subitemCandidates = subitemPool.map(({ item, subitem }) => {
+  const canonicalCandidatePool = portable.present
+    ? portable.valid
+      ? subitemPool.filter(({ item, subitem }) => (
+          canonicalExcelDescriptorsEqual(
+            portable.descriptor,
+            getCanonicalExcelDescriptor(item, subitem)
+          )
+        ))
+      : []
+    : subitemPool;
+  const subitemCandidates = canonicalCandidatePool.map(({ item, subitem }) => {
     let score = getCopyMatchScore(
       sourceItemValues,
       getCopyMatchValues(subitem.name, subitem.aliases)
@@ -141,6 +366,7 @@ export function findCatalogCopyMatch(catalogItems = [], row = {}) {
     subitem: hasAmbiguousSubitem ? null : subitemCandidate?.subitem ?? null,
     categoryConfidence: categoryCandidate?.score ?? 0,
     subitemConfidence: hasAmbiguousSubitem ? 0 : subitemCandidate?.score ?? 0,
+    matchMethod: portable.present ? "canonical_portable_copy" : "legacy_copy_heuristic",
   };
 }
 
@@ -239,13 +465,10 @@ export function readFormateWorkbookMetadata(sheets = []) {
 export function buildPriceExportRows(catalogItems = []) {
   return catalogItems.flatMap((item) =>
     (item.subitems ?? []).map((subitem) => {
-      const variantMetadata = getConstructionSubitemVariantMetadata(subitem);
       return {
         대분류: item.name,
         세부항목: subitem.name,
-        "규격 또는 옵션": variantMetadata
-          ? formatConstructionSubitemVariantLabel(variantMetadata.value, variantMetadata.unit)
-          : "",
+        "규격 또는 옵션": formatCanonicalExcelSpec(item, subitem),
         단위: subitem.unit ?? "",
         "자재 단가": subitem.unit_price ?? 0,
         "인건비(빈집)": subitem.labor_rate_empty ?? subitem.labor_rate ?? 0,
@@ -256,6 +479,7 @@ export function buildPriceExportRows(catalogItems = []) {
         FORMATE_ITEM_ID: item.id,
         FORMATE_SUBITEM_ID: subitem.id,
         FORMATE_ITEM_TYPE: item.item_type ?? "itemized",
+        ...buildCanonicalExcelColumns(item, subitem),
       };
     })
   );
@@ -264,7 +488,7 @@ export function buildPriceExportRows(catalogItems = []) {
 export function buildTemplateExportRows(templates = [], valuesByTemplateId = {}, catalogItems = []) {
   const itemById = new Map(catalogItems.map((item) => [item.id, item]));
   const subitemById = new Map(catalogItems.flatMap((item) =>
-    (item.subitems ?? []).map((subitem) => [subitem.id, subitem])
+    (item.allSubitems ?? item.subitems ?? []).map((subitem) => [subitem.id, subitem])
   ));
   return templates.flatMap((template) =>
     (valuesByTemplateId[template.id] ?? []).map((value) => {
@@ -277,7 +501,7 @@ export function buildTemplateExportRows(templates = [], valuesByTemplateId = {},
         "세부 유형": template.condition_variant ?? "",
         대분류: item?.name ?? "",
         세부항목: subitem?.name ?? "",
-        규격: value.option_value ?? "",
+        규격: formatCanonicalExcelSpec(item, subitem),
         단위: subitem?.unit ?? "",
         수량: value.quantity ?? "",
         인원: value.labor_count ?? "",
@@ -285,6 +509,7 @@ export function buildTemplateExportRows(templates = [], valuesByTemplateId = {},
         FORMATE_TEMPLATE_ID: template.id,
         FORMATE_ITEM_ID: value.item_id,
         FORMATE_SUBITEM_ID: value.subitem_id,
+        ...buildCanonicalExcelColumns(item, subitem),
       };
     })
   );

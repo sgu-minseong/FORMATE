@@ -33,10 +33,12 @@ export async function deleteDetailCost({ companyId, costId }) {
 }
 
 export async function bulkUpdateDetailCosts({ companyId, costs, cost }) {
-  const results = await Promise.all(costs.map((row) =>
-    supabase.from("detail_cost_categories").update({ cost })
-      .eq("id", row.id).eq("company_id", companyId)
-  ));
-  const failed = results.find((result) => result.error);
-  if (failed?.error) throw failed.error;
+  const { data, error } = await supabase.rpc("bulk_update_detail_costs_atomic", {
+    p_company_id: companyId,
+    p_cost_ids: costs.map((row) => row.id),
+    p_cost: cost,
+  });
+  if (error) throw error;
+  if (!data?.ok) throw new Error(data?.message || "세부비용을 일괄 저장하지 못했습니다.");
+  return data;
 }

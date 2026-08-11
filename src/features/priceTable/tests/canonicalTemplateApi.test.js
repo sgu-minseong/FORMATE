@@ -32,7 +32,10 @@ vi.mock("../../../lib/supabaseClient", () => ({
   },
 }));
 
-import { fetchAdminTemplateValueCandidate } from "../priceTableApi";
+import {
+  fetchAdminTemplateValueCandidate,
+  fetchAdminTemplateValues,
+} from "../priceTableApi";
 
 describe("canonical template value reader", () => {
   beforeEach(() => {
@@ -64,6 +67,15 @@ describe("canonical template value reader", () => {
       method: "eq",
       column: "option_value",
     }));
+  });
+
+  it("does not read the legacy option_value column for template runtime", async () => {
+    await fetchAdminTemplateValues("template-a");
+    const selectCall = mockState.calls.find((call) => (
+      call.table === "admin_condition_template_values" && call.method === "select"
+    ));
+    expect(selectCall?.value).toContain("subitem_id");
+    expect(selectCall?.value).not.toContain("option_value");
   });
 
   it("fails closed when legacy rows make one UUID ambiguous", async () => {

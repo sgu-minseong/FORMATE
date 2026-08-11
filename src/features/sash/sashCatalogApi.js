@@ -73,33 +73,13 @@ export async function archiveSashCatalogEntry(entryId, companyId) {
 }
 
 export async function saveSashCatalogEntryOrder(entries, companyId) {
-  const originalOrder = (entries ?? []).map((entry) => ({
-    id: entry.id,
-    sort_order: entry.sort_order,
-  }));
-  const nextOrder = (entries ?? []).map((entry, index) => ({
-    id: entry.id,
-    sort_order: index,
-  }));
-
-  try {
-    await Promise.all(nextOrder.map(({ id, sort_order }) => (
-      supabase
-        .from("sash_catalog_entries")
-        .update({ sort_order })
-        .eq("id", id)
-        .eq("company_id", companyId)
-        .then(({ error }) => throwIfError(error))
-    )));
-  } catch (error) {
-    await Promise.allSettled(originalOrder.map(({ id, sort_order }) => (
-      supabase
-        .from("sash_catalog_entries")
-        .update({ sort_order })
-        .eq("id", id)
-        .eq("company_id", companyId)
-        .then(({ error: rollbackError }) => throwIfError(rollbackError))
-    )));
-    throw error;
-  }
+  const { data, error } = await supabase.rpc(
+    "reorder_sash_catalog_entries_atomic",
+    {
+      p_company_id: companyId,
+      p_ordered_ids: (entries ?? []).map((entry) => entry.id),
+    }
+  );
+  throwIfError(error);
+  return data;
 }

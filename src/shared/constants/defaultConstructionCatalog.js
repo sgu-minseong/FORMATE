@@ -4,6 +4,10 @@ export const CATEGORY_DISPLAY_TARGETS = {
   페인트: "도장/페인트",
   도장: "도장/페인트",
 };
+
+// Empty-company bootstrap data contains standard products only. Product
+// variants must be created through the canonical variant writer with explicit
+// group/value/unit metadata; a display name can never prove variant identity.
 export const DEFAULT_CONSTRUCTION_CATALOG = [
   {
     name: "철거",
@@ -74,8 +78,7 @@ export const DEFAULT_CONSTRUCTION_CATALOG = [
   {
     name: "바닥",
     subitems: [
-      ["장판", "평"], ["KCC장판 1.8T", "평"], ["KCC장판 2.2T", "평"], ["KCC장판 2.7T", "평"],
-      ["LG장판 1.8T", "평"], ["LG장판 2.2T", "평"], ["강마루", "평"], ["강화마루", "평"],
+      ["장판", "평"], ["강마루", "평"], ["강화마루", "평"],
       ["원목마루", "평"], ["데코타일", "평"], ["포세린 바닥", "평"], ["바닥 평탄화", "평"],
       ["걸레받이", "m"], ["기존 바닥 철거", "평"],
     ],

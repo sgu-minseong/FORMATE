@@ -116,7 +116,7 @@ import DeleteSavedEstimateDialog from "../features/estimates/DeleteSavedEstimate
 import {
   fetchEstimateConstructionCatalogRows,
   fetchSavedEstimateLists,
-  saveEstimateDraft,
+  saveEstimateDraftWithTemplate,
   moveSavedEstimateToTrash,
   restoreSavedEstimate,
   SAVED_ESTIMATE_RESTORE_RESULT,
@@ -187,6 +187,7 @@ import {
   EXCEL_IMPORT_TARGETS,
   LUMP_SUM_CATEGORY_NAME,
   LUMP_SUM_ITEM_TYPE,
+  buildCanonicalExcelCatalogItems,
   buildImportSubitemName,
   buildLumpSumExclusionPatches,
   createScopedExcelImportContext,
@@ -206,9 +207,9 @@ import ContractEditorPage from "../features/contracts/ContractEditorPage";
 import {
   archiveCanonicalConstructionSubitem,
   archiveCanonicalVariantGroup,
+  createCanonicalVariantProductAtomic,
   fetchCanonicalConstructionCatalogRows,
   fetchConstructionCatalogRows,
-  insertCanonicalVariantGroup,
   insertCanonicalVariantSubitem,
   updateCanonicalConstructionSubitem,
   updateCanonicalVariantGroup,
@@ -224,8 +225,7 @@ import {
 import CanonicalVariantSelect from "../features/constructionCatalog/CanonicalVariantSelect";
 import {
   CONSTRUCTION_ITEM_RENDERER_KINDS,
-  buildAdminTemplateValueSaveOperations,
-  buildAdminTemplateValueClonePayloads,
+  buildAdminTemplateValueAtomicWrites,
   buildConstructionItemSavePayload,
   buildConstructionSubitemInsertPayload,
   buildConstructionSubitemSavePayload,
@@ -266,28 +266,18 @@ import {
 } from "../features/sash/sashCatalogModel";
 import {
   deleteAdminTemplate,
-  deleteAdminTemplateValues,
   deleteConstructionItem,
-  fetchAdminTemplateValueCandidate,
   fetchAdminTemplateCandidates,
   fetchAdminTemplateRows,
   fetchAdminTemplateValues,
   fetchConditionVariantLabelRows,
-  fetchAiSetupCatalogRows,
-  fetchConstructionSubitems,
-  insertAdminTemplate,
-  insertAdminTemplateValue,
   insertConstructionItem,
-  insertConstructionItemRow,
-  insertConstructionItems,
-  insertConstructionSubitems,
-  insertConstructionSubitemRow,
-  updateAdminTemplate,
-  updateAdminTemplateValue,
+  createStandardCatalogEntriesAtomic,
+  initializeDefaultConstructionCatalogAtomic,
+  reorderAdminCatalogAtomic,
+  saveAdminCatalogAtomic,
+  saveAdminTemplateAtomic,
   updateConstructionItem,
-  updateConstructionSubitem,
-  updateConstructionSubitemForItem,
-  upsertAdminTemplateValues,
   upsertConditionVariantLabelRows,
   upsertSubitemPyeongValues,
 } from "../features/priceTable/priceTableApi";
@@ -552,13 +542,6 @@ function createEmptyItems() {
   return seedItemsFromSaved(null);
 }
 
-function getDefaultCatalogItemAliases(name) {
-  if (name === "도장/페인트") return ["도장/페인트", "도장"];
-  // Bootstrap compatibility only. Sash behavior itself always uses item_kind.
-  if (name === "샷시") return ["샷시", "창호/샷시"];
-  return [name];
-}
-
 function createAdminTemplateConditionDraft(template) {
   if (!template) return createEmptyAdminTemplateConditionDraft();
   const conditionVariant = `${template.condition_variant ?? ""}`;
@@ -568,11 +551,6 @@ function createAdminTemplateConditionDraft(template) {
     hasExtension: Boolean(template.has_extension),
     conditionVariant,
   };
-}
-
-function findItemByDefaultCatalogName(itemRows, catalogName) {
-  const aliases = getDefaultCatalogItemAliases(catalogName);
-  return (itemRows ?? []).find((item) => aliases.includes(`${item.name ?? ""}`.trim()));
 }
 
 function getDefaultQuantityForUnit(unit, pyeong) {
@@ -1189,7 +1167,7 @@ function createAiCatalogMatchRow(row, catalogItems, override = {}, options = {})
             matchedSubitemName: copyMatch.subitem.name,
             matchedSubitemCategoryId: copyMatch.item.id,
             matchedSubitemCategoryName: copyMatch.item.name,
-            subitemMatchMethod: "current_company_copy",
+            subitemMatchMethod: copyMatch.matchMethod ?? "current_company_copy",
             subitemConfidence: copyMatch.subitemConfidence,
           }
         : isCopyImport
@@ -3236,18 +3214,11 @@ export default function AdminApp() {
     setAiSetupCatalogError("");
     try {
       const companyId = requireSelectedCompanyId();
-      const { itemRows, subitemRows } =
-        await fetchAiSetupCatalogRows(companyId);
-
+      const catalogRows = await fetchCanonicalConstructionCatalogRows(companyId);
       setAiSetupCatalogItems(
-        itemRows.map((item) => ({
-          ...item,
-          subitems: subitemRows.filter(
-            (subitem) => subitem.item_id === item.id
-          ),
-        }))
+        buildCanonicalExcelCatalogItems(catalogRows.canonicalCatalog)
       );
-      return { itemRows, subitemRows };
+      return catalogRows;
     } catch (error) {
       console.error("[FORMATE AI setup catalog fetch]", error);
       setAiSetupCatalogError("기존 단가표 항목을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
@@ -3389,7 +3360,7 @@ export default function AdminApp() {
     setAiSetupPriceResult(null);
 
     try {
-      requireSelectedCompanyId();
+      const companyId = requireSelectedCompanyId();
       const allowedSubitems = new Map();
       aiSetupCatalogItems.forEach((item) => {
         (item.subitems ?? []).forEach((subitem) => {
@@ -3398,6 +3369,7 @@ export default function AdminApp() {
       });
 
       const results = [];
+      const atomicSubitemUpdates = [];
       for (const target of aiSetupPriceUpdateTargets) {
         const allowedSubitem = allowedSubitems.get(target.matchedSubitemId);
         if (!allowedSubitem || allowedSubitem.itemId !== target.matchedItemId) {
@@ -3433,20 +3405,19 @@ export default function AdminApp() {
           continue;
         }
 
-        try {
-          const updatedRows = await updateConstructionSubitemForItem(
-            target.matchedSubitemId,
-            target.matchedItemId,
-            payload
-          );
-          if (!updatedRows.length) {
-            results.push({ status: "rejected", target, reason: "업데이트된 항목이 없습니다. 권한 또는 항목 소속을 확인해주세요." });
-          } else {
-            results.push({ status: "fulfilled", target, payload });
-          }
-        } catch (error) {
-          results.push({ status: "rejected", target, reason: error.message || "저장 실패" });
-        }
+        atomicSubitemUpdates.push({
+          id: target.matchedSubitemId,
+          item_id: target.matchedItemId,
+          ...payload,
+        });
+        results.push({ status: "fulfilled", target, payload });
+      }
+
+      if (atomicSubitemUpdates.length) {
+        await saveAdminCatalogAtomic({
+          companyId,
+          subitemUpdates: atomicSubitemUpdates,
+        });
       }
 
       const successRows = results.filter((result) => result.status === "fulfilled" && !result.skipped);
@@ -3586,31 +3557,25 @@ export default function AdminApp() {
         return;
       }
 
-      let templateRow = await fetchTemplateRowByCondition(companyId, templateCondition);
-      let createdTemplate = false;
-      if (!templateRow?.id) {
-        templateRow = await insertAdminTemplate(
-          {
-            company_id: companyId,
-            ...templateCondition,
-          },
-          { idOnly: true }
-        );
-        createdTemplate = true;
-      }
-
-      const results = [...preflightResults];
-      for (const target of preparedTargets) {
-        let existingValue;
-        try {
-          existingValue = await fetchAdminTemplateValueCandidate(
-            templateRow.id,
-            target.matchedSubitemId
+      const existingTemplate = await fetchTemplateRowByCondition(companyId, templateCondition);
+      const existingTemplateValues = existingTemplate?.id
+        ? await fetchAdminTemplateValues(existingTemplate.id)
+        : [];
+      const existingValueBySubitemId = new Map();
+      existingTemplateValues.forEach((value) => {
+        if (existingValueBySubitemId.has(value.subitem_id)) {
+          const contractError = new Error(
+            "A canonical template contains duplicate rows for one construction_subitem UUID."
           );
-        } catch (error) {
-          results.push({ status: "rejected", target, reason: error.message || "기존 템플릿 값 확인 실패" });
-          continue;
+          contractError.code = "duplicate-template-subitem-id";
+          throw contractError;
         }
+        existingValueBySubitemId.set(value.subitem_id, value);
+      });
+      const results = [...preflightResults];
+      const templateValueWrites = [];
+      for (const target of preparedTargets) {
+        const existingValue = existingValueBySubitemId.get(target.matchedSubitemId);
 
         if (existingValue?.id) {
           if (!shouldApplyExcelConflict(target.conflictDecision)) {
@@ -3621,44 +3586,33 @@ export default function AdminApp() {
           if (target.hasQuantity) updatePayload.quantity = target.quantity;
           if (target.hasLaborCount) updatePayload.labor_count = target.laborCount;
           if (target.hasConstructionDays) updatePayload.construction_days = Math.max(0, Math.round(target.constructionDays));
-
-          try {
-            const updatedRows = await updateAdminTemplateValue(
-              existingValue.id,
-              updatePayload
-            );
-            if (!updatedRows.length) {
-              results.push({ status: "rejected", target, reason: "업데이트된 템플릿 값이 없습니다." });
-            } else {
-              results.push({ status: "fulfilled", target, mode: "updated" });
-            }
-          } catch (error) {
-            results.push({ status: "rejected", target, reason: error.message || "템플릿 값 업데이트 실패" });
-          }
+          templateValueWrites.push({
+            item_id: target.matchedItemId,
+            subitem_ref: target.matchedSubitemId,
+            ...updatePayload,
+          });
+          results.push({ status: "fulfilled", target, mode: "updated" });
           continue;
         }
 
-        const insertPayload = {
-          template_id: templateRow.id,
+        templateValueWrites.push({
           item_id: target.matchedItemId,
-          subitem_id: target.matchedSubitemId,
-          option_value: "",
+          subitem_ref: target.matchedSubitemId,
           quantity: target.hasQuantity ? target.quantity : null,
           labor_count: target.hasLaborCount ? target.laborCount : null,
           construction_days: target.hasConstructionDays ? Math.max(0, Math.round(target.constructionDays)) : 0,
-        };
-
-        try {
-          const insertedRows = await insertAdminTemplateValue(insertPayload);
-          if (!insertedRows.length) {
-            results.push({ status: "rejected", target, reason: "추가된 템플릿 값이 없습니다." });
-          } else {
-            results.push({ status: "fulfilled", target, mode: "inserted" });
-          }
-        } catch (error) {
-          results.push({ status: "rejected", target, reason: error.message || "템플릿 값 추가 실패" });
-        }
+        });
+        results.push({ status: "fulfilled", target, mode: "inserted" });
       }
+
+      const atomicTemplate = await saveAdminTemplateAtomic({
+        companyId,
+        condition: templateCondition,
+        mode: "upsert",
+        values: templateValueWrites,
+      });
+      const templateRow = atomicTemplate.template;
+      const createdTemplate = Boolean(atomicTemplate.created);
 
       const successRows = results.filter((result) => result.status === "fulfilled");
       const skippedRows = results.filter((result) => result.status === "skipped");
@@ -3744,9 +3698,16 @@ export default function AdminApp() {
         })
       );
 
-      const results = [];
-      const createdCategoryIds = new Set();
-      const linkedOverrides = {};
+      let results = [];
+      const atomicEntries = [];
+      const categoryUpdateRefs = new Set();
+      let localCategorySequence = 0;
+      let atomicEntrySequence = 0;
+
+      const createAtomicEntryId = (prefix, target) => {
+        atomicEntrySequence += 1;
+        return `${prefix}-${target.sourceRowNumber}-${atomicEntrySequence}`;
+      };
 
       for (const target of aiSetupNewItemTargets) {
         const categoryName = formatExcelCellValue(target.categoryName).trim();
@@ -3775,37 +3736,39 @@ export default function AdminApp() {
           category = normalizedCategoryName ? categoriesByName.get(normalizedCategoryName) : null;
         }
 
-        let categoryCreated = false;
         if (!category) {
-          try {
-            category = await insertConstructionItemRow({
-              company_id: companyId,
-              name: categoryName,
-              item_type: target.isLumpSum ? LUMP_SUM_ITEM_TYPE : "itemized",
-              is_favorite: false,
-              sort_order: nextItemSortOrder,
-            });
-          } catch (error) {
-            results.push({ status: "rejected", target, reason: error.message || "대분류 추가 실패" });
-            continue;
-          }
+          localCategorySequence += 1;
+          const categoryRef = `new-category-${localCategorySequence}`;
+          category = {
+            id: categoryRef,
+            name: categoryName,
+            item_type: target.isLumpSum ? LUMP_SUM_ITEM_TYPE : "itemized",
+            item_kind: "standard",
+            is_favorite: false,
+            sort_order: nextItemSortOrder,
+            __categoryRef: categoryRef,
+            __local: true,
+          };
           nextItemSortOrder += 1;
-          categoryCreated = true;
           categoriesById.set(category.id, { ...category });
           const normalizedCategoryName = normalizeCatalogMatchText(category.name);
           if (normalizedCategoryName) categoriesByName.set(normalizedCategoryName, { ...category });
-          createdCategoryIds.add(category.id);
           nextSubitemSortOrders.set(category.id, 0);
         } else if (target.isLumpSum && category.item_type !== LUMP_SUM_ITEM_TYPE) {
-          try {
-            await updateConstructionItem(category.id, companyId, { item_type: LUMP_SUM_ITEM_TYPE });
-            category = { ...category, item_type: LUMP_SUM_ITEM_TYPE };
-            categoriesById.set(category.id, category);
-          } catch (error) {
-            results.push({ status: "rejected", target, reason: error.message || "1식 공사 유형 설정 실패" });
-            continue;
-          }
+          category = { ...category, item_type: LUMP_SUM_ITEM_TYPE };
+          categoriesById.set(category.id, category);
+          const normalizedCategoryName = normalizeCatalogMatchText(category.name);
+          if (normalizedCategoryName) categoriesByName.set(normalizedCategoryName, category);
         }
+
+        const categoryRef = category.__categoryRef ?? category.id;
+        const categoryPayload = {
+          name: category.name,
+          item_type: category.item_type,
+          item_kind: category.item_kind ?? "standard",
+          is_favorite: category.is_favorite ?? false,
+          sort_order: category.sort_order ?? 0,
+        };
 
         const normalizedSubitemName = normalizeCatalogMatchText(subitemName);
         const existingSubitem = (subitemsByItemId.get(category.id) ?? []).find(
@@ -3813,44 +3776,89 @@ export default function AdminApp() {
         );
 
         if (existingSubitem?.id) {
-          linkedOverrides[target.sourceRowNumber] = {
-            rowType: "work_item",
-            action: "link",
-            categoryId: category.id,
-            subitemId: existingSubitem.id,
-          };
-          results.push({ status: "fulfilled", target, category, subitem: existingSubitem, skipped: true, categoryCreated });
+          if (
+            target.isLumpSum
+            && !categoryUpdateRefs.has(categoryRef)
+          ) {
+            categoryUpdateRefs.add(categoryRef);
+            atomicEntries.push({
+              client_id: createAtomicEntryId("category", target),
+              category_ref: categoryRef,
+              ...(!category.__local ? { category_id: category.id } : {}),
+              category: categoryPayload,
+              subitem: {},
+            });
+          }
+          results.push({ status: "fulfilled", target, category, subitem: existingSubitem, skipped: true });
           continue;
         }
 
         const sortOrder = nextSubitemSortOrders.get(category.id) ?? 0;
-        let insertedSubitem;
-        try {
-          insertedSubitem = await insertConstructionSubitemRow({
-            item_id: category.id,
-            name: subitemName,
-            unit: target.unit || "평",
-            unit_price: unitPrice,
-            labor_rate: laborRateEmpty,
-            labor_rate_empty: laborRateEmpty,
-            labor_rate_occupied: laborRateOccupied,
-            sort_order: sortOrder,
-          });
-        } catch (error) {
-          results.push({ status: "rejected", target, reason: error.message || "세부항목 추가 실패" });
-          continue;
-        }
+        const clientId = createAtomicEntryId("subitem", target);
+        const plannedSubitem = {
+          id: clientId,
+          item_id: category.id,
+          name: subitemName,
+          unit: target.unit || "평",
+          unit_price: unitPrice,
+          labor_rate: laborRateEmpty,
+          labor_rate_empty: laborRateEmpty,
+          labor_rate_occupied: laborRateOccupied,
+          sort_order: sortOrder,
+          __clientId: clientId,
+        };
+        atomicEntries.push({
+          client_id: clientId,
+          category_ref: categoryRef,
+          ...(!category.__local ? { category_id: category.id } : {}),
+          category: categoryPayload,
+          subitem: plannedSubitem,
+        });
 
         nextSubitemSortOrders.set(category.id, sortOrder + 1);
-        subitemsByItemId.set(category.id, [...(subitemsByItemId.get(category.id) ?? []), insertedSubitem]);
-        linkedOverrides[target.sourceRowNumber] = {
-          rowType: "work_item",
-          action: "link",
-          categoryId: category.id,
-          subitemId: insertedSubitem.id,
-        };
-        results.push({ status: "fulfilled", target, category, subitem: insertedSubitem, skipped: false, categoryCreated });
+        subitemsByItemId.set(category.id, [...(subitemsByItemId.get(category.id) ?? []), plannedSubitem]);
+        results.push({ status: "fulfilled", target, category, subitem: plannedSubitem, skipped: false });
       }
+
+      const atomicResult = atomicEntries.length > 0
+        ? await createStandardCatalogEntriesAtomic({ companyId, entries: atomicEntries })
+        : { entries: [] };
+      const atomicRows = atomicResult.entries ?? [];
+      const atomicRowsByClientId = new Map(atomicRows.map((row) => [row.clientId, row]));
+      const atomicCategoriesByRef = new Map(
+        atomicRows
+          .filter((row) => row.categoryRef && row.category?.id)
+          .map((row) => [row.categoryRef, row.category])
+      );
+
+      results = results.map((result) => {
+        if (result.status !== "fulfilled") return result;
+        const categoryRef = result.category.__categoryRef ?? result.category.id;
+        const category = atomicCategoriesByRef.get(categoryRef) ?? result.category;
+        const subitem = result.subitem.__clientId
+          ? atomicRowsByClientId.get(result.subitem.__clientId)?.subitem
+          : result.subitem;
+        if (!category?.id || !subitem?.id) {
+          throw new Error("Atomic catalog save response is missing a stable entity identity.");
+        }
+        return { ...result, category, subitem };
+      });
+
+      const createdCategoryIds = new Set(
+        atomicRows
+          .filter((row) => row.categoryCreated && row.category?.id)
+          .map((row) => row.category.id)
+      );
+      const linkedOverrides = Object.fromEntries(
+        results
+          .filter((result) => result.status === "fulfilled")
+          .map((result) => [result.target.sourceRowNumber, {
+            rowType: "work_item",
+            action: "link",
+            categoryId: result.category.id,
+            subitemId: result.subitem.id,
+          }])
+      );
 
       const successRows = results.filter((result) => result.status === "fulfilled" && !result.skipped);
       const skippedRows = results.filter((result) => result.status === "fulfilled" && result.skipped);
@@ -4023,58 +4031,25 @@ export default function AdminApp() {
   }
 
   async function ensureDefaultConstructionCatalog(companyId, itemRows = [], subitemRows = []) {
-    let nextItemRows = [...itemRows];
-    const missingItemPayloads = DEFAULT_CONSTRUCTION_CATALOG
-      .filter((item) => !findItemByDefaultCatalogName(nextItemRows, item.name))
-      .map((item, index) => ({
-        company_id: companyId,
+    // Defaults are an empty-company bootstrap, not a name-based reconciliation
+    // identity. Customized catalogs are never filled or reinterpreted later.
+    if (itemRows.length || subitemRows.length) return false;
+    const initialized = await initializeDefaultConstructionCatalogAtomic({
+      companyId,
+      catalog: DEFAULT_CONSTRUCTION_CATALOG.map((item, itemIndex) => ({
         name: item.name,
         item_type: "itemized",
         item_kind: item.item_kind ?? "standard",
         is_favorite: false,
-        sort_order: index,
-      }));
-
-    let changed = false;
-    if (missingItemPayloads.length) {
-      const insertedItems = await insertConstructionItems(missingItemPayloads);
-      nextItemRows = [...nextItemRows, ...insertedItems];
-      changed = true;
-    }
-
-    const itemIds = nextItemRows.map((item) => item.id);
-    let nextSubitemRows = [...subitemRows];
-    if (changed && itemIds.length) {
-      nextSubitemRows = await fetchConstructionSubitems(itemIds);
-    }
-
-    const subitemsByItemId = nextSubitemRows.reduce((acc, subitem) => {
-      acc[subitem.item_id] = acc[subitem.item_id] ?? new Set();
-      acc[subitem.item_id].add(subitem.name.trim());
-      return acc;
-    }, {});
-    const missingSubitemPayloads = DEFAULT_CONSTRUCTION_CATALOG.flatMap((item) => {
-      const parent = findItemByDefaultCatalogName(nextItemRows, item.name);
-      if (!parent?.id) return [];
-      const existingNames = subitemsByItemId[parent.id] ?? new Set();
-      return item.subitems
-        .filter(([name]) => !existingNames.has(name))
-        .map(([name, unit], index) => ({
-          item_id: parent.id,
+        sort_order: itemIndex,
+        subitems: item.subitems.map(([name, unit], subitemIndex) => ({
           name,
           unit,
-          unit_price: 0,
-          labor_rate: 0,
-          sort_order: index,
-        }));
+          sort_order: subitemIndex,
+        })),
+      })),
     });
-
-    if (missingSubitemPayloads.length) {
-      await insertConstructionSubitems(missingSubitemPayloads);
-      changed = true;
-    }
-
-    return changed;
+    return Boolean(initialized.created);
   }
 
   async function ensurePyeongValuesForPyeong(subitemRows, pyeong, existingPyeongRows = []) {
@@ -4263,7 +4238,6 @@ export default function AdminApp() {
         return;
       }
 
-      await deleteAdminTemplateValues(templateDeleteTarget.id);
       const deletedTemplates = await deleteAdminTemplate(
         templateDeleteTarget.id,
         companyId
@@ -5010,26 +4984,22 @@ export default function AdminApp() {
     setAdminNotice("");
     try {
       const companyId = requireSelectedCompanyId();
-      let templateRow = drawerMode === "edit" && adminTemplateConditionSourceId
-        ? await updateAdminTemplate(adminTemplateConditionSourceId, adminTemplateConditionDraftValue)
-        : drawerMode === "duplicate"
-          ? null
-          : await fetchTemplateRowByCondition(companyId, adminTemplateConditionDraftValue);
-      if (!templateRow?.id) {
-        templateRow = await insertAdminTemplate({
-            company_id: companyId,
-            ...adminTemplateConditionDraftValue,
-          });
-      }
-
-      if (drawerMode === "duplicate" && adminTemplateConditionSourceId) {
-        const sourceValues = await fetchAdminTemplateValues(adminTemplateConditionSourceId);
-        const clonedValues = buildAdminTemplateValueClonePayloads({
-          templateId: templateRow.id,
-          values: sourceValues,
-        });
-        if (clonedValues.length) await upsertAdminTemplateValues(clonedValues);
-      }
+      const atomicTemplate = await saveAdminTemplateAtomic({
+        companyId,
+        condition: adminTemplateConditionDraftValue,
+        mode: drawerMode === "duplicate"
+          ? "duplicate"
+          : drawerMode === "edit"
+            ? "edit"
+            : "upsert",
+        templateId: drawerMode === "edit"
+          ? adminTemplateConditionSourceId
+          : null,
+        sourceTemplateId: drawerMode === "duplicate"
+          ? adminTemplateConditionSourceId
+          : null,
+      });
+      const templateRow = atomicTemplate.template;
 
       if (templateRow?.id) {
         const nextOrder = drawerMode === "edit"
@@ -5876,49 +5846,30 @@ export default function AdminApp() {
     );
   }
 
-  function getEstimateTemplateValuePayloads(templateId = "") {
+  function getEstimateTemplateValuePayloads() {
     return Object.values(items)
       .flatMap((rows) => rows ?? [])
       .filter((row) => row.subitemId && (hasNumericInput(row.quantity) || hasNumericInput(row.laborCount)))
       .map((row) => ({
-        ...(templateId ? { template_id: templateId } : {}),
         item_id: row.itemId,
-        subitem_id: row.subitemId,
-        option_value: "",
+        subitem_ref: row.subitemId,
         quantity: toNullableNumber(row.quantity),
         labor_count: toNullableNumber(row.laborCount),
       }));
   }
 
-  async function saveBlankEstimateAsTemplate(companyId) {
-    if (estimateDraftSource !== "blank") return false;
+  function getBlankEstimateTemplateWrite() {
+    if (estimateDraftSource !== "blank") return null;
 
     const templateCondition = getEstimateTemplateCondition(condition);
-    if (!templateCondition) return false;
-
-    const existingTemplate = await fetchTemplateRowByCondition(companyId, templateCondition);
-    if (existingTemplate?.id) return false;
+    if (!templateCondition) return null;
 
     const pendingTemplateValues = getEstimateTemplateValuePayloads();
-    if (!pendingTemplateValues.length) return false;
-
-    const insertedTemplate = await insertAdminTemplate(
-      {
-        company_id: companyId,
-        ...templateCondition,
-      },
-      { idOnly: true }
-    );
-
-    const templateValuePayloads = pendingTemplateValues.map((row) => ({
-      ...row,
-      template_id: insertedTemplate.id,
-    }));
-    if (templateValuePayloads.length) {
-      await upsertAdminTemplateValues(templateValuePayloads);
-    }
-
-    return true;
+    if (!pendingTemplateValues.length) return null;
+    return {
+      condition: templateCondition,
+      values: pendingTemplateValues,
+    };
   }
 
   function loadSavedEstimateDraft(estimate, { copy = false, destination = "preview" } = {}) {
@@ -6488,15 +6439,14 @@ export default function AdminApp() {
     setAdminError("");
     try {
       const companyId = requireSelectedCompanyId();
-      await Promise.all(
-        reordered.map((item) =>
-          updateConstructionItem(
-            item.id,
-            companyId,
-            { sort_order: item.sort_order }
-          )
-        )
-      );
+      await reorderAdminCatalogAtomic({
+        companyId,
+        entries: reordered.map((item) => ({
+          entity_type: "item",
+          id: item.id,
+          sort_order: item.sort_order,
+        })),
+      });
       await fetchAdminItems();
       markAdminCatalogSavedNow();
     } catch (error) {
@@ -6541,14 +6491,15 @@ export default function AdminApp() {
     markAdminCatalogSaving();
     setAdminError("");
     try {
-      await Promise.all(
-        reorderedSubitems.map((subitem) =>
-          updateConstructionSubitem(
-            subitem.id,
-            { sort_order: subitem.sort_order }
-          )
-        )
-      );
+      await reorderAdminCatalogAtomic({
+        companyId: requireSelectedCompanyId(),
+        entries: reorderedSubitems.map((subitem) => ({
+          entity_type: "subitem",
+          id: subitem.id,
+          item_id: itemId,
+          sort_order: subitem.sort_order,
+        })),
+      });
       await fetchAdminItems();
       markAdminCatalogSavedNow();
     } catch (error) {
@@ -6891,19 +6842,19 @@ export default function AdminApp() {
     markAdminCatalogSaving();
     setAdminError("");
     try {
-      await Promise.all(nextProducts.map((product) => (
-        product.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP
-          ? updateCanonicalVariantGroup(
-              product.variantGroupId,
-              product.constructionItemId,
-              { sort_order: product.sortOrder }
-            )
-          : updateCanonicalConstructionSubitem(
-              product.subitemId,
-              product.constructionItemId,
-              { sort_order: product.sortOrder }
-            )
-      )));
+      await reorderAdminCatalogAtomic({
+        companyId: requireSelectedCompanyId(),
+        entries: nextProducts.map((product) => ({
+          entity_type: product.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP
+            ? "variant_group"
+            : "subitem",
+          id: product.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP
+            ? product.variantGroupId
+            : product.subitemId,
+          item_id: product.constructionItemId,
+          sort_order: product.sortOrder,
+        })),
+      });
       await fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" });
       markAdminCatalogSavedNow();
     } catch (error) {
@@ -6971,8 +6922,6 @@ export default function AdminApp() {
 
     setAdminSaving(true);
     setAdminError("");
-    let insertedGroup = null;
-    let insertedGroupNeedsCleanup = false;
     let selectedProductId = product.productId;
     let selectedConstructionSubitemId = "";
     const constructionItemId = product.constructionItemId;
@@ -6995,28 +6944,24 @@ export default function AdminApp() {
         );
         selectedConstructionSubitemId = insertedVariant.id;
       } else {
-        insertedGroup = await insertCanonicalVariantGroup(
-          buildConstructionVariantGroupWritePayload({
+        const created = await createCanonicalVariantProductAtomic({
+          companyId: requireSelectedCompanyId(),
+          constructionItemId,
+          sourceSubitemId: sourceSubitem.id,
+          group: buildConstructionVariantGroupWritePayload({
             constructionItemId,
             displayName: sourceSubitem.name,
             variantKind: draft.variantKind,
             variantValueType: draft.variantValueType,
             sortOrder: product.sortOrder ?? sourceSubitem.sort_order ?? 0,
-          })
-        );
-        insertedGroupNeedsCleanup = true;
-        await updateCanonicalConstructionSubitem(
-          sourceSubitem.id,
-          constructionItemId,
-          buildConstructionVariantMetadataWritePayload({
-            variantGroupId: insertedGroup.id,
-            variantValueType: draft.variantValueType,
+          }),
+          variant: {
+            variant_value_type: draft.variantValueType,
             value: draft.value,
             unit: draft.unit,
-          })
-        );
-        insertedGroupNeedsCleanup = false;
-        selectedProductId = insertedGroup.id;
+          },
+        });
+        selectedProductId = created.variantGroup.id;
         selectedConstructionSubitemId = sourceSubitem.id;
       }
 
@@ -7028,13 +6973,6 @@ export default function AdminApp() {
       markAdminCatalogSavedNow();
       setAdminNotice("제품 옵션을 저장했습니다.");
     } catch (error) {
-      if (insertedGroup?.id && insertedGroupNeedsCleanup) {
-        try {
-          await archiveCanonicalVariantGroup(insertedGroup.id, constructionItemId);
-        } catch (cleanupError) {
-          console.error("[FORMATE canonical variant group cleanup]", cleanupError);
-        }
-      }
       setAdminError(getFriendlyError(error, "제품 옵션을 저장하지 못했어요. 값과 단위를 확인해주세요."));
       await fetchAdminItems({ mode: isCommonPriceAdminPage ? "prices" : "condition" });
     } finally {
@@ -7662,55 +7600,52 @@ export default function AdminApp() {
       }
       setAdminPriceValidationError(null);
 
-      if (snapshotItems.length) {
-        await Promise.all(
-          snapshotItems.map((item) =>
-            updateConstructionItem(
-              item.id,
-              companyId,
-              buildConstructionItemSavePayload(item)
-            )
-          )
-        );
-      }
-
       const existingSubitems = standardPersistableAdminSubitems.filter((subitem) => !isLocalSubitemId(subitem.id));
       const localSubitems = standardPersistableAdminSubitems.filter((subitem) => isLocalSubitemId(subitem.id));
-      let persistedSubitems = existingSubitems;
-
-      if (existingSubitems.length) {
-        await Promise.all(
-          existingSubitems.map((subitem) => {
-            const payload = buildConstructionSubitemSavePayload(
-              subitem,
-              { includePrices: isCommonPriceSave }
-            );
-            return updateCanonicalConstructionSubitem(
-              subitem.id,
-              subitem.item_id,
-              payload
-            );
-          })
-        );
+      const adminTemplateCondition = isCommonPriceSave
+        ? null
+        : currentAdminTemplateConditionRef.current ?? getAdminTemplateCondition();
+      if (!isCommonPriceSave && !adminTemplateCondition) {
+        throw new Error("저장할 평수와 주택 유형을 먼저 선택하세요.");
       }
-
+      const templateValues = isCommonPriceSave
+        ? []
+        : buildAdminTemplateValueAtomicWrites({
+            items: [{
+              id: "canonical-template-values",
+              subitems: standardPersistableAdminSubitems,
+            }],
+          });
+      const atomicResult = await saveAdminCatalogAtomic({
+        companyId,
+        itemUpdates: snapshotItems.map((item) => ({
+          id: item.id,
+          ...buildConstructionItemSavePayload(item),
+        })),
+        subitemUpdates: existingSubitems.map((subitem) => ({
+          id: subitem.id,
+          item_id: subitem.item_id,
+          ...buildConstructionSubitemSavePayload(
+            subitem,
+            { includePrices: isCommonPriceSave }
+          ),
+        })),
+        subitemInserts: localSubitems.map((subitem) => ({
+          client_id: subitem.id,
+          ...buildConstructionSubitemInsertPayload(subitem),
+        })),
+        templateCondition: adminTemplateCondition,
+        templateValues,
+      });
+      const insertResults = (atomicResult.insertedSubitems ?? []).map((entry) => ({
+        localId: entry.clientId,
+        persistedSubitem: entry.subitem,
+      }));
+      const reconciledLocalSubitems = reconcileInsertedSubitems(
+        localSubitems,
+        insertResults
+      );
       if (localSubitems.length) {
-        const insertResults = await Promise.all(
-          localSubitems.map(async (subitem) => ({
-            localId: subitem.id,
-            persistedSubitem: await insertConstructionSubitemRow(
-              buildConstructionSubitemInsertPayload(subitem)
-            ),
-          }))
-        );
-        const reconciledLocalSubitems = reconcileInsertedSubitems(
-          localSubitems,
-          insertResults
-        );
-        persistedSubitems = [
-          ...existingSubitems,
-          ...reconciledLocalSubitems,
-        ];
         const persistedByLocalId = new Map(
           localSubitems.map((subitem, index) => [
             subitem.id,
@@ -7737,6 +7672,33 @@ export default function AdminApp() {
         );
       }
 
+      const persistedTemplateValueIds = new Map(
+        (atomicResult.templateValues ?? []).map((value) => [
+          value.subitemId,
+          value.valueId,
+        ])
+      );
+      if (persistedTemplateValueIds.size) {
+        setAdminItems((current) => current.map((item) => ({
+          ...item,
+          subitems: (item.subitems ?? []).map((subitem) => {
+            const persistedSubitem = insertResults.find(
+              (entry) => entry.localId === subitem.id
+            )?.persistedSubitem;
+            const constructionSubitemId = persistedSubitem?.id ?? subitem.id;
+            return persistedTemplateValueIds.has(constructionSubitemId)
+              ? {
+                  ...subitem,
+                  ...(persistedSubitem ? { id: constructionSubitemId } : {}),
+                  template_value_id: persistedTemplateValueIds.get(constructionSubitemId),
+                  template_option_value: "",
+                  option_value: "",
+                }
+              : subitem;
+          }),
+        })));
+      }
+
       if (isCommonPriceSave) {
         const savedAt = new Date().toISOString();
         setAdminCommonPriceSavedAt(savedAt);
@@ -7746,63 +7708,6 @@ export default function AdminApp() {
           markAdminCatalogSavedNow(saveTarget);
         }
         return true;
-      }
-
-      const adminTemplateCondition = currentAdminTemplateConditionRef.current ?? getAdminTemplateCondition();
-      if (!adminTemplateCondition) {
-        throw new Error("저장할 평수와 주택 유형을 먼저 선택하세요.");
-      }
-
-      let templateRow = await fetchTemplateRowByCondition(companyId, adminTemplateCondition);
-      if (templateRow?.id) {
-        templateRow = await updateAdminTemplate(
-          templateRow.id,
-          adminTemplateCondition,
-          { idOnly: true }
-        );
-      } else {
-        templateRow = await insertAdminTemplate(
-          {
-            company_id: companyId,
-            ...adminTemplateCondition,
-          },
-          { idOnly: true }
-        );
-      }
-
-      const templateValueOperations = buildAdminTemplateValueSaveOperations({
-        templateId: templateRow.id,
-        items: [{
-          id: "canonical-template-values",
-          subitems: persistedSubitems.filter(
-            (subitem) => !sashItemIds.has(subitem.item_id)
-          ),
-        }],
-      });
-      const insertedTemplateValueIds = new Map();
-      await Promise.all(templateValueOperations.map(async (operation) => {
-        if (operation.operation === "update") {
-          await updateAdminTemplateValue(operation.valueId, operation.payload);
-          return;
-        }
-        const insertedRows = await insertAdminTemplateValue(operation.payload);
-        const insertedId = insertedRows?.[0]?.id;
-        if (insertedId) insertedTemplateValueIds.set(operation.subitemId, insertedId);
-      }));
-      if (insertedTemplateValueIds.size) {
-        setAdminItems((current) => current.map((item) => ({
-          ...item,
-          subitems: (item.subitems ?? []).map((subitem) => (
-            insertedTemplateValueIds.has(subitem.id)
-              ? {
-                  ...subitem,
-                  template_value_id: insertedTemplateValueIds.get(subitem.id),
-                  template_option_value: "",
-                  option_value: "",
-                }
-              : subitem
-          )),
-        })));
       }
 
       if (!stayOnPage) {
@@ -7880,17 +7785,20 @@ export default function AdminApp() {
         itemsData,
         total,
       });
-      const saveResult = await saveEstimateDraft({
+      const templateWrite = getBlankEstimateTemplateWrite();
+      const saveResult = await saveEstimateDraftWithTemplate({
         estimate: estimatePayload,
         estimateId: estimateAggregateIdRef.current,
         clientDraftKey: estimateClientDraftKeyRef.current,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         projectName: address.trim(),
+        templateCondition: templateWrite?.condition ?? null,
+        templateValues: templateWrite?.values ?? [],
       });
       estimateAggregateIdRef.current = saveResult.estimateId;
 
-      const createdTemplate = await saveBlankEstimateAsTemplate(companyId);
+      const createdTemplate = Boolean(saveResult.templateCreated);
 
       setEstimateNotice(
         createdTemplate

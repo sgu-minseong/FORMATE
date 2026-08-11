@@ -103,6 +103,38 @@ export async function insertCanonicalVariantSubitem(payload) {
   return data;
 }
 
+/**
+ * Converts one existing standard subitem into the first selectable variant.
+ * Group creation and subitem metadata assignment commit together in Postgres.
+ */
+export async function createCanonicalVariantProductAtomic({
+  companyId,
+  constructionItemId,
+  sourceSubitemId,
+  group,
+  variant,
+}) {
+  const { data, error } = await supabase.rpc(
+    "create_canonical_variant_product_atomic",
+    {
+      p_company_id: companyId,
+      p_construction_item_id: constructionItemId,
+      p_source_subitem_id: sourceSubitemId,
+      p_group: group,
+      p_variant: variant,
+    }
+  );
+  throwIfError(error);
+  if (!data?.ok) {
+    const contractError = new Error(
+      data?.message || "제품 옵션 그룹을 원자적으로 생성하지 못했습니다."
+    );
+    contractError.code = data?.code || "canonical_variant_product_create_failed";
+    throw contractError;
+  }
+  return data;
+}
+
 export async function updateCanonicalConstructionSubitem(
   constructionSubitemId,
   constructionItemId,

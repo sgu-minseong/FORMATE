@@ -21,7 +21,15 @@ const templateSaveSource = appSource.slice(
 );
 const estimateTemplateWriterSource = appSource.slice(
   appSource.indexOf("function getEstimateTemplateValuePayloads"),
-  appSource.indexOf("async function saveBlankEstimateAsTemplate")
+  appSource.indexOf("function loadSavedEstimateDraft")
+);
+const estimateSaveSource = appSource.slice(
+  appSource.indexOf("async function saveEstimateToSupabase"),
+  appSource.indexOf("async function downloadEstimatePdf")
+);
+const aiNewItemWriterSource = appSource.slice(
+  appSource.indexOf("async function confirmAiSetupNewItems"),
+  appSource.indexOf("function renderAiSetupSaveResult")
 );
 
 describe("admin template management layout contracts", () => {
@@ -72,13 +80,26 @@ describe("admin template management layout contracts", () => {
   });
 
   it("saves template values by exact UUID without legacy option parsing", () => {
-    expect(templateSaveSource).toContain("buildAdminTemplateValueSaveOperations");
-    expect(templateSaveSource).toContain("updateAdminTemplateValue(operation.valueId");
-    expect(templateSaveSource).toContain("insertAdminTemplateValue(operation.payload)");
+    expect(templateSaveSource).toContain("buildAdminTemplateValueAtomicWrites");
+    expect(templateSaveSource).toContain("await saveAdminCatalogAtomic");
+    expect(templateSaveSource).not.toContain("updateAdminTemplateValue");
+    expect(templateSaveSource).not.toContain("insertAdminTemplateValue");
     expect(templateSaveSource).not.toContain("getTemplateOptionValue");
     expect(templateSaveSource).not.toContain("spec_options");
-    expect(estimateTemplateWriterSource).toContain('option_value: ""');
+    expect(estimateTemplateWriterSource).toContain("function getBlankEstimateTemplateWrite");
+    expect(estimateTemplateWriterSource).toContain("subitem_ref: row.subitemId");
+    expect(estimateTemplateWriterSource).not.toContain("option_value");
     expect(estimateTemplateWriterSource).not.toContain("getTemplateOptionValue");
+    expect(estimateSaveSource).toContain("await saveEstimateDraftWithTemplate");
+    expect(estimateSaveSource).not.toContain("saveBlankEstimateAsTemplate");
+    expect(appSource).not.toContain("deleteAdminTemplateValues");
+  });
+
+  it("keeps accepted AI catalog rows in one atomic batch without direct row writers", () => {
+    expect(aiNewItemWriterSource).toContain("await createStandardCatalogEntriesAtomic");
+    expect(aiNewItemWriterSource).not.toContain("insertConstructionItemRow");
+    expect(aiNewItemWriterSource).not.toContain("insertConstructionSubitemRow");
+    expect(aiNewItemWriterSource).not.toContain("await updateConstructionItem");
   });
 });
 
@@ -98,7 +119,8 @@ describe("condition context switcher contracts", () => {
   it("reuses the compact drawer and clones template values when duplicating", () => {
     expect(appSource).toContain('setAdminTemplateConditionDrawerMode("edit")');
     expect(appSource).toContain('setAdminTemplateConditionDrawerMode("duplicate")');
-    expect(appSource).toContain("const sourceValues = await fetchAdminTemplateValues");
-    expect(appSource).toContain("await upsertAdminTemplateValues(clonedValues)");
+    expect(appSource).toContain('mode: drawerMode === "duplicate"');
+    expect(appSource).toContain('sourceTemplateId: drawerMode === "duplicate"');
+    expect(appSource).toContain("await saveAdminTemplateAtomic");
   });
 });

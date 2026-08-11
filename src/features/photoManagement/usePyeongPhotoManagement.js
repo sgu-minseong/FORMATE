@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   archivePhotoCaptionSnippet,
   archivePhotoV2,
+  compensatePhotoUploadBatchAtomic,
   createPhotoCaptionSnippet,
   listPhotoCaptionSnippets,
   listPyeongPhotoRows,
@@ -9,7 +10,7 @@ import {
   reorderPhotoV2Rows,
   resolvePyeongPhotoUrls,
   updatePhotoCaptionSnippet,
-  updatePhotoDescription,
+  updatePhotoDescriptionsAtomic,
   uploadPyeongSubitemPhoto,
 } from "./photoApi";
 import { createPhotoAutosave } from "./photoAutosave";
@@ -288,17 +289,23 @@ export function usePyeongPhotoManagement({ companyId, createPhotoId, getFriendly
     setSaving(true);
     setError("");
     setNotice("");
+    const scopeCompanyId = companyIdRef.current;
+    const uploaded = [];
+    const attemptedPhotoIds = [];
     try {
       const currentCount = photosRef.current.filter((photo) => (
         photo.constructionSubitemId === constructionSubitemId
         && photo.sashCatalogEntryId === sashCatalogEntryId
       )).length;
-      const uploaded = [];
       for (const [index, file] of fileRows.entries()) {
-        if (!canMutateCommittedContext() || committedPyeongRef.current !== scopePyeong) return false;
+        if (!canMutateCommittedContext() || committedPyeongRef.current !== scopePyeong) {
+          throw new Error("사진 업로드 중 평형 범위가 변경되었습니다.");
+        }
+        const photoId = createPhotoId();
+        attemptedPhotoIds.push(photoId);
         uploaded.push(await uploadPyeongSubitemPhoto({
-          companyId: companyIdRef.current,
-          photoId: createPhotoId(),
+          companyId: scopeCompanyId,
+          photoId,
           file,
           pyeong: scopePyeong,
           constructionSubitemId,
@@ -306,13 +313,32 @@ export function usePyeongPhotoManagement({ companyId, createPhotoId, getFriendly
           existingCount: currentCount + index,
         }));
       }
-      if (!canMutateCommittedContext() || committedPyeongRef.current !== scopePyeong) return false;
+      if (!canMutateCommittedContext() || committedPyeongRef.current !== scopePyeong) {
+        throw new Error("사진 업로드 중 평형 범위가 변경되었습니다.");
+      }
       const next = setPhotosState((current) => [...current, ...uploaded]);
       setStatus(getReadyStatus(next));
       setNotice(`${uploaded.length}장의 사진을 추가했습니다.`);
       return true;
     } catch (source) {
-      setError(friendlyError(source, "사진을 업로드하지 못했습니다."));
+      const uploadError = source instanceof Error
+        ? source
+        : new Error(String(source ?? "Photo upload failed"));
+      if (attemptedPhotoIds.length) {
+        try {
+          // Storage and Postgres cannot share one transaction. Newly-created
+          // or commit-uncertain rows are archived as one compensating DB
+          // transaction; their objects remain recoverable and invisible to
+          // active queries. Missing IDs are safe when Storage failed first.
+          await compensatePhotoUploadBatchAtomic({
+            companyId: scopeCompanyId,
+            photoIds: attemptedPhotoIds,
+          });
+        } catch (cleanupError) {
+          uploadError.cleanupError = cleanupError;
+        }
+      }
+      setError(friendlyError(uploadError, "사진을 업로드하지 못했습니다."));
       await reloadCommittedPhotos();
       return false;
     } finally {
@@ -329,10 +355,10 @@ export function usePyeongPhotoManagement({ companyId, createPhotoId, getFriendly
     if (!pending.length) return true;
     pendingCaptionsRef.current.clear();
     try {
-      const savedRows = [];
-      for (const [photoId, description] of pending) {
-        savedRows.push(await updatePhotoDescription({ companyId: companyIdRef.current, photoId, description }));
-      }
+      const savedRows = await updatePhotoDescriptionsAtomic({
+        companyId: companyIdRef.current,
+        updates: pending.map(([photoId, description]) => ({ photoId, description })),
+      });
       if (committedPyeongRef.current !== scopePyeong || pendingPyeongRef.current) return false;
       const savedById = new Map(savedRows.map((photo) => [photo.id, photo]));
       setPhotosState((current) => current.map((photo) => {
