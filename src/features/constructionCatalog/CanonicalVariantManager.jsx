@@ -92,6 +92,10 @@ export default function CanonicalVariantManager({
   product,
   disabled = false,
   canConvertStandard = true,
+  conversionVariantKind = "규격",
+  conversionValueType = CONSTRUCTION_VARIANT_VALUE_TYPES.TEXT,
+  conversionUnit = "",
+  compactConversion = false,
   onAdd,
   onUpdate,
   onArchive,
@@ -99,20 +103,30 @@ export default function CanonicalVariantManager({
   onClose,
 }) {
   const isVariantProduct = product?.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP;
-  const [variantKind, setVariantKind] = useState(product?.variantKind ?? "규격");
+  const [variantKind, setVariantKind] = useState(
+    product?.variantKind ?? conversionVariantKind
+  );
   const [valueType, setValueType] = useState(
-    product?.variantValueType ?? CONSTRUCTION_VARIANT_VALUE_TYPES.TEXT
+    product?.variantValueType ?? conversionValueType
   );
   const [value, setValue] = useState("");
-  const [unit, setUnit] = useState("");
+  const [unit, setUnit] = useState(isVariantProduct ? "" : conversionUnit);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    setVariantKind(product?.variantKind ?? "규격");
-    setValueType(product?.variantValueType ?? CONSTRUCTION_VARIANT_VALUE_TYPES.TEXT);
+    setVariantKind(product?.variantKind ?? conversionVariantKind);
+    setValueType(product?.variantValueType ?? conversionValueType);
     setValue("");
-    setUnit("");
-  }, [product?.productId, product?.variantKind, product?.variantValueType]);
+    setUnit(isVariantProduct ? "" : conversionUnit);
+  }, [
+    conversionUnit,
+    conversionValueType,
+    conversionVariantKind,
+    isVariantProduct,
+    product?.productId,
+    product?.variantKind,
+    product?.variantValueType,
+  ]);
 
   async function addVariant() {
     if (
@@ -132,7 +146,7 @@ export default function CanonicalVariantManager({
         unit: unit.trim(),
       });
       setValue("");
-      setUnit("");
+      setUnit(isVariantProduct ? "" : conversionUnit);
     } finally {
       setSubmitting(false);
     }
@@ -149,33 +163,35 @@ export default function CanonicalVariantManager({
 
   return (
     <div className="canonical-variant-manager">
-      <div className="canonical-variant-manager__metadata">
-        <label>
-          <span>옵션 구분</span>
-          <input
-            value={variantKind}
-            disabled={controlsDisabled}
-            placeholder="예: 두께, 색상, 마감"
-            onChange={(event) => setVariantKind(event.target.value)}
-            onBlur={() => {
-              if (isVariantProduct && variantKind.trim() && variantKind.trim() !== product.variantKind) {
-                onUpdateKind?.(variantKind.trim());
-              }
-            }}
-          />
-        </label>
-        <label>
-          <span>값 형식</span>
-          <select
-            value={valueType}
-            disabled={controlsDisabled || isVariantProduct}
-            onChange={(event) => setValueType(event.target.value)}
-          >
-            <option value={CONSTRUCTION_VARIANT_VALUE_TYPES.TEXT}>문자</option>
-            <option value={CONSTRUCTION_VARIANT_VALUE_TYPES.NUMBER}>숫자</option>
-          </select>
-        </label>
-      </div>
+      {(!compactConversion || isVariantProduct) && (
+        <div className="canonical-variant-manager__metadata">
+          <label>
+            <span>옵션 구분</span>
+            <input
+              value={variantKind}
+              disabled={controlsDisabled}
+              placeholder="예: 두께, 색상, 마감"
+              onChange={(event) => setVariantKind(event.target.value)}
+              onBlur={() => {
+                if (isVariantProduct && variantKind.trim() && variantKind.trim() !== product.variantKind) {
+                  onUpdateKind?.(variantKind.trim());
+                }
+              }}
+            />
+          </label>
+          <label>
+            <span>값 형식</span>
+            <select
+              value={valueType}
+              disabled={controlsDisabled || isVariantProduct}
+              onChange={(event) => setValueType(event.target.value)}
+            >
+              <option value={CONSTRUCTION_VARIANT_VALUE_TYPES.TEXT}>문자</option>
+              <option value={CONSTRUCTION_VARIANT_VALUE_TYPES.NUMBER}>숫자</option>
+            </select>
+          </label>
+        </div>
+      )}
 
       {isVariantProduct ? (
         <div className="spec-options-popover-list">

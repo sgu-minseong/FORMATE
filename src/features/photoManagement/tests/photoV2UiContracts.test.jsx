@@ -121,7 +121,8 @@ describe("Photo v2 management UI contracts", () => {
     expect(pageSource).not.toContain("pyeong-photo-add-tile");
     expect(pageSource).toContain("selectedCategory?.products ?? []");
     expect(pageSource).not.toContain("buildCanonicalConstructionProductModel");
-    expect(pageSource).toContain("section.activeVariant.label");
+    expect(pageSource).toContain("<CanonicalVariantSelect");
+    expect(pageSource).toContain("value={activeSubitemId}");
     expect(pageSource).not.toContain("formatConstructionSubitemVariantLabel");
     expect(pageSource).toContain("section.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP");
     expect(pageSource).toContain("activeSubitemId");
@@ -141,6 +142,29 @@ describe("Photo v2 management UI contracts", () => {
     expect(controllerSource).toContain("const scopeCompanyId = companyIdRef.current");
     expect(controllerSource).toContain("archivePhotoV2");
     expect(controllerSource).not.toContain("storage.remove");
+  });
+
+  it("uses the shared canonical editor for generic product names and thickness conversion", () => {
+    const pageSource = fs.readFileSync(path.resolve(process.cwd(), "src/features/photoManagement/PyeongPhotoManagement.jsx"), "utf8");
+    const managementSource = fs.readFileSync(path.resolve(process.cwd(), "src/features/photoManagement/usePhotoManagement.js"), "utf8");
+    const styleSource = fs.readFileSync(path.resolve(process.cwd(), "src/styles/appStyles.js"), "utf8");
+
+    expect(pageSource).toContain("<CanonicalVariantManager");
+    expect(pageSource).toContain('title="항목 편집"');
+    expect(pageSource).toContain("이름 변경");
+    expect(pageSource).toContain("두께 옵션 추가");
+    expect(pageSource).toContain('conversionVariantKind="두께"');
+    expect(pageSource).toContain("conversionValueType={CONSTRUCTION_VARIANT_VALUE_TYPES.NUMBER}");
+    expect(pageSource).toContain('conversionUnit="T"');
+    expect(pageSource).not.toContain("variantMenuGroupId");
+    expect(managementSource).toContain("createCanonicalVariantProductAtomic");
+    expect(managementSource).toContain("buildConstructionVariantGroupWritePayload");
+    expect(managementSource).toContain("buildConstructionVariantMetadataWritePayload");
+    expect(managementSource).toContain("archiveCanonicalConstructionSubitem");
+    expect(managementSource).toContain("archiveCanonicalVariantGroup");
+    expect(`${pageSource}\n${managementSource}`).not.toMatch(/KCC|LG장판|장판\s*===|includes\([^)]*장판/);
+    expect(styleSource).toMatch(/\.pyeong-photo-product-editor__trigger\s*\{[^}]*width:\s*28px;[^}]*border:\s*0;[^}]*opacity:\s*0\.38;/s);
+    expect(styleSource).toMatch(/\.pyeong-photo-gallery-section__header:hover \.pyeong-photo-product-editor__trigger[\s\S]*?opacity:\s*0\.82;/s);
   });
 
   it("keeps photo and caption in one object card with archive and reorder contracts", () => {

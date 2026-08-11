@@ -11447,63 +11447,112 @@ const appStyles = `
   .pyeong-photo-variant-select {
     position: relative;
     flex: 0 0 auto;
+    width: auto;
   }
-  .pyeong-photo-variant-trigger {
+  .pyeong-photo-variant-select .canonical-variant-control {
+    width: auto;
+  }
+  .pyeong-photo-variant-select .canonical-variant-trigger {
     min-width: 70px;
     height: 30px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: space-between;
     gap: var(--space-0-5);
     padding: 0 var(--space-1);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-button);
     background: var(--color-surface);
-    color: var(--color-text-primary);
-    font: inherit;
     font-size: var(--font-size-caption);
     font-variant-numeric: tabular-nums;
   }
-  .pyeong-photo-variant-trigger:hover,
-  .pyeong-photo-variant-trigger:focus-visible,
-  .pyeong-photo-variant-trigger[aria-expanded="true"] {
+  .pyeong-photo-variant-select .canonical-variant-trigger:hover,
+  .pyeong-photo-variant-select .canonical-variant-trigger:focus-visible,
+  .pyeong-photo-variant-select .canonical-variant-trigger[aria-expanded="true"] {
     border-color: var(--color-border-strong);
     background: var(--color-surface-subtle);
     outline: none;
   }
-  .pyeong-photo-variant-menu {
+  .pyeong-photo-variant-select .canonical-variant-dropdown {
+    top: calc(100% + var(--space-0-5));
+    z-index: 36;
+  }
+  .pyeong-photo-product-editor {
+    position: relative;
+    flex: 0 0 auto;
+  }
+  .pyeong-photo-product-editor__trigger {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    display: inline-grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-text-secondary);
+    opacity: 0.38;
+    transition: opacity 120ms ease, color 120ms ease;
+  }
+  .pyeong-photo-gallery-section__header:hover .pyeong-photo-product-editor__trigger,
+  .pyeong-photo-product-editor__trigger:hover,
+  .pyeong-photo-product-editor__trigger:focus-visible,
+  .pyeong-photo-product-editor__trigger[aria-expanded="true"] {
+    color: var(--color-text-primary);
+    opacity: 0.82;
+  }
+  .pyeong-photo-product-editor__trigger:focus-visible {
+    outline: 1px solid var(--focus-ring-color);
+    outline-offset: 1px;
+  }
+  .pyeong-photo-product-editor__trigger:disabled {
+    cursor: not-allowed;
+    opacity: 0.22;
+  }
+  .pyeong-photo-product-editor__popover {
     position: absolute;
     top: calc(100% + var(--space-0-5));
     left: 0;
-    z-index: 18;
-    width: 96px;
-    max-height: 260px;
-    overflow-y: auto;
+    z-index: 38;
+    width: 180px;
     padding: var(--space-0-5);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
     background: var(--color-surface);
     box-shadow: var(--shadow-popover);
   }
-  .pyeong-photo-variant-menu button {
+  .pyeong-photo-product-editor__popover--manage {
+    width: 320px;
+    max-width: calc(100vw - 32px);
+    padding: var(--space-2);
+  }
+  .pyeong-photo-product-editor__menu {
+    display: grid;
+  }
+  .pyeong-photo-product-editor__menu button {
     width: 100%;
-    min-height: 32px;
-    padding: 0 var(--space-1);
+    min-height: 30px;
+    padding: var(--space-0-5) var(--space-1);
     border: 0;
     border-radius: var(--radius-button);
     background: transparent;
     color: var(--color-text-primary);
-    font: inherit;
     font-size: var(--font-size-caption);
-    font-variant-numeric: tabular-nums;
     text-align: left;
   }
-  .pyeong-photo-variant-menu button:hover,
-  .pyeong-photo-variant-menu button:focus-visible,
-  .pyeong-photo-variant-menu button.active {
-    background: var(--color-primary-soft);
-    color: var(--color-primary);
+  .pyeong-photo-product-editor__menu button:hover,
+  .pyeong-photo-product-editor__menu button:focus-visible {
+    background: var(--color-surface-subtle);
     outline: none;
+  }
+  .pyeong-photo-product-editor__rename {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1);
+    align-items: center;
+  }
+  .pyeong-photo-product-editor__rename input {
+    min-width: 0;
+    min-height: 30px;
+    padding: var(--space-0-5) var(--space-1);
+    font-size: var(--font-size-table-cell);
   }
   .pyeong-photo-add-action {
     position: relative;

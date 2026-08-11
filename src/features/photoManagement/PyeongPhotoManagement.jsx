@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  SquarePen,
   Trash2,
   X,
 } from "lucide-react";
@@ -14,8 +15,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import PhotoViewer, { shouldSuppressPhotoClick } from "../../components/PhotoViewer";
 import PyeongSelector from "../../components/PyeongSelector";
 import Button from "../../components/ui/Button";
+import CanonicalVariantManager from "../constructionCatalog/CanonicalVariantManager";
+import CanonicalVariantSelect from "../constructionCatalog/CanonicalVariantSelect";
 import AdminCategoryPanel from "../priceTable/AdminCategoryPanel";
-import { CONSTRUCTION_PRODUCT_KINDS } from "../constructionCatalog/constructionCatalogModel";
+import {
+  CONSTRUCTION_PRODUCT_KINDS,
+  CONSTRUCTION_VARIANT_VALUE_TYPES,
+} from "../constructionCatalog/constructionCatalogModel";
 import { PYEONG_PHOTO_STATUS, usePyeongPhotoManagement } from "./usePyeongPhotoManagement";
 
 export const PYEONG_GALLERY_INITIAL_LIMIT = 8;
@@ -132,6 +138,125 @@ function PhotoPyeongPicker({ value, onChange, disabled }) {
   );
 }
 
+function PhotoCatalogProductEditor({
+  product,
+  disabled,
+  onRename,
+  onCreateThickness,
+}) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState("menu");
+  const [name, setName] = useState(product.displayName ?? "");
+  const editorRef = useRef(null);
+
+  useEffect(() => {
+    setName(product.displayName ?? "");
+    setMode("menu");
+    setOpen(false);
+  }, [product.productId, product.displayName]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutsidePointer = (event) => {
+      if (!editorRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [open]);
+
+  async function saveName() {
+    const nextName = name.trim();
+    if (!nextName) return;
+    if (await onRename(product, nextName)) setOpen(false);
+  }
+
+  const isVariantProduct = product.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP;
+
+  return (
+    <div
+      ref={editorRef}
+      className="pyeong-photo-product-editor"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        setOpen(false);
+        setMode("menu");
+      }}
+    >
+      <button
+        type="button"
+        className="pyeong-photo-product-editor__trigger"
+        title="항목 편집"
+        aria-label={`${product.displayName} 항목 편집`}
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => {
+          setOpen((current) => !current);
+          setMode("menu");
+          setName(product.displayName ?? "");
+        }}
+      >
+        <SquarePen size={16} strokeWidth={1.5} />
+      </button>
+
+      {open && (
+        <div
+          className={`pyeong-photo-product-editor__popover ${mode === "thickness" ? "pyeong-photo-product-editor__popover--manage" : ""}`.trim()}
+        >
+          {mode === "menu" && (
+            <div className="pyeong-photo-product-editor__menu" role="menu">
+              <button type="button" role="menuitem" onClick={() => setMode("rename")}>이름 변경</button>
+              {!isVariantProduct && (
+                <button type="button" role="menuitem" onClick={() => setMode("thickness")}>두께 옵션 추가</button>
+              )}
+            </div>
+          )}
+
+          {mode === "rename" && (
+            <div className="pyeong-photo-product-editor__rename" role="dialog" aria-label="항목 이름 변경">
+              <input
+                autoFocus
+                value={name}
+                disabled={disabled}
+                aria-label="항목 이름"
+                onChange={(event) => setName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    saveName();
+                  }
+                }}
+              />
+              <button type="button" className="secondary-button compact-button" disabled={disabled || !name.trim()} onClick={saveName}>저장</button>
+            </div>
+          )}
+
+          {mode === "thickness" && !isVariantProduct && (
+            <CanonicalVariantManager
+              product={product}
+              disabled={disabled}
+              canConvertStandard
+              conversionVariantKind="두께"
+              conversionValueType={CONSTRUCTION_VARIANT_VALUE_TYPES.NUMBER}
+              conversionUnit="T"
+              compactConversion
+              onAdd={async (draft) => {
+                const created = await onCreateThickness(product, draft);
+                if (created) setOpen(false);
+                return created;
+              }}
+              onClose={() => {
+                setMode("menu");
+                setOpen(false);
+              }}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PyeongSelectionDrawer({ draft, onDraftChange, onApply, onClose, hasSelection, pending, error }) {
   return (
     <div className="modal-backdrop pyeong-photo-drawer-backdrop" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onClose(); }}>
@@ -202,7 +327,6 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
   const catalog = controller.photoCatalog ?? [];
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [activeVariantByGroupId, setActiveVariantByGroupId] = useState({});
-  const [variantMenuGroupId, setVariantMenuGroupId] = useState("");
   const [jumpMenuOpen, setJumpMenuOpen] = useState(false);
   const [galleryModalState, setGalleryModalState] = useState(null);
   const [viewerState, setViewerState] = useState(null);
@@ -220,7 +344,6 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
   }, [catalog, selectedCategoryId]);
 
   useEffect(() => {
-    setVariantMenuGroupId("");
     setJumpMenuOpen(false);
     setGalleryModalState(null);
     setPhotoMenuKey("");
@@ -302,7 +425,6 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
   async function selectVariant(groupId, subitemId) {
     if (editingCaptionState?.photoId) await flushCaption(editingCaptionState.photoId);
     setActiveVariantByGroupId((current) => ({ ...current, [groupId]: subitemId }));
-    setVariantMenuGroupId("");
     setPhotoMenuKey("");
     setEditingCaptionState(null);
     setSnippetCardKey("");
@@ -472,37 +594,58 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
                       <h2>{section.label}</h2>
                       {section.kind === CONSTRUCTION_PRODUCT_KINDS.VARIANT_GROUP && section.activeVariant && (
                         <div className="pyeong-photo-variant-select">
-                          <button
-                            type="button"
-                            className="pyeong-photo-variant-trigger"
-                            onClick={() => setVariantMenuGroupId((current) => current === section.variantGroupId ? "" : section.variantGroupId)}
-                            aria-label={`${section.label} 규격 선택`}
-                            aria-expanded={variantMenuGroupId === section.variantGroupId}
-                          >
-                            <span>{section.activeVariant.label}</span>
-                            <ChevronDown size={14} />
-                          </button>
-                          {variantMenuGroupId === section.variantGroupId && (
-                            <div className="pyeong-photo-variant-menu formate-scroll-light" role="menu">
-                              {section.variants.map((variant) => (
-                                <button
-                                  type="button"
-                                  key={variant.constructionSubitemId}
-                                  className={variant.constructionSubitemId === activeSubitemId ? "active" : ""}
-                                  onClick={() => selectVariant(
-                                    section.variantGroupId,
-                                    variant.constructionSubitemId
-                                  )}
-                                  role="menuitemradio"
-                                  aria-checked={variant.constructionSubitemId === activeSubitemId}
-                                >
-                                  {variant.label}
-                                </button>
-                              ))}
-                            </div>
-                          )}
+                          <CanonicalVariantSelect
+                            product={section}
+                            value={activeSubitemId}
+                            disabled={controller.photoCatalogSaving}
+                            onChange={(constructionSubitemId) => selectVariant(
+                              section.variantGroupId,
+                              constructionSubitemId
+                            )}
+                            management={{
+                              canConvertStandard: false,
+                              onAdd: async (draft) => {
+                                const inserted = await controller.addCatalogProductVariant(
+                                  section,
+                                  draft,
+                                  activeSubitemId
+                                );
+                                if (inserted?.id) {
+                                  await selectVariant(section.variantGroupId, inserted.id);
+                                }
+                                return inserted;
+                              },
+                              onUpdate: (variant, draft) => controller.updateCatalogProductVariant(
+                                section,
+                                variant,
+                                draft
+                              ),
+                              onArchive: async (variant) => {
+                                if (!window.confirm(`${variant.label} 옵션을 보관할까요?`)) return false;
+                                return controller.archiveCatalogProductVariant(section, variant);
+                              },
+                              onUpdateKind: (variantKind) => (
+                                controller.updateCatalogProductVariantKind(section, variantKind)
+                              ),
+                            }}
+                          />
                         </div>
                       )}
+                      <PhotoCatalogProductEditor
+                        product={section}
+                        disabled={controller.photoCatalogSaving}
+                        onRename={controller.renameCatalogProduct}
+                        onCreateThickness={async (product, draft) => {
+                          const created = await controller.createCatalogProductVariant(product, draft);
+                          if (created?.variantGroup?.id && created?.subitem?.id) {
+                            setActiveVariantByGroupId((current) => ({
+                              ...current,
+                              [created.variantGroup.id]: created.subitem.id,
+                            }));
+                          }
+                          return created;
+                        }}
+                      />
                     </div>
                     <div className="pyeong-photo-gallery-section__actions">
                       <span>{scopedPhotos.length ? `${scopedPhotos.length}장` : "사진 없음"}</span>

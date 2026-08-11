@@ -322,6 +322,40 @@ describe("canonical construction Product/Variant contract", () => {
     ]));
   });
 
+  it("does not infer canonical grouping from variant-looking standard names", () => {
+    const model = buildCanonicalConstructionProductModel({
+      subitems: [
+        {
+          id: "legacy-looking-18",
+          item_id: "finish-item",
+          name: "사용자 제품 1.8T",
+          variant_group_id: null,
+          variant_value: null,
+          variant_value_text: null,
+          variant_unit: null,
+          sort_order: 1,
+        },
+        {
+          id: "legacy-looking-22",
+          item_id: "finish-item",
+          name: "사용자 제품 2.2T",
+          variant_group_id: null,
+          variant_value: null,
+          variant_value_text: null,
+          variant_unit: null,
+          sort_order: 2,
+        },
+      ],
+      variantGroups: [],
+    });
+
+    expect(model.variantProducts).toEqual([]);
+    expect(model.standardProducts.map((product) => product.productId)).toEqual([
+      "legacy-looking-18",
+      "legacy-looking-22",
+    ]);
+  });
+
   it("represents an empty active group without inventing a selectable variant", () => {
     const model = buildCanonicalConstructionProductModel({
       subitems: [
