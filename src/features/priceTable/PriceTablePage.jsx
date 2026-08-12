@@ -29,13 +29,14 @@ import { CONSTRUCTION_PRODUCT_KINDS } from "../constructionCatalog/constructionC
 import CanonicalVariantSelect from "../constructionCatalog/CanonicalVariantSelect";
 import SashCatalogSection from "../sash/SashCatalogSection";
 import AdminCategoryPanel from "./AdminCategoryPanel";
+import AdminCatalogTableSkeleton from "./AdminCatalogTableSkeleton";
 
 export default function PriceTablePage({
   companyId,
   addAdminSubitem,
   adminError,
   adminFavoriteOnly,
-  adminLoading,
+  catalogStatus,
   adminNotice,
   adminPriceValidationError,
   adminSaving,
@@ -92,6 +93,10 @@ export default function PriceTablePage({
   updateLocalSubitemDraft,
   updateLocalSubitemPrice,
 }) {
+  const catalogLoading = catalogStatus === "loading";
+  const catalogReady = catalogStatus === "ready";
+  const catalogUnavailable = !catalogReady;
+
   function renderHeader() {
     return (
       <div className="admin-price-table-header admin-price-v2-grid standard-price-table-header">
@@ -434,8 +439,9 @@ export default function PriceTablePage({
     <main className="admin-price-v2-page">
       <AdminCategoryPanel
         ariaLabel="단가표 대분류"
-        items={filteredAdminItems}
+        items={catalogReady ? filteredAdminItems : []}
         selectedItemId={selectedAdminPriceItem?.id}
+        loading={catalogLoading}
         canReorder={canReorderAdminCatalog}
         disabled={adminSaving}
         dragItemId={dragItemId}
@@ -457,7 +463,7 @@ export default function PriceTablePage({
               variant="secondary"
               size="sm"
               leftIcon={<Upload />}
-              disabled={adminLoading || adminSaving}
+              disabled={catalogUnavailable || adminSaving}
               onClick={onExcelImport}
             >
               Excel 업로드
@@ -466,7 +472,7 @@ export default function PriceTablePage({
               variant="secondary"
               size="sm"
               leftIcon={<Download />}
-              disabled={adminLoading || adminSaving || excelExporting}
+              disabled={catalogUnavailable || adminSaving || excelExporting}
               onClick={onExcelExport}
             >
               {excelExporting ? "내보내는 중" : "Excel 내보내기"}
@@ -481,7 +487,7 @@ export default function PriceTablePage({
               variant="secondary"
               size="sm"
               leftIcon={<RefreshCcw />}
-              disabled={adminLoading || adminSaving}
+              disabled={catalogLoading || adminSaving}
               onClick={() =>
                 requestAdminCatalogLeave(() =>
                   fetchAdminItems({ mode: "prices" })
@@ -495,7 +501,7 @@ export default function PriceTablePage({
                 variant="primary"
                 size="sm"
                 leftIcon={<Save />}
-                disabled={adminLoading || adminSaving}
+                disabled={catalogUnavailable || adminSaving}
                 onClick={() => saveAdminPrices({ target: "prices" })}
               >
                 저장하기
@@ -505,39 +511,50 @@ export default function PriceTablePage({
         </header>
 
         <div className="items-v2-toolbar admin-price-v2-toolbar">
-          <label className="admin-search-field admin-price-v2-search">
-            <Search size={17} />
-            <input
-              value={adminSearch}
-              onChange={(event) => setAdminSearch(event.target.value)}
-              placeholder="대분류 또는 소재 검색"
-            />
-          </label>
-          <label className="admin-favorite-filter admin-price-v2-favorite">
-            <input
-              type="checkbox"
-              checked={adminFavoriteOnly}
-              onChange={(event) =>
-                setAdminFavoriteOnly(event.target.checked)
-              }
-            />
-            즐겨찾기만 보기
-          </label>
+          {catalogLoading ? (
+            <div className="admin-catalog-toolbar-skeleton" aria-hidden="true" />
+          ) : (
+            <>
+              <label className="admin-search-field admin-price-v2-search">
+                <Search size={17} />
+                <input
+                  value={adminSearch}
+                  onChange={(event) => setAdminSearch(event.target.value)}
+                  placeholder="대분류 또는 소재 검색"
+                />
+              </label>
+              <label className="admin-favorite-filter admin-price-v2-favorite">
+                <input
+                  type="checkbox"
+                  checked={adminFavoriteOnly}
+                  onChange={(event) =>
+                    setAdminFavoriteOnly(event.target.checked)
+                  }
+                />
+                즐겨찾기만 보기
+              </label>
+            </>
+          )}
         </div>
 
-        {adminLoading && <div className="status-box">불러오는 중...</div>}
         {adminSaving && <div className="status-box">저장 중...</div>}
         {adminNotice && <div className="status-box">{adminNotice}</div>}
         {adminError && <div className="error-box">{adminError}</div>}
         {excelExportError && <div className="error-box">{excelExportError}</div>}
 
-        {item ? (
+        {catalogLoading ? (
+          <section className="items-v2-table-section admin-price-v2-table-section" aria-label="단가표 로딩">
+            <div className="admin-price-v2-table-scroll formate-scroll-light">
+              <AdminCatalogTableSkeleton variant="price" />
+            </div>
+          </section>
+        ) : catalogReady && item ? (
           <section className="items-v2-table-section admin-price-v2-table-section">
             <div className="admin-price-v2-table-scroll formate-scroll-light">
               {renderRows(item)}
             </div>
           </section>
-        ) : (
+        ) : catalogReady ? (
           <section className="items-v2-table-section admin-price-v2-table-section">
             <div className="items-v2-section-header admin-price-v2-section-header">
               <div>
@@ -548,6 +565,13 @@ export default function PriceTablePage({
             <EmptyState
               title="표시할 대분류가 없습니다."
               description="검색 조건을 바꾸거나 대분류를 추가하세요."
+            />
+          </section>
+        ) : (
+          <section className="items-v2-table-section admin-price-v2-table-section">
+            <EmptyState
+              title="단가표를 불러오지 못했습니다."
+              description="오류 내용을 확인한 뒤 되돌리기를 눌러 다시 시도하세요."
             />
           </section>
         )}

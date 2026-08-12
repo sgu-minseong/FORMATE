@@ -248,6 +248,7 @@ import {
 import usePriceTableController from "../features/priceTable/usePriceTableController";
 import PriceTablePage from "../features/priceTable/PriceTablePage";
 import AdminCategoryPanel from "../features/priceTable/AdminCategoryPanel";
+import AdminCatalogTableSkeleton from "../features/priceTable/AdminCatalogTableSkeleton";
 import TemplateConditionSwitcher from "../features/priceTable/TemplateConditionSwitcher";
 import {
   addRecentTemplateCondition,
@@ -625,6 +626,37 @@ function getTemplateConditionKey(templateOrCondition) {
     Boolean(condition.has_extension),
     condition.condition_variant,
   ].join("|");
+}
+
+function getAdminCatalogScopeKey(mode, templateId = "") {
+  return mode === "prices"
+    ? "prices"
+    : `condition:${templateId || "none"}`;
+}
+
+function getScopedResourceStatus(resource, companyId, scopeKey, errorScopePrefix = "") {
+  if (!companyId || resource?.companyId !== companyId) return "loading";
+  if (resource.scopeKey === scopeKey) {
+    return resource.status === "idle" ? "loading" : resource.status;
+  }
+  if (
+    resource.status === "error"
+    && errorScopePrefix
+    && resource.scopeKey.startsWith(errorScopePrefix)
+  ) {
+    return "error";
+  }
+  return "loading";
+}
+
+function orderAdminTemplateRows(templates, templateOrder) {
+  const orderIndex = new Map((templateOrder ?? []).map((id, index) => [`${id}`, index]));
+  return [...(templates ?? [])].sort((a, b) => {
+    const aIndex = orderIndex.has(`${a.id}`) ? orderIndex.get(`${a.id}`) : Number.MAX_SAFE_INTEGER;
+    const bIndex = orderIndex.has(`${b.id}`) ? orderIndex.get(`${b.id}`) : Number.MAX_SAFE_INTEGER;
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    return (templates ?? []).indexOf(a) - (templates ?? []).indexOf(b);
+  });
 }
 
 function getTemplateTimestamp(template) {
@@ -2121,6 +2153,10 @@ export default function AdminApp() {
   const estimatePhotoRequestRef = useRef("");
   const estimateBlankCatalogRequestRef = useRef(0);
   const estimateListRequestRef = useRef(0);
+  const estimateListResourceRef = useRef({ status: "idle", companyId: "", scopeKey: "estimates" });
+  const conditionLabelsRequestRef = useRef(0);
+  const conditionLabelsResourceRef = useRef({ status: "idle", companyId: "", scopeKey: "condition-labels" });
+  const adminTemplatesCompanyIdRef = useRef("");
   const estimateDeleteTriggerRef = useRef(null);
   const estimateAggregateIdRef = useRef(null);
   const estimateClientDraftKeyRef = useRef(createEstimateDraftKey());
@@ -2213,7 +2249,6 @@ export default function AdminApp() {
   const [templateDeleteLoading, setTemplateDeleteLoading] = useState(false);
   const [templateDeleteError, setTemplateDeleteError] = useState("");
   const [currentAdminTemplateId, setCurrentAdminTemplateId] = useState("");
-  const [adminConditionLoaded, setAdminConditionLoaded] = useState(false);
   const [adminConditionStep, setAdminConditionStep] = useState("select");
   const [adminTemplateOrder, setAdminTemplateOrder] = useState([]);
   const [dragAdminTemplateId, setDragAdminTemplateId] = useState("");
@@ -2228,13 +2263,19 @@ export default function AdminApp() {
   const [adminTemplatePreferencesReady, setAdminTemplatePreferencesReady] = useState(false);
   const [newlyCreatedAdminTemplateKey, setNewlyCreatedAdminTemplateKey] = useState("");
   const [conditionVariantLabels, setConditionVariantLabels] = useState(() => createConditionVariantLabelRows());
+  const [conditionLabelsResource, setConditionLabelsResource] = useState({
+    status: "idle",
+    companyId: "",
+    scopeKey: "condition-labels",
+  });
   const {
     adminCommonPriceSavedAt,
+    adminCatalogResource,
+    adminCatalogResourceRef,
     adminError,
     adminFavoriteOnly,
     adminItems,
     adminItemsRef,
-    adminLoading,
     adminNotice,
     adminPriceValidationError,
     adminSaving,
@@ -2269,10 +2310,10 @@ export default function AdminApp() {
     selectedAdminCategoryId,
     selectedSubitemIdByProduct,
     setAdminCommonPriceSavedAt,
+    setAdminCatalogResource,
     setAdminError,
     setAdminFavoriteOnly,
     setAdminItems,
-    setAdminLoading,
     setAdminNotice,
     setAdminPriceRowRef,
     setAdminPriceValidationError,
@@ -2318,6 +2359,11 @@ export default function AdminApp() {
   });
   const [estimates, setEstimates] = useState([]);
   const [trashedEstimates, setTrashedEstimates] = useState([]);
+  const [estimateListResource, setEstimateListResource] = useState({
+    status: "idle",
+    companyId: "",
+    scopeKey: "estimates",
+  });
   const [estimateSearch, setEstimateSearch] = useState("");
   const [estimateListView, setEstimateListView] = useState("active");
   const [estimateListCounts, setEstimateListCounts] = useState({ active: 0, trash: 0 });
@@ -2375,8 +2421,25 @@ export default function AdminApp() {
   const selectedCompanyName = selectedCompany?.name ?? "";
   const selectedCompanyIdRef = useRef(selectedCompanyId);
   const adminCatalogLoadRequestRef = useRef(0);
+  const adminCatalogSnapshotRef = useRef({ companyId: "", snapshot: null });
   const adminCatalogBootstrapAttemptedRef = useRef(new Set());
   selectedCompanyIdRef.current = selectedCompanyId;
+
+  function updateEstimateListResource(nextResource) {
+    const resolvedResource = typeof nextResource === "function"
+      ? nextResource(estimateListResourceRef.current)
+      : nextResource;
+    estimateListResourceRef.current = resolvedResource;
+    setEstimateListResource(resolvedResource);
+  }
+
+  function updateConditionLabelsResource(nextResource) {
+    const resolvedResource = typeof nextResource === "function"
+      ? nextResource(conditionLabelsResourceRef.current)
+      : nextResource;
+    conditionLabelsResourceRef.current = resolvedResource;
+    setConditionLabelsResource(resolvedResource);
+  }
   const photoManagement = usePhotoManagement({
     companyId: selectedCompanyId,
     createPhotoId: createStorageSafeId,
@@ -2465,7 +2528,45 @@ export default function AdminApp() {
     rowsByCategory: selectedRowsByCategory,
     customerVisibleAdjustments,
   } = buildEstimateSummary(selectedRows, cleanEstimateAdjustments);
-  const visibleEstimates = estimateListView === "trash" ? trashedEstimates : estimates;
+  const visibleEstimates = useMemo(() => {
+    const sourceRows = estimateListView === "trash" ? trashedEstimates : estimates;
+    return sourceRows.filter((estimate) => doesSavedEstimateMatchSearch(estimate, estimateSearch));
+  }, [estimateListView, estimateSearch, estimates, trashedEstimates]);
+  const savedEstimateColumns = useMemo(() => (
+    estimateListView === "trash"
+      ? [
+          { key: "customer", label: "고객명", width: "14%" },
+          { key: "address", label: "현장 주소", width: "22%" },
+          { key: "estimateNumber", label: "견적번호", width: "14%" },
+          { key: "createdAt", label: "작성일", width: "10%" },
+          { key: "deletedAt", label: "삭제일", width: "10%" },
+          { key: "amount", label: "총액", align: "right", width: "12%" },
+          { key: "actions", label: "작업", align: "right", width: "110px" },
+        ]
+      : [
+          { key: "customer", label: "고객명", width: "14%" },
+          { key: "address", label: "현장 주소", width: "20%" },
+          { key: "status", label: "견적 상태", width: "10%" },
+          { key: "createdAt", label: "작성일", width: "11%" },
+          { key: "constructionDays", label: "예상시공일", align: "right", width: "10%" },
+          { key: "constructionDate", label: "시공 예정일", width: "12%" },
+          { key: "amount", label: "총액", align: "right", width: "12%" },
+          { key: "actions", label: "작업", align: "right", width: "270px" },
+        ]
+  ), [estimateListView]);
+  const savedEstimateRows = useMemo(() => visibleEstimates.map((estimate) => ({
+    id: estimate.id,
+    estimate,
+    customer: getSavedEstimateCustomerName(estimate) || "고객명 미입력",
+    address: estimate.address || "주소 미입력",
+    status: estimate.status || "draft",
+    estimateNumber: `${getEstimateItemsDataMeta(estimate.items_data).estimateNumber ?? ""}`.trim() || "-",
+    createdAt: estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-",
+    deletedAt: estimate.deleted_at ? new Date(estimate.deleted_at).toLocaleDateString("ko-KR") : "-",
+    constructionDays: getEstimateItemsDataConstructionDaysTotal(estimate.items_data),
+    constructionDate: estimate.construction_date || "-",
+    amount: estimate.total_amount || 0,
+  })), [visibleEstimates]);
   const previewEstimate = estimateAggregateIdRef.current
     ? estimates.find((estimate) => estimate.id === estimateAggregateIdRef.current) ?? null
     : null;
@@ -2695,16 +2796,35 @@ export default function AdminApp() {
         conditionVariant: adminTemplateConditionDraft.conditionVariant,
       })
     : null;
-  const orderedAdminTemplates = useMemo(() => {
-    const orderIndex = new Map(adminTemplateOrder.map((id, index) => [`${id}`, index]));
-    return [...adminTemplates].sort((a, b) => {
-      const aIndex = orderIndex.has(`${a.id}`) ? orderIndex.get(`${a.id}`) : Number.MAX_SAFE_INTEGER;
-      const bIndex = orderIndex.has(`${b.id}`) ? orderIndex.get(`${b.id}`) : Number.MAX_SAFE_INTEGER;
-      if (aIndex !== bIndex) return aIndex - bIndex;
-      return adminTemplates.indexOf(a) - adminTemplates.indexOf(b);
-    });
-  }, [adminTemplateOrder, adminTemplates]);
-  const canEditConditionQuantities = isConditionQuantityAdminPage && adminConditionLoaded && Boolean(currentAdminTemplateCondition);
+  const orderedAdminTemplates = useMemo(
+    () => orderAdminTemplateRows(adminTemplates, adminTemplateOrder),
+    [adminTemplateOrder, adminTemplates]
+  );
+  const adminPriceCatalogStatus = getScopedResourceStatus(
+    adminCatalogResource,
+    selectedCompanyId,
+    getAdminCatalogScopeKey("prices")
+  );
+  const adminTemplateCatalogStatus = getScopedResourceStatus(
+    adminCatalogResource,
+    selectedCompanyId,
+    getAdminCatalogScopeKey("condition", currentAdminTemplateId),
+    "condition:"
+  );
+  const estimateListStatus = getScopedResourceStatus(
+    estimateListResource,
+    selectedCompanyId,
+    "estimates"
+  );
+  const conditionLabelsStatus = getScopedResourceStatus(
+    conditionLabelsResource,
+    selectedCompanyId,
+    "condition-labels"
+  );
+  const canEditConditionQuantities = isConditionQuantityAdminPage
+    && adminConditionStep === "edit"
+    && adminTemplateCatalogStatus === "ready"
+    && Boolean(currentAdminTemplateCondition);
   const canReorderAdminCatalog = isCommonPriceAdminPage || canEditConditionQuantities;
   const showAdminConditionSelect = isConditionQuantityAdminPage && adminConditionStep === "select";
   const showAdminConditionEditor = isConditionQuantityAdminPage && adminConditionStep === "edit";
@@ -2729,7 +2849,7 @@ export default function AdminApp() {
 
   useEffect(() => {
     if (!selectedCompanyId) return;
-    fetchConditionVariantLabels({ silent: true });
+    initializeConditionVariantLabels({ silent: true });
   }, [selectedCompanyId]);
 
   useEffect(() => {
@@ -2770,31 +2890,36 @@ export default function AdminApp() {
       return;
     }
     if (page === "admin-items") {
+      if (!adminTemplatePreferencesReady) return;
       setAdminSearch("");
       setAdminFavoriteOnly(false);
-      const activeCondition = adminConditionStep === "edit" && adminConditionLoaded ? getAdminTemplateCondition() : null;
-      if (!activeCondition) {
-        setAdminConditionLoaded(false);
-        setCurrentAdminTemplateId("");
-      }
-      initializeAdminItems({ mode: "condition", condition: activeCondition });
+      const selectedTemplate = adminTemplatesCompanyIdRef.current === selectedCompanyId
+        ? adminTemplates.find(
+            (template) => `${template.id}` === `${currentAdminTemplateId}`
+          )
+        : null;
+      initializeAdminItems({
+        mode: "condition",
+        template: selectedTemplate,
+        selectPreferredTemplate: true,
+      });
     }
     if (page === "admin-condition-labels") {
-      fetchConditionVariantLabels();
+      initializeConditionVariantLabels();
     }
     if (page === "admin-detail-costs") {
       fetchDetailSubitems();
     }
     if (page === "admin-estimates") {
-      fetchEstimates(estimateSearch);
+      initializeEstimateLists();
     }
     if (page === "landing") {
-      fetchEstimates("");
+      initializeEstimateLists();
     }
     if (page === "photo-management") {
       refreshPhotoCatalog();
     }
-  }, [page, selectedCompanyId]);
+  }, [adminTemplatePreferencesReady, page, selectedCompanyId]);
 
   useEffect(() => {
     if (page === "condition" && USE_ITEMS_SCREEN_V2) {
@@ -2831,29 +2956,6 @@ export default function AdminApp() {
     });
     return () => window.cancelAnimationFrame(frameId);
   }, [estimateTemplateConflicts, page]);
-
-  useEffect(() => {
-    if (!selectedCompanyId || page !== "admin-items" || !adminVerified) return;
-    if (adminLoading || adminSaving || adminTemplateConditionDrawerOpen || !adminTemplatePreferencesReady) return;
-    if (adminConditionStep === "edit" && adminConditionLoaded && currentAdminTemplateId) return;
-    const firstTemplate = orderedAdminTemplates.find((template) => `${template.id}` === `${lastSelectedAdminTemplateId}`)
-      ?? orderedAdminTemplates[0];
-    if (!firstTemplate?.id) return;
-    loadAdminTemplate(firstTemplate);
-  }, [
-    adminConditionLoaded,
-    adminConditionStep,
-    adminLoading,
-    adminSaving,
-    adminTemplateConditionDrawerOpen,
-    adminTemplatePreferencesReady,
-    adminVerified,
-    currentAdminTemplateId,
-    lastSelectedAdminTemplateId,
-    orderedAdminTemplates,
-    page,
-    selectedCompanyId,
-  ]);
 
   useEffect(() => {
     if (!selectedCompanyId || !excelImportOpen || !adminVerified) return;
@@ -2926,14 +3028,6 @@ export default function AdminApp() {
       fetchDetailCosts(selectedDetailSubitemId);
     }
   }, [page, selectedDetailSubitemId, selectedCompanyId]);
-
-  useEffect(() => {
-    if (!selectedCompanyId || page !== "admin-estimates") return;
-    const timer = window.setTimeout(() => {
-      fetchEstimates(estimateSearch);
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [estimateListView, estimateSearch, page, selectedCompanyId]);
 
   useEffect(() => {
     if (!selectedAiSetupSheet) {
@@ -4092,25 +4186,57 @@ export default function AdminApp() {
     });
   }
 
+  function initializeConditionVariantLabels(options = {}) {
+    const companyId = selectedCompanyIdRef.current;
+    const currentResource = conditionLabelsResourceRef.current;
+    if (
+      companyId
+      && currentResource.companyId === companyId
+      && ["loading", "ready"].includes(currentResource.status)
+    ) {
+      return Promise.resolve();
+    }
+    return fetchConditionVariantLabels(options);
+  }
+
   async function fetchConditionVariantLabels(options = {}) {
-    if (!selectedCompanyId || !isSupabaseConfigured) {
+    const requestId = conditionLabelsRequestRef.current + 1;
+    conditionLabelsRequestRef.current = requestId;
+    const loadCompanyId = selectedCompanyIdRef.current;
+    if (!loadCompanyId) {
       setConditionVariantLabels(createConditionVariantLabelRows());
+      updateConditionLabelsResource({ status: "idle", companyId: "", scopeKey: "condition-labels" });
       return;
     }
-
+    updateConditionLabelsResource({
+      status: "loading",
+      companyId: loadCompanyId,
+      scopeKey: "condition-labels",
+    });
     if (!options.silent) {
-      setAdminLoading(true);
       setAdminError("");
       setAdminNotice("");
     }
 
     try {
+      if (!isSupabaseConfigured) {
+        throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
+      }
       let rows;
       try {
-        rows = await fetchConditionVariantLabelRows(selectedCompanyId);
+        rows = await fetchConditionVariantLabelRows(loadCompanyId);
       } catch (error) {
         if (isMissingConditionVariantLabelsTable(error)) {
+          if (
+            requestId !== conditionLabelsRequestRef.current
+            || loadCompanyId !== selectedCompanyIdRef.current
+          ) return;
           setConditionVariantLabels(createConditionVariantLabelRows());
+          updateConditionLabelsResource({
+            status: "error",
+            companyId: loadCompanyId,
+            scopeKey: "condition-labels",
+          });
           if (!options.silent) {
             setAdminError("확장형/구형 설명 테이블이 아직 없습니다. supabase/schema.sql의 condition_variant_labels SQL을 Supabase SQL Editor에 적용해주세요.");
           }
@@ -4119,18 +4245,34 @@ export default function AdminApp() {
         throw error;
       }
 
+      if (
+        requestId !== conditionLabelsRequestRef.current
+        || loadCompanyId !== selectedCompanyIdRef.current
+      ) return;
       setConditionVariantLabels(createConditionVariantLabelRows(rows));
       if (!options.silent && page === "admin-condition-labels") {
         setAdminNotice("확장형/구형 설명을 불러왔습니다.");
       }
+      updateConditionLabelsResource({
+        status: "ready",
+        companyId: loadCompanyId,
+        scopeKey: "condition-labels",
+      });
     } catch (error) {
+      if (
+        requestId !== conditionLabelsRequestRef.current
+        || loadCompanyId !== selectedCompanyIdRef.current
+      ) return;
+      updateConditionLabelsResource({
+        status: "error",
+        companyId: loadCompanyId,
+        scopeKey: "condition-labels",
+      });
       if (options.silent) {
         console.warn("[FORMATE condition variant labels]", error);
       } else {
         setAdminError(getFriendlyError(error, "확장형/구형 설명을 불러오지 못했어요. 다시 시도해주세요."));
       }
-    } finally {
-      if (!options.silent) setAdminLoading(false);
     }
   }
 
@@ -4166,6 +4308,11 @@ export default function AdminApp() {
       }
 
       setConditionVariantLabels(createConditionVariantLabelRows(rows));
+      updateConditionLabelsResource({
+        status: "ready",
+        companyId,
+        scopeKey: "condition-labels",
+      });
       setAdminNotice("확장형/구형 설명을 저장했습니다.");
       setPage("admin-items");
     } catch (error) {
@@ -4178,7 +4325,11 @@ export default function AdminApp() {
   async function fetchAdminTemplateList() {
     const companyId = requireSelectedCompanyId();
     const rows = await fetchAdminTemplateRows(companyId);
-    setAdminTemplates(dedupeTemplatesByCondition(rows));
+    const nextTemplates = dedupeTemplatesByCondition(rows);
+    if (companyId !== selectedCompanyIdRef.current) return [];
+    adminTemplatesCompanyIdRef.current = companyId;
+    setAdminTemplates(nextTemplates);
+    return nextTemplates;
   }
 
   async function fetchTemplateRowByCondition(companyId, condition) {
@@ -4246,9 +4397,9 @@ export default function AdminApp() {
         throw new Error("삭제할 템플릿을 찾지 못했습니다.");
       }
 
-      if (currentAdminTemplateId === templateDeleteTarget.id) {
+      const deletedCurrentTemplate = currentAdminTemplateId === templateDeleteTarget.id;
+      if (deletedCurrentTemplate) {
         setCurrentAdminTemplateId("");
-        setAdminConditionLoaded(false);
       }
       setAdminTemplates((current) => current.filter((template) => template.id !== templateDeleteTarget.id));
       if (typeof window !== "undefined") {
@@ -4271,7 +4422,24 @@ export default function AdminApp() {
       setTemplateDeleteTarget(null);
       setTemplateDeletePassword("");
       setTemplateDeleteError("");
-      await fetchAdminTemplateList();
+      const nextTemplates = await fetchAdminTemplateList();
+      if (deletedCurrentTemplate) {
+        const nextTemplate = orderAdminTemplateRows(nextTemplates, adminTemplateOrder)[0] ?? null;
+        if (nextTemplate) {
+          await loadAdminTemplate(nextTemplate, { templateRows: nextTemplates });
+        } else {
+          setSelectedAdminPyeong("");
+          setSelectedAdminBuildType("");
+          setSelectedAdminHasExtension(false);
+          setSelectedAdminConditionVariant("");
+          setAdminConditionStep("select");
+          setAdminCatalogResource({
+            status: "ready",
+            companyId,
+            scopeKey: getAdminCatalogScopeKey("condition"),
+          });
+        }
+      }
     } catch (error) {
       console.error("[FORMATE delete admin template]", error);
       setTemplateDeleteError(getFriendlyError(error, "템플릿을 삭제하지 못했어요. 다시 시도해주세요."));
@@ -4280,61 +4448,115 @@ export default function AdminApp() {
     }
   }
 
-  async function loadAdminItems(options = {}, { allowBootstrap = false } = {}) {
+  async function loadAdminItems(
+    options = {},
+    { allowBootstrap = false, reuseCatalog = false } = {}
+  ) {
     const requestId = adminCatalogLoadRequestRef.current + 1;
     adminCatalogLoadRequestRef.current = requestId;
-    let loadCompanyId = "";
-    setAdminLoading(true);
-    setAdminError("");
-    setAdminPriceValidationError(null);
+    const requestedMode = options.mode ?? (page === "admin-prices" ? "prices" : "condition");
+    let loadCompanyId = selectedCompanyIdRef.current ?? "";
+    let loadScopeKey = getAdminCatalogScopeKey(requestedMode, options.template?.id);
     try {
       if (!isSupabaseConfigured) {
         throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
       }
       const companyId = requireSelectedCompanyId();
       loadCompanyId = companyId;
-      const mode = options.mode ?? (page === "admin-prices" ? "prices" : "condition");
+      const mode = requestedMode;
       const shouldLoadConditionValues = mode === "condition";
-      const snapshot = await loadAdminCatalogSnapshot({
+      const requestedTemplateId = options.template?.id ?? "";
+      loadScopeKey = getAdminCatalogScopeKey(mode, requestedTemplateId);
+      setAdminCatalogResource({
+        status: "loading",
         companyId,
-        readCatalog: fetchCanonicalConstructionCatalogRows,
-        bootstrapCatalog: ensureDefaultConstructionCatalog,
-        allowBootstrap,
-        hasBootstrapBeenAttempted: () => adminCatalogBootstrapAttemptedRef.current.has(companyId),
-        canBootstrap: () => (
-          requestId === adminCatalogLoadRequestRef.current
-          && companyId === selectedCompanyIdRef.current
-        ),
-        markBootstrapAttempted: () => {
-          adminCatalogBootstrapAttemptedRef.current.add(companyId);
-          if (requestId === adminCatalogLoadRequestRef.current) {
-            setAdminNotice("FORMATE 기본 시공항목을 준비하고 있습니다.");
-          }
-        },
+        scopeKey: loadScopeKey,
       });
-      const { itemRows, subitemRows } = snapshot;
+      setAdminError("");
+      setAdminNotice("");
+      setAdminPriceValidationError(null);
+
       const requestIsCurrent = () => (
         requestId === adminCatalogLoadRequestRef.current
         && companyId === selectedCompanyIdRef.current
       );
+
+      const cachedSnapshot = adminCatalogSnapshotRef.current;
+      const canReuseCatalog = Boolean(
+        reuseCatalog
+        && cachedSnapshot.companyId === companyId
+        && cachedSnapshot.snapshot
+      );
+      const catalogPromise = canReuseCatalog
+        ? Promise.resolve(cachedSnapshot.snapshot)
+        : loadAdminCatalogSnapshot({
+            companyId,
+            readCatalog: fetchCanonicalConstructionCatalogRows,
+            bootstrapCatalog: ensureDefaultConstructionCatalog,
+            allowBootstrap,
+            hasBootstrapBeenAttempted: () => adminCatalogBootstrapAttemptedRef.current.has(companyId),
+            canBootstrap: () => requestIsCurrent(),
+            markBootstrapAttempted: () => {
+              adminCatalogBootstrapAttemptedRef.current.add(companyId);
+              if (requestIsCurrent()) {
+                setAdminNotice("FORMATE 기본 시공항목을 준비하고 있습니다.");
+              }
+            },
+          });
+      const suppliedTemplateRows = Array.isArray(options.templateRows)
+        ? options.templateRows
+        : null;
+      const canReuseTemplates = shouldLoadConditionValues
+        && !suppliedTemplateRows
+        && !options.refreshTemplates
+        && adminTemplatesCompanyIdRef.current === companyId;
+      const templateRowsPromise = shouldLoadConditionValues
+        ? suppliedTemplateRows
+          ? Promise.resolve(suppliedTemplateRows)
+          : canReuseTemplates
+          ? Promise.resolve(adminTemplates)
+          : fetchAdminTemplateRows(companyId)
+        : Promise.resolve([]);
+      const [snapshot, templateRows] = await Promise.all([
+        catalogPromise,
+        templateRowsPromise,
+      ]);
       if (!requestIsCurrent()) return null;
 
-      let nextTemplates = [];
-      if (shouldLoadConditionValues) {
-        nextTemplates = dedupeTemplatesByCondition(await fetchAdminTemplateRows(companyId));
-      }
+      adminCatalogSnapshotRef.current = { companyId, snapshot };
+      const { itemRows, subitemRows } = snapshot;
+      const nextTemplates = shouldLoadConditionValues
+        ? dedupeTemplatesByCondition(templateRows)
+        : [];
 
       let templateValueRows = [];
       let nextTemplateId = "";
-      let nextConditionLoaded = false;
+      let nextTemplate = options.template ?? null;
       let nextNotice = "";
-      const adminTemplateCondition = Object.prototype.hasOwnProperty.call(options, "condition")
+      let adminTemplateCondition = Object.prototype.hasOwnProperty.call(options, "condition")
         ? options.condition
         : getAdminTemplateCondition();
+      if (shouldLoadConditionValues && options.selectPreferredTemplate && !nextTemplate) {
+        const orderedTemplates = orderAdminTemplateRows(nextTemplates, adminTemplateOrder);
+        nextTemplate = orderedTemplates.find(
+          (template) => `${template.id}` === `${currentAdminTemplateId}`
+        ) ?? orderedTemplates.find(
+          (template) => `${template.id}` === `${lastSelectedAdminTemplateId}`
+        ) ?? orderedTemplates[0] ?? null;
+      }
+      if (nextTemplate?.id) {
+        nextTemplate = nextTemplates.find(
+          (template) => `${template.id}` === `${nextTemplate.id}`
+        ) ?? nextTemplate;
+        nextTemplateId = nextTemplate.id;
+        adminTemplateCondition = normalizeTemplateRowCondition(nextTemplate);
+      }
       if (shouldLoadConditionValues && adminTemplateCondition) {
-        const templateRow = await fetchTemplateRowByCondition(companyId, adminTemplateCondition);
+        const templateRow = nextTemplate?.id
+          ? nextTemplate
+          : await fetchTemplateRowByCondition(companyId, adminTemplateCondition);
+        nextTemplate = templateRow ?? null;
         nextTemplateId = templateRow?.id ?? "";
-        nextConditionLoaded = true;
 
         if (templateRow?.id) {
           templateValueRows = await fetchAdminTemplateValues(templateRow.id);
@@ -4348,9 +4570,18 @@ export default function AdminApp() {
       }
 
       if (!requestIsCurrent()) return null;
-      setAdminTemplates(nextTemplates);
-      setCurrentAdminTemplateId(nextTemplateId);
-      setAdminConditionLoaded(nextConditionLoaded);
+      if (shouldLoadConditionValues) {
+        adminTemplatesCompanyIdRef.current = companyId;
+        setAdminTemplates(nextTemplates);
+        if (nextTemplate?.id) {
+          applyAdminTemplateSelection(nextTemplate, {
+            remember: options.rememberSelection !== false,
+          });
+        } else {
+          setCurrentAdminTemplateId("");
+          setAdminConditionStep(adminTemplateCondition ? "edit" : "select");
+        }
+      }
       setAdminNotice(nextNotice);
       if (!shouldLoadConditionValues) {
         const latestUpdatedAt = subitemRows
@@ -4370,6 +4601,13 @@ export default function AdminApp() {
       setSelectedSubitemIdByProduct((current) => (
         reconcileAdminProductSelections(nextAdminItems, current)
       ));
+      setAdminCatalogResource({
+        status: "ready",
+        companyId,
+        scopeKey: shouldLoadConditionValues
+          ? getAdminCatalogScopeKey("condition", nextTemplateId)
+          : getAdminCatalogScopeKey("prices"),
+      });
       return snapshot;
     } catch (error) {
       if (
@@ -4378,24 +4616,40 @@ export default function AdminApp() {
       ) {
         setAdminNotice("");
         setAdminError(getFriendlyError(error, "데이터를 불러오지 못했어요. 다시 시도해주세요."));
+        setAdminCatalogResource({
+          status: "error",
+          companyId: loadCompanyId,
+          scopeKey: loadScopeKey,
+        });
       }
       return null;
-    } finally {
-      if (
-        requestId === adminCatalogLoadRequestRef.current
-        && (!loadCompanyId || loadCompanyId === selectedCompanyIdRef.current)
-      ) {
-        setAdminLoading(false);
-      }
     }
   }
 
   function fetchAdminItems(options = {}) {
-    return loadAdminItems(options, { allowBootstrap: false });
+    return loadAdminItems(options, {
+      allowBootstrap: false,
+      reuseCatalog: Boolean(options.reuseCatalog),
+    });
   }
 
   function initializeAdminItems(options = {}) {
-    return loadAdminItems(options, { allowBootstrap: true });
+    const companyId = selectedCompanyIdRef.current;
+    const mode = options.mode ?? (page === "admin-prices" ? "prices" : "condition");
+    const expectedScopeKey = getAdminCatalogScopeKey(
+      mode,
+      options.template?.id ?? currentAdminTemplateId
+    );
+    const currentResource = adminCatalogResourceRef.current;
+    if (
+      companyId
+      && currentResource.companyId === companyId
+      && currentResource.scopeKey === expectedScopeKey
+      && ["loading", "ready"].includes(currentResource.status)
+    ) {
+      return Promise.resolve(adminCatalogSnapshotRef.current.snapshot);
+    }
+    return loadAdminItems(options, { allowBootstrap: true, reuseCatalog: true });
   }
 
   function doesSavedEstimateMatchSearch(estimate, searchText = estimateSearch) {
@@ -4407,39 +4661,63 @@ export default function AdminApp() {
     return addressText.includes(normalizedKeyword) || customerText.includes(normalizedKeyword);
   }
 
-  async function fetchEstimates(searchText = estimateSearch) {
+  function initializeEstimateLists() {
+    const companyId = selectedCompanyIdRef.current;
+    const currentResource = estimateListResourceRef.current;
+    if (
+      companyId
+      && currentResource.companyId === companyId
+      && ["loading", "ready"].includes(currentResource.status)
+    ) {
+      return Promise.resolve();
+    }
+    return fetchEstimates();
+  }
+
+  async function fetchEstimates() {
     const requestId = estimateListRequestRef.current + 1;
     estimateListRequestRef.current = requestId;
-    setAdminLoading(true);
-    setAdminError("");
+    let loadCompanyId = selectedCompanyIdRef.current ?? "";
     try {
       if (!isSupabaseConfigured) {
         throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
       }
       const companyId = requireSelectedCompanyId();
+      loadCompanyId = companyId;
+      updateEstimateListResource({
+        status: "loading",
+        companyId,
+        scopeKey: "estimates",
+      });
+      setAdminError("");
       const { active: activeRows, trash: trashRows } = await fetchSavedEstimateLists(companyId);
-      if (estimateListRequestRef.current !== requestId) return;
+      if (
+        estimateListRequestRef.current !== requestId
+        || companyId !== selectedCompanyIdRef.current
+      ) return;
 
-      const filteredActiveRows = activeRows.filter((estimate) => (
-        doesSavedEstimateMatchSearch(estimate, searchText)
-      ));
-      const filteredTrashRows = trashRows.filter((estimate) => (
-        doesSavedEstimateMatchSearch(estimate, searchText)
-      ));
-
-      setEstimates(filteredActiveRows);
-      setTrashedEstimates(filteredTrashRows);
+      setEstimates(activeRows);
+      setTrashedEstimates(trashRows);
       setEstimateListCounts({
         active: activeRows.length,
         trash: trashRows.length,
       });
+      updateEstimateListResource({
+        status: "ready",
+        companyId,
+        scopeKey: "estimates",
+      });
     } catch (error) {
-      if (estimateListRequestRef.current !== requestId) return;
+      if (
+        estimateListRequestRef.current !== requestId
+        || (loadCompanyId && loadCompanyId !== selectedCompanyIdRef.current)
+      ) return;
       setAdminError(getFriendlyError(error, "견적서 목록을 불러오지 못했어요. 다시 시도해주세요."));
-    } finally {
-      if (estimateListRequestRef.current === requestId) {
-        setAdminLoading(false);
-      }
+      updateEstimateListResource({
+        status: "error",
+        companyId: loadCompanyId,
+        scopeKey: "estimates",
+      });
     }
   }
 
@@ -4595,10 +4873,7 @@ export default function AdminApp() {
       const restoreToActiveList = isOperationalEstimate(restoredEstimate);
       setTrashedEstimates((current) => current.filter((row) => row.id !== estimate.id));
       setEstimates((current) => {
-        if (
-          !restoreToActiveList
-          || !doesSavedEstimateMatchSearch(restoredEstimate)
-        ) {
+        if (!restoreToActiveList) {
           return current;
         }
         return [
@@ -4771,6 +5046,7 @@ export default function AdminApp() {
             <label key={variantKey}>
               {variantKey}
               <input
+                className="ui-input"
                 value={conditionLabelDrafts[variantKey] ?? ""}
                 onChange={(event) =>
                   setConditionLabelDrafts((current) => ({
@@ -4802,9 +5078,21 @@ export default function AdminApp() {
     );
   }
 
-  async function openAdminConditionEditor(condition) {
+  async function openAdminConditionEditor(
+    condition,
+    template = null,
+    { refreshTemplates = false, templateRows = null } = {}
+  ) {
     if (!condition) return;
-    await fetchAdminItems({ mode: "condition", condition });
+    await fetchAdminItems({
+      mode: "condition",
+      condition,
+      template,
+      rememberSelection: false,
+      refreshTemplates,
+      templateRows,
+      reuseCatalog: true,
+    });
     setAdminConditionStep("edit");
   }
 
@@ -4828,28 +5116,28 @@ export default function AdminApp() {
     });
   }
 
-  async function returnToAdminConditionSelect() {
-    setAdminConditionStep("select");
-    setAdminConditionLoaded(false);
-    setCurrentAdminTemplateId("");
-    await fetchAdminItems({ mode: "condition", condition: null });
-  }
-
-  async function loadAdminTemplate(template) {
-    const condition = buildTemplateCondition({
-      pyeong: template.pyeong,
-      buildType: template.condition_variant || template.build_type,
-      hasExtension: template.has_extension,
-      conditionVariant: template.condition_variant,
-    });
+  function applyAdminTemplateSelection(template, { remember = false } = {}) {
+    if (!template?.id) return null;
+    const condition = normalizeTemplateRowCondition(template);
     setSelectedAdminPyeong(String(template.pyeong));
     setSelectedAdminBuildType(condition.condition_variant.startsWith("확장형") ? "new" : "old");
     setSelectedAdminHasExtension(Boolean(condition.has_extension));
     setSelectedAdminConditionVariant(condition.condition_variant);
     setCurrentAdminTemplateId(template.id);
-    rememberAdminTemplateSelection(template.id);
-    setAdminConditionLoaded(false);
-    await openAdminConditionEditor(condition);
+    setAdminConditionStep("edit");
+    if (remember) rememberAdminTemplateSelection(template.id);
+    return condition;
+  }
+
+  async function returnToAdminConditionSelect() {
+    setAdminConditionStep("select");
+    setCurrentAdminTemplateId("");
+    await fetchAdminItems({ mode: "condition", condition: null });
+  }
+
+  async function loadAdminTemplate(template, options = {}) {
+    const condition = applyAdminTemplateSelection(template, { remember: true });
+    await openAdminConditionEditor(condition, template, options);
   }
 
   function updateAdminTemplateConditionDraft(patch) {
@@ -5020,8 +5308,11 @@ export default function AdminApp() {
       setNewlyCreatedAdminTemplateKey(getTemplateConditionKey(adminTemplateConditionDraftValue));
       window.setTimeout(() => setNewlyCreatedAdminTemplateKey(""), 1600);
       closeAdminTemplateConditionDrawer();
-      await fetchAdminTemplateList();
-      await openAdminConditionEditor(adminTemplateConditionDraftValue);
+      await openAdminConditionEditor(
+        adminTemplateConditionDraftValue,
+        templateRow,
+        { refreshTemplates: true }
+      );
       setAdminNotice(
         drawerMode === "edit"
           ? "기본 견적 조건을 수정했습니다."
@@ -5652,6 +5943,7 @@ export default function AdminApp() {
             {estimateAdjustments.map((adjustment) => (
               <div className="adjustment-row" key={adjustment.id}>
                 <input
+                  className="ui-input"
                   value={adjustment.label}
                   onChange={(event) =>
                     updateEstimateAdjustment(adjustment.id, { label: event.target.value })
@@ -5659,6 +5951,7 @@ export default function AdminApp() {
                   placeholder="예: 폐기물 추가"
                 />
                 <select
+                  className="ui-select"
                   value={adjustment.type}
                   onChange={(event) =>
                     updateEstimateAdjustment(adjustment.id, { type: event.target.value })
@@ -5668,6 +5961,7 @@ export default function AdminApp() {
                   <option value="discount">할인</option>
                 </select>
                 <input
+                  className="ui-input"
                   type="text"
                   inputMode="numeric"
                   value={formatMoneyInputValue(adjustment.amount)}
@@ -5689,6 +5983,7 @@ export default function AdminApp() {
                   고객용 표시
                 </label>
                 <input
+                  className="ui-input"
                   value={adjustment.memo ?? ""}
                   onChange={(event) =>
                     updateEstimateAdjustment(adjustment.id, { memo: event.target.value })
@@ -6051,6 +6346,13 @@ export default function AdminApp() {
 
   function clearCompanyScopedState() {
     estimateListRequestRef.current += 1;
+    adminCatalogLoadRequestRef.current += 1;
+    conditionLabelsRequestRef.current += 1;
+    adminCatalogSnapshotRef.current = { companyId: "", snapshot: null };
+    adminTemplatesCompanyIdRef.current = "";
+    setAdminCatalogResource({ status: "idle", companyId: "", scopeKey: "" });
+    updateEstimateListResource({ status: "idle", companyId: "", scopeKey: "estimates" });
+    updateConditionLabelsResource({ status: "idle", companyId: "", scopeKey: "condition-labels" });
     resetFlow();
     setContractEditorTarget(null);
     setAdminItems([]);
@@ -6061,7 +6363,6 @@ export default function AdminApp() {
     setExpandedAdminItemIds([]);
     setAdminTemplates([]);
     setCurrentAdminTemplateId("");
-    setAdminConditionLoaded(false);
     setAdminCommonPriceSavedAt("");
     setSelectedAdminPyeong("");
     setSelectedAdminBuildType("");
@@ -6562,7 +6863,7 @@ export default function AdminApp() {
         addAdminSubitem={addAdminSubitem}
         adminError={adminError}
         adminFavoriteOnly={adminFavoriteOnly}
-        adminLoading={adminLoading}
+        catalogStatus={adminPriceCatalogStatus}
         adminNotice={adminNotice}
         adminPriceValidationError={adminPriceValidationError}
         adminSaving={adminSaving}
@@ -6708,7 +7009,7 @@ export default function AdminApp() {
                 <button
                   type="button"
                   className="template-delete-button admin-template-condition-delete"
-                  disabled={adminLoading || adminSaving || templateDeleteLoading}
+                  disabled={adminTemplateCatalogStatus === "loading" || adminSaving || templateDeleteLoading}
                   aria-label={`${makeTemplateLabel(template, conditionVariantLabelMap)} 삭제`}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -6732,7 +7033,7 @@ export default function AdminApp() {
             variant="secondary"
             size="sm"
             leftIcon={<Plus />}
-            disabled={adminLoading || adminSaving}
+            disabled={adminTemplateCatalogStatus === "loading" || adminSaving}
             onClick={openAdminTemplateConditionDrawer}
           >
             새 조건 만들기
@@ -7395,12 +7696,12 @@ export default function AdminApp() {
         <div className="estimate-condition-drawer__actions">
           <Button
             variant="primary"
-            disabled={adminLoading || adminSaving || !adminTemplateConditionDraftValue}
+            disabled={adminTemplateCatalogStatus === "loading" || adminSaving || !adminTemplateConditionDraftValue}
             onClick={() => requestAdminCatalogLeave(() => saveAdminTemplateFromDrawer())}
           >
             {adminSaving ? "저장 중..." : drawerActionLabel}
           </Button>
-          <Button variant="secondary" disabled={adminLoading || adminSaving} onClick={closeAdminTemplateConditionDrawer}>
+          <Button variant="secondary" disabled={adminTemplateCatalogStatus === "loading" || adminSaving} onClick={closeAdminTemplateConditionDrawer}>
             취소
           </Button>
         </div>
@@ -7410,16 +7711,20 @@ export default function AdminApp() {
 
   function renderAdminItemsWorkbench() {
     const item = selectedAdminTemplateItem;
-    const initialLoading = adminLoading && !adminConditionLoaded && !currentAdminTemplateId;
-    const editorReady = adminConditionLoaded && Boolean(currentAdminTemplateCondition) && Boolean(item);
+    const catalogLoading = adminTemplateCatalogStatus === "loading";
+    const catalogReady = adminTemplateCatalogStatus === "ready";
+    const editorReady = catalogReady
+      && adminConditionStep === "edit"
+      && Boolean(currentAdminTemplateCondition)
+      && Boolean(item);
 
     return renderAppShell(
       <main className={`admin-price-v2-page admin-items-v2-page ${adminTemplateConditionDrawerOpen ? "admin-items-v2-page--drawer-open" : ""}`.trim()}>
         <AdminCategoryPanel
           ariaLabel="견적 템플릿 대분류"
-          items={filteredAdminItems}
+          items={catalogReady ? filteredAdminItems : []}
           selectedItemId={selectedAdminCategoryId}
-          loading={initialLoading && !adminItems.length}
+          loading={catalogLoading}
           canReorder={canReorderAdminCatalog}
           disabled={adminSaving}
           dragItemId={dragItemId}
@@ -7440,7 +7745,7 @@ export default function AdminApp() {
                 variant="secondary"
                 size="sm"
                 leftIcon={<Upload />}
-                disabled={adminLoading || adminSaving}
+                disabled={!catalogReady || adminSaving}
                 onClick={() => openExcelImport(EXCEL_IMPORT_TARGETS.TEMPLATES)}
               >
                 Excel 업로드
@@ -7449,7 +7754,7 @@ export default function AdminApp() {
                 variant="secondary"
                 size="sm"
                 leftIcon={<Download />}
-                disabled={adminLoading || adminSaving || Boolean(excelExportTarget)}
+                disabled={!catalogReady || adminSaving || Boolean(excelExportTarget)}
                 onClick={() => handleExcelExport(EXCEL_IMPORT_TARGETS.TEMPLATES)}
               >
                 {excelExportTarget === EXCEL_IMPORT_TARGETS.TEMPLATES ? "내보내는 중" : "Excel 내보내기"}
@@ -7461,8 +7766,12 @@ export default function AdminApp() {
                 variant="secondary"
                 size="sm"
                 leftIcon={<RefreshCcw />}
-                disabled={adminLoading || adminSaving || !currentAdminTemplateCondition}
-                onClick={() => requestAdminCatalogLeave(() => fetchAdminItems({ mode: "condition", condition: currentAdminTemplateCondition }))}
+                disabled={catalogLoading || adminSaving}
+                onClick={() => requestAdminCatalogLeave(() => (
+                  currentAdminTemplateCondition
+                    ? fetchAdminItems({ mode: "condition", condition: currentAdminTemplateCondition })
+                    : initializeAdminItems({ mode: "condition", selectPreferredTemplate: true })
+                ))}
               >
                 되돌리기
               </Button>
@@ -7471,7 +7780,7 @@ export default function AdminApp() {
                   variant="primary"
                   size="sm"
                   leftIcon={<Save />}
-                  disabled={adminLoading || adminSaving || !canEditConditionQuantities}
+                  disabled={!catalogReady || adminSaving || !canEditConditionQuantities}
                   onClick={() => saveAdminPrices({ target: "quantities", stayOnPage: true })}
                 >
                   저장하기
@@ -7481,8 +7790,8 @@ export default function AdminApp() {
           </header>
 
           <div className="items-v2-toolbar admin-price-v2-toolbar admin-items-v2-toolbar">
-            {initialLoading ? (
-              <div className="admin-items-v2-loading-line toolbar" />
+            {catalogLoading ? (
+              <div className="admin-catalog-toolbar-skeleton" aria-hidden="true" />
             ) : (
               <TemplateConditionSwitcher
                 templates={orderedAdminTemplates}
@@ -7506,15 +7815,10 @@ export default function AdminApp() {
           {adminError && <div className="error-box">{adminError}</div>}
           {excelExportError && <div className="error-box">{excelExportError}</div>}
 
-          {initialLoading || (currentAdminTemplateId && !editorReady) ? (
+          {catalogLoading ? (
             <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section" aria-label="견적 템플릿 로딩">
               <div className="admin-price-v2-table-scroll formate-scroll-light">
-                <div className="admin-items-v2-loading-table">
-                  <div className="admin-items-v2-loading-row" />
-                  <div className="admin-items-v2-loading-row" />
-                  <div className="admin-items-v2-loading-row" />
-                  <div className="admin-items-v2-loading-row" />
-                </div>
+                <AdminCatalogTableSkeleton variant="quantity" />
               </div>
             </section>
           ) : editorReady ? (
@@ -7523,7 +7827,7 @@ export default function AdminApp() {
                 {renderAdminItemsRows(item)}
               </div>
             </section>
-          ) : (
+          ) : catalogReady ? (
             <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
               <EmptyState
                 title={orderedAdminTemplates.length ? "대분류를 선택하세요." : "기본 견적 조건이 없습니다."}
@@ -7533,6 +7837,13 @@ export default function AdminApp() {
                     새 조건 만들기
                   </Button>
                 ) : null}
+              />
+            </section>
+          ) : (
+            <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
+              <EmptyState
+                title="기본 견적 설정을 불러오지 못했습니다."
+                description="오류 내용을 확인한 뒤 되돌리기를 눌러 다시 시도하세요."
               />
             </section>
           )}
@@ -7637,6 +7948,7 @@ export default function AdminApp() {
         templateCondition: adminTemplateCondition,
         templateValues,
       });
+      adminCatalogSnapshotRef.current = { companyId: "", snapshot: null };
       const insertResults = (atomicResult.insertedSubitems ?? []).map((entry) => ({
         localId: entry.clientId,
         persistedSubitem: entry.subitem,
@@ -7712,9 +8024,13 @@ export default function AdminApp() {
 
       if (!stayOnPage) {
         setCurrentAdminTemplateId("");
-        setAdminConditionLoaded(false);
         setAdminConditionStep("select");
         await fetchAdminTemplateList();
+        setAdminCatalogResource({
+          status: "ready",
+          companyId,
+          scopeKey: getAdminCatalogScopeKey("condition"),
+        });
       }
       if (!auto) setAdminNotice("현재 조건의 수량/인원을 저장했습니다.");
       if (refetch && stayOnPage) {
@@ -7797,6 +8113,11 @@ export default function AdminApp() {
         templateValues: templateWrite?.values ?? [],
       });
       estimateAggregateIdRef.current = saveResult.estimateId;
+      updateEstimateListResource({
+        status: "idle",
+        companyId,
+        scopeKey: "estimates",
+      });
 
       const createdTemplate = Boolean(saveResult.templateCreated);
 
@@ -8516,6 +8837,7 @@ export default function AdminApp() {
           <details className="items-v2-site-memo">
             <summary>현장 메모</summary>
             <textarea
+              className="ui-input ui-input--textarea"
               value={siteMemo}
               onChange={(event) => setSiteMemo(event.target.value)}
               placeholder="고객에게 보여주지 않을 내부 메모를 적어두세요."
@@ -8701,6 +9023,7 @@ export default function AdminApp() {
               <label>
                 관리자 비밀번호
                 <input
+                  className="ui-input"
                   type="password"
                   value={adminVerifyPassword}
                   onChange={(event) => setAdminVerifyPassword(event.target.value)}
@@ -8737,6 +9060,7 @@ export default function AdminApp() {
               <label>
                 관리자 비밀번호
                 <input
+                  className="ui-input"
                   type="password"
                   value={templateDeletePassword}
                   onChange={(event) => setTemplateDeletePassword(event.target.value)}
@@ -9176,10 +9500,7 @@ export default function AdminApp() {
             <div className="admin-action-list">
               <button
                 className="admin-action-row"
-                onClick={() => {
-                  setPage("admin-prices");
-                  fetchAdminItems({ mode: "prices" });
-                }}
+                onClick={() => setPage("admin-prices")}
               >
                 <ClipboardList size={18} strokeWidth={1.5} />
                 <span>
@@ -9189,12 +9510,7 @@ export default function AdminApp() {
               </button>
               <button
                 className="admin-action-row"
-                onClick={() => {
-                  setPage("admin-items");
-                  setAdminConditionStep("select");
-                  setAdminConditionLoaded(false);
-                  fetchAdminItems({ mode: "condition", condition: null });
-                }}
+                onClick={() => setPage("admin-items")}
               >
                 <ClipboardList size={18} strokeWidth={1.5} />
                 <span>
@@ -10596,7 +10912,7 @@ export default function AdminApp() {
                 type="button"
                 variant="secondary"
                 leftIcon={<RefreshCcw />}
-                disabled={adminLoading || adminSaving}
+                disabled={conditionLabelsStatus === "loading" || adminSaving}
                 onClick={() => fetchConditionVariantLabels()}
               >
                 되돌리기
@@ -10605,7 +10921,7 @@ export default function AdminApp() {
                 type="button"
                 variant="primary"
                 leftIcon={<Save />}
-                disabled={adminLoading || adminSaving}
+                disabled={conditionLabelsStatus === "loading" || adminSaving}
                 onClick={saveConditionVariantLabels}
               >
                 저장
@@ -10613,7 +10929,7 @@ export default function AdminApp() {
             </div>
           </div>
 
-          {adminLoading && <div className="status-box">불러오는 중...</div>}
+          {conditionLabelsStatus === "loading" && <div className="status-box">불러오는 중...</div>}
           {adminSaving && <div className="status-box">저장 중...</div>}
           {adminNotice && <div className="status-box">{adminNotice}</div>}
           {adminError && <div className="error-box">{adminError}</div>}
@@ -11198,6 +11514,7 @@ export default function AdminApp() {
               <label>
                 현장 메모
                 <textarea
+                  className="ui-input ui-input--textarea"
                   value={siteMemo}
                   onChange={(event) => setSiteMemo(event.target.value)}
                   placeholder="고객에게 보여주지 않을 내부 메모를 적어두세요."
@@ -11254,8 +11571,8 @@ export default function AdminApp() {
               <Button
                 variant="secondary"
                 leftIcon={<RefreshCcw />}
-                disabled={adminLoading}
-                onClick={() => fetchEstimates(estimateSearch)}
+                disabled={estimateListStatus === "loading"}
+                onClick={() => fetchEstimates()}
               >
                 새로고침
               </Button>
@@ -11296,16 +11613,21 @@ export default function AdminApp() {
           <section className="estimate-search-panel">
             <label>
               <span>고객명 또는 주소 검색</span>
-              <Input
-                value={estimateSearch}
-                onChange={(event) => setEstimateSearch(event.target.value)}
-                placeholder="예: 홍길동, 아파트, 빌라, 101동"
-              />
+              {estimateListStatus === "loading" ? (
+                <span className="saved-estimate-search-skeleton" aria-hidden="true" />
+              ) : (
+                <Input
+                  value={estimateSearch}
+                  onChange={(event) => setEstimateSearch(event.target.value)}
+                  placeholder="예: 홍길동, 아파트, 빌라, 101동"
+                />
+              )}
             </label>
-            <span className="estimate-result-count">{visibleEstimates.length}건</span>
+            <span className="estimate-result-count">
+              {estimateListStatus === "loading" ? "" : `${visibleEstimates.length}건`}
+            </span>
           </section>
 
-          {adminLoading && <div className="status-box">불러오는 중...</div>}
           {adminError && <div className="error-box">{adminError}</div>}
           {estimateDeleteNotice && (
             <div className="success-box saved-estimate-delete-notice" role="status">
@@ -11314,7 +11636,16 @@ export default function AdminApp() {
           )}
 
           <section className="estimate-list">
-            {!adminLoading && !visibleEstimates.length && (
+            {estimateListStatus === "loading" && (
+              <Table
+                className="saved-estimates-table saved-estimates-table--loading"
+                columns={savedEstimateColumns}
+                rows={Array.from({ length: 5 }, (_, index) => ({ id: `loading-${index}` }))}
+                renderCell={() => <span className="saved-estimate-cell-skeleton" aria-hidden="true" />}
+              />
+            )}
+
+            {estimateListStatus === "ready" && !visibleEstimates.length && (
               <div className="estimate-empty-state">
                 <p className="muted">
                   {estimateListView === "trash"
@@ -11324,42 +11655,17 @@ export default function AdminApp() {
               </div>
             )}
 
-            {!!visibleEstimates.length && (
+            {estimateListStatus === "error" && (
+              <div className="estimate-empty-state">
+                <p className="muted">견적 목록을 불러오지 못했습니다. 새로고침으로 다시 시도하세요.</p>
+              </div>
+            )}
+
+            {estimateListStatus === "ready" && !!visibleEstimates.length && (
               <Table
                 className="saved-estimates-table"
-                columns={estimateListView === "trash"
-                  ? [
-                      { key: "customer", label: "고객명", width: "14%" },
-                      { key: "address", label: "현장 주소", width: "22%" },
-                      { key: "estimateNumber", label: "견적번호", width: "14%" },
-                      { key: "createdAt", label: "작성일", width: "10%" },
-                      { key: "deletedAt", label: "삭제일", width: "10%" },
-                      { key: "amount", label: "총액", align: "right", width: "12%" },
-                      { key: "actions", label: "작업", align: "right", width: "110px" },
-                    ]
-                  : [
-                      { key: "customer", label: "고객명", width: "14%" },
-                      { key: "address", label: "현장 주소", width: "20%" },
-                      { key: "status", label: "견적 상태", width: "10%" },
-                      { key: "createdAt", label: "작성일", width: "11%" },
-                      { key: "constructionDays", label: "예상시공일", align: "right", width: "10%" },
-                      { key: "constructionDate", label: "시공 예정일", width: "12%" },
-                      { key: "amount", label: "총액", align: "right", width: "12%" },
-                      { key: "actions", label: "작업", align: "right", width: "270px" },
-                    ]}
-                rows={visibleEstimates.map((estimate) => ({
-                  id: estimate.id,
-                  estimate,
-                  customer: getSavedEstimateCustomerName(estimate) || "고객명 미입력",
-                  address: estimate.address || "주소 미입력",
-                  status: estimate.status || "draft",
-                  estimateNumber: `${getEstimateItemsDataMeta(estimate.items_data).estimateNumber ?? ""}`.trim() || "-",
-                  createdAt: estimate.created_at ? new Date(estimate.created_at).toLocaleDateString("ko-KR") : "-",
-                  deletedAt: estimate.deleted_at ? new Date(estimate.deleted_at).toLocaleDateString("ko-KR") : "-",
-                  constructionDays: getEstimateItemsDataConstructionDaysTotal(estimate.items_data),
-                  constructionDate: estimate.construction_date || "-",
-                  amount: estimate.total_amount || 0,
-                }))}
+                columns={savedEstimateColumns}
+                rows={savedEstimateRows}
                 renderCell={({ row, column, value }) => {
                   if (column.key === "customer") {
                     return <strong className="saved-estimate-customer">{value}</strong>;

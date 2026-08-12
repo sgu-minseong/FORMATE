@@ -133,7 +133,7 @@ export default function TemplateConditionSwitcher({
       </button>
       {open && (
         <div className="template-condition-switcher__popover" role="dialog" aria-label="견적 조건 변경">
-          <label className="template-condition-switcher__search">
+          <label className="admin-search-field template-condition-switcher__search">
             <Search size={16} />
             <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="조건 검색" />
           </label>

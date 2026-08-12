@@ -25,6 +25,10 @@ const adminAppSource = readFileSync(
   new URL("../../../app/AdminApp.jsx", import.meta.url),
   "utf8"
 );
+const skeletonSource = readFileSync(
+  new URL("../AdminCatalogTableSkeleton.jsx", import.meta.url),
+  "utf8"
+);
 
 describe("price table add action layout contracts", () => {
   it("replaces the full-width material add rows with centered item actions", () => {
@@ -38,6 +42,46 @@ describe("price table add action layout contracts", () => {
     expect(appStyles).toMatch(
       /\.admin-price-v2-add-action\s*\{[\s\S]*?display:\s*flex;[\s\S]*?justify-content:\s*center;[\s\S]*?padding:\s*var\(--space-2\) 0;/
     );
+  });
+});
+
+describe("admin table geometry ownership contracts", () => {
+  it("keeps one Price geometry owner for header, editable rows, and skeleton rows", () => {
+    expect(appStyles.match(/--price-table-columns:/g)).toHaveLength(1);
+    expect(appStyles).toMatch(
+      /\.admin-price-v2-grid-list \.admin-price-table-header\.admin-price-v2-grid,[\s\S]*?\.admin-value-row\.common-price-row\.admin-price-v2-grid,[\s\S]*?\.admin-catalog-skeleton-row\s*\{[\s\S]*?grid-template-columns:\s*var\(--price-table-columns\);/
+    );
+    expect(pageSource).toContain('<AdminCatalogTableSkeleton variant="price" />');
+    expect(skeletonSource).toContain('listClassName: "admin-price-v2-grid-list price-table-list"');
+  });
+
+  it("keeps one Template geometry owner for header, editable rows, and skeleton rows", () => {
+    expect(appStyles.match(/--quantity-table-columns:/g)).toHaveLength(1);
+    expect(appStyles).toMatch(
+      /\.admin-items-v2-grid-list \.admin-quantity-table-header,[\s\S]*?\.admin-value-row\.condition-quantity-row,[\s\S]*?\.admin-catalog-skeleton-row\s*\{[\s\S]*?grid-template-columns:\s*var\(--quantity-table-columns\);/
+    );
+    expect(skeletonSource).toContain('listClassName: "admin-items-v2-grid-list quantity-table-list"');
+    expect(skeletonSource).toContain('headerClassName: "admin-quantity-table-header"');
+  });
+
+  it("removes legacy competing geometry and uses one horizontal data viewport", () => {
+    expect(appStyles).not.toContain(":last-of-type");
+    expect(appStyles).not.toContain(".price-table-grid");
+    expect(appStyles).toContain(
+      ".admin-price-v2-grid-list .admin-value-row.common-price-row > .admin-price-v2-expand-button"
+    );
+    expect(appStyles).toContain(
+      ".admin-items-v2-grid-list .admin-value-row.condition-quantity-row > .admin-price-v2-danger-button"
+    );
+    expect(appStyles).not.toContain("admin-flat-list");
+    expect(appStyles).toMatch(
+      /\.admin-price-v2-table-scroll\s*\{[\s\S]*?overflow-x:\s*auto;/
+    );
+    expect(appStyles).toMatch(
+      /\.admin-items-v2-table-section \.admin-price-v2-table-scroll\s*\{[\s\S]*?overflow-x:\s*auto;/
+    );
+    expect(appStyles).toMatch(/\.admin-price-v2-grid-list\s*\{[\s\S]*?min-width:\s*820px;/);
+    expect(appStyles).toMatch(/\.admin-items-v2-grid-list\s*\{[\s\S]*?min-width:\s*740px;/);
   });
 });
 

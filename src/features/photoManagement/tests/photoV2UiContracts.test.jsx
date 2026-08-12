@@ -188,7 +188,9 @@ describe("Photo v2 management UI contracts", () => {
     expect(tokenSource).not.toContain("calc(var(--focus-ring-offset) + var(--focus-ring-width))");
     expect(styleSource).toContain('input[type="checkbox"]:focus-visible');
     expect(styleSource).toContain("outline-offset: 1px");
-    expect(styleSource).toContain('input:not([type="checkbox"]):not([type="radio"]):not([type="file"])');
+    expect(tokenSource).toContain(".ui-input:focus-visible");
+    expect(tokenSource).toContain(".ui-select:focus-visible");
+    expect(styleSource).not.toContain('input:not([type="checkbox"]):not([type="radio"]):not([type="file"])');
     expect(styleSource).toMatch(/input\[type="checkbox"\],\s*input\[type="radio"\]\s*\{[^}]*min-height: 0/s);
     expect(styleSource).toMatch(/\.admin-price-v2-category-item:focus\s*\{[^}]*outline: none/s);
     expect(styleSource).toMatch(/\.admin-price-v2-category-item:focus-visible\s*\{[^}]*outline: 1px solid var\(--focus-ring-color\)/s);

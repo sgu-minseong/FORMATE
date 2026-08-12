@@ -19,6 +19,7 @@ FORMATE UI를 설계하거나 수정하기 전에 이 문서를 읽고, 기존 �
 8. Card 사용 규칙
 9. Interaction System
 10. Page Design Rules
+10A. UI Structural Ownership Safety
 11. Forbidden Patterns
 12. Evolution Rule
 13. 구현 근거와 우선순위
@@ -474,6 +475,48 @@ Pretendard Variable과 기존 시스템 fallback을 사용한다. 별도 서체�
 - 긴 한글 레이블, 작은 화면, 확대/축소에서 줄바꿈과 말줄임을 확인한다.
 - Hover, Focus, Selected, Disabled, Loading, Error 상태를 확인한다.
 - 임의 색상, 임의 spacing, 새 중복 component가 없는지 diff로 확인한다.
+
+## 10A. UI Structural Ownership Safety
+
+이 절은 FORMATE UI 구조 안전 원칙의 canonical source of truth다. 다른 workflow나 decision 문서는 같은 규칙을 복사하지 않고 이 절을 참조한다.
+
+### UI Ownership First
+
+새 CSS, state, component, wrapper, helper를 추가하기 전에 현재 역할의 owner를 먼저 확인한다.
+
+- 어떤 component가 structure를 소유하는지 확인한다.
+- 어떤 CSS selector 또는 token이 visual style을 소유하는지 확인한다.
+- 어떤 state가 interaction과 loading을 소유하는지 확인한다.
+- 동일 역할을 정의하는 source가 이미 여러 개인지 확인한다.
+
+### Normalize Before Add
+
+기존 구조의 정상화나 중복 정의 제거로 해결할 수 있으면 새 layer를 추가하지 않는다.
+
+- 기존 selector 위에 override selector를 추가하지 않는다.
+- page-specific margin이나 width 보정, `!important`로 cascade를 덮지 않는다.
+- 동일 loading state, table geometry, helper, component를 중복 생성하지 않는다.
+- 기존 component가 같은 책임을 갖고 있으면 비슷한 component를 새로 만들지 않는다.
+
+### Single Source of Truth
+
+동일 역할에는 source of truth가 하나만 존재해야 한다. 특히 table column geometry, search control density, row height, loading state, selected state, dropdown interaction, responsive breakpoint와 behavior는 각각 하나의 canonical owner가 정의하고 나머지는 이를 소비한다. 수정 후 동일 역할의 source of truth가 둘 이상 남는 설계는 허용하지 않는다.
+
+### Replace / Consolidate > Overlay
+
+문제 원인이 중복 ownership이면 기존 정의를 교체, 통합, 제거한다. A/B/C가 같은 geometry를 정의한다면 canonical owner 하나로 통합하고 B/C를 제거한다. A/B/C를 유지한 채 D override를 추가하지 않는다.
+
+### Structural Fix vs Symptom Patch
+
+공통 원인은 공통 ownership layer에서, 실제로 독립적인 문제는 local owner에서 해결한다. 근본 해결을 이유로 모든 table 통합, AdminApp 대규모 분해, giant generic component 생성, 새 UI framework 도입 같은 과도한 refactor를 하지 않는다. 목표는 `smallest structurally-correct change`다.
+
+### UI 변경 전 체크
+
+의미 있는 UI 변경 전 최소한 다음 ownership map을 내부적으로 확정한다.
+
+`현재 owner → 충돌 source → 제거할 중복 → 수정 후 canonical owner → 영향 화면`
+
+작은 단일 component 수정은 장황한 audit 보고가 필요 없지만, 여러 화면에 영향을 주는 foundation 작업은 구현 전에 이 구조를 문서화한다.
 
 ## 11. Forbidden Patterns
 

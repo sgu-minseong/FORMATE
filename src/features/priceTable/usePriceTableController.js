@@ -10,7 +10,11 @@ export default function usePriceTableController({
   onAutoSave,
 }) {
   const [adminItems, setAdminItems] = useState([]);
-  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminCatalogResource, setAdminCatalogResourceState] = useState({
+    status: "idle",
+    companyId: "",
+    scopeKey: "",
+  });
   const [adminSaving, setAdminSaving] = useState(false);
   const [adminError, setAdminError] = useState("");
   const [adminNotice, setAdminNotice] = useState("");
@@ -40,6 +44,7 @@ export default function usePriceTableController({
   const adminConditionStepRef = useRef(adminConditionStep);
   const onAutoSaveRef = useRef(onAutoSave);
   const adminItemsRef = useRef(adminItems);
+  const adminCatalogResourceRef = useRef(adminCatalogResource);
   const adminPriceRowRefs = useRef(new Map());
   const pendingAdminLeaveActionRef = useRef(null);
   const autoSaveRunningRef = useRef(false);
@@ -50,6 +55,14 @@ export default function usePriceTableController({
   adminConditionStepRef.current = adminConditionStep;
   onAutoSaveRef.current = onAutoSave;
   adminItemsRef.current = adminItems;
+
+  function setAdminCatalogResource(nextResource) {
+    const resolvedResource = typeof nextResource === "function"
+      ? nextResource(adminCatalogResourceRef.current)
+      : nextResource;
+    adminCatalogResourceRef.current = resolvedResource;
+    setAdminCatalogResourceState(resolvedResource);
+  }
 
   const autosaveRef = useRef(null);
   if (!autosaveRef.current) {
@@ -225,7 +238,8 @@ export default function usePriceTableController({
     adminFavoriteOnly,
     adminItems,
     adminItemsRef,
-    adminLoading,
+    adminCatalogResource,
+    adminCatalogResourceRef,
     adminNotice,
     adminPriceValidationError,
     adminSaving,
@@ -264,10 +278,10 @@ export default function usePriceTableController({
     selectedAdminCategoryId,
     selectedSubitemIdByProduct,
     setAdminCommonPriceSavedAt,
+    setAdminCatalogResource,
     setAdminError,
     setAdminFavoriteOnly,
     setAdminItems,
-    setAdminLoading,
     setAdminNotice,
     setAdminPriceRowRef,
     setAdminPriceValidationError,
