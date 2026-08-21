@@ -59,13 +59,13 @@ describe("admin template management layout contracts", () => {
     expect(appSource).not.toContain("adminLoading");
   });
 
-  it("keeps standard and sash editors inside the shared workspace without sash tabs", () => {
+  it("keeps standard and category-scoped sash editors inside the shared workspace", () => {
     expect(appSource).toContain("isSashItem(item)");
     expect(appSource).toContain("<SashCatalogSection");
     expect(sashSectionSource).toContain("<SashCatalogGrid");
-    expect(sashSectionSource).not.toContain("<select");
-    expect(sashSectionSource).not.toContain('role="tablist"');
-    expect(sashSectionSource).not.toContain('role="tab"');
+    expect(sashSectionSource).not.toContain('className="sash-catalog-section__location"');
+    expect(sashSectionSource).toContain('role="tablist"');
+    expect(sashSectionSource).toContain('role="tab"');
   });
 
   it("uses the same standard renderer regardless of flat metadata or display name", () => {
