@@ -38,6 +38,25 @@ const migrationSource = readFileSync(
   new URL("../../../../supabase/canonical_variant_stability_guards.sql", import.meta.url),
   "utf8"
 );
+const rpcBootstrapSource = readFileSync(
+  new URL("../../../../supabase/canonical_variant_stability_rpc_bootstrap.sql", import.meta.url),
+  "utf8"
+);
+const templateValueAmbiguityFixSource = readFileSync(
+  new URL("../../../../supabase/fix_admin_template_value_variable_ambiguity.sql", import.meta.url),
+  "utf8"
+);
+
+function getTemplateValueHelperSource(sql) {
+  const start = sql.indexOf(
+    "create or replace function public.formate_apply_admin_template_values"
+  );
+  const end = sql.indexOf(
+    "revoke all on function public.formate_apply_admin_template_values",
+    start
+  );
+  return sql.slice(start, end);
+}
 
 describe("atomic canonical persistence APIs", () => {
   beforeEach(() => {
@@ -230,6 +249,22 @@ describe("atomic canonical persistence APIs", () => {
 });
 
 describe("canonical DB guard migration", () => {
+  it("keeps Template helper variables distinct from item/subitem column names", () => {
+    [
+      rpcBootstrapSource,
+      migrationSource,
+      templateValueAmbiguityFixSource,
+    ].forEach((sql) => {
+      const helperSource = getTemplateValueHelperSource(sql);
+      expect(helperSource).toContain("resolved_item_id uuid;");
+      expect(helperSource).toContain("resolved_subitem_id uuid;");
+      expect(helperSource).toContain("subitem.item_id = resolved_item_id");
+      expect(helperSource).toContain("subitem.id = resolved_subitem_id");
+      expect(helperSource).not.toMatch(/\n\s+item_id uuid;/);
+      expect(helperSource).not.toMatch(/\n\s+subitem_id uuid;/);
+    });
+  });
+
   it("locks UUID identity and rejects partial/mismatched writes before live application", () => {
     expect(migrationSource).toContain("admin_condition_template_values_template_subitem_uidx");
     expect(migrationSource).toContain("formate_validate_admin_template_value_scope");

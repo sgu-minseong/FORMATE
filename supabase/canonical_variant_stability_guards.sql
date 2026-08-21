@@ -634,8 +634,8 @@ as $$
 declare
   entry jsonb;
   subitem_ref text;
-  subitem_id uuid;
-  item_id uuid;
+  resolved_subitem_id uuid;
+  resolved_item_id uuid;
   owner_company_id uuid;
   value_id uuid;
   result jsonb := '[]'::jsonb;
@@ -660,18 +660,18 @@ begin
     seen_refs := seen_refs || jsonb_build_object(subitem_ref, true);
 
     if p_subitem_map ? subitem_ref then
-      subitem_id := (p_subitem_map ->> subitem_ref)::uuid;
+      resolved_subitem_id := (p_subitem_map ->> subitem_ref)::uuid;
     else
-      subitem_id := subitem_ref::uuid;
+      resolved_subitem_id := subitem_ref::uuid;
     end if;
-    item_id := (entry ->> 'item_id')::uuid;
+    resolved_item_id := (entry ->> 'item_id')::uuid;
 
     select item.company_id
     into owner_company_id
     from public.construction_subitems as subitem
     join public.construction_items as item on item.id = subitem.item_id
-    where subitem.id = subitem_id
-      and subitem.item_id = item_id;
+    where subitem.id = resolved_subitem_id
+      and subitem.item_id = resolved_item_id;
 
     if not found or owner_company_id is distinct from p_company_id then
       raise exception 'Template value item/subitem does not belong to the requested company.'
@@ -688,8 +688,8 @@ begin
       construction_days
     ) values (
       p_template_id,
-      item_id,
-      subitem_id,
+      resolved_item_id,
+      resolved_subitem_id,
       '',
       case when entry ? 'quantity' then (entry ->> 'quantity')::numeric else null end,
       case when entry ? 'labor_count' then (entry ->> 'labor_count')::numeric else null end,
@@ -714,7 +714,7 @@ begin
     returning id into value_id;
 
     result := result || jsonb_build_array(jsonb_build_object(
-      'subitemId', subitem_id,
+      'subitemId', resolved_subitem_id,
       'valueId', value_id
     ));
   end loop;
