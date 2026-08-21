@@ -3,6 +3,10 @@ import {
   toNonNegativeNumberOrZero,
   toNumberOrZero,
 } from "../../shared/utils/numbers";
+import {
+  buildSashSpecialItemSelectionsSnapshot,
+  getSashSpecialItemSelectionsAmount,
+} from "../sash/sashSpecialItemModel";
 
 export function getLaborRateForResidence(subitem, residenceStatus) {
   const isOccupied = residenceStatus === "occupied" || residenceStatus === "살림집";
@@ -22,11 +26,18 @@ export function calculateEstimateRow(row) {
   const laborCount = toNumberOrZero(row?.laborCount ?? row?.labor_count);
   const unitPrice = toNonNegativeNumberOrZero(row?.unitPrice ?? row?.unit_price);
   const laborRate = toNonNegativeNumberOrZero(row?.laborRate ?? row?.labor_rate);
-  const productAmount = quantity * unitPrice;
+  const sashSpecialItemsAmount = row?.itemKind === "sash"
+    ? getSashSpecialItemSelectionsAmount(
+        row?.sashSpecialItemSelections,
+        row?.sashLocationKind
+      )
+    : 0;
+  const productAmount = (quantity * unitPrice) + sashSpecialItemsAmount;
   const laborAmount = laborCount * laborRate;
 
   return {
     ...row,
+    ...(row?.itemKind === "sash" ? { sashSpecialItemsAmount } : {}),
     productAmount,
     laborAmount,
     totalAmount: productAmount + laborAmount,
@@ -136,6 +147,14 @@ export function buildSelectedEstimateRows({
           material: row.displayMaterial ?? row.material,
           sashCatalogEntryId: row.sashCatalogEntryId ?? "",
           sashSpec: row.sashSpec ?? null,
+          ...((row.itemKind ?? catalogItem?.item_kind) === "sash" ? {
+            sashLocationKind: row.sashLocationKind ?? null,
+            sashSpecialItemSelections: buildSashSpecialItemSelectionsSnapshot(
+              row.sashSpecialItemSelections,
+              row.sashLocationKind
+            ),
+            sashSpecialItemsAmount: calculated.sashSpecialItemsAmount ?? 0,
+          } : {}),
           selectedThickness: row.selectedThickness ?? null,
           selectedSpecOption: row.selectedSpecOption ?? "",
           spec: getSpecLabel(row),

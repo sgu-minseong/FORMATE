@@ -239,6 +239,8 @@ function buildEstimateItemRows(item, pyeong, residenceStatus) {
       sashCatalogEntryId: "",
       selectedSashCatalogEntryId: "",
       sashSpec: null,
+      sashLocationKind: subitem.sash_location_kind ?? null,
+      sashSpecialItemSelections: [],
       hasTemplateRecord: false,
       hasTemplateValue: false,
     }));
