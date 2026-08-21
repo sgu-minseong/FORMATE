@@ -5672,6 +5672,7 @@ export default function AdminApp() {
         {
           sashUsageRankings: sashUsageContext.rankings,
           sashCatalogEntries: sashUsageContext.sashCatalogEntries,
+          sashCatalogDefaults: sashUsageContext.sashCatalogDefaults,
         }
       );
       const firstCategoryId = catalog[0]?.id ?? "";
@@ -7468,6 +7469,7 @@ export default function AdminApp() {
       return (
         <SashCatalogSection
           companyId={selectedCompanyId}
+          pyeong={selectedAdminPyeong}
           item={item}
           subitems={itemSubitems}
           adminSaving={adminSaving}
@@ -8345,6 +8347,12 @@ export default function AdminApp() {
                 && row.sashUsageCount > 0 && (
                   <em className="items-v2-badge items-v2-badge--muted">
                     대표제품 · {row.sashUsageCount}회
+                  </em>
+                )}
+              {row.itemKind === "sash"
+                && row.sashSelectionSource === "explicit-default" && (
+                  <em className="items-v2-badge items-v2-badge--muted">
+                    기본제품
                   </em>
                 )}
               {row.selected && <em className="items-v2-badge items-v2-badge--selected">포함</em>}

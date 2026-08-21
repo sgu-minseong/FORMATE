@@ -12155,6 +12155,36 @@ const appStyles = `
     font-size: var(--font-size-table-cell);
     font-variant-numeric: var(--font-variant-numeric);
   }
+
+  .sash-catalog-grid__default-product {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .sash-catalog-grid__default-product > strong {
+    align-self: center;
+    font-size: 13px;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  .sash-catalog-grid__default-product > label {
+    display: grid;
+    gap: 4px;
+  }
+
+  .sash-catalog-grid__default-entry {
+    min-width: 240px;
+  }
+
+  .sash-catalog-grid__default-product > .muted {
+    align-self: center;
+    font-size: 12px;
+  }
   .sash-catalog-grid__legacy-label {
     display: inline-flex;
     align-items: center;

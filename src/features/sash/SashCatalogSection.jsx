@@ -19,6 +19,7 @@ function isLocalSubitemId(subitemId) {
 
 export default function SashCatalogSection({
   companyId,
+  pyeong = "",
   item,
   subitems = [],
   adminSaving = false,
@@ -140,7 +141,7 @@ export default function SashCatalogSection({
       return;
     }
     if (isLocalSubitemId(subitem.id)) {
-      setLocationError("샷시 위치는 세부항목을 먼저 저장한 뒤 지정할 수 있습니다.");
+      setLocationError("샷시 구분은 세부항목을 먼저 저장한 뒤 지정할 수 있습니다.");
       return;
     }
 
@@ -160,7 +161,7 @@ export default function SashCatalogSection({
       onSubitemLocationKindChange?.(subitem.id, savedLocationKind);
       if (!isBalconySashLocation(savedLocationKind)) setSpecialItemsDirty(false);
     } catch (error) {
-      setLocationError(error?.message || "샷시 위치를 저장하지 못했습니다. 다시 시도해주세요.");
+      setLocationError(error?.message || "샷시 구분을 저장하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setLocationSavingId("");
     }
@@ -171,7 +172,7 @@ export default function SashCatalogSection({
       <div className="sash-catalog-section__header" aria-hidden="true">
         <span />
         <span>세부항목</span>
-        <span>샷시 위치</span>
+        <span>구분</span>
         <span>등록 규격</span>
         <span>관리</span>
       </div>
@@ -217,11 +218,11 @@ export default function SashCatalogSection({
                 />
               </label>
               <label className="sash-catalog-section__location" onClick={(event) => event.stopPropagation()}>
-                <span className="field-label">샷시 위치</span>
+                <span className="field-label">구분</span>
                 <select
                   value={locationKind}
                   disabled={locationDisabled}
-                  aria-label={`${subitem.name} 샷시 위치`}
+                  aria-label={`${subitem.name} 샷시 구분`}
                   title={isLocalSubitemId(subitem.id) ? "세부항목 저장 후 지정할 수 있습니다." : undefined}
                   onChange={(event) => changeLocationKind(subitem, event.target.value)}
                 >
@@ -263,6 +264,7 @@ export default function SashCatalogSection({
                 <SashCatalogGrid
                   companyId={companyId}
                   subitem={subitem}
+                  initialDefaultPyeong={pyeong}
                   title={`${subitem.name} 샷시 규격`}
                   onDirtyChange={handleEditorDirtyChange}
                   onPersistedCountChange={handlePersistedCountChange}

@@ -26,6 +26,10 @@ const sashCatalogApiSource = readFileSync(
   new URL("../sashCatalogApi.js", import.meta.url),
   "utf8"
 );
+const sashCatalogDefaultApiSource = readFileSync(
+  new URL("../sashCatalogDefaultApi.js", import.meta.url),
+  "utf8"
+);
 
 const sashCatalog = [{
   id: "sash-item",
@@ -80,6 +84,9 @@ describe("saved estimate sash usage ranking", () => {
     expect(sashCatalogApiSource).toContain('.from("sash_catalog_entries")');
     expect(sashCatalogApiSource).toContain('.eq("company_id", companyId)');
     expect(sashCatalogApiSource).toContain('.is("archived_at", null)');
+    expect(rankingApiSource).toContain("fetchCompanySashCatalogDefaults(companyId)");
+    expect(sashCatalogDefaultApiSource).toContain('.from("sash_catalog_defaults")');
+    expect(sashCatalogDefaultApiSource).toContain('.eq("company_id", companyId)');
     expect(rankingModelSource).not.toMatch(/build_type|condition_variant|occupancy|extension/i);
   });
 
@@ -155,6 +162,66 @@ describe("saved estimate sash usage ranking", () => {
       selected: false,
       sashCatalogEntryId: "",
       selectedSashCatalogEntryId: "",
+      sashSpec: null,
+    });
+  });
+
+  it("uses the explicit pyeong and stable subitem default when ranking history is empty", () => {
+    const row = buildEstimateItemsFromTemplate(sashCatalog, 35, "empty", {
+      sashUsageRankings: {},
+      sashCatalogEntries: [createEntry("entry-a")],
+      sashCatalogDefaults: [{
+        pyeong: 35,
+        construction_subitem_id: "living-room-subitem",
+        sash_catalog_entry_id: "entry-a",
+      }],
+    })["sash-item"][0];
+
+    expect(row).toMatchObject({
+      selected: false,
+      sashCatalogEntryId: "entry-a",
+      selectedSashCatalogEntryId: "entry-a",
+      sashSelectionSource: "explicit-default",
+      sashUsageCount: 0,
+      quantity: 8,
+      totalAmount: 800000,
+    });
+  });
+
+  it("prefers active usage ranking over the explicit default", () => {
+    const rankings = buildSashUsageRankings([
+      { items_data: { items: [savedSashRow("entry-a")] } },
+    ]);
+    const row = buildEstimateItemsFromTemplate(sashCatalog, 35, "empty", {
+      sashUsageRankings: rankings,
+      sashCatalogEntries: [createEntry("entry-a"), createEntry("entry-b")],
+      sashCatalogDefaults: [{
+        pyeong: 35,
+        construction_subitem_id: "living-room-subitem",
+        sash_catalog_entry_id: "entry-b",
+      }],
+    })["sash-item"][0];
+
+    expect(row).toMatchObject({
+      sashCatalogEntryId: "entry-a",
+      sashSelectionSource: "ranking",
+      sashUsageCount: 1,
+    });
+  });
+
+  it("does not apply an explicit default unless its canonical product is active", () => {
+    const row = buildEstimateItemsFromTemplate(sashCatalog, 35, "empty", {
+      sashUsageRankings: {},
+      sashCatalogEntries: [],
+      sashCatalogDefaults: [{
+        pyeong: 35,
+        construction_subitem_id: "living-room-subitem",
+        sash_catalog_entry_id: "archived-entry",
+      }],
+    })["sash-item"][0];
+
+    expect(row).toMatchObject({
+      sashCatalogEntryId: "",
       sashSpec: null,
     });
   });

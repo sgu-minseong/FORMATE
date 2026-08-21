@@ -6,6 +6,7 @@ import {
   stripNumberInputFormatting,
 } from "../../shared/utils/numbers";
 import { formatDisplayDate } from "../../shared/utils/dates";
+import { PYEONG_OPTIONS } from "../../shared/constants/estimateOptions";
 import {
   archiveSashCatalogEntry,
   fetchActiveSashCatalogEntries,
@@ -13,6 +14,10 @@ import {
   saveSashCatalogEntryOrder,
   updateSashCatalogEntry,
 } from "./sashCatalogApi";
+import {
+  fetchSashCatalogDefault,
+  upsertSashCatalogDefault,
+} from "./sashCatalogDefaultApi";
 import {
   createLocalSashCatalogEntry,
   formatSashArea,
@@ -47,10 +52,22 @@ function formatSashHebe(value) {
   return formattedArea === "-" ? formattedArea : formattedArea.replace("㎡", " 헤베");
 }
 
+function normalizeDefaultPyeong(value) {
+  const numericValue = Number(value);
+  return PYEONG_OPTIONS.includes(numericValue) ? String(numericValue) : "";
+}
+
+function getDefaultEntryLabel(entry) {
+  return [entry.brand, entry.frame_spec || entry.product_type]
+    .filter(Boolean)
+    .join(" / ") || "제품 정보 미입력";
+}
+
 export default function SashCatalogGrid({
   companyId,
   subitem = null,
   title = "샷시 규격",
+  initialDefaultPyeong = "",
   onDirtyChange,
   onPersistedCountChange,
 }) {
@@ -62,11 +79,50 @@ export default function SashCatalogGrid({
   const [notice, setNotice] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const [dirtyEntryIds, setDirtyEntryIds] = useState(() => new Set());
+  const [defaultPyeong, setDefaultPyeong] = useState(() => (
+    normalizeDefaultPyeong(initialDefaultPyeong)
+  ));
+  const [defaultEntryId, setDefaultEntryId] = useState("");
+  const [defaultLoading, setDefaultLoading] = useState(false);
+  const [defaultSaving, setDefaultSaving] = useState(false);
   const firstDraftInputRef = useRef(null);
 
   const selectedSubitemId = subitem?.id ?? "";
   const hasLocalEntry = entries.some(isLocalSashCatalogEntry);
   const persistedEntryCount = entries.filter((entry) => !isLocalSashCatalogEntry(entry)).length;
+
+  useEffect(() => {
+    const nextPyeong = normalizeDefaultPyeong(initialDefaultPyeong);
+    if (nextPyeong) setDefaultPyeong(nextPyeong);
+  }, [initialDefaultPyeong]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!companyId || !selectedSubitemId || !defaultPyeong) {
+      setDefaultEntryId("");
+      setDefaultLoading(false);
+      return undefined;
+    }
+
+    setDefaultLoading(true);
+    fetchSashCatalogDefault(companyId, defaultPyeong, selectedSubitemId)
+      .then((row) => {
+        if (!cancelled) setDefaultEntryId(row?.sash_catalog_entry_id ?? "");
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setDefaultEntryId("");
+          setError(getFriendlySashError(nextError, "기본 샷시 제품을 불러오지 못했습니다."));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDefaultLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, defaultPyeong, selectedSubitemId]);
 
   useEffect(() => {
     onDirtyChange?.(dirtyEntryIds.size > 0);
@@ -213,6 +269,29 @@ export default function SashCatalogGrid({
     } catch (nextError) {
       setEntries(previousEntries);
       setError(getFriendlySashError(nextError, "순서를 저장하지 못했습니다. 기존 순서로 되돌렸습니다."));
+    }
+  }
+
+  async function changeDefaultEntry(nextEntryId) {
+    if (!companyId || !selectedSubitemId || !defaultPyeong) return;
+    const previousEntryId = defaultEntryId;
+    setDefaultEntryId(nextEntryId);
+    setDefaultSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      await upsertSashCatalogDefault({
+        companyId,
+        pyeong: defaultPyeong,
+        constructionSubitemId: selectedSubitemId,
+        sashCatalogEntryId: nextEntryId,
+      });
+      setNotice(`${defaultPyeong}평 기본제품을 저장했습니다.`);
+    } catch (nextError) {
+      setDefaultEntryId(previousEntryId);
+      setError(getFriendlySashError(nextError, "기본 샷시 제품을 저장하지 못했습니다."));
+    } finally {
+      setDefaultSaving(false);
     }
   }
 
@@ -390,6 +469,49 @@ export default function SashCatalogGrid({
     <section className="sash-catalog-grid" aria-label={title}>
       {error && entries.length > 0 && <div className="error-box sash-catalog-grid__message">{error}</div>}
       {notice && <div className="status-box sash-catalog-grid__message">{notice}</div>}
+
+      {subitem && !loading && entries.length > 0 && (
+        <div className="sash-catalog-grid__default-product">
+          <strong>기본제품</strong>
+          <label>
+            <span className="field-label">평수</span>
+            <select
+              className="items-v2-inline-select"
+              value={defaultPyeong}
+              disabled={defaultSaving}
+              aria-label={`${subitem.name} 기본제품 평수`}
+              onChange={(event) => setDefaultPyeong(event.target.value)}
+            >
+              <option value="">평수 선택</option>
+              {PYEONG_OPTIONS.map((pyeong) => (
+                <option key={pyeong} value={pyeong}>{pyeong}평</option>
+              ))}
+            </select>
+          </label>
+          <label className="sash-catalog-grid__default-entry">
+            <span className="field-label">제품</span>
+            <select
+              className="items-v2-inline-select"
+              value={entries.some((entry) => entry.id === defaultEntryId) ? defaultEntryId : ""}
+              disabled={!defaultPyeong || defaultLoading || defaultSaving}
+              aria-label={`${subitem.name} ${defaultPyeong || "선택"}평 기본제품`}
+              onChange={(event) => changeDefaultEntry(event.target.value)}
+            >
+              <option value="">기본제품 미지정</option>
+              {entries
+                .filter((entry) => !isLocalSashCatalogEntry(entry))
+                .map((entry) => (
+                  <option key={entry.id} value={entry.id}>{getDefaultEntryLabel(entry)}</option>
+                ))}
+            </select>
+          </label>
+          {(defaultLoading || defaultSaving) && (
+            <span className="muted" aria-live="polite">
+              {defaultSaving ? "저장 중" : "불러오는 중"}
+            </span>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="admin-items-v2-loading-table sash-catalog-grid__loading" aria-label="샷시 규격 불러오는 중">

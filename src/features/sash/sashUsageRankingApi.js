@@ -1,5 +1,6 @@
 import { supabase } from "../../lib/supabaseClient";
 import { fetchActiveCompanySashCatalogEntries } from "./sashCatalogApi";
+import { fetchCompanySashCatalogDefaults } from "./sashCatalogDefaultApi";
 import { buildSashUsageRankings } from "./sashUsageRankingModel";
 
 const ESTIMATE_PAGE_SIZE = 500;
@@ -26,13 +27,15 @@ async function fetchSavedSashUsageSnapshots(companyId) {
 }
 
 export async function fetchSashUsageRankingContext(companyId) {
-  const [estimates, sashCatalogEntries] = await Promise.all([
+  const [estimates, sashCatalogEntries, sashCatalogDefaults] = await Promise.all([
     fetchSavedSashUsageSnapshots(companyId),
     fetchActiveCompanySashCatalogEntries(companyId),
+    fetchCompanySashCatalogDefaults(companyId),
   ]);
 
   return {
     rankings: buildSashUsageRankings(estimates),
     sashCatalogEntries,
+    sashCatalogDefaults,
   };
 }

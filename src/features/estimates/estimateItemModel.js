@@ -231,15 +231,13 @@ function applySashUsageDefault(row, pyeong, context = {}) {
     pyeong,
     row.subitemId
   );
-  if (!usageRanking.length) return row;
-
   const rankingByEntryId = new Map(usageRanking.map((entry) => [
     entry.sashCatalogEntryId,
     entry,
   ]));
-  const representative = (context.sashCatalogEntries ?? [])
-    .filter((entry) => entry?.construction_subitem_id === row.subitemId)
-    .map((entry, canonicalOrder) => ({
+  const activeEntries = (context.sashCatalogEntries ?? [])
+    .filter((entry) => entry?.construction_subitem_id === row.subitemId);
+  const rankedRepresentative = activeEntries.map((entry, canonicalOrder) => ({
       entry,
       canonicalOrder,
       usage: rankingByEntryId.get(entry.id),
@@ -249,14 +247,23 @@ function applySashUsageDefault(row, pyeong, context = {}) {
       right.usage.usageCount - left.usage.usageCount
       || left.canonicalOrder - right.canonicalOrder
     ))[0];
-  if (!representative) return { ...row, sashUsageRanking: usageRanking };
+  const explicitDefault = (context.sashCatalogDefaults ?? []).find((entry) => (
+    Number(entry?.pyeong) === Number(pyeong)
+    && entry?.construction_subitem_id === row.subitemId
+    && entry?.sash_catalog_entry_id
+  ));
+  const explicitDefaultEntry = activeEntries.find((entry) => (
+    entry.id === explicitDefault?.sash_catalog_entry_id
+  ));
+  const representativeEntry = rankedRepresentative?.entry ?? explicitDefaultEntry;
+  if (!representativeEntry) return { ...row, sashUsageRanking: usageRanking };
 
   return calculateEstimateRow({
     ...row,
-    ...buildSashEstimateSelectionPatch(representative.entry),
+    ...buildSashEstimateSelectionPatch(representativeEntry),
     sashUsageRanking: usageRanking,
-    sashSelectionSource: "ranking",
-    sashUsageCount: representative.usage.usageCount,
+    sashSelectionSource: rankedRepresentative ? "ranking" : "explicit-default",
+    sashUsageCount: rankedRepresentative?.usage.usageCount ?? 0,
   });
 }
 
