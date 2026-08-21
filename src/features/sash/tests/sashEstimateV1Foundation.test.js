@@ -7,6 +7,7 @@ import {
   getSashBillableArea,
   getSashCatalogEntryAmount,
   getSashCatalogEntryValidationError,
+  getSashSpecLabel,
   isSashEstimateSpecPricingConfirmed,
   SASH_LOCATION_KINDS,
   SASH_MEASUREMENT_KINDS,
@@ -21,6 +22,7 @@ import {
   getSashSpecialItemSelectionsAmount,
 } from "../sashSpecialItemModel";
 import {
+  buildEstimateSummary,
   buildSelectedEstimateRows,
   calculateEstimateRow,
 } from "../../estimates/calculation";
@@ -335,6 +337,110 @@ describe("sash estimate v1 domain contract", () => {
     });
   });
 
+  it("combines area sash, direct special-item amounts, legacy fixed sash, and standard work once", () => {
+    const areaSelection = buildSashEstimateSelectionPatch(areaPricedEntry);
+    const editedAreaSelection = {
+      ...areaSelection,
+      ...buildSashEstimateSpecPatch(areaSelection.sashSpec, {
+        width_mm: 5000,
+        height_mm: 2000,
+        window_type: SASH_WINDOW_TYPES.SINGLE,
+        unit_price: 120000,
+      }),
+    };
+    const specialSelection = buildSashSpecialItemSelectionPatch(
+      buildSashSpecialItemSelection(canonicalSpecialItem),
+      { amount: 275000 }
+    );
+    const areaRow = calculateEstimateRow({
+      itemId: "sash-area-item",
+      itemName: "샷시",
+      itemKind: "sash",
+      subitemId: "balcony-subitem",
+      material: "베란다 샷시",
+      selected: true,
+      pyeong: 35,
+      sashLocationKind: SASH_LOCATION_KINDS.BALCONY,
+      sashSpecialItemSelections: [specialSelection],
+      ...editedAreaSelection,
+    });
+    const fixedRow = calculateEstimateRow({
+      itemId: "sash-fixed-item",
+      itemName: "샷시",
+      itemKind: "sash",
+      subitemId: "legacy-subitem",
+      material: "기존 고정 샷시",
+      selected: true,
+      pyeong: 35,
+      sashLocationKind: SASH_LOCATION_KINDS.STANDARD,
+      sashSpecialItemSelections: [],
+      ...buildSashEstimateSelectionPatch({
+        id: "legacy-fixed-entry",
+        brand: "LG",
+        product_type: "기존 고정형",
+        width_mm: 4000,
+        height_mm: 2400,
+        unit_price: 900000,
+      }),
+    });
+    const uncheckedAreaRow = calculateEstimateRow({
+      ...areaRow,
+      subitemId: "unchecked-subitem",
+      selected: false,
+      sashSpecialItemSelections: [],
+    });
+    const standardRow = calculateEstimateRow({
+      itemId: "standard-item",
+      itemName: "도배",
+      itemKind: "standard",
+      subitemId: "wallpaper-subitem",
+      material: "실크벽지",
+      selected: true,
+      pyeong: 35,
+      quantity: 2,
+      unitPrice: 50000,
+      laborCount: 0,
+      laborRate: 0,
+    });
+    const selectedRows = buildSelectedEstimateRows({
+      items: {
+        "sash-area-item": [areaRow, uncheckedAreaRow],
+        "sash-fixed-item": [fixedRow],
+        "standard-item": [standardRow],
+      },
+      estimateCatalog: [
+        { id: "sash-area-item", name: "샷시", item_kind: "sash" },
+        { id: "sash-fixed-item", name: "샷시", item_kind: "sash" },
+        { id: "standard-item", name: "도배", item_kind: "standard" },
+      ],
+      conditionPyeong: 35,
+      estimatePyeong: 35,
+      getSpecLabel: (row) => row.itemKind === "sash" ? getSashSpecLabel(row.sashSpec) : "",
+    });
+
+    expect(selectedRows).toHaveLength(3);
+    expect(selectedRows.map((row) => row.subitemId)).not.toContain("unchecked-subitem");
+    expect(selectedRows[0]).toMatchObject({
+      quantity: 10,
+      unitPrice: 120000,
+      productAmount: 1475000,
+      totalAmount: 1475000,
+      sashSpecialItemsAmount: 275000,
+    });
+    expect(selectedRows[0].spec).toContain("KCC / 140mm 틀 / 5,000 × 2,000");
+    expect(selectedRows[1]).toMatchObject({
+      quantity: 1,
+      unit: "식",
+      productAmount: 900000,
+      totalAmount: 900000,
+    });
+    expect(buildEstimateSummary(selectedRows)).toMatchObject({
+      selectedItemsTotal: 2475000,
+      adjustmentTotal: 0,
+      finalTotal: 2475000,
+    });
+  });
+
   it("round-trips stable sash IDs, v1 spec, location metadata, and special items", () => {
     const canonicalSelection = buildSashEstimateSelectionPatch(areaPricedEntry);
     const selectedPatch = {
@@ -395,6 +501,12 @@ describe("sash estimate v1 domain contract", () => {
       unitPrice: 120000,
       productAmount: 1475000,
       sashSpec: {
+        brand: "KCC",
+        frame_spec: "140mm 틀",
+        pair_spec: "24mm 페어",
+        glass_spec: "로이유리",
+        gas_spec: "아르곤",
+        screen_spec: "미세방충망",
         width_mm: 5000,
         height_mm: 2000,
         window_type: SASH_WINDOW_TYPES.SINGLE,
@@ -418,6 +530,12 @@ describe("sash estimate v1 domain contract", () => {
       subitemId: "balcony-subitem",
       sashCatalogEntryId: "sash-entry-v1",
       sashSpec: {
+        brand: "KCC",
+        frame_spec: "140mm 틀",
+        pair_spec: "24mm 페어",
+        glass_spec: "로이유리",
+        gas_spec: "아르곤",
+        screen_spec: "미세방충망",
         width_mm: 5000,
         height_mm: 2000,
         window_type: SASH_WINDOW_TYPES.SINGLE,

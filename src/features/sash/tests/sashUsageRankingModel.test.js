@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildSelectedEstimateRows, calculateEstimateRow } from "../../estimates/calculation";
 import { reconcileEstimateDraftItems } from "../../estimates/estimateDraftReconciliation";
@@ -12,6 +13,19 @@ import {
   buildSashUsageRankings,
   getSashUsageRanking,
 } from "../sashUsageRankingModel";
+
+const rankingApiSource = readFileSync(
+  new URL("../sashUsageRankingApi.js", import.meta.url),
+  "utf8"
+);
+const rankingModelSource = readFileSync(
+  new URL("../sashUsageRankingModel.js", import.meta.url),
+  "utf8"
+);
+const sashCatalogApiSource = readFileSync(
+  new URL("../sashCatalogApi.js", import.meta.url),
+  "utf8"
+);
 
 const sashCatalog = [{
   id: "sash-item",
@@ -56,6 +70,19 @@ function savedSashRow(entryId, pyeong = 35, patch = {}) {
 }
 
 describe("saved estimate sash usage ranking", () => {
+  it("loads active company-scoped history and canonical products without extra conditions", () => {
+    expect(rankingApiSource).toContain("const ESTIMATE_PAGE_SIZE = 500");
+    expect(rankingApiSource).toContain('.eq("company_id", companyId)');
+    expect(rankingApiSource).toContain('.is("deleted_at", null)');
+    expect(rankingApiSource).toContain(".range(from, from + ESTIMATE_PAGE_SIZE - 1)");
+    expect(rankingApiSource).toContain("fetchActiveCompanySashCatalogEntries(companyId)");
+    expect(sashCatalogApiSource).toContain("export async function fetchActiveCompanySashCatalogEntries");
+    expect(sashCatalogApiSource).toContain('.from("sash_catalog_entries")');
+    expect(sashCatalogApiSource).toContain('.eq("company_id", companyId)');
+    expect(sashCatalogApiSource).toContain('.is("archived_at", null)');
+    expect(rankingModelSource).not.toMatch(/build_type|condition_variant|occupancy|extension/i);
+  });
+
   it("counts only pyeong, stable location ID, and canonical entry ID", () => {
     const rankings = buildSashUsageRankings([
       {

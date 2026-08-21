@@ -21,6 +21,18 @@ export async function fetchActiveSashCatalogEntries(companyId, constructionSubit
   return data ?? [];
 }
 
+export async function fetchActiveCompanySashCatalogEntries(companyId) {
+  const { data, error } = await supabase
+    .from("sash_catalog_entries")
+    .select("*")
+    .eq("company_id", companyId)
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  throwIfError(error);
+  return data ?? [];
+}
+
 export async function fetchActiveSashCatalogEntryCounts(companyId, constructionSubitemIds = []) {
   const requestedIds = [...new Set(constructionSubitemIds.filter(Boolean))];
   const persistedIds = requestedIds.filter((id) => !String(id).startsWith("local-subitem-"));
