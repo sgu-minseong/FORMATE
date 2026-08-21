@@ -12345,6 +12345,15 @@ const appStyles = `
     color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
   }
+  .sash-selector__usage {
+    display: inline-flex;
+    margin-left: 8px;
+    color: var(--color-primary-700);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 700;
+    white-space: nowrap;
+  }
   .sash-estimate-editor {
     display: grid;
     grid-column: 1 / -1;

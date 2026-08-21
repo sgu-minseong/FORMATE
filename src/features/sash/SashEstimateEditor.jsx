@@ -217,7 +217,12 @@ export default function SashEstimateEditor({ companyId, row, onPatch }) {
         constructionSubitemId={row.subitemId}
         selectedEntryId={row.selectedSashCatalogEntryId}
         selectedSashSpec={spec}
-        onSelect={(entry) => onPatch(buildSashEstimateSelectionPatch(entry))}
+        usageRanking={row.sashUsageRanking}
+        onSelect={(entry, usage) => onPatch({
+          ...buildSashEstimateSelectionPatch(entry),
+          sashSelectionSource: "manual",
+          sashUsageCount: usage?.usageCount ?? 0,
+        })}
       />
 
       {spec && (

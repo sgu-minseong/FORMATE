@@ -94,9 +94,20 @@ export function reconcileEstimateDraftItems({
             selected: Boolean(previousRow.selected),
             expanded: Boolean(previousRow.expanded),
             contractor: previousRow.contractor ?? "",
-            sashCatalogEntryId: previousRow.sashCatalogEntryId ?? "",
-            selectedSashCatalogEntryId: previousRow.selectedSashCatalogEntryId ?? "",
-            sashSpec: previousRow.sashSpec ?? null,
+            sashCatalogEntryId: hasSelectedSashSpec
+              ? previousRow.sashCatalogEntryId ?? ""
+              : templateRow.sashCatalogEntryId ?? "",
+            selectedSashCatalogEntryId: hasSelectedSashSpec
+              ? previousRow.selectedSashCatalogEntryId ?? ""
+              : templateRow.selectedSashCatalogEntryId ?? "",
+            sashSpec: hasSelectedSashSpec ? previousRow.sashSpec : templateRow.sashSpec ?? null,
+            sashUsageRanking: templateRow.sashUsageRanking ?? previousRow.sashUsageRanking ?? [],
+            sashSelectionSource: hasSelectedSashSpec
+              ? previousRow.sashSelectionSource ?? "manual"
+              : templateRow.sashSelectionSource,
+            sashUsageCount: hasSelectedSashSpec
+              ? previousRow.sashUsageCount ?? 0
+              : templateRow.sashUsageCount ?? 0,
             sashLocationKind: previousRow.sashLocationKind ?? templateRow.sashLocationKind ?? null,
             sashSpecialItemSelections: previousRow.sashSpecialItemSelections ?? [],
             quantity: hasSelectedSashSpec ? previousRow.quantity : templateRow.quantity,

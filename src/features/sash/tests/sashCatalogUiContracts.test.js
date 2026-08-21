@@ -131,7 +131,8 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashEstimateEditorSource).toContain('type="checkbox"');
     expect(sashEstimateEditorSource).toContain("buildSashSpecialItemSelectionPatch");
     expect(sashEstimateEditorSource).toContain("isBalconySashLocation(row.sashLocationKind)");
-    expect(sashEstimateEditorSource).not.toMatch(/rank|ranking|frequency|사용빈도/i);
+    expect(sashEstimateEditorSource).toContain("usageRanking={row.sashUsageRanking}");
+    expect(sashEstimateEditorSource).toContain('sashSelectionSource: "manual"');
   });
 
   it("records the approved specialized editor rule without implementation-specific values", () => {

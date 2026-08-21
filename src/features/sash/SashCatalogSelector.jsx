@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PriceText from "../../components/PriceText";
 import {
   fetchActiveSashCatalogEntries,
@@ -28,11 +28,26 @@ export default function SashCatalogSelector({
   constructionSubitemId,
   selectedEntryId,
   selectedSashSpec,
+  usageRanking = [],
   onSelect,
 }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const rankingByEntryId = useMemo(() => new Map(
+    usageRanking.map((rankedEntry) => [
+      rankedEntry.sashCatalogEntryId,
+      rankedEntry,
+    ])
+  ), [usageRanking]);
+  const orderedEntries = useMemo(() => entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((left, right) => {
+      const leftUsage = rankingByEntryId.get(left.entry.id)?.usageCount ?? 0;
+      const rightUsage = rankingByEntryId.get(right.entry.id)?.usageCount ?? 0;
+      return rightUsage - leftUsage || left.index - right.index;
+    })
+    .map(({ entry }) => entry), [entries, rankingByEntryId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,26 +86,34 @@ export default function SashCatalogSelector({
         <strong>샷시 규격 선택</strong>
         <span>현장 규격을 하나 선택하세요.</span>
       </div>
-      {selectedSashSpec && !entries.some((entry) => entry.id === selectedEntryId) && (
+      {selectedSashSpec && !orderedEntries.some((entry) => entry.id === selectedEntryId) && (
         <p className="sash-selector__snapshot">
           현재 선택: {getSashSpecLabel(selectedSashSpec)} · {formatSashArea(selectedSashSpec.area_sqm)}
         </p>
       )}
-      {entries.length ? (
+      {orderedEntries.length ? (
         <div className="sash-selector__list">
-          {entries.map((entry) => {
+          {orderedEntries.map((entry, index) => {
             const selected = entry.id === selectedEntryId;
+            const usage = rankingByEntryId.get(entry.id);
             return (
               <button
                 key={entry.id}
                 type="button"
                 className={"sash-selector__option" + (selected ? " selected" : "")}
                 aria-pressed={selected}
-                onClick={() => onSelect(entry)}
+                onClick={() => onSelect(entry, usage)}
               >
                 <span className="sash-selector__radio" aria-hidden="true" />
                 <span className="sash-selector__copy">
-                  <strong>{entry.brand} / {getSashFrameSpec(entry)}</strong>
+                  <strong>
+                    {entry.brand} / {getSashFrameSpec(entry)}
+                    {usage?.usageCount > 0 && (
+                      <em className="sash-selector__usage">
+                        {index === 0 ? "대표 · " : ""}{usage.usageCount}회 사용
+                      </em>
+                    )}
+                  </strong>
                   <span>
                     {[entry.pair_spec, entry.glass_spec, entry.gas_spec, entry.screen_spec]
                       .filter(Boolean)

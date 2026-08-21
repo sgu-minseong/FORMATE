@@ -260,6 +260,7 @@ import {
 } from "../features/priceTable/templateConditionPreferences";
 import SashCatalogSection from "../features/sash/SashCatalogSection";
 import SashEstimateEditor from "../features/sash/SashEstimateEditor";
+import { fetchSashUsageRankingContext } from "../features/sash/sashUsageRankingApi";
 import {
   getSashSpecLabel,
   isSashItem,
@@ -5651,10 +5652,27 @@ export default function AdminApp() {
         templateValueRows,
         snapshot.canonicalCatalog
       );
+      let sashUsageContext = {};
+      if (catalog.some((item) => isSashItem(item))) {
+        try {
+          sashUsageContext = await fetchSashUsageRankingContext(companyId);
+        } catch (rankingError) {
+          console.error("Failed to load sash usage rankings", rankingError);
+          setEstimateNotice("대표제품 사용 이력을 불러오지 못해 샷시는 미선택으로 시작합니다.");
+        }
+      }
+      if (
+        requestId !== estimateBlankCatalogRequestRef.current
+        || companyId !== selectedCompanyIdRef.current
+      ) return false;
       const nextItems = buildEstimateItemsFromTemplate(
         catalog,
         pyeong,
-        nextCondition.occupancy
+        nextCondition.occupancy,
+        {
+          sashUsageRankings: sashUsageContext.rankings,
+          sashCatalogEntries: sashUsageContext.sashCatalogEntries,
+        }
       );
       const firstCategoryId = catalog[0]?.id ?? "";
 
@@ -8322,6 +8340,13 @@ export default function AdminApp() {
               ) : isEstimateRowModified(row) ? (
                 <em className="items-v2-badge items-v2-badge--muted">수정됨</em>
               ) : null}
+              {row.itemKind === "sash"
+                && row.sashSelectionSource === "ranking"
+                && row.sashUsageCount > 0 && (
+                  <em className="items-v2-badge items-v2-badge--muted">
+                    대표제품 · {row.sashUsageCount}회
+                  </em>
+                )}
               {row.selected && <em className="items-v2-badge items-v2-badge--selected">포함</em>}
               {row.itemKind === "sash" && row.selected && !row.sashSpec ? (
                 <em className="items-v2-badge items-v2-badge--warning">규격 선택 필요</em>
@@ -8338,7 +8363,10 @@ export default function AdminApp() {
       if (column.key === "spec") {
         if (row.itemKind === "sash") {
           return (
-            <span className={row.sashSpec ? "" : "items-v2-muted-value"}>
+            <span
+              className={row.sashSpec ? "" : "items-v2-muted-value"}
+              title={getEstimateRowSpecLabel(row) || undefined}
+            >
               {getEstimateRowSpecLabel(row) || "샷시 규격을 선택하세요"}
             </span>
           );
