@@ -28,10 +28,17 @@ export const SASH_LOCATION_KINDS = Object.freeze({
   BALCONY: "balcony",
 });
 
+export const SASH_CATEGORIES = Object.freeze({
+  UNSPECIFIED: "unspecified",
+  STANDARD: "standard",
+  BALCONY: "balcony",
+});
+
 const SASH_SPEC_VERSION = 1;
 const VALID_SASH_WINDOW_TYPES = new Set(Object.values(SASH_WINDOW_TYPES));
 const VALID_SASH_MEASUREMENT_KINDS = new Set(Object.values(SASH_MEASUREMENT_KINDS));
 const VALID_SASH_PRICING_BASES = new Set(Object.values(SASH_PRICING_BASES));
+const VALID_SASH_CATEGORIES = new Set(Object.values(SASH_CATEGORIES));
 
 function createLocalId(prefix) {
   const randomId = globalThis.crypto?.randomUUID?.()
@@ -82,6 +89,83 @@ export function buildSashCatalogEntryCounts(entries = [], constructionSubitemIds
   });
 
   return counts;
+}
+
+export function getSashCategory(value) {
+  const directValue = typeof value === "string"
+    ? value
+    : value?.sashCategory
+      ?? value?.sash_category
+      ?? value?.sashSpec?.sash_category;
+  const normalized = String(directValue ?? "").trim();
+  if (VALID_SASH_CATEGORIES.has(normalized)) return normalized;
+  return SASH_CATEGORIES.UNSPECIFIED;
+}
+
+export function getLegacyCompatibleSashCategory(value) {
+  const directValue = typeof value === "string"
+    ? value
+    : value?.sashCategory
+      ?? value?.sash_category
+      ?? value?.sashSpec?.sash_category;
+  const normalized = String(directValue ?? "").trim();
+  if (VALID_SASH_CATEGORIES.has(normalized)) return normalized;
+  const legacyLocation = typeof value === "object"
+    ? value?.sashLocationKind ?? value?.sash_location_kind
+    : "";
+  return [SASH_LOCATION_KINDS.STANDARD, SASH_LOCATION_KINDS.BALCONY].includes(legacyLocation)
+    ? legacyLocation
+    : SASH_CATEGORIES.UNSPECIFIED;
+}
+
+export function getSashCategoryLabel(value) {
+  const sashCategory = getSashCategory(value);
+  if (sashCategory === SASH_CATEGORIES.STANDARD) return "일반";
+  if (sashCategory === SASH_CATEGORIES.BALCONY) return "베란다";
+  return "미분류";
+}
+
+export function isBalconySashCategory(value) {
+  return getSashCategory(value) === SASH_CATEGORIES.BALCONY;
+}
+
+export function buildSashCatalogEntryCategoryCounts(entries = [], constructionSubitemIds = []) {
+  const counts = Object.fromEntries(constructionSubitemIds.map((constructionSubitemId) => [
+    constructionSubitemId,
+    {
+      total: 0,
+      [SASH_CATEGORIES.UNSPECIFIED]: 0,
+      [SASH_CATEGORIES.STANDARD]: 0,
+      [SASH_CATEGORIES.BALCONY]: 0,
+    },
+  ]));
+
+  entries.forEach((entry) => {
+    const constructionSubitemId = entry?.construction_subitem_id;
+    if (!constructionSubitemId || entry?.archived_at || !counts[constructionSubitemId]) return;
+    const sashCategory = getSashCategory(entry);
+    counts[constructionSubitemId].total += 1;
+    counts[constructionSubitemId][sashCategory] += 1;
+  });
+
+  return counts;
+}
+
+export function orderSashCatalogEntriesForDisplay(
+  entries = [],
+  { pinnedEntryId = "", usageRanking = [] } = {}
+) {
+  const rankingByEntryId = new Map((usageRanking ?? []).map((entry) => [
+    entry.sashCatalogEntryId,
+    Number(entry.usageCount ?? 0),
+  ]));
+  return (entries ?? []).map((entry, canonicalIndex) => ({ entry, canonicalIndex }))
+    .sort((left, right) => (
+      Number(right.entry.id === pinnedEntryId) - Number(left.entry.id === pinnedEntryId)
+      || (rankingByEntryId.get(right.entry.id) ?? 0) - (rankingByEntryId.get(left.entry.id) ?? 0)
+      || left.canonicalIndex - right.canonicalIndex
+    ))
+    .map(({ entry }) => entry);
 }
 
 export function formatSashArea(value) {
@@ -135,10 +219,16 @@ export function createLocalSashCatalogEntry({
   pricingBasis = SASH_PRICING_BASES.FIXED,
   windowType = SASH_WINDOW_TYPES.UNSPECIFIED,
   measurementKind = SASH_MEASUREMENT_KINDS.UNSPECIFIED,
+  sashCategory = SASH_CATEGORIES.UNSPECIFIED,
 } = {}) {
   return {
     id,
     construction_subitem_id: constructionSubitemId,
+    sash_category: normalizeEnum(
+      sashCategory,
+      VALID_SASH_CATEGORIES,
+      SASH_CATEGORIES.UNSPECIFIED
+    ),
     brand: "",
     product_type: "",
     frame_spec: "",
@@ -178,6 +268,7 @@ export function createLocalSashCatalogEntry({
 export function normalizeSashCatalogEntry(entry) {
   return {
     ...entry,
+    sash_category: getSashCategory(entry),
     brand: String(entry?.brand ?? ""),
     product_type: String(entry?.product_type ?? ""),
     frame_spec: String(entry?.frame_spec ?? ""),
@@ -255,6 +346,7 @@ export function buildSashCatalogEntryPayload(entry, {
   return {
     company_id: companyId,
     construction_subitem_id: constructionSubitemId,
+    sash_category: getSashCategory(entry),
     brand: String(entry?.brand ?? "").trim(),
     product_type: String(entry?.product_type ?? "").trim() || frameSpec || "",
     frame_spec: frameSpec,
@@ -301,6 +393,7 @@ export function createSashSpecSnapshot(entry) {
   return {
     sash_spec_version: SASH_SPEC_VERSION,
     sash_catalog_entry_id: entry.id,
+    sash_category: getSashCategory(entry),
     brand: String(entry?.brand ?? ""),
     product_type: String(entry?.product_type ?? ""),
     frame_spec: String(entry?.frame_spec ?? ""),
@@ -338,6 +431,7 @@ export function buildSashEstimateSelectionPatch(entry) {
   const quantity = usesAreaPricing ? sashSpec.billable_area_sqm : 1;
   return {
     sashCatalogEntryId: sashSpec.sash_catalog_entry_id,
+    sashCategory: sashSpec.sash_category,
     sashSpec,
     selectedSashCatalogEntryId: sashSpec.sash_catalog_entry_id,
     quantity,

@@ -4,7 +4,11 @@ function throwIfError(error) {
   if (error) throw error;
 }
 
-export async function fetchSashCatalogDefault(companyId, pyeong, constructionSubitemId) {
+export async function fetchSashCatalogPin(
+  companyId,
+  pyeong,
+  constructionSubitemId
+) {
   if (!companyId || !pyeong || !constructionSubitemId) return null;
 
   const { data, error } = await supabase
@@ -18,7 +22,7 @@ export async function fetchSashCatalogDefault(companyId, pyeong, constructionSub
   return data ?? null;
 }
 
-export async function fetchCompanySashCatalogDefaults(companyId) {
+export async function fetchCompanySashCatalogPins(companyId) {
   const { data, error } = await supabase
     .from("sash_catalog_defaults")
     .select("pyeong, construction_subitem_id, sash_catalog_entry_id")
@@ -28,7 +32,7 @@ export async function fetchCompanySashCatalogDefaults(companyId) {
   return data ?? [];
 }
 
-export async function upsertSashCatalogDefault({
+export async function upsertSashCatalogPin({
   companyId,
   pyeong,
   constructionSubitemId,

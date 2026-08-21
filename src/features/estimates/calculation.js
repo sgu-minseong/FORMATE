@@ -30,7 +30,7 @@ export function calculateEstimateRow(row) {
   const sashSpecialItemsAmount = row?.itemKind === "sash"
     ? getSashSpecialItemSelectionsAmount(
         row?.sashSpecialItemSelections,
-        row?.sashLocationKind
+        row
       )
     : 0;
   const sashPricingConfirmed = row?.itemKind === "sash"
@@ -161,10 +161,11 @@ export function buildSelectedEstimateRows({
           sashCatalogEntryId: row.sashCatalogEntryId ?? "",
           sashSpec: row.sashSpec ?? null,
           ...((row.itemKind ?? catalogItem?.item_kind) === "sash" ? {
+            sashCategory: row.sashCategory ?? row.sashSpec?.sash_category ?? "unspecified",
             sashLocationKind: row.sashLocationKind ?? null,
             sashSpecialItemSelections: buildSashSpecialItemSelectionsSnapshot(
               row.sashSpecialItemSelections,
-              row.sashLocationKind
+              row
             ),
             sashSpecialItemsAmount: calculated.sashSpecialItemsAmount ?? 0,
           } : {}),

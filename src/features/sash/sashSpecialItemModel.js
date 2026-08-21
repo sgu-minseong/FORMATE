@@ -4,7 +4,7 @@ import {
 } from "../../shared/utils/numbers";
 import {
   getSashAreaPreview,
-  isBalconySashLocation,
+  isBalconySashCategory,
 } from "./sashCatalogModel";
 
 export const LOCAL_SASH_SPECIAL_ITEM_PREFIX = "local-sash-special-item-";
@@ -150,9 +150,9 @@ function normalizeSashSpecialItemSelection(selection) {
 
 export function buildSashSpecialItemSelectionsSnapshot(
   selections = [],
-  locationKind = null
+  sashContext = null
 ) {
-  if (!isBalconySashLocation(locationKind)) return [];
+  if (!isBalconySashCategory(sashContext)) return [];
   const seenIds = new Set();
   return (selections ?? []).map((selection) => {
     const normalized = normalizeSashSpecialItemSelection(selection);
@@ -166,9 +166,9 @@ export function buildSashSpecialItemSelectionsSnapshot(
 
 export function getSashSpecialItemSelectionsAmount(
   selections = [],
-  locationKind = null
+  sashContext = null
 ) {
-  if (!isBalconySashLocation(locationKind)) return 0;
+  if (!isBalconySashCategory(sashContext)) return 0;
   return (selections ?? []).reduce((sum, selection) => {
     const snapshot = selection?.sashSpecialItemSnapshot ?? selection?.snapshot ?? selection;
     return sum + toNonNegativeNumberOrZero(snapshot?.amount);

@@ -323,20 +323,6 @@ export default function PriceTablePage({
           }}
           onSubitemNameInput={markAdminCatalogDirty}
           onSubitemNameBlur={renameAdminSubitem}
-          onSubitemLocationKindChange={(subitemId, sashLocationKind) => {
-            setAdminItems((current) => current.map((entry) => (
-              entry.id === item.id
-                ? {
-                    ...entry,
-                    subitems: entry.subitems.map((subitem) => (
-                      subitem.id === subitemId
-                        ? { ...subitem, sash_location_kind: sashLocationKind }
-                        : subitem
-                    )),
-                  }
-                : entry
-            )));
-          }}
         />
       );
     }

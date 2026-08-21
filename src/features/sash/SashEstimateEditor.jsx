@@ -17,7 +17,7 @@ import {
   buildSashEstimateSpecPatch,
   formatSashArea,
   getSashFrameSpec,
-  isBalconySashLocation,
+  isBalconySashCategory,
   isSashEstimateSpecPricingConfirmed,
   SASH_MEASUREMENT_KINDS,
   SASH_PRICING_BASES,
@@ -201,7 +201,7 @@ export default function SashEstimateEditor({ companyId, row, onPatch }) {
   const pricingConfirmed = isSashEstimateSpecPricingConfirmed(spec);
   const specialItemsAmount = getSashSpecialItemSelectionsAmount(
     row?.sashSpecialItemSelections,
-    row?.sashLocationKind
+    row
   );
   const sashBaseAmount = row?.sashBaseAmount
     ?? (pricingConfirmed ? Number(row?.quantity || 0) * Number(row?.unitPrice || 0) : null);
@@ -215,11 +215,13 @@ export default function SashEstimateEditor({ companyId, row, onPatch }) {
       <SashCatalogSelector
         companyId={companyId}
         constructionSubitemId={row.subitemId}
+        pinnedEntryId={row.sashPinnedCatalogEntryId}
         selectedEntryId={row.selectedSashCatalogEntryId}
         selectedSashSpec={spec}
         usageRanking={row.sashUsageRanking}
         onSelect={(entry, usage) => onPatch({
           ...buildSashEstimateSelectionPatch(entry),
+          ...(!isBalconySashCategory(entry) ? { sashSpecialItemSelections: [] } : {}),
           sashSelectionSource: "manual",
           sashUsageCount: usage?.usageCount ?? 0,
         })}
@@ -304,7 +306,7 @@ export default function SashEstimateEditor({ companyId, row, onPatch }) {
             </div>
           </section>
 
-          {isBalconySashLocation(row.sashLocationKind) && (
+          {isBalconySashCategory(row) && (
             <SashEstimateSpecialItems
               companyId={companyId}
               selections={row.sashSpecialItemSelections ?? []}

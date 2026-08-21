@@ -3,6 +3,10 @@ import {
   toNumberOrZero,
 } from "../../shared/utils/numbers";
 import { isEstimateHistoryCompatibilityRow } from "./estimateHistoryCompatibility";
+import {
+  getLegacyCompatibleSashCategory,
+  getSashCategory,
+} from "../sash/sashCatalogModel";
 
 export const ESTIMATE_TEMPLATE_DERIVED_FIELDS = [
   { fieldKey: "quantity", baseKey: "baseQuantity" },
@@ -15,6 +19,9 @@ export const ESTIMATE_PRICE_SOURCE_FIELDS = [
 ];
 
 export function getEstimateDraftRowKeys(row) {
+  if (row?.itemKind === "sash" && row?.subitemId) {
+    return [`sash:${row.subitemId}`];
+  }
   const stableKeys = [
     row?.variantGroupId ? `variant-group:${row.variantGroupId}` : "",
     ...(row?.estimateOptions ?? []).map((option) => (
@@ -102,6 +109,7 @@ export function reconcileEstimateDraftItems({
               : templateRow.selectedSashCatalogEntryId ?? "",
             sashSpec: hasSelectedSashSpec ? previousRow.sashSpec : templateRow.sashSpec ?? null,
             sashUsageRanking: templateRow.sashUsageRanking ?? previousRow.sashUsageRanking ?? [],
+            sashPinnedCatalogEntryId: templateRow.sashPinnedCatalogEntryId ?? "",
             sashSelectionSource: hasSelectedSashSpec
               ? previousRow.sashSelectionSource ?? "manual"
               : templateRow.sashSelectionSource,
@@ -109,6 +117,9 @@ export function reconcileEstimateDraftItems({
               ? previousRow.sashUsageCount ?? 0
               : templateRow.sashUsageCount ?? 0,
             sashLocationKind: previousRow.sashLocationKind ?? templateRow.sashLocationKind ?? null,
+            sashCategory: hasSelectedSashSpec
+              ? getLegacyCompatibleSashCategory(previousRow)
+              : getSashCategory(templateRow),
             sashSpecialItemSelections: previousRow.sashSpecialItemSelections ?? [],
             quantity: hasSelectedSashSpec ? previousRow.quantity : templateRow.quantity,
             baseQuantity: hasSelectedSashSpec ? previousRow.baseQuantity : templateRow.baseQuantity,

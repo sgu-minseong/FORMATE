@@ -5672,7 +5672,7 @@ export default function AdminApp() {
         {
           sashUsageRankings: sashUsageContext.rankings,
           sashCatalogEntries: sashUsageContext.sashCatalogEntries,
-          sashCatalogDefaults: sashUsageContext.sashCatalogDefaults,
+          sashCatalogPins: sashUsageContext.sashCatalogPins,
         }
       );
       const firstCategoryId = catalog[0]?.id ?? "";
@@ -7498,20 +7498,6 @@ export default function AdminApp() {
           }}
           onSubitemNameInput={markAdminCatalogDirty}
           onSubitemNameBlur={renameAdminSubitem}
-          onSubitemLocationKindChange={(subitemId, sashLocationKind) => {
-            setAdminItems((current) => current.map((entry) => (
-              entry.id === item.id
-                ? {
-                    ...entry,
-                    subitems: entry.subitems.map((subitem) => (
-                      subitem.id === subitemId
-                        ? { ...subitem, sash_location_kind: sashLocationKind }
-                        : subitem
-                    )),
-                  }
-                : entry
-            )));
-          }}
         />
       );
     }
@@ -8350,9 +8336,9 @@ export default function AdminApp() {
                   </em>
                 )}
               {row.itemKind === "sash"
-                && row.sashSelectionSource === "explicit-default" && (
+                && row.sashSelectionSource === "pinned" && (
                   <em className="items-v2-badge items-v2-badge--muted">
-                    기본제품
+                    고정
                   </em>
                 )}
               {row.selected && <em className="items-v2-badge items-v2-badge--selected">포함</em>}

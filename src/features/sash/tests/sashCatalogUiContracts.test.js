@@ -12,6 +12,7 @@ const adminAppSource = readFileSync(
 const sashApiSource = readFileSync(new URL("../sashCatalogApi.js", import.meta.url), "utf8");
 const sashGridSource = readFileSync(new URL("../SashCatalogGrid.jsx", import.meta.url), "utf8");
 const sashSectionSource = readFileSync(new URL("../SashCatalogSection.jsx", import.meta.url), "utf8");
+const sashSelectorSource = readFileSync(new URL("../SashCatalogSelector.jsx", import.meta.url), "utf8");
 const sashDefaultApiSource = readFileSync(new URL("../sashCatalogDefaultApi.js", import.meta.url), "utf8");
 const sashEstimateEditorSource = readFileSync(
   new URL("../SashEstimateEditor.jsx", import.meta.url),
@@ -45,33 +46,37 @@ describe("specialized sash editor UI contracts", () => {
     expect(templateRowsSource).toContain("<SashCatalogSection");
     expect(priceRowsSource).not.toContain("<SashCatalogGrid");
     expect(templateRowsSource).not.toContain("<SashCatalogGrid");
-    expect(priceRowsSource).toContain("onSubitemLocationKindChange");
-    expect(templateRowsSource).toContain("onSubitemLocationKindChange");
+    expect(priceRowsSource).not.toContain("onSubitemLocationKindChange");
+    expect(templateRowsSource).not.toContain("onSubitemLocationKindChange");
     expect(sashSectionSource).toContain("<SashCatalogGrid");
     expect(sashSectionSource).not.toContain('mode="priceTable"');
     expect(sashSectionSource).not.toContain('mode="template"');
   });
 
-  it("keeps canonical products condition-independent while managing a pyeong-only fallback", () => {
+  it("keeps canonical products condition-independent while managing a pyeong-only pin", () => {
     expect(templateWorkbenchSource).toContain("<TemplateConditionSwitcher");
     expect(sashSectionSource).toContain("initialDefaultPyeong={pyeong}");
     expect(sashGridSource).toContain("PYEONG_OPTIONS");
-    expect(sashGridSource).toContain("fetchSashCatalogDefault");
-    expect(sashGridSource).toContain("upsertSashCatalogDefault");
+    expect(sashGridSource).toContain("fetchSashCatalogPin");
+    expect(sashGridSource).toContain("upsertSashCatalogPin");
+    expect(sashGridSource).toContain("togglePinnedEntry");
+    expect(sashGridSource).not.toContain("기본제품");
     expect(sashDefaultApiSource).toContain("company_id,pyeong,construction_subitem_id");
+    expect(sashDefaultApiSource).not.toContain("sash_category");
     expect(sashDefaultApiSource).not.toMatch(/build_type|condition_variant|occupancy|extension/i);
   });
 
-  it("shows explicit location metadata with active catalog count and management", () => {
-    expect(sashSectionSource).toContain("<span>세부항목</span>");
-    expect(sashSectionSource).toContain("<span>구분</span>");
+  it("shows category tabs inside the expanded editor with active catalog counts", () => {
+    expect(sashSectionSource).toContain("<span>세부 항목</span>");
     expect(sashSectionSource).toContain("<span>등록 규격</span>");
     expect(sashSectionSource).toContain("<span>관리</span>");
-    expect(sashSectionSource).toContain("sash_location_kind");
-    expect(sashSectionSource).toContain("updateCanonicalConstructionSubitem");
-    expect(sashSectionSource).toContain("SASH_LOCATION_KINDS.STANDARD");
-    expect(sashSectionSource).toContain("SASH_LOCATION_KINDS.BALCONY");
-    expect(sashSectionSource).toContain("샷시 구분");
+    expect(sashSectionSource).not.toContain("sash_location_kind");
+    expect(sashSectionSource).not.toContain("updateCanonicalConstructionSubitem");
+    expect(sashSectionSource).toContain('role="tablist"');
+    expect(sashSectionSource).toContain('role="tab"');
+    expect(sashSectionSource).toContain("SASH_CATEGORIES.STANDARD");
+    expect(sashSectionSource).toContain("SASH_CATEGORIES.BALCONY");
+    expect(sashSectionSource).toContain("SASH_CATEGORIES.UNSPECIFIED");
     expect(sashSectionSource).not.toMatch(/name.*includes.*balcony|name.*includes.*베란다/i);
     expect(sashSectionSource).toContain('return count > 0 ? `${count}개` : "규격 없음"');
     expect(sashApiSource).toContain('.is("archived_at", null)');
@@ -113,8 +118,8 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashGridSource).not.toContain("pricing_basis: SASH_PRICING_BASES.AREA");
   });
 
-  it("mounts one company-wide special-item CRUD manager only for explicit balcony metadata", () => {
-    expect(sashSectionSource).toContain("isBalconySashLocation(locationKind)");
+  it("mounts one company-wide special-item CRUD manager only for the balcony category", () => {
+    expect(sashSectionSource).toContain("activeCategory === SASH_CATEGORIES.BALCONY");
     expect(sashSectionSource).toContain("<SashSpecialItemsManager");
     expect(sashSpecialItemsSource).toContain("fetchActiveSashSpecialItems");
     expect(sashSpecialItemsSource).toContain("insertSashSpecialItem");
@@ -134,7 +139,11 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashEstimateEditorSource).toContain("fetchActiveSashSpecialItems");
     expect(sashEstimateEditorSource).toContain('type="checkbox"');
     expect(sashEstimateEditorSource).toContain("buildSashSpecialItemSelectionPatch");
-    expect(sashEstimateEditorSource).toContain("isBalconySashLocation(row.sashLocationKind)");
+    expect(sashEstimateEditorSource).toContain("isBalconySashCategory(row)");
+    expect(sashEstimateEditorSource).not.toContain("sashCategory={row.sashCategory}");
+    expect(sashSelectorSource).toContain('role="tablist"');
+    expect(sashSelectorSource).toContain("getSashCategory(entry) === activeCategory");
+    expect(sashEstimateEditorSource).toContain("pinnedEntryId={row.sashPinnedCatalogEntryId}");
     expect(sashEstimateEditorSource).toContain("usageRanking={row.sashUsageRanking}");
     expect(sashEstimateEditorSource).toContain('sashSelectionSource: "manual"');
   });

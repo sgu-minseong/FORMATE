@@ -6,9 +6,13 @@ import {
 import {
   formatSashArea,
   getSashBillableArea,
+  getSashCategory,
+  getSashCategoryLabel,
   getSashEntryArea,
   getSashFrameSpec,
   getSashSpecLabel,
+  orderSashCatalogEntriesForDisplay,
+  SASH_CATEGORIES,
   SASH_PRICING_BASES,
   SASH_WINDOW_TYPES,
 } from "./sashCatalogModel";
@@ -26,6 +30,7 @@ function getWindowTypeLabel(windowType) {
 export default function SashCatalogSelector({
   companyId,
   constructionSubitemId,
+  pinnedEntryId = "",
   selectedEntryId,
   selectedSashSpec,
   usageRanking = [],
@@ -34,20 +39,37 @@ export default function SashCatalogSelector({
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [activeCategory, setActiveCategory] = useState(() => (
+    getSashCategory(selectedSashSpec) === SASH_CATEGORIES.UNSPECIFIED
+      ? SASH_CATEGORIES.STANDARD
+      : getSashCategory(selectedSashSpec)
+  ));
   const rankingByEntryId = useMemo(() => new Map(
     usageRanking.map((rankedEntry) => [
       rankedEntry.sashCatalogEntryId,
       rankedEntry,
     ])
   ), [usageRanking]);
-  const orderedEntries = useMemo(() => entries
-    .map((entry, index) => ({ entry, index }))
-    .sort((left, right) => {
-      const leftUsage = rankingByEntryId.get(left.entry.id)?.usageCount ?? 0;
-      const rightUsage = rankingByEntryId.get(right.entry.id)?.usageCount ?? 0;
-      return rightUsage - leftUsage || left.index - right.index;
-    })
-    .map(({ entry }) => entry), [entries, rankingByEntryId]);
+  const visibleCategories = useMemo(() => {
+    const categories = [SASH_CATEGORIES.STANDARD, SASH_CATEGORIES.BALCONY];
+    if (
+      entries.some((entry) => getSashCategory(entry) === SASH_CATEGORIES.UNSPECIFIED)
+      || activeCategory === SASH_CATEGORIES.UNSPECIFIED
+    ) categories.push(SASH_CATEGORIES.UNSPECIFIED);
+    return categories;
+  }, [activeCategory, entries]);
+  const categoryEntries = useMemo(() => entries.filter((entry) => (
+    getSashCategory(entry) === activeCategory
+  )), [activeCategory, entries]);
+  const orderedEntries = useMemo(() => orderSashCatalogEntriesForDisplay(categoryEntries, {
+    pinnedEntryId,
+    usageRanking,
+  }), [categoryEntries, pinnedEntryId, usageRanking]);
+
+  useEffect(() => {
+    if (!selectedSashSpec) return;
+    setActiveCategory(getSashCategory(selectedSashSpec));
+  }, [selectedEntryId, selectedSashSpec]);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +108,20 @@ export default function SashCatalogSelector({
         <strong>샷시 규격 선택</strong>
         <span>현장 규격을 하나 선택하세요.</span>
       </div>
+      <div className="sash-selector__category-tabs" role="tablist" aria-label="샷시 제품 분류">
+        {visibleCategories.map((sashCategory) => (
+          <button
+            key={sashCategory}
+            type="button"
+            role="tab"
+            aria-selected={activeCategory === sashCategory}
+            className={activeCategory === sashCategory ? "active" : ""}
+            onClick={() => setActiveCategory(sashCategory)}
+          >
+            {getSashCategoryLabel(sashCategory)}
+          </button>
+        ))}
+      </div>
       {selectedSashSpec && !orderedEntries.some((entry) => entry.id === selectedEntryId) && (
         <p className="sash-selector__snapshot">
           현재 선택: {getSashSpecLabel(selectedSashSpec)} · {formatSashArea(selectedSashSpec.area_sqm)}
@@ -93,9 +129,10 @@ export default function SashCatalogSelector({
       )}
       {orderedEntries.length ? (
         <div className="sash-selector__list">
-          {orderedEntries.map((entry, index) => {
+          {orderedEntries.map((entry) => {
             const selected = entry.id === selectedEntryId;
             const usage = rankingByEntryId.get(entry.id);
+            const pinned = entry.id === pinnedEntryId;
             return (
               <button
                 key={entry.id}
@@ -108,9 +145,10 @@ export default function SashCatalogSelector({
                 <span className="sash-selector__copy">
                   <strong>
                     {entry.brand} / {getSashFrameSpec(entry)}
+                    {pinned && <em className="sash-selector__pin">고정됨</em>}
                     {usage?.usageCount > 0 && (
                       <em className="sash-selector__usage">
-                        {index === 0 ? "대표 · " : ""}{usage.usageCount}회 사용
+                        {usage.usageCount}회 사용
                       </em>
                     )}
                   </strong>

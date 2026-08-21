@@ -9,6 +9,7 @@ import {
   getSashCatalogEntryValidationError,
   getSashSpecLabel,
   isSashEstimateSpecPricingConfirmed,
+  SASH_CATEGORIES,
   SASH_LOCATION_KINDS,
   SASH_MEASUREMENT_KINDS,
   SASH_PRICING_BASES,
@@ -44,6 +45,7 @@ const specialItemApiSource = readFileSync(
 const areaPricedEntry = {
   id: "sash-entry-v1",
   construction_subitem_id: "balcony-subitem",
+  sash_category: SASH_CATEGORIES.BALCONY,
   brand: "KCC",
   product_type: "legacy-frame-label",
   frame_spec: "140mm 틀",
@@ -169,6 +171,7 @@ describe("sash estimate v1 domain contract", () => {
     expect(isSashEstimateSpecPricingConfirmed(unresolved.sashSpec)).toBe(false);
     expect(calculateEstimateRow({
       itemKind: "sash",
+      sashCategory: SASH_CATEGORIES.BALCONY,
       sashLocationKind: SASH_LOCATION_KINDS.BALCONY,
       sashSpecialItemSelections: [buildSashSpecialItemSelection(canonicalSpecialItem)],
       ...unresolved,
@@ -253,7 +256,7 @@ describe("sash estimate v1 domain contract", () => {
     });
     const balconySelections = buildSashSpecialItemSelectionsSnapshot(
       [selection, secondSelection],
-      SASH_LOCATION_KINDS.BALCONY
+      SASH_CATEGORIES.BALCONY
     );
 
     expect(balconySelections[0]).toEqual({
@@ -271,7 +274,7 @@ describe("sash estimate v1 domain contract", () => {
     expect(balconySelections).toHaveLength(2);
     expect(getSashSpecialItemSelectionsAmount(
       balconySelections,
-      SASH_LOCATION_KINDS.BALCONY
+      SASH_CATEGORIES.BALCONY
     )).toBe(200000);
     const editedCanonicalItem = {
       ...canonicalSpecialItem,
@@ -291,10 +294,10 @@ describe("sash estimate v1 domain contract", () => {
         width_mm: 9000,
         height_mm: 9000,
       },
-    }], SASH_LOCATION_KINDS.BALCONY)).toBe(150000);
+    }], SASH_CATEGORIES.BALCONY)).toBe(150000);
     expect(buildSashSpecialItemSelectionsSnapshot(
       [selection],
-      SASH_LOCATION_KINDS.STANDARD
+      SASH_CATEGORIES.STANDARD
     )).toEqual([]);
     expect(() => buildSashSpecialItemSelectionsSnapshot([{
       sashSpecialItemId: "special-item-a",
@@ -302,10 +305,10 @@ describe("sash estimate v1 domain contract", () => {
         ...selection.sashSpecialItemSnapshot,
         sash_special_item_id: "different-id",
       },
-    }], SASH_LOCATION_KINDS.BALCONY)).toThrow("일치해야 합니다");
+    }], SASH_CATEGORIES.BALCONY)).toThrow("일치해야 합니다");
     expect(() => buildSashSpecialItemSelectionsSnapshot(
       [selection, selection],
-      SASH_LOCATION_KINDS.BALCONY
+      SASH_CATEGORIES.BALCONY
     )).toThrow("중복 선택");
   });
 
@@ -361,6 +364,7 @@ describe("sash estimate v1 domain contract", () => {
       selected: true,
       pyeong: 35,
       sashLocationKind: SASH_LOCATION_KINDS.BALCONY,
+      sashCategory: SASH_CATEGORIES.BALCONY,
       sashSpecialItemSelections: [specialSelection],
       ...editedAreaSelection,
     });
@@ -471,6 +475,7 @@ describe("sash estimate v1 domain contract", () => {
       selected: true,
       pyeong: 24,
       sashLocationKind: SASH_LOCATION_KINDS.BALCONY,
+      sashCategory: SASH_CATEGORIES.BALCONY,
       sashSpecialItemSelections: [editedSpecialItem],
       ...selectedPatch,
     });
@@ -514,6 +519,7 @@ describe("sash estimate v1 domain contract", () => {
         calculated_amount: 1200000,
       },
       sashLocationKind: SASH_LOCATION_KINDS.BALCONY,
+      sashCategory: SASH_CATEGORIES.BALCONY,
       sashSpecialItemSelections: [{
         sashSpecialItemId: "special-item-a",
         sashSpecialItemSnapshot: {

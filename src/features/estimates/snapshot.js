@@ -19,6 +19,7 @@ import {
   normalizeLegacyEstimateSpecOptions,
 } from "./estimateHistoryCompatibility";
 import { buildSashSpecialItemSelectionsSnapshot } from "../sash/sashSpecialItemModel";
+import { getLegacyCompatibleSashCategory } from "../sash/sashCatalogModel";
 
 function isExtendedHouseType(value) {
   return value === "new"
@@ -170,10 +171,11 @@ export function restoreEstimateDraft(estimate) {
       sashCatalogEntryId: item.sashCatalogEntryId ?? "",
       selectedSashCatalogEntryId: item.sashCatalogEntryId ?? "",
       sashSpec: item.sashSpec ?? null,
+      sashCategory: getLegacyCompatibleSashCategory(item),
       sashLocationKind: item.sashLocationKind ?? item.sash_location_kind ?? null,
       sashSpecialItemSelections: buildSashSpecialItemSelectionsSnapshot(
         item.sashSpecialItemSelections,
-        item.sashLocationKind ?? item.sash_location_kind ?? null
+        item
       ),
       displayMaterial: item.material ?? item.name ?? item.description ?? "소재",
       selectedThickness: item.selectedThickness ?? null,

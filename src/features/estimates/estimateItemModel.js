@@ -8,6 +8,7 @@ import {
 import {
   buildSashEstimateSelectionPatch,
   isSashItem,
+  SASH_CATEGORIES,
 } from "../sash/sashCatalogModel";
 import { getSashUsageRanking } from "../sash/sashUsageRankingModel";
 import {
@@ -236,7 +237,10 @@ function applySashUsageDefault(row, pyeong, context = {}) {
     entry,
   ]));
   const activeEntries = (context.sashCatalogEntries ?? [])
-    .filter((entry) => entry?.construction_subitem_id === row.subitemId);
+    .filter((entry) => (
+      entry?.construction_subitem_id === row.subitemId
+      && !entry?.archived_at
+    ));
   const rankedRepresentative = activeEntries.map((entry, canonicalOrder) => ({
       entry,
       canonicalOrder,
@@ -247,23 +251,30 @@ function applySashUsageDefault(row, pyeong, context = {}) {
       right.usage.usageCount - left.usage.usageCount
       || left.canonicalOrder - right.canonicalOrder
     ))[0];
-  const explicitDefault = (context.sashCatalogDefaults ?? []).find((entry) => (
+  const pinned = (context.sashCatalogPins ?? []).find((entry) => (
     Number(entry?.pyeong) === Number(pyeong)
     && entry?.construction_subitem_id === row.subitemId
     && entry?.sash_catalog_entry_id
   ));
-  const explicitDefaultEntry = activeEntries.find((entry) => (
-    entry.id === explicitDefault?.sash_catalog_entry_id
+  const pinnedEntry = activeEntries.find((entry) => (
+    entry.id === pinned?.sash_catalog_entry_id
   ));
-  const representativeEntry = rankedRepresentative?.entry ?? explicitDefaultEntry;
-  if (!representativeEntry) return { ...row, sashUsageRanking: usageRanking };
+  const representativeEntry = pinnedEntry ?? rankedRepresentative?.entry;
+  if (!representativeEntry) {
+    return {
+      ...row,
+      sashUsageRanking: usageRanking,
+      sashPinnedCatalogEntryId: "",
+    };
+  }
 
   return calculateEstimateRow({
     ...row,
     ...buildSashEstimateSelectionPatch(representativeEntry),
     sashUsageRanking: usageRanking,
-    sashSelectionSource: rankedRepresentative ? "ranking" : "explicit-default",
-    sashUsageCount: rankedRepresentative?.usage.usageCount ?? 0,
+    sashPinnedCatalogEntryId: pinnedEntry?.id ?? "",
+    sashSelectionSource: pinnedEntry ? "pinned" : "ranking",
+    sashUsageCount: rankingByEntryId.get(representativeEntry.id)?.usageCount ?? 0,
   });
 }
 
@@ -286,7 +297,8 @@ function buildEstimateItemRows(item, pyeong, residenceStatus, context = {}) {
         sashCatalogEntryId: "",
         selectedSashCatalogEntryId: "",
         sashSpec: null,
-        sashLocationKind: subitem.sash_location_kind ?? null,
+        sashCategory: SASH_CATEGORIES.UNSPECIFIED,
+        sashLocationKind: null,
         sashSpecialItemSelections: [],
         hasTemplateRecord: false,
         hasTemplateValue: false,

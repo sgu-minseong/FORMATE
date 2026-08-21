@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Save, Trash2 } from "lucide-react";
 import Table from "../../components/ui/Table";
 import {
@@ -15,8 +15,8 @@ import {
   updateSashCatalogEntry,
 } from "./sashCatalogApi";
 import {
-  fetchSashCatalogDefault,
-  upsertSashCatalogDefault,
+  fetchSashCatalogPin,
+  upsertSashCatalogPin,
 } from "./sashCatalogDefaultApi";
 import {
   createLocalSashCatalogEntry,
@@ -28,6 +28,8 @@ import {
   hasExplicitSashWindowType,
   isLocalSashCatalogEntry,
   normalizeSashCatalogEntry,
+  orderSashCatalogEntriesForDisplay,
+  SASH_CATEGORIES,
   SASH_MEASUREMENT_KINDS,
   SASH_PRICING_BASES,
   SASH_WINDOW_TYPES,
@@ -57,18 +59,14 @@ function normalizeDefaultPyeong(value) {
   return PYEONG_OPTIONS.includes(numericValue) ? String(numericValue) : "";
 }
 
-function getDefaultEntryLabel(entry) {
-  return [entry.brand, entry.frame_spec || entry.product_type]
-    .filter(Boolean)
-    .join(" / ") || "제품 정보 미입력";
-}
-
 export default function SashCatalogGrid({
   companyId,
   subitem = null,
+  sashCategory = SASH_CATEGORIES.STANDARD,
   title = "샷시 규격",
   initialDefaultPyeong = "",
   onDirtyChange,
+  onEntryCategoryMove,
   onPersistedCountChange,
 }) {
   const [entries, setEntries] = useState([]);
@@ -79,58 +77,62 @@ export default function SashCatalogGrid({
   const [notice, setNotice] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const [dirtyEntryIds, setDirtyEntryIds] = useState(() => new Set());
-  const [defaultPyeong, setDefaultPyeong] = useState(() => (
+  const [pinPyeong, setPinPyeong] = useState(() => (
     normalizeDefaultPyeong(initialDefaultPyeong)
   ));
-  const [defaultEntryId, setDefaultEntryId] = useState("");
-  const [defaultLoading, setDefaultLoading] = useState(false);
-  const [defaultSaving, setDefaultSaving] = useState(false);
+  const [pinnedEntryId, setPinnedEntryId] = useState("");
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinSaving, setPinSaving] = useState(false);
   const firstDraftInputRef = useRef(null);
 
   const selectedSubitemId = subitem?.id ?? "";
   const hasLocalEntry = entries.some(isLocalSashCatalogEntry);
   const persistedEntryCount = entries.filter((entry) => !isLocalSashCatalogEntry(entry)).length;
+  const usesTemplatePyeong = Boolean(normalizeDefaultPyeong(initialDefaultPyeong));
+  const displayEntries = useMemo(() => orderSashCatalogEntriesForDisplay(entries, {
+    pinnedEntryId,
+  }), [entries, pinnedEntryId]);
 
   useEffect(() => {
     const nextPyeong = normalizeDefaultPyeong(initialDefaultPyeong);
-    if (nextPyeong) setDefaultPyeong(nextPyeong);
+    if (nextPyeong) setPinPyeong(nextPyeong);
   }, [initialDefaultPyeong]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!companyId || !selectedSubitemId || !defaultPyeong) {
-      setDefaultEntryId("");
-      setDefaultLoading(false);
+    if (!companyId || !selectedSubitemId || !pinPyeong) {
+      setPinnedEntryId("");
+      setPinLoading(false);
       return undefined;
     }
 
-    setDefaultLoading(true);
-    fetchSashCatalogDefault(companyId, defaultPyeong, selectedSubitemId)
+    setPinLoading(true);
+    fetchSashCatalogPin(companyId, pinPyeong, selectedSubitemId)
       .then((row) => {
-        if (!cancelled) setDefaultEntryId(row?.sash_catalog_entry_id ?? "");
+        if (!cancelled) setPinnedEntryId(row?.sash_catalog_entry_id ?? "");
       })
       .catch((nextError) => {
         if (!cancelled) {
-          setDefaultEntryId("");
-          setError(getFriendlySashError(nextError, "기본 샷시 제품을 불러오지 못했습니다."));
+          setPinnedEntryId("");
+          setError(getFriendlySashError(nextError, "고정 샷시 제품을 불러오지 못했습니다."));
         }
       })
       .finally(() => {
-        if (!cancelled) setDefaultLoading(false);
+        if (!cancelled) setPinLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [companyId, defaultPyeong, selectedSubitemId]);
+  }, [companyId, pinPyeong, selectedSubitemId]);
 
   useEffect(() => {
     onDirtyChange?.(dirtyEntryIds.size > 0);
   }, [dirtyEntryIds, onDirtyChange]);
 
   useEffect(() => {
-    if (loaded) onPersistedCountChange?.(selectedSubitemId, persistedEntryCount);
-  }, [loaded, onPersistedCountChange, persistedEntryCount, selectedSubitemId]);
+    if (loaded) onPersistedCountChange?.(selectedSubitemId, sashCategory, persistedEntryCount);
+  }, [loaded, onPersistedCountChange, persistedEntryCount, sashCategory, selectedSubitemId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,7 +148,7 @@ export default function SashCatalogGrid({
     setDirtyEntryIds(new Set());
     setError("");
     setNotice("");
-    fetchActiveSashCatalogEntries(companyId, selectedSubitemId)
+    fetchActiveSashCatalogEntries(companyId, selectedSubitemId, sashCategory)
       .then((rows) => {
         if (!cancelled) {
           setEntries(rows.map(normalizeSashCatalogEntry));
@@ -166,7 +168,7 @@ export default function SashCatalogGrid({
     return () => {
       cancelled = true;
     };
-  }, [companyId, reloadToken, selectedSubitemId]);
+  }, [companyId, reloadToken, sashCategory, selectedSubitemId]);
 
   function patchEntry(entryId, patch) {
     setEntries((current) => current.map((entry) => (
@@ -176,13 +178,14 @@ export default function SashCatalogGrid({
   }
 
   function addEntry() {
-    if (!subitem) return;
+    if (!subitem || sashCategory === SASH_CATEGORIES.UNSPECIFIED) return;
     const nextEntry = createLocalSashCatalogEntry({
       constructionSubitemId: subitem.id,
       sortOrder: entries.length,
       pricingBasis: SASH_PRICING_BASES.AREA,
       windowType: SASH_WINDOW_TYPES.UNSPECIFIED,
       measurementKind: SASH_MEASUREMENT_KINDS.ESTIMATE,
+      sashCategory,
     });
     setError("");
     setNotice("");
@@ -209,16 +212,23 @@ export default function SashCatalogGrid({
       const savedEntry = isLocalSashCatalogEntry(entry)
         ? await insertSashCatalogEntry(entry, context)
         : await updateSashCatalogEntry(entry, context);
-      setEntries((current) => current.map((currentEntry) => (
-        currentEntry.id === entry.id
-          ? normalizeSashCatalogEntry(savedEntry)
-          : currentEntry
-      )));
+      const normalizedSavedEntry = normalizeSashCatalogEntry(savedEntry);
+      setEntries((current) => normalizedSavedEntry.sash_category === sashCategory
+        ? current.map((currentEntry) => (
+            currentEntry.id === entry.id ? normalizedSavedEntry : currentEntry
+          ))
+        : current.filter((currentEntry) => currentEntry.id !== entry.id));
       setDirtyEntryIds((current) => {
         const next = new Set(current);
         next.delete(entry.id);
         return next;
       });
+      if (
+        !isLocalSashCatalogEntry(entry)
+        && normalizedSavedEntry.sash_category !== sashCategory
+      ) {
+        onEntryCategoryMove?.(selectedSubitemId, sashCategory, normalizedSavedEntry.sash_category);
+      }
       setNotice("저장했습니다.");
     } catch (nextError) {
       setError(getFriendlySashError(nextError, "샷시 규격을 저장하지 못했습니다. 입력값과 권한을 확인해주세요."));
@@ -250,6 +260,7 @@ export default function SashCatalogGrid({
         return next;
       });
       setNotice("샷시 규격을 삭제했습니다.");
+      if (entry.id === pinnedEntryId) setPinnedEntryId("");
     } catch (nextError) {
       setError(getFriendlySashError(nextError, "샷시 규격을 삭제하지 못했습니다."));
     } finally {
@@ -259,8 +270,22 @@ export default function SashCatalogGrid({
 
   async function reorderEntries(sourceIndex, targetIndex) {
     if (hasLocalEntry) return;
+    const sourceEntry = displayEntries[sourceIndex];
+    const targetEntry = displayEntries[targetIndex];
+    if (!sourceEntry || !targetEntry || sourceEntry.id === pinnedEntryId || targetEntry.id === pinnedEntryId) {
+      return;
+    }
     const previousEntries = entries;
-    const nextEntries = moveEntry(entries, sourceIndex, targetIndex);
+    const nonPinnedEntries = displayEntries.filter((entry) => entry.id !== pinnedEntryId);
+    const movedNonPinnedEntries = moveEntry(
+      nonPinnedEntries,
+      nonPinnedEntries.findIndex((entry) => entry.id === sourceEntry.id),
+      nonPinnedEntries.findIndex((entry) => entry.id === targetEntry.id)
+    );
+    let nonPinnedIndex = 0;
+    const nextEntries = entries.map((entry) => (
+      entry.id === pinnedEntryId ? entry : movedNonPinnedEntries[nonPinnedIndex++]
+    )).map((entry, index) => ({ ...entry, sort_order: index }));
     setEntries(nextEntries);
     setError("");
     try {
@@ -272,30 +297,35 @@ export default function SashCatalogGrid({
     }
   }
 
-  async function changeDefaultEntry(nextEntryId) {
-    if (!companyId || !selectedSubitemId || !defaultPyeong) return;
-    const previousEntryId = defaultEntryId;
-    setDefaultEntryId(nextEntryId);
-    setDefaultSaving(true);
+  async function togglePinnedEntry(entryId) {
+    if (!companyId || !selectedSubitemId || !pinPyeong) return;
+    const previousEntryId = pinnedEntryId;
+    const nextEntryId = entryId === pinnedEntryId ? "" : entryId;
+    setPinnedEntryId(nextEntryId);
+    setPinSaving(true);
     setError("");
     setNotice("");
     try {
-      await upsertSashCatalogDefault({
+      await upsertSashCatalogPin({
         companyId,
-        pyeong: defaultPyeong,
+        pyeong: pinPyeong,
         constructionSubitemId: selectedSubitemId,
         sashCatalogEntryId: nextEntryId,
       });
-      setNotice(`${defaultPyeong}평 기본제품을 저장했습니다.`);
+      setNotice(nextEntryId ? `${pinPyeong}평 고정 제품을 저장했습니다.` : `${pinPyeong}평 고정을 해제했습니다.`);
     } catch (nextError) {
-      setDefaultEntryId(previousEntryId);
-      setError(getFriendlySashError(nextError, "기본 샷시 제품을 저장하지 못했습니다."));
+      setPinnedEntryId(previousEntryId);
+      setError(getFriendlySashError(nextError, "고정 샷시 제품을 저장하지 못했습니다."));
     } finally {
-      setDefaultSaving(false);
+      setPinSaving(false);
     }
   }
 
   const columns = [
+    { key: "pin", label: "고정", width: "76px" },
+    ...(sashCategory === SASH_CATEGORIES.UNSPECIFIED
+      ? [{ key: "sash_category", label: "분류", width: "104px" }]
+      : []),
     { key: "brand", label: "제조사", width: "104px" },
     { key: "frame_spec", label: "틀", width: "116px" },
     { key: "pair_spec", label: "페어", width: "104px" },
@@ -318,6 +348,34 @@ export default function SashCatalogGrid({
     const isSaving = savingId === row.id;
     const usesAreaPricing = row.pricing_basis === SASH_PRICING_BASES.AREA;
     const hasExplicitWindowType = hasExplicitSashWindowType(row.window_type);
+    if (column.key === "pin") {
+      const pinned = row.id === pinnedEntryId;
+      return (
+        <button
+          type="button"
+          className={`sash-catalog-grid__pin ${pinned ? "is-pinned" : ""}`.trim()}
+          disabled={isLocalSashCatalogEntry(row) || !pinPyeong || pinLoading || pinSaving}
+          aria-pressed={pinned}
+          onClick={() => togglePinnedEntry(row.id)}
+        >
+          {pinned ? "고정됨" : "고정"}
+        </button>
+      );
+    }
+    if (column.key === "sash_category") {
+      return (
+        <select
+          className="items-v2-inline-select"
+          value={row.sash_category}
+          aria-label="샷시 분류"
+          onChange={(event) => patchEntry(row.id, { sash_category: event.target.value })}
+        >
+          <option value={SASH_CATEGORIES.UNSPECIFIED}>미분류</option>
+          <option value={SASH_CATEGORIES.STANDARD}>일반</option>
+          <option value={SASH_CATEGORIES.BALCONY}>베란다</option>
+        </select>
+      );
+    }
     if ([
       "brand",
       "frame_spec",
@@ -470,44 +528,32 @@ export default function SashCatalogGrid({
       {error && entries.length > 0 && <div className="error-box sash-catalog-grid__message">{error}</div>}
       {notice && <div className="status-box sash-catalog-grid__message">{notice}</div>}
 
-      {subitem && !loading && entries.length > 0 && (
-        <div className="sash-catalog-grid__default-product">
-          <strong>기본제품</strong>
-          <label>
-            <span className="field-label">평수</span>
-            <select
-              className="items-v2-inline-select"
-              value={defaultPyeong}
-              disabled={defaultSaving}
-              aria-label={`${subitem.name} 기본제품 평수`}
-              onChange={(event) => setDefaultPyeong(event.target.value)}
-            >
-              <option value="">평수 선택</option>
-              {PYEONG_OPTIONS.map((pyeong) => (
-                <option key={pyeong} value={pyeong}>{pyeong}평</option>
-              ))}
-            </select>
-          </label>
-          <label className="sash-catalog-grid__default-entry">
-            <span className="field-label">제품</span>
-            <select
-              className="items-v2-inline-select"
-              value={entries.some((entry) => entry.id === defaultEntryId) ? defaultEntryId : ""}
-              disabled={!defaultPyeong || defaultLoading || defaultSaving}
-              aria-label={`${subitem.name} ${defaultPyeong || "선택"}평 기본제품`}
-              onChange={(event) => changeDefaultEntry(event.target.value)}
-            >
-              <option value="">기본제품 미지정</option>
-              {entries
-                .filter((entry) => !isLocalSashCatalogEntry(entry))
-                .map((entry) => (
-                  <option key={entry.id} value={entry.id}>{getDefaultEntryLabel(entry)}</option>
+      {subitem && !loading && (
+        <div className="sash-catalog-grid__pin-context">
+          <strong>고정 제품</strong>
+          {usesTemplatePyeong ? (
+            <span className="sash-catalog-grid__pin-pyeong">{pinPyeong}평</span>
+          ) : (
+            <label>
+              <span className="field-label">평수</span>
+              <select
+                className="items-v2-inline-select"
+                value={pinPyeong}
+                disabled={pinSaving}
+                aria-label={`${subitem.name} 고정 제품 평수`}
+                onChange={(event) => setPinPyeong(event.target.value)}
+              >
+                <option value="">평수 선택</option>
+                {PYEONG_OPTIONS.map((pyeong) => (
+                  <option key={pyeong} value={pyeong}>{pyeong}평</option>
                 ))}
-            </select>
-          </label>
-          {(defaultLoading || defaultSaving) && (
+              </select>
+            </label>
+          )}
+          <span className="muted">목록에서 제품을 고정하세요.</span>
+          {(pinLoading || pinSaving) && (
             <span className="muted" aria-live="polite">
-              {defaultSaving ? "저장 중" : "불러오는 중"}
+              {pinSaving ? "저장 중" : "불러오는 중"}
             </span>
           )}
         </div>
@@ -527,7 +573,7 @@ export default function SashCatalogGrid({
       ) : entries.length ? (
         <Table
           columns={columns}
-          rows={entries}
+          rows={displayEntries}
           renderCell={renderCell}
           rowHeight={44}
           stickyHeader
@@ -538,11 +584,13 @@ export default function SashCatalogGrid({
       ) : (
         <div className="sash-catalog-grid__empty">
           <span>등록된 샷시 규격이 없습니다.</span>
-          <button type="button" onClick={addEntry}><Plus size={16} strokeWidth={1.5} />샷시 규격 추가</button>
+          {sashCategory === SASH_CATEGORIES.UNSPECIFIED
+            ? <span>분류를 지정하면 일반 또는 베란다 목록으로 이동합니다.</span>
+            : <button type="button" onClick={addEntry}><Plus size={16} strokeWidth={1.5} />샷시 규격 추가</button>}
         </div>
       )}
 
-      {subitem && entries.length > 0 && (
+      {subitem && entries.length > 0 && sashCategory !== SASH_CATEGORIES.UNSPECIFIED && (
         <button
           type="button"
           className="sash-catalog-grid__add"
