@@ -103,6 +103,21 @@ export function buildSashSpecialItemSelection(item) {
   };
 }
 
+export function buildSashSpecialItemSelectionPatch(selection, patch = {}) {
+  const canonicalId = String(
+    selection?.sashSpecialItemId
+      ?? selection?.sashSpecialItemSnapshot?.sash_special_item_id
+      ?? ""
+  ).trim();
+  if (!canonicalId) return selection;
+  return buildSashSpecialItemSelection({
+    ...(selection?.sashSpecialItemSnapshot ?? {}),
+    ...patch,
+    id: canonicalId,
+    area_sqm: null,
+  });
+}
+
 function normalizeSashSpecialItemSelection(selection) {
   const canonicalId = String(
     selection?.sashSpecialItemId

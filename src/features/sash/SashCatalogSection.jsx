@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { updateCanonicalConstructionSubitem } from "../constructionCatalog/constructionCatalogApi";
 import { fetchActiveSashCatalogEntryCounts } from "./sashCatalogApi";
+import {
+  isBalconySashLocation,
+  SASH_LOCATION_KINDS,
+} from "./sashCatalogModel";
 import SashCatalogGrid from "./SashCatalogGrid";
+import SashSpecialItemsManager from "./SashSpecialItemsManager";
 
 function confirmDiscardSashDraft() {
-  return window.confirm("저장하지 않은 샷시 규격 변경이 있습니다. 변경 내용을 버리고 이동할까요?");
+  return window.confirm("저장하지 않은 샷시 관리 변경이 있습니다. 변경 내용을 버리고 이동할까요?");
+}
+
+function isLocalSubitemId(subitemId) {
+  return String(subitemId ?? "").startsWith("local-subitem-");
 }
 
 export default function SashCatalogSection({
@@ -26,24 +36,34 @@ export default function SashCatalogSection({
   onSubitemNameBlur,
   onSubitemNameChange,
   onSubitemNameInput,
+  onSubitemLocationKindChange,
 }) {
   const [openSubitemId, setOpenSubitemId] = useState("");
-  const [editorDirty, setEditorDirty] = useState(false);
+  const [catalogDirty, setCatalogDirty] = useState(false);
+  const [specialItemsDirty, setSpecialItemsDirty] = useState(false);
   const [entryCounts, setEntryCounts] = useState({});
   const [countsLoading, setCountsLoading] = useState(false);
   const [countsError, setCountsError] = useState(false);
+  const [locationSavingId, setLocationSavingId] = useState("");
+  const [locationError, setLocationError] = useState("");
+  const [locationOverrides, setLocationOverrides] = useState({});
   const subitemIds = useMemo(() => subitems.map((subitem) => subitem.id), [subitems]);
   const subitemIdKey = subitemIds.join("|");
+  const editorDirty = catalogDirty || specialItemsDirty;
 
   useEffect(() => {
     setOpenSubitemId("");
-    setEditorDirty(false);
+    setCatalogDirty(false);
+    setSpecialItemsDirty(false);
+    setLocationOverrides({});
+    setLocationError("");
   }, [item?.id]);
 
   useEffect(() => {
     if (openSubitemId && !subitemIds.includes(openSubitemId)) {
       setOpenSubitemId("");
-      setEditorDirty(false);
+      setCatalogDirty(false);
+      setSpecialItemsDirty(false);
     }
   }, [openSubitemId, subitemIdKey, subitemIds]);
 
@@ -68,7 +88,11 @@ export default function SashCatalogSection({
   }, [companyId, subitemIdKey]);
 
   const handleEditorDirtyChange = useCallback((dirty) => {
-    setEditorDirty(dirty);
+    setCatalogDirty(dirty);
+  }, []);
+
+  const handleSpecialItemsDirtyChange = useCallback((dirty) => {
+    setSpecialItemsDirty(dirty);
   }, []);
 
   const handlePersistedCountChange = useCallback((subitemId, count) => {
@@ -85,12 +109,14 @@ export default function SashCatalogSection({
     if (openSubitemId === subitemId) {
       if (!canLeaveOpenEditor()) return;
       setOpenSubitemId("");
-      setEditorDirty(false);
+      setCatalogDirty(false);
+      setSpecialItemsDirty(false);
       return;
     }
     if (openSubitemId && !canLeaveOpenEditor()) return;
     setOpenSubitemId(subitemId);
-    setEditorDirty(false);
+    setCatalogDirty(false);
+    setSpecialItemsDirty(false);
   }
 
   function deleteSubitem(subitemId) {
@@ -105,17 +131,58 @@ export default function SashCatalogSection({
     return count > 0 ? `${count}개` : "규격 없음";
   }
 
+  async function changeLocationKind(subitem, nextLocationKind) {
+    const currentLocationKind = locationOverrides[subitem.id]
+      ?? subitem.sash_location_kind
+      ?? "";
+    if (!nextLocationKind || nextLocationKind === currentLocationKind) return;
+    if (specialItemsDirty && isBalconySashLocation(currentLocationKind) && !confirmDiscardSashDraft()) {
+      return;
+    }
+    if (isLocalSubitemId(subitem.id)) {
+      setLocationError("샷시 위치는 세부항목을 먼저 저장한 뒤 지정할 수 있습니다.");
+      return;
+    }
+
+    setLocationSavingId(subitem.id);
+    setLocationError("");
+    try {
+      const savedSubitem = await updateCanonicalConstructionSubitem(
+        subitem.id,
+        item.id,
+        { sash_location_kind: nextLocationKind }
+      );
+      const savedLocationKind = savedSubitem.sash_location_kind ?? nextLocationKind;
+      setLocationOverrides((current) => ({
+        ...current,
+        [subitem.id]: savedLocationKind,
+      }));
+      onSubitemLocationKindChange?.(subitem.id, savedLocationKind);
+      if (!isBalconySashLocation(savedLocationKind)) setSpecialItemsDirty(false);
+    } catch (error) {
+      setLocationError(error?.message || "샷시 위치를 저장하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setLocationSavingId("");
+    }
+  }
+
   return (
     <div className="sash-catalog-section">
       <div className="sash-catalog-section__header" aria-hidden="true">
         <span />
         <span>세부항목</span>
+        <span>샷시 위치</span>
         <span>등록 규격</span>
         <span>관리</span>
       </div>
 
       {subitems.map((subitem) => {
         const expanded = openSubitemId === subitem.id;
+        const locationKind = locationOverrides[subitem.id]
+          ?? subitem.sash_location_kind
+          ?? "";
+        const locationSaving = locationSavingId === subitem.id;
+        const locationDisabled = adminSaving || locationSaving || isLocalSubitemId(subitem.id);
         return (
           <div
             key={subitem.id}
@@ -148,6 +215,20 @@ export default function SashCatalogSection({
                   onInput={onSubitemNameInput}
                   onBlur={(event) => onSubitemNameBlur?.(subitem.id, event.target.value)}
                 />
+              </label>
+              <label className="sash-catalog-section__location" onClick={(event) => event.stopPropagation()}>
+                <span className="field-label">샷시 위치</span>
+                <select
+                  value={locationKind}
+                  disabled={locationDisabled}
+                  aria-label={`${subitem.name} 샷시 위치`}
+                  title={isLocalSubitemId(subitem.id) ? "세부항목 저장 후 지정할 수 있습니다." : undefined}
+                  onChange={(event) => changeLocationKind(subitem, event.target.value)}
+                >
+                  <option value="" disabled>지정 필요</option>
+                  <option value={SASH_LOCATION_KINDS.STANDARD}>일반</option>
+                  <option value={SASH_LOCATION_KINDS.BALCONY}>베란다</option>
+                </select>
               </label>
               <span className={`sash-catalog-section__count ${entryCounts[subitem.id] ? "" : "muted"}`.trim()}>
                 {renderCount(subitem.id)}
@@ -186,11 +267,19 @@ export default function SashCatalogSection({
                   onDirtyChange={handleEditorDirtyChange}
                   onPersistedCountChange={handlePersistedCountChange}
                 />
+                {isBalconySashLocation(locationKind) && (
+                  <SashSpecialItemsManager
+                    companyId={companyId}
+                    onDirtyChange={handleSpecialItemsDirtyChange}
+                  />
+                )}
               </div>
             )}
           </div>
         );
       })}
+
+      {locationError && <div className="error-box sash-catalog-section__message">{locationError}</div>}
 
       {!subitems.length && (
         <p className="admin-price-v2-empty muted">등록된 세부항목이 없습니다.</p>

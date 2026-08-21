@@ -259,11 +259,11 @@ import {
   writeTemplateConditionRecent,
 } from "../features/priceTable/templateConditionPreferences";
 import SashCatalogSection from "../features/sash/SashCatalogSection";
-import SashCatalogSelector from "../features/sash/SashCatalogSelector";
+import SashEstimateEditor from "../features/sash/SashEstimateEditor";
 import {
-  buildSashEstimateSelectionPatch,
   getSashSpecLabel,
   isSashItem,
+  isSashEstimateSpecPricingConfirmed,
 } from "../features/sash/sashCatalogModel";
 import {
   deleteAdminTemplate,
@@ -745,6 +745,14 @@ function getEstimateRowSpecLabel(row) {
   if (selectedCanonicalOption?.label) return `${selectedCanonicalOption.label}`.trim();
 
   return getLegacyEstimateHistorySpecLabel(row);
+}
+
+function getSashEstimateRowValidationMessage(row) {
+  if (!row?.sashSpec) return "견적에 포함한 샷시의 실제 규격을 선택하세요.";
+  if (!isSashEstimateSpecPricingConfirmed(row.sashSpec)) {
+    return "견적에 포함한 샷시의 단창·2중창을 선택하세요.";
+  }
+  return "";
 }
 
 function getSupabaseFriendlyError(error, fallback = "일시적인 문제가 발생했어요. 다시 시도해주세요.") {
@@ -7470,6 +7478,20 @@ export default function AdminApp() {
           }}
           onSubitemNameInput={markAdminCatalogDirty}
           onSubitemNameBlur={renameAdminSubitem}
+          onSubitemLocationKindChange={(subitemId, sashLocationKind) => {
+            setAdminItems((current) => current.map((entry) => (
+              entry.id === item.id
+                ? {
+                    ...entry,
+                    subitems: entry.subitems.map((subitem) => (
+                      subitem.id === subitemId
+                        ? { ...subitem, sash_location_kind: sashLocationKind }
+                        : subitem
+                    )),
+                  }
+                : entry
+            )));
+          }}
         />
       );
     }
@@ -8062,9 +8084,10 @@ export default function AdminApp() {
       if (!selectedRows.length) {
         throw new Error("견적서에 포함할 소재를 하나 이상 선택하세요.");
       }
-      if (selectedRows.some((row) => row.itemKind === "sash" && !row.sashSpec)) {
-        throw new Error("견적에 포함한 샷시의 실제 규격을 선택하세요.");
-      }
+      const incompleteSashRow = selectedRows.find((row) => (
+        row.itemKind === "sash" && getSashEstimateRowValidationMessage(row)
+      ));
+      if (incompleteSashRow) throw new Error(getSashEstimateRowValidationMessage(incompleteSashRow));
       const companyId = requireSelectedCompanyId();
 
       const conditionSnapshot = buildConditionSnapshot({
@@ -8231,10 +8254,10 @@ export default function AdminApp() {
 
   function openEstimatePreview(previewType) {
     const incompleteSashRow = selectedRows.find(
-      (row) => row.itemKind === "sash" && !row.sashSpec
+      (row) => row.itemKind === "sash" && getSashEstimateRowValidationMessage(row)
     );
     if (incompleteSashRow) {
-      setEstimateError("견적에 포함한 샷시의 실제 규격을 선택하세요.");
+      setEstimateError(getSashEstimateRowValidationMessage(incompleteSashRow));
       setOpenCategory(incompleteSashRow.categoryId);
       return;
     }
@@ -8302,6 +8325,8 @@ export default function AdminApp() {
               {row.selected && <em className="items-v2-badge items-v2-badge--selected">포함</em>}
               {row.itemKind === "sash" && row.selected && !row.sashSpec ? (
                 <em className="items-v2-badge items-v2-badge--warning">규격 선택 필요</em>
+              ) : row.itemKind === "sash" && row.selected && !isSashEstimateSpecPricingConfirmed(row.sashSpec) ? (
+                <em className="items-v2-badge items-v2-badge--warning">창 유형 선택 필요</em>
               ) : !row.hasTemplateValue && (
                 <em className="items-v2-badge items-v2-badge--warning">미입력</em>
               )}
@@ -8341,7 +8366,14 @@ export default function AdminApp() {
 
       if (column.key === "quantity") {
         if (row.itemKind === "sash") {
-          return <span className="items-v2-muted-value">-</span>;
+          if (row.unit !== "헤베") return <span className="items-v2-muted-value">-</span>;
+          return (
+            <span className={isSashEstimateSpecPricingConfirmed(row.sashSpec) ? "" : "items-v2-muted-value"}>
+              {isSashEstimateSpecPricingConfirmed(row.sashSpec)
+                ? Number(row.quantity).toLocaleString("ko-KR", { maximumFractionDigits: 4 })
+                : "미확정"}
+            </span>
+          );
         }
         return (
           <input
@@ -8360,6 +8392,9 @@ export default function AdminApp() {
       }
 
       if (column.key === "totalAmount") {
+        if (row.itemKind === "sash" && row.selected && !isSashEstimateSpecPricingConfirmed(row.sashSpec)) {
+          return <span className="items-v2-muted-value">미확정</span>;
+        }
         return <PriceText value={row.totalAmount} size="sm" />;
       }
 
@@ -8407,41 +8442,15 @@ export default function AdminApp() {
               {row.itemKind === "sash" && (
                 <>
                   {row.selected ? (
-                    <SashCatalogSelector
+                    <SashEstimateEditor
                       companyId={selectedCompanyId}
-                      constructionSubitemId={row.subitemId}
-                      selectedEntryId={row.selectedSashCatalogEntryId}
-                      selectedSashSpec={row.sashSpec}
-                      onSelect={(entry) =>
-                        updateItem(
-                          openCategory,
-                          rowIndex,
-                          buildSashEstimateSelectionPatch(entry)
-                        )
-                      }
+                      row={row}
+                      onPatch={(patch) => updateItem(openCategory, rowIndex, patch)}
                     />
                   ) : (
                     <p className="items-v2-detail-note">
                       견적에 포함한 뒤 실제 현장에 맞는 샷시 규격을 선택하세요.
                     </p>
-                  )}
-                  {row.sashSpec && (
-                    <label>
-                      <span>견적 금액</span>
-                      <div className="items-v2-money-field">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={formatMoneyInputValue(row.unitPrice)}
-                          onChange={(event) =>
-                            updateItem(openCategory, rowIndex, {
-                              unitPrice: stripNumberInputFormatting(event.target.value),
-                            })
-                          }
-                        />
-                        <em>원</em>
-                      </div>
-                    </label>
                   )}
                 </>
               )}

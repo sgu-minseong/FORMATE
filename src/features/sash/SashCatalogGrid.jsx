@@ -16,10 +16,16 @@ import {
 import {
   createLocalSashCatalogEntry,
   formatSashArea,
+  getSashBillableArea,
+  getSashCatalogEntryAmount,
   getSashCatalogEntryValidationError,
   getSashEntryArea,
+  hasExplicitSashWindowType,
   isLocalSashCatalogEntry,
   normalizeSashCatalogEntry,
+  SASH_MEASUREMENT_KINDS,
+  SASH_PRICING_BASES,
+  SASH_WINDOW_TYPES,
 } from "./sashCatalogModel";
 
 function getFriendlySashError(error, fallback) {
@@ -34,6 +40,11 @@ function moveEntry(entries, sourceIndex, targetIndex) {
     ...entry,
     sort_order: index,
   }));
+}
+
+function formatSashHebe(value) {
+  const formattedArea = formatSashArea(value);
+  return formattedArea === "-" ? formattedArea : formattedArea.replace("㎡", " 헤베");
 }
 
 export default function SashCatalogGrid({
@@ -113,6 +124,9 @@ export default function SashCatalogGrid({
     const nextEntry = createLocalSashCatalogEntry({
       constructionSubitemId: subitem.id,
       sortOrder: entries.length,
+      pricingBasis: SASH_PRICING_BASES.AREA,
+      windowType: SASH_WINDOW_TYPES.UNSPECIFIED,
+      measurementKind: SASH_MEASUREMENT_KINDS.ESTIMATE,
     });
     setError("");
     setNotice("");
@@ -203,12 +217,19 @@ export default function SashCatalogGrid({
   }
 
   const columns = [
-    { key: "brand", label: "제조사", width: "116px" },
-    { key: "product_type", label: "제품 구분", width: "116px" },
+    { key: "brand", label: "제조사", width: "104px" },
+    { key: "frame_spec", label: "틀", width: "116px" },
+    { key: "pair_spec", label: "페어", width: "104px" },
+    { key: "glass_spec", label: "유리", width: "104px" },
+    { key: "gas_spec", label: "가스", width: "96px" },
+    { key: "screen_spec", label: "망", width: "104px" },
+    { key: "window_type", label: "창", width: "96px" },
+    { key: "measurement_kind", label: "치수", width: "96px" },
     { key: "width_mm", label: "가로", align: "right", width: "92px" },
     { key: "height_mm", label: "세로", align: "right", width: "92px" },
-    { key: "area_sqm", label: "헤베", align: "right", width: "80px" },
-    { key: "unit_price", label: "금액", align: "right", width: "120px" },
+    { key: "area_sqm", label: "헤베", align: "right", width: "96px" },
+    { key: "unit_price", label: "단가", align: "right", width: "120px" },
+    { key: "amount", label: "금액", align: "right", width: "124px" },
     { key: "cost_price", label: "원가", align: "right", width: "120px" },
     { key: "updated_at", label: "최종 저장일", width: "104px" },
     { key: "actions", label: "", width: "64px" },
@@ -216,15 +237,66 @@ export default function SashCatalogGrid({
 
   function renderCell({ row, column }) {
     const isSaving = savingId === row.id;
-    if (column.key === "brand" || column.key === "product_type") {
+    const usesAreaPricing = row.pricing_basis === SASH_PRICING_BASES.AREA;
+    const hasExplicitWindowType = hasExplicitSashWindowType(row.window_type);
+    if ([
+      "brand",
+      "frame_spec",
+      "pair_spec",
+      "glass_spec",
+      "gas_spec",
+      "screen_spec",
+    ].includes(column.key)) {
+      const isLegacyFrame = column.key === "frame_spec" && !usesAreaPricing;
+      const fieldKey = isLegacyFrame ? "product_type" : column.key;
       return (
         <input
           ref={isLocalSashCatalogEntry(row) && column.key === "brand" ? firstDraftInputRef : undefined}
           className="ui-table__input"
-          value={row[column.key]}
-          aria-label={column.key === "brand" ? "제조사" : "제품 구분"}
-          onChange={(event) => patchEntry(row.id, { [column.key]: event.target.value })}
+          value={row[fieldKey]}
+          aria-label={{
+            brand: "제조사",
+            frame_spec: isLegacyFrame ? "기존 제품 구분" : "틀",
+            pair_spec: "페어",
+            glass_spec: "유리",
+            gas_spec: "가스",
+            screen_spec: "망",
+          }[column.key]}
+          onChange={(event) => patchEntry(row.id, { [fieldKey]: event.target.value })}
         />
+      );
+    }
+    if (column.key === "window_type") {
+      return (
+        <select
+          className="items-v2-inline-select"
+          value={row.window_type}
+          aria-label="단창 또는 2중창"
+          onChange={(event) => patchEntry(row.id, { window_type: event.target.value })}
+        >
+          <option
+            value={SASH_WINDOW_TYPES.UNSPECIFIED}
+            disabled={usesAreaPricing}
+          >
+            {usesAreaPricing ? "선택 필요" : "미지정"}
+          </option>
+          <option value={SASH_WINDOW_TYPES.SINGLE}>단창</option>
+          <option value={SASH_WINDOW_TYPES.DOUBLE}>2중창</option>
+        </select>
+      );
+    }
+    if (column.key === "measurement_kind") {
+      return (
+        <select
+          className="items-v2-inline-select"
+          value={row.measurement_kind}
+          aria-label="치수 기준"
+          onChange={(event) => patchEntry(row.id, { measurement_kind: event.target.value })}
+        >
+          {!usesAreaPricing && <option value={SASH_MEASUREMENT_KINDS.UNSPECIFIED}>미지정</option>}
+          <option value={SASH_MEASUREMENT_KINDS.ESTIMATE}>가견적</option>
+          <option value={SASH_MEASUREMENT_KINDS.MEASURED}>실측</option>
+        </select>
       );
     }
     if (column.key === "width_mm" || column.key === "height_mm") {
@@ -245,19 +317,37 @@ export default function SashCatalogGrid({
       );
     }
     if (column.key === "area_sqm") {
-      return <span className="sash-catalog-grid__readonly" aria-readonly="true">{formatSashArea(getSashEntryArea(row))}</span>;
+      if (usesAreaPricing && !hasExplicitWindowType) {
+        return <span className="sash-catalog-grid__readonly" aria-readonly="true">미확정</span>;
+      }
+      const area = usesAreaPricing ? getSashBillableArea(row) : getSashEntryArea(row);
+      return <span className="sash-catalog-grid__readonly" aria-readonly="true">{formatSashHebe(area)}</span>;
     }
-    if (column.key === "unit_price" || column.key === "cost_price") {
+    if (column.key === "unit_price" && !usesAreaPricing) {
+      return <span className="sash-catalog-grid__legacy-label">기존 고정</span>;
+    }
+    if (column.key === "amount" && usesAreaPricing) {
+      if (!hasExplicitWindowType) {
+        return <span className="sash-catalog-grid__readonly" aria-readonly="true">미확정</span>;
+      }
+      return (
+        <span className="sash-catalog-grid__readonly" aria-readonly="true">
+          {formatMoneyInputValue(getSashCatalogEntryAmount(row))}원
+        </span>
+      );
+    }
+    if (column.key === "unit_price" || column.key === "cost_price" || column.key === "amount") {
+      const fieldKey = column.key === "amount" ? "unit_price" : column.key;
       return (
         <div className="sash-catalog-grid__number-input">
           <input
             className="ui-table__input"
             type="text"
             inputMode="numeric"
-            value={formatMoneyInputValue(row[column.key])}
-            aria-label={column.key === "unit_price" ? "금액" : "원가"}
+            value={formatMoneyInputValue(row[fieldKey])}
+            aria-label={column.key === "unit_price" ? "단가" : column.key === "amount" ? "기존 고정 금액" : "원가"}
             onChange={(event) => patchEntry(row.id, {
-              [column.key]: stripNumberInputFormatting(event.target.value),
+              [fieldKey]: stripNumberInputFormatting(event.target.value),
             })}
           />
           <span>원</span>
@@ -317,7 +407,7 @@ export default function SashCatalogGrid({
           columns={columns}
           rows={entries}
           renderCell={renderCell}
-          rowHeight={40}
+          rowHeight={44}
           stickyHeader
           draggable={!hasLocalEntry}
           onReorder={reorderEntries}

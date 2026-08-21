@@ -7,6 +7,7 @@ import {
   buildSashSpecialItemSelectionsSnapshot,
   getSashSpecialItemSelectionsAmount,
 } from "../sash/sashSpecialItemModel";
+import { isSashEstimateSpecPricingConfirmed } from "../sash/sashCatalogModel";
 
 export function getLaborRateForResidence(subitem, residenceStatus) {
   const isOccupied = residenceStatus === "occupied" || residenceStatus === "살림집";
@@ -32,15 +33,27 @@ export function calculateEstimateRow(row) {
         row?.sashLocationKind
       )
     : 0;
-  const productAmount = (quantity * unitPrice) + sashSpecialItemsAmount;
+  const sashPricingConfirmed = row?.itemKind === "sash"
+    ? isSashEstimateSpecPricingConfirmed(row?.sashSpec)
+    : true;
+  const sashBaseAmount = row?.itemKind === "sash" && !sashPricingConfirmed
+    ? null
+    : quantity * unitPrice;
+  const productAmount = row?.itemKind === "sash" && !sashPricingConfirmed
+    ? null
+    : sashBaseAmount + sashSpecialItemsAmount;
   const laborAmount = laborCount * laborRate;
 
   return {
     ...row,
-    ...(row?.itemKind === "sash" ? { sashSpecialItemsAmount } : {}),
+    ...(row?.itemKind === "sash" ? {
+      sashSpecialItemsAmount,
+      sashPricingConfirmed,
+      sashBaseAmount,
+    } : {}),
     productAmount,
     laborAmount,
-    totalAmount: productAmount + laborAmount,
+    totalAmount: productAmount === null ? null : productAmount + laborAmount,
   };
 }
 

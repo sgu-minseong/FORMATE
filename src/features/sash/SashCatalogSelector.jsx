@@ -5,12 +5,22 @@ import {
 } from "./sashCatalogApi";
 import {
   formatSashArea,
+  getSashBillableArea,
   getSashEntryArea,
+  getSashFrameSpec,
   getSashSpecLabel,
+  SASH_PRICING_BASES,
+  SASH_WINDOW_TYPES,
 } from "./sashCatalogModel";
 
 function getFriendlySashError(error) {
   return error?.message || "샷시 규격을 불러오지 못했습니다. 다시 시도해주세요.";
+}
+
+function getWindowTypeLabel(windowType) {
+  if (windowType === SASH_WINDOW_TYPES.SINGLE) return "단창";
+  if (windowType === SASH_WINDOW_TYPES.DOUBLE) return "2중창";
+  return "창 유형 미지정";
 }
 
 export default function SashCatalogSelector({
@@ -80,8 +90,21 @@ export default function SashCatalogSelector({
               >
                 <span className="sash-selector__radio" aria-hidden="true" />
                 <span className="sash-selector__copy">
-                  <strong>{entry.brand} / {entry.product_type}</strong>
-                  <span>{Number(entry.width_mm).toLocaleString("ko-KR")} × {Number(entry.height_mm).toLocaleString("ko-KR")} · {formatSashArea(getSashEntryArea(entry))}</span>
+                  <strong>{entry.brand} / {getSashFrameSpec(entry)}</strong>
+                  <span>
+                    {[entry.pair_spec, entry.glass_spec, entry.gas_spec, entry.screen_spec]
+                      .filter(Boolean)
+                      .join(" · ") || "추가 사양 없음"}
+                  </span>
+                  <span>
+                    {Number(entry.width_mm).toLocaleString("ko-KR")} × {Number(entry.height_mm).toLocaleString("ko-KR")}
+                    {" · "}{getWindowTypeLabel(entry.window_type)}
+                    {" · "}{formatSashArea(
+                      entry.pricing_basis === SASH_PRICING_BASES.AREA
+                        ? getSashBillableArea(entry)
+                        : getSashEntryArea(entry)
+                    )}
+                  </span>
                 </span>
                 <PriceText value={entry.unit_price} size="sm" />
               </button>

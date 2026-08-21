@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildSashCatalogEntryPayload,
   buildSashEstimateSelectionPatch,
+  buildSashEstimateSpecPatch,
   getSashBillableArea,
   getSashCatalogEntryAmount,
   getSashCatalogEntryValidationError,
+  isSashEstimateSpecPricingConfirmed,
   SASH_LOCATION_KINDS,
   SASH_MEASUREMENT_KINDS,
   SASH_PRICING_BASES,
@@ -14,6 +16,7 @@ import {
 import {
   buildSashSpecialItemPayload,
   buildSashSpecialItemSelection,
+  buildSashSpecialItemSelectionPatch,
   buildSashSpecialItemSelectionsSnapshot,
   getSashSpecialItemSelectionsAmount,
 } from "../sashSpecialItemModel";
@@ -116,6 +119,64 @@ describe("sash estimate v1 domain contract", () => {
       height_mm: 333,
     })).toBe(0.6667);
     expect(getSashCatalogEntryAmount(areaPricedEntry)).toBe(1920000);
+  });
+
+  it("keeps area-priced hebe and amount unresolved until the window type is explicit", () => {
+    const unresolvedEntry = {
+      ...areaPricedEntry,
+      window_type: SASH_WINDOW_TYPES.UNSPECIFIED,
+    };
+
+    expect(getSashBillableArea(unresolvedEntry)).toBe("");
+    expect(getSashCatalogEntryAmount(unresolvedEntry)).toBeNull();
+    expect(getSashCatalogEntryValidationError(unresolvedEntry)).toContain("단창·2중창");
+  });
+
+  it("recalculates an estimate snapshot from editable site dimensions, window type, and unit price", () => {
+    const selected = buildSashEstimateSelectionPatch(areaPricedEntry);
+    const edited = buildSashEstimateSpecPatch(selected.sashSpec, {
+      width_mm: 5000,
+      height_mm: 2000,
+      window_type: SASH_WINDOW_TYPES.SINGLE,
+      unit_price: 120000,
+    });
+
+    expect(edited).toMatchObject({
+      sashCatalogEntryId: "sash-entry-v1",
+      selectedSashCatalogEntryId: "sash-entry-v1",
+      quantity: 10,
+      unit: "헤베",
+      unitPrice: 120000,
+      sashSpec: {
+        sash_catalog_entry_id: "sash-entry-v1",
+        width_mm: 5000,
+        height_mm: 2000,
+        window_type: SASH_WINDOW_TYPES.SINGLE,
+        billable_area_sqm: 10,
+        calculated_amount: 1200000,
+      },
+    });
+    expect(isSashEstimateSpecPricingConfirmed(edited.sashSpec)).toBe(true);
+
+    const unresolved = buildSashEstimateSpecPatch(edited.sashSpec, {
+      window_type: SASH_WINDOW_TYPES.UNSPECIFIED,
+    });
+    expect(unresolved.quantity).toBe("");
+    expect(unresolved.sashSpec.billable_area_sqm).toBeNull();
+    expect(unresolved.sashSpec.calculated_amount).toBeNull();
+    expect(isSashEstimateSpecPricingConfirmed(unresolved.sashSpec)).toBe(false);
+    expect(calculateEstimateRow({
+      itemKind: "sash",
+      sashLocationKind: SASH_LOCATION_KINDS.BALCONY,
+      sashSpecialItemSelections: [buildSashSpecialItemSelection(canonicalSpecialItem)],
+      ...unresolved,
+    })).toMatchObject({
+      sashPricingConfirmed: false,
+      sashBaseAmount: null,
+      sashSpecialItemsAmount: 150000,
+      productAmount: null,
+      totalAmount: null,
+    });
   });
 
   it("keeps legacy fixed-price entries on the existing one-set calculation", () => {
@@ -246,8 +307,54 @@ describe("sash estimate v1 domain contract", () => {
     )).toThrow("중복 선택");
   });
 
+  it("edits only the selected special-item snapshot while preserving its canonical ID", () => {
+    const selection = buildSashSpecialItemSelection(canonicalSpecialItem);
+    const edited = buildSashSpecialItemSelectionPatch(selection, {
+      description: "현장 보강 작업",
+      width_mm: 3000,
+      height_mm: 1000,
+      amount: 275000,
+    });
+
+    expect(edited).toEqual({
+      sashSpecialItemId: "special-item-a",
+      sashSpecialItemSnapshot: {
+        sash_special_item_snapshot_version: 1,
+        sash_special_item_id: "special-item-a",
+        description: "현장 보강 작업",
+        width_mm: 3000,
+        height_mm: 1000,
+        area_sqm: 3,
+        amount: 275000,
+      },
+    });
+    expect(selection.sashSpecialItemSnapshot).toMatchObject({
+      description: "철거·폐기",
+      area_sqm: 2,
+      amount: 150000,
+    });
+  });
+
   it("round-trips stable sash IDs, v1 spec, location metadata, and special items", () => {
-    const selectedPatch = buildSashEstimateSelectionPatch(areaPricedEntry);
+    const canonicalSelection = buildSashEstimateSelectionPatch(areaPricedEntry);
+    const selectedPatch = {
+      ...canonicalSelection,
+      ...buildSashEstimateSpecPatch(canonicalSelection.sashSpec, {
+        width_mm: 5000,
+        height_mm: 2000,
+        window_type: SASH_WINDOW_TYPES.SINGLE,
+        unit_price: 120000,
+      }),
+    };
+    const editedSpecialItem = buildSashSpecialItemSelectionPatch(
+      buildSashSpecialItemSelection(canonicalSpecialItem),
+      {
+        description: "현장 보강 작업",
+        width_mm: 3000,
+        height_mm: 1000,
+        amount: 275000,
+      }
+    );
     const estimateRow = calculateEstimateRow({
       itemId: "sash-item",
       itemName: "샷시",
@@ -258,7 +365,7 @@ describe("sash estimate v1 domain contract", () => {
       selected: true,
       pyeong: 24,
       sashLocationKind: SASH_LOCATION_KINDS.BALCONY,
-      sashSpecialItemSelections: [buildSashSpecialItemSelection(canonicalSpecialItem)],
+      sashSpecialItemSelections: [editedSpecialItem],
       ...selectedPatch,
     });
     const savedRows = buildSelectedEstimateRows({
@@ -283,34 +390,55 @@ describe("sash estimate v1 domain contract", () => {
       subitemId: "balcony-subitem",
       sashCatalogEntryId: "sash-entry-v1",
       pyeong: 24,
-      quantity: 19.2,
+      quantity: 10,
       unit: "헤베",
-      productAmount: 2070000,
+      unitPrice: 120000,
+      productAmount: 1475000,
+      sashSpec: {
+        width_mm: 5000,
+        height_mm: 2000,
+        window_type: SASH_WINDOW_TYPES.SINGLE,
+        billable_area_sqm: 10,
+        calculated_amount: 1200000,
+      },
       sashLocationKind: SASH_LOCATION_KINDS.BALCONY,
       sashSpecialItemSelections: [{
         sashSpecialItemId: "special-item-a",
         sashSpecialItemSnapshot: {
           sash_special_item_id: "special-item-a",
-          area_sqm: 2,
-          amount: 150000,
+          description: "현장 보강 작업",
+          width_mm: 3000,
+          height_mm: 1000,
+          area_sqm: 3,
+          amount: 275000,
         },
       }],
     });
     expect(restoredRow).toMatchObject({
       subitemId: "balcony-subitem",
       sashCatalogEntryId: "sash-entry-v1",
+      sashSpec: {
+        width_mm: 5000,
+        height_mm: 2000,
+        window_type: SASH_WINDOW_TYPES.SINGLE,
+        billable_area_sqm: 10,
+        calculated_amount: 1200000,
+      },
       sashLocationKind: SASH_LOCATION_KINDS.BALCONY,
       sashSpecialItemSelections: [{
         sashSpecialItemId: "special-item-a",
         sashSpecialItemSnapshot: {
           sash_special_item_id: "special-item-a",
-          area_sqm: 2,
-          amount: 150000,
+          description: "현장 보강 작업",
+          width_mm: 3000,
+          height_mm: 1000,
+          area_sqm: 3,
+          amount: 275000,
         },
       }],
-      quantity: 19.2,
-      unitPrice: 100000,
-      totalAmount: 2070000,
+      quantity: 10,
+      unitPrice: 120000,
+      totalAmount: 1475000,
     });
   });
 });

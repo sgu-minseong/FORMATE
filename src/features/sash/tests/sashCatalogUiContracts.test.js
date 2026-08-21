@@ -12,6 +12,14 @@ const adminAppSource = readFileSync(
 const sashApiSource = readFileSync(new URL("../sashCatalogApi.js", import.meta.url), "utf8");
 const sashGridSource = readFileSync(new URL("../SashCatalogGrid.jsx", import.meta.url), "utf8");
 const sashSectionSource = readFileSync(new URL("../SashCatalogSection.jsx", import.meta.url), "utf8");
+const sashEstimateEditorSource = readFileSync(
+  new URL("../SashEstimateEditor.jsx", import.meta.url),
+  "utf8"
+);
+const sashSpecialItemsSource = readFileSync(
+  new URL("../SashSpecialItemsManager.jsx", import.meta.url),
+  "utf8"
+);
 const designSkillSource = readFileSync(
   new URL("../../../../.codex/skills/formate-design-system.md", import.meta.url),
   "utf8"
@@ -36,6 +44,8 @@ describe("specialized sash editor UI contracts", () => {
     expect(templateRowsSource).toContain("<SashCatalogSection");
     expect(priceRowsSource).not.toContain("<SashCatalogGrid");
     expect(templateRowsSource).not.toContain("<SashCatalogGrid");
+    expect(priceRowsSource).toContain("onSubitemLocationKindChange");
+    expect(templateRowsSource).toContain("onSubitemLocationKindChange");
     expect(sashSectionSource).toContain("<SashCatalogGrid");
     expect(sashSectionSource).not.toContain('mode="priceTable"');
     expect(sashSectionSource).not.toContain('mode="template"');
@@ -49,10 +59,16 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashGridSource).not.toContain("pyeong");
   });
 
-  it("shows only subitem, active catalog count, and management in collapsed rows", () => {
+  it("shows explicit location metadata with active catalog count and management", () => {
     expect(sashSectionSource).toContain("<span>세부항목</span>");
+    expect(sashSectionSource).toContain("<span>샷시 위치</span>");
     expect(sashSectionSource).toContain("<span>등록 규격</span>");
     expect(sashSectionSource).toContain("<span>관리</span>");
+    expect(sashSectionSource).toContain("sash_location_kind");
+    expect(sashSectionSource).toContain("updateCanonicalConstructionSubitem");
+    expect(sashSectionSource).toContain("SASH_LOCATION_KINDS.STANDARD");
+    expect(sashSectionSource).toContain("SASH_LOCATION_KINDS.BALCONY");
+    expect(sashSectionSource).not.toMatch(/name.*includes.*balcony|name.*includes.*베란다/i);
     expect(sashSectionSource).toContain('return count > 0 ? `${count}개` : "규격 없음"');
     expect(sashApiSource).toContain('.is("archived_at", null)');
     expect(sashSectionSource).not.toContain("규격별 관리");
@@ -79,6 +95,43 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashGridSource).not.toContain('type="date"');
     expect(sashGridSource).toContain("등록된 샷시 규격이 없습니다.");
     expect(sashGridSource).toContain("샷시 규격 추가");
+  });
+
+  it("creates new area rows without assuming a window type and defers calculations", () => {
+    expect(sashGridSource).toContain("pricingBasis: SASH_PRICING_BASES.AREA");
+    expect(sashGridSource).toContain("windowType: SASH_WINDOW_TYPES.UNSPECIFIED");
+    expect(sashGridSource).toContain("measurementKind: SASH_MEASUREMENT_KINDS.ESTIMATE");
+    expect(sashGridSource).toContain("getSashBillableArea(row)");
+    expect(sashGridSource).toContain("getSashCatalogEntryAmount(row)");
+    expect(sashGridSource).toContain("hasExplicitSashWindowType(row.window_type)");
+    expect(sashGridSource).toContain("미확정");
+    expect(sashGridSource).toContain("기존 고정");
+    expect(sashGridSource).not.toContain("pricing_basis: SASH_PRICING_BASES.AREA");
+  });
+
+  it("mounts one company-wide special-item CRUD manager only for explicit balcony metadata", () => {
+    expect(sashSectionSource).toContain("isBalconySashLocation(locationKind)");
+    expect(sashSectionSource).toContain("<SashSpecialItemsManager");
+    expect(sashSpecialItemsSource).toContain("fetchActiveSashSpecialItems");
+    expect(sashSpecialItemsSource).toContain("insertSashSpecialItem");
+    expect(sashSpecialItemsSource).toContain("updateSashSpecialItem");
+    expect(sashSpecialItemsSource).toContain("archiveSashSpecialItem");
+    expect(sashSpecialItemsSource).toContain("getSashSpecialItemArea(row)");
+    expect(sashSpecialItemsSource).toContain("직접입력 금액");
+    expect(sashSpecialItemsSource).not.toContain("condition");
+    expect(sashSpecialItemsSource).not.toContain("pyeong");
+  });
+
+  it("connects canonical sash snapshots and balcony special items to the estimate row editor", () => {
+    expect(adminAppSource).toContain("<SashEstimateEditor");
+    expect(sashEstimateEditorSource).toContain("<SashCatalogSelector");
+    expect(sashEstimateEditorSource).toContain("buildSashEstimateSelectionPatch");
+    expect(sashEstimateEditorSource).toContain("buildSashEstimateSpecPatch");
+    expect(sashEstimateEditorSource).toContain("fetchActiveSashSpecialItems");
+    expect(sashEstimateEditorSource).toContain('type="checkbox"');
+    expect(sashEstimateEditorSource).toContain("buildSashSpecialItemSelectionPatch");
+    expect(sashEstimateEditorSource).toContain("isBalconySashLocation(row.sashLocationKind)");
+    expect(sashEstimateEditorSource).not.toMatch(/rank|ranking|frequency|사용빈도/i);
   });
 
   it("records the approved specialized editor rule without implementation-specific values", () => {

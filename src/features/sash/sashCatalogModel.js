@@ -99,7 +99,17 @@ export function getSashWindowMultiplier(windowType) {
   return windowType === SASH_WINDOW_TYPES.DOUBLE ? 2 : 1;
 }
 
+export function hasExplicitSashWindowType(windowType) {
+  return [SASH_WINDOW_TYPES.SINGLE, SASH_WINDOW_TYPES.DOUBLE].includes(windowType);
+}
+
 export function getSashBillableArea(entry) {
+  if (
+    entry?.pricing_basis === SASH_PRICING_BASES.AREA
+    && !hasExplicitSashWindowType(entry?.window_type)
+  ) {
+    return "";
+  }
   const rawArea = getRawSashArea(entry?.width_mm, entry?.height_mm);
   if (rawArea !== null) {
     return roundSashArea(rawArea * getSashWindowMultiplier(entry?.window_type));
@@ -111,6 +121,7 @@ export function getSashBillableArea(entry) {
 export function getSashCatalogEntryAmount(entry) {
   const unitPrice = toNonNegativeNumberOrZero(entry?.unit_price);
   if (entry?.pricing_basis !== SASH_PRICING_BASES.AREA) return unitPrice;
+  if (!hasExplicitSashWindowType(entry?.window_type)) return null;
   const billableArea = Number(getSashBillableArea(entry));
   return Number.isFinite(billableArea) && billableArea > 0
     ? billableArea * unitPrice
@@ -283,7 +294,10 @@ export function getSashSpecLabel(spec) {
 }
 
 export function createSashSpecSnapshot(entry) {
-  const billableArea = Number(getSashBillableArea(entry)) || 0;
+  const calculatedBillableArea = getSashBillableArea(entry);
+  const billableArea = calculatedBillableArea === ""
+    ? null
+    : Number(calculatedBillableArea) || 0;
   return {
     sash_spec_version: SASH_SPEC_VERSION,
     sash_catalog_entry_id: entry.id,
@@ -335,6 +349,40 @@ export function buildSashEstimateSelectionPatch(entry) {
     unit: usesAreaPricing ? "헤베" : "식",
     unitPrice: sashSpec.unit_price,
     baseUnitPrice: sashSpec.unit_price,
+    hasTemplateValue: true,
+  };
+}
+
+export function isSashEstimateSpecPricingConfirmed(spec) {
+  if (!spec) return false;
+  if (spec.pricing_basis !== SASH_PRICING_BASES.AREA) return true;
+  return hasExplicitSashWindowType(spec.window_type);
+}
+
+export function buildSashEstimateSpecPatch(spec, patch = {}) {
+  const canonicalId = String(spec?.sash_catalog_entry_id ?? "").trim();
+  if (!canonicalId) return {};
+
+  const nextSpec = createSashSpecSnapshot({
+    ...spec,
+    ...patch,
+    id: canonicalId,
+    area_sqm: null,
+    billable_area_sqm: null,
+    calculated_amount: null,
+  });
+  const usesAreaPricing = nextSpec.pricing_basis === SASH_PRICING_BASES.AREA;
+  const pricingConfirmed = isSashEstimateSpecPricingConfirmed(nextSpec);
+
+  return {
+    sashCatalogEntryId: canonicalId,
+    selectedSashCatalogEntryId: canonicalId,
+    sashSpec: nextSpec,
+    quantity: usesAreaPricing
+      ? pricingConfirmed ? nextSpec.billable_area_sqm : ""
+      : 1,
+    unit: usesAreaPricing ? "헤베" : "식",
+    unitPrice: nextSpec.unit_price,
     hasTemplateValue: true,
   };
 }

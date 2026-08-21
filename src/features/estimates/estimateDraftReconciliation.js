@@ -97,6 +97,8 @@ export function reconcileEstimateDraftItems({
             sashCatalogEntryId: previousRow.sashCatalogEntryId ?? "",
             selectedSashCatalogEntryId: previousRow.selectedSashCatalogEntryId ?? "",
             sashSpec: previousRow.sashSpec ?? null,
+            sashLocationKind: previousRow.sashLocationKind ?? templateRow.sashLocationKind ?? null,
+            sashSpecialItemSelections: previousRow.sashSpecialItemSelections ?? [],
             quantity: hasSelectedSashSpec ? previousRow.quantity : templateRow.quantity,
             baseQuantity: hasSelectedSashSpec ? previousRow.baseQuantity : templateRow.baseQuantity,
             laborCount: hasSelectedSashSpec ? previousRow.laborCount : templateRow.laborCount,

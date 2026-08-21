@@ -11980,9 +11980,9 @@ const appStyles = `
   .sash-catalog-section__header,
   .sash-catalog-section__summary {
     display: grid;
-    grid-template-columns: 40px minmax(220px, 1fr) 120px 88px;
+    grid-template-columns: 40px minmax(220px, 1fr) 132px 120px 88px;
     align-items: center;
-    min-width: 520px;
+    min-width: 652px;
   }
   .sash-catalog-section__header {
     min-height: var(--table-header-height);
@@ -12059,6 +12059,32 @@ const appStyles = `
     background: var(--color-surface);
     outline: none;
   }
+  .sash-catalog-section__location {
+    gap: 0;
+  }
+  .sash-catalog-section__location .field-label {
+    display: none;
+  }
+  .sash-catalog-section__location select {
+    width: 100%;
+    min-width: 0;
+    height: var(--button-height-sm);
+    border: 1px solid transparent;
+    border-radius: 0;
+    padding: 0 var(--space-1);
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+  }
+  .sash-catalog-section__location select:focus-visible {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    outline: none;
+  }
+  .sash-catalog-section__location select:disabled {
+    color: var(--color-text-muted);
+    cursor: not-allowed;
+  }
   .sash-catalog-section__count {
     color: var(--color-text-secondary);
     font-size: var(--font-size-table-cell);
@@ -12087,6 +12113,9 @@ const appStyles = `
   .sash-catalog-section__add-subitem {
     border-bottom: 1px solid var(--color-border);
   }
+  .sash-catalog-section__message {
+    margin: var(--space-1);
+  }
   .sash-catalog-grid {
     display: grid;
     min-width: 0;
@@ -12108,7 +12137,7 @@ const appStyles = `
     box-shadow: var(--focus-ring);
   }
   .sash-catalog-grid__table {
-    min-width: 920px;
+    min-width: 1740px;
   }
   .sash-catalog-grid .ui-table-wrap {
     border: 0;
@@ -12125,6 +12154,19 @@ const appStyles = `
     color: var(--color-text-secondary);
     font-size: var(--font-size-table-cell);
     font-variant-numeric: var(--font-variant-numeric);
+  }
+  .sash-catalog-grid__legacy-label {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-badge);
+    padding: 0 var(--space-1);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
   }
   .sash-catalog-grid__actions {
     display: inline-flex;
@@ -12198,6 +12240,42 @@ const appStyles = `
   .sash-catalog-grid__message {
     margin: var(--space-1);
   }
+  .sash-special-items {
+    min-width: 0;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .sash-special-items__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: 52px;
+    padding: var(--space-1) var(--space-table-cell-x);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-header-bg);
+  }
+  .sash-special-items__header > div {
+    display: grid;
+    gap: var(--space-0-5);
+  }
+  .sash-special-items__header h4 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+  }
+  .sash-special-items__header span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .sash-special-items .ui-table-wrap {
+    border: 0;
+    border-radius: 0;
+  }
+  .sash-special-items__table {
+    min-width: 900px;
+  }
   .sash-selector {
     display: grid;
     gap: var(--space-1);
@@ -12266,6 +12344,182 @@ const appStyles = `
   .sash-selector__copy span {
     color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
+  }
+  .sash-estimate-editor {
+    display: grid;
+    grid-column: 1 / -1;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .sash-estimate-spec,
+  .sash-estimate-special {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
+  }
+  .sash-estimate-spec__summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: var(--space-1);
+  }
+  .sash-estimate-spec__summary dl {
+    display: grid;
+    gap: var(--space-0-5);
+    min-width: 0;
+    margin: 0;
+  }
+  .sash-estimate-spec__summary dt,
+  .sash-estimate-spec__fields label > span,
+  .sash-estimate-special__row label > span,
+  .sash-estimate-special__readonly > span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .sash-estimate-spec__summary dd {
+    overflow: hidden;
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sash-estimate-spec__fields {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+  .sash-estimate-spec__fields label,
+  .sash-estimate-special__row label,
+  .sash-estimate-special__readonly {
+    display: grid;
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+  .sash-estimate-spec__fields select,
+  .sash-estimate-spec__fields input,
+  .sash-estimate-special__row input {
+    width: 100%;
+    min-width: 0;
+    height: var(--button-height);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    padding: 0 var(--space-input-x);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: var(--font-size-table-cell);
+  }
+  .sash-estimate-spec__fields select:focus,
+  .sash-estimate-spec__fields input:focus,
+  .sash-estimate-special__row input:focus {
+    border-color: var(--color-primary);
+    outline: none;
+  }
+  .sash-estimate-field__unit {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  .sash-estimate-field__unit:focus-within {
+    border-color: var(--color-primary);
+  }
+  .sash-estimate-field__unit input {
+    border: 0;
+    border-radius: 0;
+  }
+  .sash-estimate-field__unit input:focus {
+    border: 0;
+  }
+  .sash-estimate-field__unit em {
+    padding-right: var(--space-input-x);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-style: normal;
+  }
+  .sash-estimate-spec__calculation {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    min-height: 32px;
+    align-items: center;
+    padding: var(--space-1) var(--space-table-cell-x);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .sash-estimate-spec__calculation strong {
+    margin-left: var(--space-0-5);
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+  .sash-estimate-special__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .sash-estimate-special__header > div {
+    display: grid;
+    gap: var(--space-0-5);
+  }
+  .sash-estimate-special__header strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+  }
+  .sash-estimate-special__header span {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .sash-estimate-special__options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-top: 1px solid var(--color-border);
+  }
+  .sash-estimate-special__options label {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: var(--table-row-height);
+    border-bottom: 1px solid var(--color-border);
+    padding: 0 var(--space-table-cell-x);
+    font-size: var(--font-size-table-cell);
+  }
+  .sash-estimate-special__options label:nth-child(odd) {
+    border-right: 1px solid var(--color-border);
+  }
+  .sash-estimate-special__options input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--color-primary);
+  }
+  .sash-estimate-special__selected {
+    display: grid;
+    border-top: 1px solid var(--color-border);
+  }
+  .sash-estimate-special__row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.5fr) repeat(2, minmax(100px, 0.7fr)) minmax(90px, 0.6fr) minmax(140px, 0.9fr);
+    gap: var(--space-1);
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .sash-estimate-special__readonly strong {
+    display: flex;
+    align-items: center;
+    min-height: var(--button-height);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
   }
   @media (max-width: 1080px) {
     .photo-management-mode-grid {
@@ -12417,6 +12671,19 @@ const appStyles = `
     .sash-selector__option .price-text {
       grid-column: 2;
       justify-self: start;
+    }
+    .sash-estimate-spec__fields,
+    .sash-estimate-special__options {
+      grid-template-columns: 1fr;
+    }
+    .sash-estimate-special__options label:nth-child(odd) {
+      border-right: 0;
+    }
+    .sash-estimate-special__row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .sash-estimate-special__description {
+      grid-column: 1 / -1;
     }
   }
   @media (max-width: 767px) {
