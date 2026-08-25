@@ -756,7 +756,7 @@ const appStyles = `
   }
   .segmented button.selected, .chips button.selected {
     border-color: var(--brand-primary);
-    background: var(--brand-primary-subtle);
+    background: var(--surface-selected);
     color: var(--brand-primary);
   }
   .custom-select {
@@ -814,6 +814,7 @@ const appStyles = `
     align-items: center;
     gap: var(--space-1);
     padding: 0 10px;
+    border: 1px solid transparent;
     border-radius: var(--radius-button);
     background: transparent;
     color: var(--text-primary);
@@ -826,7 +827,8 @@ const appStyles = `
     outline: none;
   }
   .custom-select-menu button.selected {
-    background: var(--brand-primary-subtle);
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
     color: var(--brand-primary);
   }
   .custom-select-section {
@@ -855,10 +857,12 @@ const appStyles = `
     grid-template-columns: minmax(0, 1fr) 34px;
     align-items: center;
     gap: 4px;
+    border: 1px solid transparent;
     border-radius: var(--radius-button);
   }
   .pyeong-option-row.selected {
-    background: var(--brand-primary-subtle);
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
   }
   .custom-select-menu .pyeong-option-main {
     min-width: 0;
@@ -953,7 +957,7 @@ const appStyles = `
   }
   .estimate-current-condition.active {
     border-color: var(--brand-primary);
-    background: var(--brand-primary-subtle);
+    background: var(--surface-selected);
   }
   .estimate-current-condition span {
     color: var(--text-secondary);
@@ -5745,11 +5749,11 @@ const appStyles = `
 
   /* FORMATE v8.1 design layer */
   :root {
-    --color-bg: #F3F5F7;
+    --color-bg: #F8FAFB;
     --color-surface: #FFFFFF;
-    --color-surface-subtle: #F1F4F6;
-    --color-border: #DCE2E7;
-    --color-border-strong: #C7D0D9;
+    --color-surface-subtle: #F5F7F9;
+    --color-border: #DFE5EA;
+    --color-border-strong: #CDD5DC;
     --color-text-primary: #1F2933;
     --color-text-secondary: #667085;
     --color-text-muted: #98A2B3;
@@ -5759,9 +5763,9 @@ const appStyles = `
     --color-primary-border: #A7F3D0;
     --color-accent: #10B981;
     --color-brand-deep: #042F2C;
-    --color-header-bg: #EEF2F5;
-    --color-row-alt: #F7F9FA;
-    --color-row-hover: #EEF2F5;
+    --color-header-bg: #F3F6F8;
+    --color-row-alt: #FAFBFC;
+    --color-row-hover: #F5F7F9;
     --color-cell-focus: #ECFDF5;
     --color-danger: #DC2626;
     --color-danger-bg: #FEF2F2;
@@ -6354,7 +6358,8 @@ const appStyles = `
     outline: none;
   }
   .canonical-variant-dropdown__option.selected {
-    background: var(--color-primary-soft);
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
     color: var(--color-primary);
     font-weight: var(--font-weight-semibold);
   }
@@ -7127,7 +7132,8 @@ const appStyles = `
     line-height: var(--line-height-caption);
   }
   .condition-page .pyeong-option-row.selected {
-    background: var(--color-surface-subtle);
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
   }
   .condition-page .pyeong-option-row.selected .pyeong-option-main {
     color: var(--color-primary);
@@ -7169,13 +7175,13 @@ const appStyles = `
   .condition-page .segmented button.selected,
   .condition-page .chips button.selected {
     border-color: var(--color-primary);
-    background: var(--color-surface-subtle);
+    background: var(--surface-selected);
     color: var(--color-primary);
     box-shadow: none;
   }
   .condition-page .custom-select-trigger.has-value {
     border-color: var(--color-primary);
-    background: var(--color-surface-subtle);
+    background: var(--surface-selected);
     color: var(--color-primary);
   }
   .condition-page .chips {
@@ -7673,21 +7679,21 @@ const appStyles = `
   .items-v2-table-section .ui-table__expanded-row td {
     height: auto;
     padding: 0;
-    border-bottom: var(--space-1) solid var(--color-bg);
+    border-bottom: var(--space-2) solid var(--color-bg);
     background: var(--color-surface-subtle) !important;
   }
   .items-v2-table-section .ui-table__row--owns-expanded td {
     background: var(--color-header-bg);
   }
   .items-v2-table-section .ui-table__row--owns-expanded td:first-child {
-    box-shadow: inset 2px 0 0 var(--color-border-strong);
+    box-shadow: inset 1px 0 0 var(--color-border-strong);
   }
   .items-v2-expanded-stack {
     display: grid;
     gap: var(--space-2);
     margin-left: 40px;
     padding: var(--space-1-5) var(--space-2) var(--space-2);
-    border-left: 1px solid var(--color-border-strong);
+    border-left: 1px solid var(--color-border);
   }
   .items-v2-detail-panel {
     display: grid;
@@ -7850,8 +7856,8 @@ const appStyles = `
   .estimate-condition-drawer__fields .chips button.condition-variant-option.selected,
   .estimate-condition-drawer__fields .segmented button.selected,
   .estimate-condition-drawer__fields .custom-select-trigger.has-value {
-    border-color: var(--color-primary-border);
-    background: var(--color-primary-soft);
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
     color: var(--color-primary);
     font-weight: var(--font-weight-semibold);
   }
@@ -8030,8 +8036,9 @@ const appStyles = `
     outline-offset: -1px;
   }
   .admin-price-v2-category-item.active {
-    background: var(--color-primary-soft);
-    box-shadow: inset 3px 0 0 var(--color-primary);
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
+    box-shadow: none;
     font-weight: var(--font-weight-medium);
   }
   .admin-price-v2-category-item.drop-target {
@@ -8059,7 +8066,7 @@ const appStyles = `
     width: 28px;
     height: 28px;
     place-items: center;
-    border: 0;
+    border: 1px solid transparent;
     border-radius: var(--radius-button);
     padding: 0;
     background: transparent;
@@ -8896,8 +8903,8 @@ const appStyles = `
     background: var(--color-surface-subtle);
   }
   .template-condition-switcher__row.active {
-    background: var(--color-primary-soft);
-    box-shadow: inset 3px 0 0 var(--color-primary);
+    background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
   }
   .template-condition-switcher__select {
     display: grid;
@@ -12052,10 +12059,10 @@ const appStyles = `
   }
   .sash-catalog-section__row.expanded .sash-catalog-section__summary {
     background: var(--color-header-bg);
-    box-shadow: inset 2px 0 0 var(--color-border-strong);
+    box-shadow: inset 1px 0 0 var(--color-border-strong);
   }
   .sash-catalog-section__row.expanded {
-    margin-bottom: var(--space-1);
+    margin-bottom: var(--space-2);
     background: var(--color-surface-subtle);
   }
   .sash-catalog-section__row.dragging {
@@ -12132,7 +12139,7 @@ const appStyles = `
     margin-left: 40px;
     padding: var(--space-1);
     border-top: 1px solid var(--color-border);
-    border-left: 1px solid var(--color-border-strong);
+    border-left: 1px solid var(--color-border);
     background: var(--color-surface-subtle);
   }
   .sash-catalog-section__add-subitem {
@@ -12477,25 +12484,14 @@ const appStyles = `
     gap: var(--space-1);
     width: 100%;
   }
-  .sash-selector__header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-2);
-  }
-  .sash-selector__header strong {
-    color: var(--color-text-primary);
-    font-size: var(--font-size-body);
-    font-weight: var(--font-weight-medium);
-  }
   .sash-selector__snapshot,
   .sash-selector__status {
     margin: 0;
   }
   .sash-selector__list {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-    width: min(100%, 820px);
+    grid-template-columns: minmax(0, 1fr);
+    width: min(100%, 720px);
     border-top: 1px solid var(--color-border);
     border-left: 1px solid var(--color-border);
   }
@@ -12504,22 +12500,22 @@ const appStyles = `
     grid-template-columns: 18px minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--space-1);
-    min-height: 56px;
+    min-height: 48px;
     border: 0;
     border-right: 1px solid var(--color-border);
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
     color: var(--color-text-primary);
-    padding: var(--space-0-5) var(--space-table-cell-x);
+    padding: var(--space-0-5) var(--space-1-5);
     text-align: left;
     cursor: pointer;
   }
   .sash-selector__option:hover {
-    background: var(--color-surface-subtle);
+    background: var(--color-row-hover);
   }
   .sash-selector__option.selected {
-    box-shadow: inset 2px 0 0 var(--color-primary);
-    background: var(--color-surface-subtle);
+    background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
   }
   .sash-selector__radio {
     width: 14px;
@@ -12563,49 +12559,60 @@ const appStyles = `
   .sash-estimate-editor {
     display: grid;
     grid-column: 1 / -1;
-    gap: var(--space-1-5);
+    gap: var(--space-1);
     min-width: 0;
+  }
+  .sash-estimate-editor__tabs {
+    align-self: start;
   }
   .sash-estimate-editor.is-preview .sash-estimate-spec__calculation {
     color: var(--color-text-muted);
   }
+  .sash-estimate-product-workspace,
   .sash-estimate-spec,
   .sash-estimate-special {
     display: grid;
-    gap: var(--space-1-5);
+    gap: var(--space-1);
     min-width: 0;
-    padding-top: var(--space-1-5);
-    border-top: 1px solid var(--color-border);
   }
-  .sash-estimate-spec__heading {
-    color: var(--color-text-primary);
-    font-size: var(--font-size-body);
-    font-weight: var(--font-weight-semibold);
-    line-height: var(--line-height-body);
+  .sash-estimate-spec__grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 0;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
   }
-  .sash-estimate-spec__summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-0-5) var(--space-2);
-    padding: var(--space-1) var(--space-table-cell-x);
-    border-top: 1px solid var(--color-border);
-    background: var(--color-surface-subtle);
+  .sash-estimate-spec__grid > * {
+    min-height: 44px;
+    padding: var(--space-0-5) var(--space-1);
+    border-right: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
   }
-  .sash-estimate-spec__summary dl {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--space-0-5);
+  .sash-estimate-spec__reference {
+    display: grid;
+    grid-column: span 2;
+    align-content: center;
+    gap: 1px;
     min-width: 0;
     margin: 0;
   }
-  .sash-estimate-spec__summary dt,
-  .sash-estimate-spec__fields label > span,
-  .sash-estimate-special__row label > span,
-  .sash-estimate-special__readonly > span {
+  .sash-estimate-spec__grid label {
+    display: grid;
+    grid-column: span 2;
+    align-content: center;
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+  .sash-estimate-spec__grid label.sash-estimate-spec__field--amount {
+    grid-column: span 4;
+  }
+  .sash-estimate-spec__reference dt,
+  .sash-estimate-spec__grid label > span {
     color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
   }
-  .sash-estimate-spec__summary dd {
+  .sash-estimate-spec__reference dd {
     overflow: hidden;
     margin: 0;
     color: var(--color-text-primary);
@@ -12614,21 +12621,8 @@ const appStyles = `
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .sash-estimate-spec__fields {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(120px, 1fr));
-    gap: var(--space-1);
-  }
-  .sash-estimate-spec__fields label,
-  .sash-estimate-special__row label,
-  .sash-estimate-special__readonly {
-    display: grid;
-    gap: var(--space-0-5);
-    min-width: 0;
-  }
-  .sash-estimate-spec__fields select,
-  .sash-estimate-spec__fields input,
-  .sash-estimate-special__row input {
+  .sash-estimate-spec__grid select,
+  .sash-estimate-spec__grid input {
     width: 100%;
     min-width: 0;
     height: var(--button-height-sm);
@@ -12640,14 +12634,12 @@ const appStyles = `
     font: inherit;
     font-size: var(--font-size-table-cell);
   }
-  .sash-estimate-spec__fields select:hover,
-  .sash-estimate-spec__fields input:hover,
-  .sash-estimate-special__row input:hover {
+  .sash-estimate-spec__grid select:hover,
+  .sash-estimate-spec__grid input:hover {
     border-color: var(--color-border);
   }
-  .sash-estimate-spec__fields select:focus,
-  .sash-estimate-spec__fields input:focus,
-  .sash-estimate-special__row input:focus {
+  .sash-estimate-spec__grid select:focus,
+  .sash-estimate-spec__grid input:focus {
     border-color: var(--color-primary);
     outline: none;
   }
@@ -12703,21 +12695,6 @@ const appStyles = `
     margin-left: auto;
     color: var(--color-text-primary);
   }
-  .sash-estimate-special__header {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: var(--space-2);
-  }
-  .sash-estimate-special__header strong {
-    color: var(--color-text-primary);
-    font-size: var(--font-size-body);
-    font-weight: var(--font-weight-semibold);
-  }
-  .sash-estimate-special__header span {
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-caption);
-  }
   .items-v2-sash-summary {
     display: block;
     width: 100%;
@@ -12735,21 +12712,22 @@ const appStyles = `
   }
   .sash-estimate-special__options {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     border-top: 1px solid var(--color-border);
   }
   .sash-estimate-special__options label {
     display: grid;
-    grid-template-columns: 16px minmax(0, 1fr) auto;
+    grid-template-columns: 16px minmax(160px, 1fr) 124px 72px 96px;
     align-items: center;
     gap: var(--space-1);
-    min-height: var(--table-row-height);
+    min-height: 40px;
     border-bottom: 1px solid var(--color-border);
-    padding: var(--space-0-5) var(--space-table-cell-x);
+    padding: 0 var(--space-1-5);
+    background: var(--color-surface);
     font-size: var(--font-size-table-cell);
   }
-  .sash-estimate-special__options label:nth-child(odd) {
-    border-right: 1px solid var(--color-border);
+  .sash-estimate-special__options label:hover {
+    background: var(--color-row-hover);
   }
   .sash-estimate-special__options input[type="checkbox"] {
     width: 16px;
@@ -12757,27 +12735,20 @@ const appStyles = `
     margin: 0;
     accent-color: var(--color-primary);
   }
-  .sash-estimate-special__selected {
-    display: grid;
-    border-top: 1px solid var(--color-border);
+  .sash-estimate-special__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .sash-estimate-special__row {
-    display: grid;
-    grid-template-columns: minmax(180px, 1.5fr) repeat(2, minmax(100px, 0.7fr)) minmax(90px, 0.6fr) minmax(140px, 0.9fr);
-    gap: var(--space-1);
-    padding: var(--space-1) 0;
-    border-bottom: 1px solid var(--color-border);
+  .sash-estimate-special__dimensions,
+  .sash-estimate-special__area {
+    color: var(--color-text-secondary);
+    font-variant-numeric: var(--font-variant-numeric);
+    text-align: right;
+    white-space: nowrap;
   }
-  .sash-estimate-special__description input {
-    text-align: left;
-  }
-  .sash-estimate-special__readonly strong {
-    display: flex;
-    align-items: center;
-    min-height: var(--button-height);
-    color: var(--color-text-primary);
-    font-size: var(--font-size-table-cell);
-    font-weight: var(--font-weight-medium);
+  .sash-estimate-special__options .price-text {
+    justify-self: end;
   }
   @media (max-width: 1080px) {
     .photo-management-mode-grid {
@@ -12930,22 +12901,22 @@ const appStyles = `
       grid-column: 2;
       justify-self: start;
     }
-    .sash-estimate-spec__fields,
-    .sash-estimate-special__options {
-      grid-template-columns: 1fr;
-    }
-    .sash-estimate-special__options label:nth-child(odd) {
-      border-right: 0;
-    }
-    .sash-estimate-special__row {
+    .sash-estimate-spec__grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-  .sash-estimate-special__description {
-    text-align: left;
-  }
-  .sash-estimate-special__description input {
-    text-align: left;
-      grid-column: 1 / -1;
+    .sash-estimate-spec__reference,
+    .sash-estimate-spec__grid label {
+      grid-column: span 1;
+    }
+    .sash-estimate-spec__grid label.sash-estimate-spec__field--amount {
+      grid-column: span 2;
+    }
+    .sash-estimate-special__options label {
+      grid-template-columns: 16px minmax(0, 1fr) auto;
+    }
+    .sash-estimate-special__dimensions,
+    .sash-estimate-special__area {
+      display: none;
     }
   }
   @media (max-width: 767px) {

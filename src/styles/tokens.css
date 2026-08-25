@@ -1,12 +1,12 @@
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
 
 :root {
-  --color-bg: #F3F5F7;
+  --color-bg: #F8FAFB;
   --color-surface: #FFFFFF;
-  --color-surface-subtle: #F1F4F6;
+  --color-surface-subtle: #F5F7F9;
 
-  --color-border: #DCE2E7;
-  --color-border-strong: #C7D0D9;
+  --color-border: #DFE5EA;
+  --color-border-strong: #CDD5DC;
 
   --color-text-primary: #1F2933;
   --color-text-secondary: #667085;
@@ -21,9 +21,9 @@
   --color-accent: #10B981;
   --color-brand-deep: #042F2C;
 
-  --color-header-bg: #EEF2F5;
-  --color-row-alt: #F7F9FA;
-  --color-row-hover: #EEF2F5;
+  --color-header-bg: #F3F6F8;
+  --color-row-alt: #FAFBFC;
+  --color-row-hover: #F5F7F9;
   --color-cell-focus: #ECFDF5;
 
   --color-success: #10B981;
@@ -82,7 +82,7 @@
   --surface-page: var(--color-bg);
   --surface-workspace: var(--color-surface);
   --surface-subtle: var(--color-surface-subtle);
-  --surface-selected: var(--color-primary-soft);
+  --surface-selected: var(--color-surface);
   --surface-editable: var(--color-surface);
   --surface-sticky-action: var(--color-surface);
   --surface-drawer-dialog: var(--color-surface);
@@ -100,6 +100,7 @@
   --border-workspace: var(--color-border);
   --border-row: var(--color-border);
   --border-input: var(--color-border-strong);
+  --border-selected: var(--color-primary);
   --border-focus: var(--color-primary);
 
   --shadow-sm: none;
@@ -918,7 +919,7 @@ textarea {
 
 .ui-toggle-button[aria-pressed="true"] {
   border-color: var(--color-primary);
-  background: var(--color-surface-subtle);
+  background: var(--surface-selected);
   color: var(--color-primary);
   font-weight: var(--font-weight-medium);
 }
@@ -958,8 +959,7 @@ textarea {
   align-items: center;
   gap: var(--space-1);
   height: var(--button-height);
-  border: 0;
-  border-left: 3px solid transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-button);
   background: transparent;
   color: var(--color-text-primary);
@@ -973,7 +973,7 @@ textarea {
 }
 
 .ui-category-sidebar__item:hover {
-  background: var(--color-surface-subtle);
+  background: var(--color-row-hover);
 }
 
 .ui-category-sidebar__item:focus-visible {
@@ -982,8 +982,8 @@ textarea {
 }
 
 .ui-category-sidebar__item--active {
-  border-left-color: var(--category-color, var(--cat-etc));
-  background: var(--color-surface-subtle);
+  border-color: var(--border-selected);
+  background: var(--surface-selected);
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
 }

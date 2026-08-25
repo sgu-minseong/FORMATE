@@ -168,11 +168,12 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashEstimateEditorSource).toContain("buildSashEstimateSpecPatch");
     expect(sashEstimateEditorSource).toContain("fetchActiveSashSpecialItems");
     expect(sashEstimateEditorSource).toContain('type="checkbox"');
-    expect(sashEstimateEditorSource).toContain("buildSashSpecialItemSelectionPatch");
+    expect(sashEstimateEditorSource).not.toContain("buildSashSpecialItemSelectionPatch");
     expect(sashEstimateEditorSource).not.toContain("isBalconySashCategory");
     expect(sashEstimateEditorSource).not.toContain("sashSpecialItemSelections: []");
     expect(sashEstimateEditorSource).not.toContain("sashCategory={row.sashCategory}");
-    expect(sashSelectorSource).toContain('role="tablist"');
+    expect(sashEstimateEditorSource).toContain('role="tablist"');
+    expect(sashEstimateEditorSource).toContain('tab === SPECIAL_ITEMS_TAB ? "추가작업"');
     expect(sashSelectorSource).toContain("getSashCategory(entry) === activeCategory");
     expect(sashSelectorSource).not.toContain("visibleCategories");
     expect(sashEstimateEditorSource).toContain("pinnedEntryId={row.sashPinnedCatalogEntryId}");
@@ -206,9 +207,9 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashSectionSource).toContain('className={`sash-catalog-section__row ${expanded ? "expanded" : ""}');
     expect(sashSectionSource).toContain('<div className="sash-catalog-section__editor">');
     expect(appStylesSource).toContain(".sash-catalog-section__row.expanded {");
-    expect(appStylesSource).toContain("margin-bottom: var(--space-1);");
+    expect(appStylesSource).toContain("margin-bottom: var(--space-2);");
     expect(tableSource).toContain('expandedRow && "ui-table__row--owns-expanded"');
-    expect(appStylesSource).toContain("border-bottom: var(--space-1) solid var(--color-bg);");
+    expect(appStylesSource).toContain("border-bottom: var(--space-2) solid var(--color-bg);");
     expect(adminCategoryPanelSource).toContain('import { Pin } from "lucide-react";');
     expect(adminCategoryPanelSource).toContain('aria-pressed={pinned}');
     expect(adminCategoryPanelSource).toContain('fill={pinned ? "currentColor" : "none"}');
@@ -239,20 +240,33 @@ describe("specialized sash editor UI contracts", () => {
     expect(appStylesSource).toContain("width: 100%;");
   });
 
-  it("uses cool-neutral semantic surfaces and a four-level sash estimate flow", () => {
-    expect(tokensSource).toContain("--color-bg: #F3F5F7;");
-    expect(tokensSource).toContain("--color-surface-subtle: #F1F4F6;");
-    expect(tokensSource).toContain("--color-header-bg: #EEF2F5;");
-    expect(appStylesSource).toContain("--color-bg: #F3F5F7;");
-    expect(appStylesSource).toContain("--color-surface-subtle: #F1F4F6;");
-    expect(sashSelectorSource).toContain("제품 선택");
-    expect(sashEstimateEditorSource).toContain("현장값");
+  it("uses bright cool-neutral surfaces and border-based light selection", () => {
+    expect(tokensSource).toContain("--color-bg: #F8FAFB;");
+    expect(tokensSource).toContain("--color-surface-subtle: #F5F7F9;");
+    expect(tokensSource).toContain("--color-header-bg: #F3F6F8;");
+    expect(tokensSource).toContain("--surface-selected: var(--color-surface);");
+    expect(tokensSource).toContain("--border-selected: var(--color-primary);");
+    expect(tokensSource).toContain(".ui-category-sidebar__item--active {");
+    expect(tokensSource).toContain("border-color: var(--border-selected);");
+    expect(appStylesSource).toContain("--color-bg: #F8FAFB;");
+    expect(appStylesSource).toContain("--color-surface-subtle: #F5F7F9;");
+    expect(appStylesSource).toContain("border-color: var(--border-selected);");
+    expect(appStylesSource).toContain("box-shadow: inset 0 0 0 1px var(--border-selected);");
+  });
+
+  it("keeps the estimate sash flow compact and separates product and special-item tabs", () => {
+    expect(sashEstimateEditorSource).toContain("activeTab === SPECIAL_ITEMS_TAB");
+    expect(sashEstimateEditorSource).toContain("spec && selectedCategory === activeTab");
+    expect(sashEstimateEditorSource).toContain('className="sash-estimate-spec__grid"');
+    expect(sashEstimateEditorSource).not.toContain("현장값");
     expect(sashEstimateEditorSource).toContain("측정 구분");
-    expect(sashEstimateEditorSource).toContain('aria-label="제품 사양"');
+    expect(sashEstimateEditorSource).toContain('aria-label="선택한 샷시 제품 정보"');
+    expect(sashEstimateEditorSource).toContain('className="sash-estimate-special__dimensions"');
+    expect(sashEstimateEditorSource).toContain('className="sash-estimate-special__area"');
+    expect(sashEstimateEditorSource).not.toContain('className="sash-estimate-special__selected"');
+    expect(sashSelectorSource).toContain('const details = [');
     expect(sashEstimateEditorSource).toContain("행 금액");
-    expect(sashEstimateEditorSource.indexOf("<SashEstimateSpecialItems")).toBeLessThan(
-      sashEstimateEditorSource.indexOf('className="sash-estimate-spec__calculation"')
-    );
+    expect(sashEstimateEditorSource).not.toContain("<span>샷시 <strong>");
   });
 
   it("records the approved specialized editor rule without implementation-specific values", () => {

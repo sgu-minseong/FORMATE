@@ -8,7 +8,6 @@ import {
   formatSashArea,
   getSashBillableArea,
   getSashCategory,
-  getSashCategoryLabel,
   getSashEntryArea,
   getSashFrameSpec,
   orderSashCatalogEntriesForDisplay,
@@ -32,18 +31,13 @@ export default function SashCatalogSelector({
   constructionSubitemId,
   pinnedEntryId = "",
   selectedEntryId,
-  selectedSashSpec,
+  activeCategory = SASH_CATEGORIES.STANDARD,
   usageRanking = [],
   onSelect,
 }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [activeCategory, setActiveCategory] = useState(() => (
-    getSashCategory(selectedSashSpec) === SASH_CATEGORIES.UNSPECIFIED
-      ? SASH_CATEGORIES.STANDARD
-      : getSashCategory(selectedSashSpec)
-  ));
   const rankingByEntryId = useMemo(() => new Map(
     usageRanking.map((rankedEntry) => [
       rankedEntry.sashCatalogEntryId,
@@ -57,12 +51,6 @@ export default function SashCatalogSelector({
     pinnedEntryId,
     usageRanking,
   }), [categoryEntries, pinnedEntryId, usageRanking]);
-
-  useEffect(() => {
-    if (!selectedSashSpec) return;
-    const selectedCategory = getSashCategory(selectedSashSpec);
-    if (selectedCategory !== SASH_CATEGORIES.UNSPECIFIED) setActiveCategory(selectedCategory);
-  }, [selectedEntryId, selectedSashSpec]);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,29 +85,25 @@ export default function SashCatalogSelector({
 
   return (
     <section className="sash-selector" aria-label="샷시 규격 선택">
-      <div className="sash-selector__header">
-        <strong>제품 선택</strong>
-      </div>
-      <div className="sash-selector__category-tabs" role="tablist" aria-label="샷시 제품 분류">
-        {[SASH_CATEGORIES.STANDARD, SASH_CATEGORIES.BALCONY].map((sashCategory) => (
-          <button
-            key={sashCategory}
-            type="button"
-            role="tab"
-            aria-selected={activeCategory === sashCategory}
-            className={activeCategory === sashCategory ? "active" : ""}
-            onClick={() => setActiveCategory(sashCategory)}
-          >
-            {getSashCategoryLabel(sashCategory)}
-          </button>
-        ))}
-      </div>
       {orderedEntries.length ? (
         <div className="sash-selector__list">
           {orderedEntries.map((entry) => {
             const selected = entry.id === selectedEntryId;
             const usage = rankingByEntryId.get(entry.id);
             const pinned = entry.id === pinnedEntryId;
+            const details = [
+              entry.pair_spec,
+              entry.glass_spec,
+              entry.gas_spec,
+              entry.screen_spec,
+              `${Number(entry.width_mm).toLocaleString("ko-KR")} × ${Number(entry.height_mm).toLocaleString("ko-KR")}`,
+              getWindowTypeLabel(entry.window_type),
+              formatSashArea(
+                entry.pricing_basis === SASH_PRICING_BASES.AREA
+                  ? getSashBillableArea(entry)
+                  : getSashEntryArea(entry)
+              ),
+            ].filter(Boolean);
             return (
               <button
                 key={entry.id}
@@ -139,20 +123,7 @@ export default function SashCatalogSelector({
                       </em>
                     )}
                   </strong>
-                  <span>
-                    {[entry.pair_spec, entry.glass_spec, entry.gas_spec, entry.screen_spec]
-                      .filter(Boolean)
-                      .join(" · ") || "추가 사양 없음"}
-                  </span>
-                  <span>
-                    {Number(entry.width_mm).toLocaleString("ko-KR")} × {Number(entry.height_mm).toLocaleString("ko-KR")}
-                    {" · "}{getWindowTypeLabel(entry.window_type)}
-                    {" · "}{formatSashArea(
-                      entry.pricing_basis === SASH_PRICING_BASES.AREA
-                        ? getSashBillableArea(entry)
-                        : getSashEntryArea(entry)
-                    )}
-                  </span>
+                  <span>{details.join(" · ")}</span>
                 </span>
                 <PriceText value={entry.unit_price} size="sm" />
               </button>
