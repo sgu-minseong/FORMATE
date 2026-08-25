@@ -9,7 +9,7 @@ import {
 } from "../../shared/utils/numbers";
 import {
   getEstimateItemsDataAdjustments,
-  getEstimateItemsDataItems,
+  getEstimateItemsDataDraftItems,
   getEstimateItemsDataMeta,
   getEstimateItemsDataSiteMemo,
   toConstructionDays,
@@ -18,6 +18,8 @@ import {
   ESTIMATE_HISTORY_COMPATIBILITY_KIND,
   normalizeLegacyEstimateSpecOptions,
 } from "./estimateHistoryCompatibility";
+import { buildSashSpecialItemSelectionsSnapshot } from "../sash/sashSpecialItemModel";
+import { getLegacyCompatibleSashCategory } from "../sash/sashCatalogModel";
 
 function isExtendedHouseType(value) {
   return value === "new"
@@ -100,6 +102,7 @@ export function buildConditionSnapshot({
 
 export function buildEstimateItemsData({
   items,
+  draftItems = items,
   adjustments,
   siteMemo,
   estimateMeta,
@@ -110,6 +113,7 @@ export function buildEstimateItemsData({
 }) {
   return {
     items,
+    draftItems,
     adjustments,
     siteMemo: `${siteMemo ?? ""}`.trim(),
     estimateMeta,
@@ -140,7 +144,7 @@ export function buildEstimateInsertPayload({
 }
 
 export function restoreEstimateDraft(estimate) {
-  const savedItems = getEstimateItemsDataItems(estimate?.items_data);
+  const savedItems = getEstimateItemsDataDraftItems(estimate?.items_data);
   const snapshot = estimate?.condition_snapshot ?? {};
   const groupedItems = {};
   const catalogGroups = [];
@@ -169,6 +173,12 @@ export function restoreEstimateDraft(estimate) {
       sashCatalogEntryId: item.sashCatalogEntryId ?? "",
       selectedSashCatalogEntryId: item.sashCatalogEntryId ?? "",
       sashSpec: item.sashSpec ?? null,
+      sashCategory: getLegacyCompatibleSashCategory(item),
+      sashLocationKind: item.sashLocationKind ?? item.sash_location_kind ?? null,
+      sashSpecialItemSelections: buildSashSpecialItemSelectionsSnapshot(
+        item.sashSpecialItemSelections,
+        item
+      ),
       displayMaterial: item.material ?? item.name ?? item.description ?? "소재",
       selectedThickness: item.selectedThickness ?? null,
       selectedSpecOption: item.selectedSpecOption ?? "",
@@ -191,7 +201,7 @@ export function restoreEstimateDraft(estimate) {
       totalAmount: toNumberOrZero(item.totalAmount ?? item.price ?? item.amount),
       hasTemplateValue: true,
       expanded: false,
-      selected: true,
+      selected: item.selected !== false,
     });
   });
 

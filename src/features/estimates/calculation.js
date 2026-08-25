@@ -3,6 +3,11 @@ import {
   toNonNegativeNumberOrZero,
   toNumberOrZero,
 } from "../../shared/utils/numbers";
+import {
+  buildSashSpecialItemSelectionsSnapshot,
+  getSashSpecialItemSelectionsAmount,
+} from "../sash/sashSpecialItemModel";
+import { isSashEstimateSpecPricingConfirmed } from "../sash/sashCatalogModel";
 
 export function getLaborRateForResidence(subitem, residenceStatus) {
   const isOccupied = residenceStatus === "occupied" || residenceStatus === "살림집";
@@ -22,14 +27,33 @@ export function calculateEstimateRow(row) {
   const laborCount = toNumberOrZero(row?.laborCount ?? row?.labor_count);
   const unitPrice = toNonNegativeNumberOrZero(row?.unitPrice ?? row?.unit_price);
   const laborRate = toNonNegativeNumberOrZero(row?.laborRate ?? row?.labor_rate);
-  const productAmount = quantity * unitPrice;
+  const sashSpecialItemsAmount = row?.itemKind === "sash"
+    ? getSashSpecialItemSelectionsAmount(
+        row?.sashSpecialItemSelections,
+        row
+      )
+    : 0;
+  const sashPricingConfirmed = row?.itemKind === "sash"
+    ? isSashEstimateSpecPricingConfirmed(row?.sashSpec)
+    : true;
+  const sashBaseAmount = row?.itemKind === "sash" && !sashPricingConfirmed
+    ? null
+    : quantity * unitPrice;
+  const productAmount = row?.itemKind === "sash" && !sashPricingConfirmed
+    ? null
+    : sashBaseAmount + sashSpecialItemsAmount;
   const laborAmount = laborCount * laborRate;
 
   return {
     ...row,
+    ...(row?.itemKind === "sash" ? {
+      sashSpecialItemsAmount,
+      sashPricingConfirmed,
+      sashBaseAmount,
+    } : {}),
     productAmount,
     laborAmount,
-    totalAmount: productAmount + laborAmount,
+    totalAmount: productAmount === null ? null : productAmount + laborAmount,
   };
 }
 
@@ -107,7 +131,7 @@ export function buildEstimateSummary(rows, adjustments = []) {
   };
 }
 
-export function buildSelectedEstimateRows({
+export function buildEstimateDraftRows({
   items,
   estimateCatalog,
   fallbackCategories,
@@ -119,7 +143,6 @@ export function buildSelectedEstimateRows({
     const catalogItem = (estimateCatalog ?? []).find((entry) => entry.id === categoryId);
     const fallbackCategory = (fallbackCategories ?? []).find((entry) => entry.id === categoryId);
     return (rows ?? [])
-      .filter((row) => row.selected)
       .map((row) => {
         const calculated = calculateEstimateRow(row);
         const quantity = toNumberOrZero(row?.quantity);
@@ -132,10 +155,20 @@ export function buildSelectedEstimateRows({
           categoryName: row.itemName ?? catalogItem?.name ?? fallbackCategory?.name ?? categoryId,
           itemType: row.itemType ?? catalogItem?.item_type ?? "itemized",
           itemKind: row.itemKind ?? catalogItem?.item_kind ?? "standard",
+          selected: Boolean(row.selected),
           subitemId: row.subitemId,
           material: row.displayMaterial ?? row.material,
           sashCatalogEntryId: row.sashCatalogEntryId ?? "",
           sashSpec: row.sashSpec ?? null,
+          ...((row.itemKind ?? catalogItem?.item_kind) === "sash" ? {
+            sashCategory: row.sashCategory ?? row.sashSpec?.sash_category ?? "unspecified",
+            sashLocationKind: row.sashLocationKind ?? null,
+            sashSpecialItemSelections: buildSashSpecialItemSelectionsSnapshot(
+              row.sashSpecialItemSelections,
+              row
+            ),
+            sashSpecialItemsAmount: calculated.sashSpecialItemsAmount ?? 0,
+          } : {}),
           selectedThickness: row.selectedThickness ?? null,
           selectedSpecOption: row.selectedSpecOption ?? "",
           spec: getSpecLabel(row),
@@ -163,6 +196,10 @@ export function buildSelectedEstimateRows({
   });
 }
 
+export function buildSelectedEstimateRows(options) {
+  return buildEstimateDraftRows(options).filter((row) => row.selected);
+}
+
 export function getTemporaryTaxAmount(amount) {
   return Math.round(toNumberOrZero(amount) * 0.1);
 }
@@ -171,6 +208,11 @@ export function getEstimateItemsDataItems(itemsData) {
   if (Array.isArray(itemsData)) return itemsData;
   if (Array.isArray(itemsData?.items)) return itemsData.items;
   return [];
+}
+
+export function getEstimateItemsDataDraftItems(itemsData) {
+  if (Array.isArray(itemsData?.draftItems)) return itemsData.draftItems;
+  return getEstimateItemsDataItems(itemsData);
 }
 
 export function getEstimateItemsDataAdjustments(itemsData) {

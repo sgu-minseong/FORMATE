@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Image, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export const PHOTO_CLICK_SUPPRESS_MS = 320;
@@ -24,6 +24,12 @@ export default function PhotoViewer({
   const viewerPhotos = useMemo(() => (Array.isArray(photos) ? photos : []), [photos]);
   const [activeIndex, setActiveIndex] = useState(() => normalizePhotoViewerIndex(initialIndex, viewerPhotos.length));
   const closeButtonRef = useRef(null);
+  const showPrevious = useCallback(() => {
+    setActiveIndex((current) => normalizePhotoViewerIndex(current - 1, viewerPhotos.length));
+  }, [viewerPhotos.length]);
+  const showNext = useCallback(() => {
+    setActiveIndex((current) => normalizePhotoViewerIndex(current + 1, viewerPhotos.length));
+  }, [viewerPhotos.length]);
 
   useEffect(() => {
     setActiveIndex(normalizePhotoViewerIndex(initialIndex, viewerPhotos.length));
@@ -43,11 +49,11 @@ export default function PhotoViewer({
       if (viewerPhotos.length <= 1) return;
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        setActiveIndex((current) => normalizePhotoViewerIndex(current - 1, viewerPhotos.length));
+        showPrevious();
       }
       if (event.key === "ArrowRight") {
         event.preventDefault();
-        setActiveIndex((current) => normalizePhotoViewerIndex(current + 1, viewerPhotos.length));
+        showNext();
       }
     }
 
@@ -56,7 +62,7 @@ export default function PhotoViewer({
       window.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [onClose, viewerPhotos.length]);
+  }, [onClose, showNext, showPrevious, viewerPhotos.length]);
 
   if (!viewerPhotos.length) return null;
 
@@ -96,7 +102,7 @@ export default function PhotoViewer({
             <button
               type="button"
               className="photo-viewer-nav previous"
-              onClick={() => setActiveIndex((current) => normalizePhotoViewerIndex(current - 1, viewerPhotos.length))}
+              onClick={showPrevious}
               aria-label="이전 사진"
             >
               <ChevronLeft size={28} strokeWidth={1.5} />
@@ -123,7 +129,7 @@ export default function PhotoViewer({
             <button
               type="button"
               className="photo-viewer-nav next"
-              onClick={() => setActiveIndex((current) => normalizePhotoViewerIndex(current + 1, viewerPhotos.length))}
+              onClick={showNext}
               aria-label="다음 사진"
             >
               <ChevronRight size={28} strokeWidth={1.5} />

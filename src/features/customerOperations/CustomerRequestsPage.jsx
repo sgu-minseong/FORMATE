@@ -490,7 +490,6 @@ export default function CustomerRequestsPage({ companyId, onNavigate }) {
     <main className="customer-operations-page customer-requests-inbox">
       <PageHeader
         title="받은 요청"
-        description="고객 요청을 확인하고 처리 상태를 관리합니다."
       />
 
       <section className="customer-requests-inbox__toolbar" aria-label="요청 필터">

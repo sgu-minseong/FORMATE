@@ -5,6 +5,7 @@ import {
   Ruler,
 } from "lucide-react";
 import { useState } from "react";
+import PageHeader from "../../components/ui/PageHeader";
 import PyeongPhotoManagement from "./PyeongPhotoManagement";
 
 export const PHOTO_MANAGEMENT_MODES = [
@@ -25,10 +26,7 @@ export const PHOTO_MANAGEMENT_MODES = [
 export function PhotoManagementLanding({ onSelectMode }) {
   return (
     <main className="photo-management-page photo-management-landing">
-      <header className="photo-management-landing__header">
-        <h1>사진 관리</h1>
-        <p>관리할 사진의 기준을 선택하세요.</p>
-      </header>
+      <PageHeader title="사진 관리" />
       <div className="photo-management-mode-grid">
         {PHOTO_MANAGEMENT_MODES.map((mode) => {
           const Icon = mode.icon;

@@ -1,4 +1,23 @@
-import { Star } from "lucide-react";
+import { Pin } from "lucide-react";
+
+export function AdminCategoryPinButton({ item, onToggle }) {
+  const pinned = Boolean(item?.is_favorite);
+  return (
+    <button
+      type="button"
+      className={`admin-price-v2-category-pin ${pinned ? "active" : ""}`.trim()}
+      aria-label={`${item?.name ?? "대분류"} ${pinned ? "고정 해제" : "고정"}`}
+      aria-pressed={pinned}
+      title={pinned ? "고정 해제" : "고정"}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle?.(item);
+      }}
+    >
+      <Pin size={14} strokeWidth={1.5} fill={pinned ? "currentColor" : "none"} />
+    </button>
+  );
+}
 
 export default function AdminCategoryPanel({
   ariaLabel = "대분류",
@@ -13,6 +32,7 @@ export default function AdminCategoryPanel({
   onDragStart,
   onDrop,
   onSelect,
+  onToggleFavorite,
   selectedItemId = "",
 }) {
   return (
@@ -32,11 +52,17 @@ export default function AdminCategoryPanel({
         ) : items.map((item) => {
           const active = selectedItemId === item.id;
           return (
-            <button
+            <div
               key={item.id}
-              type="button"
+              role="button"
+              tabIndex={0}
               className={`admin-price-v2-category-item ${active ? "active" : ""} ${dragItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drop-target" : ""}`.trim()}
               onClick={() => onSelect?.(item.id)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                event.preventDefault();
+                onSelect?.(item.id);
+              }}
               onDragOver={(event) => onDragOver?.(event, item.id)}
               onDrop={() => onDrop?.(item.id)}
               onDragEnd={onDragEnd}
@@ -50,14 +76,14 @@ export default function AdminCategoryPanel({
               >
                 ::
               </span>
+              <AdminCategoryPinButton item={item} onToggle={onToggleFavorite} />
               <span className="admin-price-v2-category-name">
-                {item.is_favorite && <Star size={14} fill="currentColor" />}
                 <span>{item.name}</span>
               </span>
               <span className="admin-price-v2-category-count">
                 {(item.products ?? item.subitems ?? []).length}개
               </span>
-            </button>
+            </div>
           );
         })}
       </div>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getTemplateOverrideConflictFields,
+  getEstimateDraftRowKeys,
   isEstimateDraftFieldEdited,
   reconcileEstimateDraftItems,
 } from "../estimateDraftReconciliation";
@@ -8,6 +9,19 @@ import { ESTIMATE_HISTORY_COMPATIBILITY_KIND } from "../estimateHistoryCompatibi
 import { applyEstimateRowPatch } from "../estimateItemModel";
 
 describe("estimate draft reconciliation", () => {
+  it("uses one sash row identity per construction subitem regardless of product category", () => {
+    expect(getEstimateDraftRowKeys({
+      itemKind: "sash",
+      subitemId: "living-window",
+      sashCategory: "standard",
+    })).toEqual(["sash:living-window"]);
+    expect(getEstimateDraftRowKeys({
+      itemKind: "sash",
+      subitemId: "living-window",
+      sashCategory: "balcony",
+    })).toEqual(["sash:living-window"]);
+  });
+
   it("updates untouched template fields without treating formatting as an override", () => {
     const previousRow = {
       quantity: "24.0",
@@ -206,6 +220,15 @@ describe("estimate draft reconciliation", () => {
           sashCatalogEntryId: "entry-1",
           selectedSashCatalogEntryId: "entry-1",
           sashSpec: { brand: "LG", width_mm: 4000, height_mm: 2400, unit_price: 1500000 },
+          sashLocationKind: "balcony",
+          sashSpecialItemSelections: [{
+            sashSpecialItemId: "special-a",
+            sashSpecialItemSnapshot: {
+              sash_special_item_id: "special-a",
+              description: "현장 보강",
+              amount: 150000,
+            },
+          }],
           quantity: 1,
           baseQuantity: 1,
           laborCount: 0,
@@ -243,6 +266,8 @@ describe("estimate draft reconciliation", () => {
       selected: true,
       sashCatalogEntryId: "entry-1",
       sashSpec: { brand: "LG", unit_price: 1500000 },
+      sashLocationKind: "balcony",
+      sashSpecialItemSelections: [{ sashSpecialItemId: "special-a" }],
       unitPrice: 1600000,
     });
     expect(result.conflicts).toEqual([]);

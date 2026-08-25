@@ -5,7 +5,12 @@ import {
 import {
   CONSTRUCTION_PRODUCT_KINDS,
 } from "../constructionCatalog/constructionCatalogModel";
-import { isSashItem } from "../sash/sashCatalogModel";
+import {
+  buildSashEstimateSelectionPatch,
+  isSashItem,
+  SASH_CATEGORIES,
+} from "../sash/sashCatalogModel";
+import { getSashUsageRanking } from "../sash/sashUsageRankingModel";
 import {
   calculateEstimateRow,
   getLaborRateForResidence,
@@ -221,27 +226,86 @@ function buildStableVariantGroupRow(
   return row ? { ...row, variantGroupId: product.variantGroupId } : null;
 }
 
-function buildEstimateItemRows(item, pyeong, residenceStatus) {
+function applySashUsageDefault(row, pyeong, context = {}) {
+  const usageRanking = getSashUsageRanking(
+    context.sashUsageRankings,
+    pyeong,
+    row.subitemId
+  );
+  const rankingByEntryId = new Map(usageRanking.map((entry) => [
+    entry.sashCatalogEntryId,
+    entry,
+  ]));
+  const activeEntries = (context.sashCatalogEntries ?? [])
+    .filter((entry) => (
+      entry?.construction_subitem_id === row.subitemId
+      && !entry?.archived_at
+    ));
+  const rankedRepresentative = activeEntries.map((entry, canonicalOrder) => ({
+      entry,
+      canonicalOrder,
+      usage: rankingByEntryId.get(entry.id),
+    }))
+    .filter(({ usage }) => usage?.usageCount > 0)
+    .sort((left, right) => (
+      right.usage.usageCount - left.usage.usageCount
+      || left.canonicalOrder - right.canonicalOrder
+    ))[0];
+  const pinned = (context.sashCatalogPins ?? []).find((entry) => (
+    Number(entry?.pyeong) === Number(pyeong)
+    && entry?.construction_subitem_id === row.subitemId
+    && entry?.sash_catalog_entry_id
+  ));
+  const pinnedEntry = activeEntries.find((entry) => (
+    entry.id === pinned?.sash_catalog_entry_id
+  ));
+  const representativeEntry = pinnedEntry ?? rankedRepresentative?.entry;
+  if (!representativeEntry) {
+    return {
+      ...row,
+      sashUsageRanking: usageRanking,
+      sashPinnedCatalogEntryId: "",
+    };
+  }
+
+  return calculateEstimateRow({
+    ...row,
+    ...buildSashEstimateSelectionPatch(representativeEntry),
+    sashUsageRanking: usageRanking,
+    sashPinnedCatalogEntryId: pinnedEntry?.id ?? "",
+    sashSelectionSource: pinnedEntry ? "pinned" : "ranking",
+    sashUsageCount: rankingByEntryId.get(representativeEntry.id)?.usageCount ?? 0,
+  });
+}
+
+function buildEstimateItemRows(item, pyeong, residenceStatus, context = {}) {
   const itemSubitems = item.subitems ?? [];
   const subitemsById = new Map(itemSubitems.map((subitem) => [subitem.id, subitem]));
   if (isSashItem(item)) {
-    return itemSubitems.map((subitem) => createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus, {
-      itemKind: "sash",
-      unit: "식",
-      quantity: 1,
-      baseQuantity: 1,
-      laborCount: 0,
-      baseLaborCount: 0,
-      laborRate: 0,
-      baseLaborRate: 0,
-      unitPrice: 0,
-      baseUnitPrice: 0,
-      sashCatalogEntryId: "",
-      selectedSashCatalogEntryId: "",
-      sashSpec: null,
-      hasTemplateRecord: false,
-      hasTemplateValue: false,
-    }));
+    return itemSubitems.map((subitem) => applySashUsageDefault(
+      createEstimateRowFromSubitem(item, subitem, pyeong, residenceStatus, {
+        itemKind: "sash",
+        unit: "식",
+        quantity: 1,
+        baseQuantity: 1,
+        laborCount: 0,
+        baseLaborCount: 0,
+        laborRate: 0,
+        baseLaborRate: 0,
+        unitPrice: 0,
+        baseUnitPrice: 0,
+        sashCatalogEntryId: "",
+        selectedSashCatalogEntryId: "",
+        sashSpec: null,
+        sashCategory: SASH_CATEGORIES.UNSPECIFIED,
+        sashLocationKind: null,
+        sashSpecialItemSelections: [],
+        hasTemplateRecord: false,
+        hasTemplateValue: false,
+      }),
+      pyeong,
+      context
+    ));
   }
 
   if (!Array.isArray(item.products)) {
@@ -263,12 +327,13 @@ function buildEstimateItemRows(item, pyeong, residenceStatus) {
 export function buildEstimateItemsFromTemplate(
   catalog,
   pyeong,
-  residenceStatus = "empty"
+  residenceStatus = "empty",
+  context = {}
 ) {
   return Object.fromEntries(
     (catalog ?? []).map((item) => [
       item.id,
-      buildEstimateItemRows(item, pyeong, residenceStatus),
+      buildEstimateItemRows(item, pyeong, residenceStatus, context),
     ])
   );
 }

@@ -579,7 +579,6 @@ export default function AftercareServicePage({ companyId, onNavigate }) {
     <main className="customer-operations-page aftercare-workspace">
       <PageHeader
         title="사후관리·A/S"
-        description="공사 완료 후 예정된 점검과 접수된 A/S 요청을 관리합니다."
         actions={projectOptions.length > 0 ? (
           <Button variant="primary" size="sm" leftIcon={<Plus />} onClick={openCreateDialog}>
             {activeView === "schedule" ? "일정 등록" : "A/S 등록"}

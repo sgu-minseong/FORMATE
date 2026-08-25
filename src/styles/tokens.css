@@ -1,16 +1,16 @@
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
 
 :root {
-  --color-bg: #F6F4EF;
+  --color-bg: #F9FBFA;
   --color-surface: #FFFFFF;
-  --color-surface-subtle: #FBFAF7;
+  --color-surface-subtle: #F3F7F5;
 
-  --color-border: #E2DED6;
-  --color-border-strong: #CFC8BC;
+  --color-border: #DCE6E2;
+  --color-border-strong: #C8D6D0;
 
   --color-text-primary: #1F2933;
-  --color-text-secondary: #667085;
-  --color-text-muted: #98A2B3;
+  --color-text-secondary: #5F6D68;
+  --color-text-muted: #87938F;
   --color-text-metadata: var(--color-text-secondary);
   --color-text-placeholder: var(--color-text-muted);
 
@@ -21,9 +21,9 @@
   --color-accent: #10B981;
   --color-brand-deep: #042F2C;
 
-  --color-header-bg: #F3F1EC;
-  --color-row-alt: #FBFAF7;
-  --color-row-hover: #F1EFE8;
+  --color-header-bg: #EFF5F2;
+  --color-row-alt: #FBFCFC;
+  --color-row-hover: #F3F8F5;
   --color-cell-focus: #ECFDF5;
 
   --color-success: #10B981;
@@ -82,7 +82,7 @@
   --surface-page: var(--color-bg);
   --surface-workspace: var(--color-surface);
   --surface-subtle: var(--color-surface-subtle);
-  --surface-selected: var(--color-primary-soft);
+  --surface-selected: var(--color-surface);
   --surface-editable: var(--color-surface);
   --surface-sticky-action: var(--color-surface);
   --surface-drawer-dialog: var(--color-surface);
@@ -100,6 +100,7 @@
   --border-workspace: var(--color-border);
   --border-row: var(--color-border);
   --border-input: var(--color-border-strong);
+  --border-selected: var(--color-primary);
   --border-focus: var(--color-primary);
 
   --shadow-sm: none;
@@ -484,6 +485,11 @@ textarea {
   color: var(--text-inverse);
 }
 
+.formate-app-shell__history-button:active:not(:disabled) {
+  transform: none;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .formate-app-shell__history-button:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
@@ -829,7 +835,78 @@ textarea {
 }
 
 .ui-select {
-  padding: 0 var(--space-4) 0 var(--space-input-x);
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) 0 var(--space-input-x);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-select > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select > svg {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+
+.ui-select-popover {
+  position: fixed;
+  z-index: 80;
+  display: grid;
+  max-width: calc(100vw - 16px);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: var(--space-0-5);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-input);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.ui-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-input);
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-size-table-cell);
+  text-align: left;
+}
+
+.ui-select-option:hover,
+.ui-select-option.active {
+  background: var(--color-surface-subtle);
+}
+
+.ui-select-option.selected {
+  border-color: var(--border-selected);
+  background: var(--surface-selected);
+  color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ui-select-option:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+.ui-select-option:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
 }
 
 .ui-input::placeholder {
@@ -851,6 +928,7 @@ textarea {
 .ui-select:disabled {
   background: var(--color-surface-subtle);
   color: var(--color-text-muted);
+  cursor: not-allowed;
 }
 
 .ui-badge {
@@ -918,7 +996,7 @@ textarea {
 
 .ui-toggle-button[aria-pressed="true"] {
   border-color: var(--color-primary);
-  background: var(--color-surface-subtle);
+  background: var(--surface-selected);
   color: var(--color-primary);
   font-weight: var(--font-weight-medium);
 }
@@ -958,8 +1036,7 @@ textarea {
   align-items: center;
   gap: var(--space-1);
   height: var(--button-height);
-  border: 0;
-  border-left: 3px solid transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-button);
   background: transparent;
   color: var(--color-text-primary);
@@ -973,7 +1050,7 @@ textarea {
 }
 
 .ui-category-sidebar__item:hover {
-  background: var(--color-surface-subtle);
+  background: var(--color-row-hover);
 }
 
 .ui-category-sidebar__item:focus-visible {
@@ -982,8 +1059,8 @@ textarea {
 }
 
 .ui-category-sidebar__item--active {
-  border-left-color: var(--category-color, var(--cat-etc));
-  background: var(--color-surface-subtle);
+  border-color: var(--border-selected);
+  background: var(--surface-selected);
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
 }
@@ -1018,10 +1095,33 @@ textarea {
 }
 
 .ui-table-wrap {
+  position: relative;
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-table);
   background: var(--color-surface);
+}
+
+.ui-table-wrap--can-scroll-right::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  pointer-events: none;
+  background: rgb(31 41 51 / 0.14);
+  box-shadow: -12px 0 18px rgb(31 41 51 / 0.1);
+}
+
+.ui-table-wrap--can-scroll-right .ui-table-scroll {
+  scrollbar-color: rgb(98 108 125 / 0.34) transparent;
+}
+
+.ui-table-wrap--can-scroll-right .ui-table-scroll::-webkit-scrollbar-thumb {
+  background: rgb(98 108 125 / 0.34);
+  background-clip: padding-box;
 }
 
 .ui-table-scroll {
@@ -1084,6 +1184,20 @@ textarea {
   box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
+.ui-table .ui-table__cell--sticky {
+  position: sticky;
+  left: var(--ui-table-sticky-left, 0);
+  z-index: 2;
+}
+
+.ui-table--sticky-header th.ui-table__cell--sticky {
+  z-index: 4;
+}
+
+.ui-table .ui-table__cell--sticky-end {
+  box-shadow: 1px 0 0 var(--color-border), 6px 0 8px rgb(31 41 51 / 0.05);
+}
+
 .ui-table .ui-table__cell--right {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -1110,6 +1224,16 @@ textarea {
   border-color: var(--color-primary);
   background: var(--color-surface);
   outline: none;
+}
+
+.ui-table__input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+.ui-table__input:hover:not(:focus) {
+  border-color: var(--color-border);
+  background: var(--color-surface-subtle);
 }
 
 .ui-table__drag-cell {

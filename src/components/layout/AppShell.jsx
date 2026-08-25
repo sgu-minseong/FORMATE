@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronLeft, ChevronRight, LogOut, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, LogOut, UserRound } from "lucide-react";
 import Button from "../ui/Button.jsx";
 
 function cx(...classes) {
@@ -150,7 +150,7 @@ export default function AppShell({
                     disabled={!canNavigateBack}
                     onClick={onNavigateBack}
                   >
-                    <ChevronLeft size={16} strokeWidth={1.5} aria-hidden="true" />
+                    <ArrowLeft size={19} strokeWidth={1.5} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
@@ -160,7 +160,7 @@ export default function AppShell({
                     disabled={!canNavigateForward}
                     onClick={onNavigateForward}
                   >
-                    <ChevronRight size={16} strokeWidth={1.5} aria-hidden="true" />
+                    <ArrowRight size={19} strokeWidth={1.5} aria-hidden="true" />
                   </button>
                 </div>
               )}

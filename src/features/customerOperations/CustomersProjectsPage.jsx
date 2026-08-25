@@ -1331,7 +1331,6 @@ export default function CustomersProjectsPage({ companyId, onNavigate, onOpenCon
     <main className="customer-operations-page customer-projects-workspace-page">
       <PageHeader
         title="고객·현장"
-        description="고객과 연결된 현장의 견적, 요청, 공사 기록을 확인합니다."
         actions={(
           <div className="customer-projects-workspace__toolbar" aria-label="현장 검색과 필터">
             <label className="customer-projects-workspace__search">

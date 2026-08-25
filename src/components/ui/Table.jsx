@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
 
 function cx(...classes) {
@@ -36,7 +36,44 @@ export default function Table({
   getRowClassName,
   getRowId,
   className = "",
+  scrollCue = false,
 }) {
+  const scrollRef = useRef(null);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const stickyOffsets = useMemo(() => {
+    let offset = 0;
+    return new Map(columns.flatMap((column) => {
+      if (!column.sticky) return [];
+      const currentOffset = offset;
+      offset += Number.parseFloat(column.width) || 0;
+      return [[column.key, currentOffset]];
+    }));
+  }, [columns]);
+
+  const updateScrollCue = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node || !scrollCue) {
+      setCanScrollRight(false);
+      return;
+    }
+    setCanScrollRight(node.scrollLeft + node.clientWidth < node.scrollWidth - 2);
+  }, [scrollCue]);
+
+  useEffect(() => {
+    updateScrollCue();
+    const node = scrollRef.current;
+    if (!node || !scrollCue) return undefined;
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updateScrollCue);
+    resizeObserver?.observe(node);
+    node.addEventListener("scroll", updateScrollCue, { passive: true });
+    return () => {
+      resizeObserver?.disconnect();
+      node.removeEventListener("scroll", updateScrollCue);
+    };
+  }, [columns, rows, scrollCue, updateScrollCue]);
+
   const handleDragStart = (event, index) => {
     event.dataTransfer.setData("text/plain", String(index));
     event.dataTransfer.effectAllowed = "move";
@@ -54,8 +91,8 @@ export default function Table({
   };
 
   return (
-    <div className="ui-table-wrap">
-      <div className="ui-table-scroll formate-scroll-light">
+    <div className={cx("ui-table-wrap", canScrollRight && "ui-table-wrap--can-scroll-right")}>
+      <div ref={scrollRef} className="ui-table-scroll formate-scroll-light">
         <table
           className={cx(
             "ui-table",
@@ -70,8 +107,17 @@ export default function Table({
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  className={cx(column.align === "right" && "ui-table__cell--right")}
-                  style={{ width: column.width }}
+                  className={cx(
+                    column.align === "right" && "ui-table__cell--right",
+                    column.sticky && "ui-table__cell--sticky",
+                    column.stickyEnd && "ui-table__cell--sticky-end",
+                  )}
+                  style={{
+                    width: column.width,
+                    "--ui-table-sticky-left": column.sticky
+                      ? `${stickyOffsets.get(column.key) ?? 0}px`
+                      : undefined,
+                  }}
                   scope="col"
                 >
                   {column.label}
@@ -90,6 +136,7 @@ export default function Table({
                     id={getRowId?.(row, rowIndex)}
                     className={cx(
                       row.selected && "ui-table__row--selected",
+                      expandedRow && "ui-table__row--owns-expanded",
                       getRowClassName?.(row, rowIndex),
                     )}
                     draggable={draggable}
@@ -111,11 +158,16 @@ export default function Table({
                       const cellClassName = cx(
                         column.align === "right" && "ui-table__cell--right",
                         muted && "ui-table__empty-value",
+                        column.sticky && "ui-table__cell--sticky",
+                        column.stickyEnd && "ui-table__cell--sticky-end",
                       );
+                      const cellStyle = column.sticky
+                        ? { "--ui-table-sticky-left": `${stickyOffsets.get(column.key) ?? 0}px` }
+                        : undefined;
 
                       if (renderCell) {
                         return (
-                          <td key={column.key} className={cellClassName}>
+                          <td key={column.key} className={cellClassName} style={cellStyle}>
                             {renderCell({ row, column, value: rawValue, rowIndex })}
                           </td>
                         );
@@ -123,7 +175,7 @@ export default function Table({
 
                       if (column.editable && onCellChange) {
                         return (
-                          <td key={column.key} className={cellClassName}>
+                          <td key={column.key} className={cellClassName} style={cellStyle}>
                             <input
                               className="ui-table__input"
                               value={rawValue ?? ""}
@@ -134,7 +186,7 @@ export default function Table({
                       }
 
                       return (
-                        <td key={column.key} className={cellClassName}>
+                        <td key={column.key} className={cellClassName} style={cellStyle}>
                           {renderValue(rawValue, emptyAsZeroMuted)}
                         </td>
                       );

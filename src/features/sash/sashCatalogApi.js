@@ -1,6 +1,7 @@
 import { supabase } from "../../lib/supabaseClient";
 import {
   buildSashCatalogEntryCounts,
+  buildSashCatalogEntryCategoryCounts,
   buildSashCatalogEntryPayload,
 } from "./sashCatalogModel";
 
@@ -8,12 +9,30 @@ function throwIfError(error) {
   if (error) throw error;
 }
 
-export async function fetchActiveSashCatalogEntries(companyId, constructionSubitemId) {
-  const { data, error } = await supabase
+export async function fetchActiveSashCatalogEntries(
+  companyId,
+  constructionSubitemId,
+  sashCategory = ""
+) {
+  let query = supabase
     .from("sash_catalog_entries")
     .select("*")
     .eq("company_id", companyId)
     .eq("construction_subitem_id", constructionSubitemId)
+    .is("archived_at", null);
+  if (sashCategory) query = query.eq("sash_category", sashCategory);
+  const { data, error } = await query
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  throwIfError(error);
+  return data ?? [];
+}
+
+export async function fetchActiveCompanySashCatalogEntries(companyId) {
+  const { data, error } = await supabase
+    .from("sash_catalog_entries")
+    .select("*")
+    .eq("company_id", companyId)
     .is("archived_at", null)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
@@ -36,6 +55,26 @@ export async function fetchActiveSashCatalogEntryCounts(companyId, constructionS
     .is("archived_at", null);
   throwIfError(error);
   return buildSashCatalogEntryCounts(data ?? [], requestedIds);
+}
+
+export async function fetchActiveSashCatalogEntryCategoryCounts(
+  companyId,
+  constructionSubitemIds = []
+) {
+  const requestedIds = [...new Set(constructionSubitemIds.filter(Boolean))];
+  const persistedIds = requestedIds.filter((id) => !String(id).startsWith("local-subitem-"));
+  if (!companyId || !persistedIds.length) {
+    return buildSashCatalogEntryCategoryCounts([], requestedIds);
+  }
+
+  const { data, error } = await supabase
+    .from("sash_catalog_entries")
+    .select("construction_subitem_id, sash_category, archived_at")
+    .eq("company_id", companyId)
+    .in("construction_subitem_id", persistedIds)
+    .is("archived_at", null);
+  throwIfError(error);
+  return buildSashCatalogEntryCategoryCounts(data ?? [], requestedIds);
 }
 
 export async function insertSashCatalogEntry(entry, context) {

@@ -5,6 +5,7 @@ import {
   calculateEstimateTotals,
   cleanEstimateAdjustments,
   getEstimateItemsDataConstructionDaysTotal,
+  getEstimateItemsDataDraftItems,
   getEstimateItemsDataItems,
   getLaborRateForResidence,
 } from "../calculation";
@@ -178,6 +179,33 @@ describe("estimate snapshot and persistence contracts", () => {
       .toBe(ESTIMATE_HISTORY_COMPATIBILITY_KIND);
     expect(legacyDraft.items.floor[0].estimateHistoryCompatibility)
       .toBe(ESTIMATE_HISTORY_COMPATIBILITY_KIND);
+  });
+
+  it("keeps ranking items selected-only while restoring additive editor draft rows", () => {
+    const selectedItem = { ...calculateEstimateRow(item), selected: true };
+    const previewOnlyItem = {
+      ...calculateEstimateRow({ ...item, subitemId: "floor-preview", selected: false }),
+      selected: false,
+    };
+    const itemsData = buildEstimateItemsData({
+      items: [selectedItem],
+      draftItems: [selectedItem, previewOnlyItem],
+      adjustments: [],
+      siteMemo: "",
+      estimateMeta: {},
+      selectedItemsTotal: selectedItem.totalAmount,
+      constructionDaysTotal: 0,
+      adjustmentTotal: 0,
+      finalTotal: selectedItem.totalAmount,
+    });
+
+    expect(getEstimateItemsDataItems(itemsData)).toHaveLength(1);
+    expect(getEstimateItemsDataDraftItems(itemsData)).toHaveLength(2);
+    const restored = restoreEstimateDraft({
+      condition_snapshot: { condition_pyeong: 32, estimate_pyeong: 32 },
+      items_data: itemsData,
+    });
+    expect(restored.items.floor.map((row) => row.selected)).toEqual([true, false]);
   });
 });
 

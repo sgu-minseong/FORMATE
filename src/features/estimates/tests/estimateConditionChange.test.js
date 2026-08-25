@@ -173,4 +173,13 @@ describe("estimate condition change", () => {
     expect(adminAppSource).toContain("내가 입력한 값 유지");
     expect(adminAppSource).toContain("평 기준값으로 변경");
   });
+
+  it("opens quick edit on the existing condition workflow and autosaves the reconciled draft", () => {
+    expect(adminAppSource).toContain("function openEstimateConditionQuickEdit()");
+    expect(adminAppSource).toContain("setEstimateConditionEditMode(true)");
+    expect(adminAppSource).toContain("setEstimateConditionDrawerOpen(true)");
+    expect(adminAppSource).toContain("onClick={openEstimateConditionQuickEdit}");
+    expect(adminAppSource).toContain('preserveDraft: estimateConditionEditMode');
+    expect(adminAppSource).toContain("queueEstimateAutoSave({ immediate: true })");
+  });
 });
