@@ -209,7 +209,9 @@ describe("specialized sash editor UI contracts", () => {
     expect(appStylesSource).toContain(".sash-catalog-section__row.expanded {");
     expect(appStylesSource).toContain("margin-bottom: var(--space-2);");
     expect(tableSource).toContain('expandedRow && "ui-table__row--owns-expanded"');
-    expect(appStylesSource).toContain("border-bottom: var(--space-2) solid var(--color-bg);");
+    expect(appStylesSource).toContain("padding: 0 0 var(--space-1);");
+    expect(appStylesSource).toContain("border-bottom: 1px solid var(--color-border);");
+    expect(adminAppSource).toContain("items-v2-expanded-stack--sash");
     expect(adminCategoryPanelSource).toContain('import { Pin } from "lucide-react";');
     expect(adminCategoryPanelSource).toContain('aria-pressed={pinned}');
     expect(adminCategoryPanelSource).toContain('fill={pinned ? "currentColor" : "none"}');
@@ -240,16 +242,17 @@ describe("specialized sash editor UI contracts", () => {
     expect(appStylesSource).toContain("width: 100%;");
   });
 
-  it("uses bright cool-neutral surfaces and border-based light selection", () => {
-    expect(tokensSource).toContain("--color-bg: #F8FAFB;");
-    expect(tokensSource).toContain("--color-surface-subtle: #F5F7F9;");
-    expect(tokensSource).toContain("--color-header-bg: #F3F6F8;");
+  it("uses bright green-slate neutral surfaces and border-based light selection", () => {
+    expect(tokensSource).toContain("--color-bg: #F9FBFA;");
+    expect(tokensSource).toContain("--color-surface-subtle: #F3F7F5;");
+    expect(tokensSource).toContain("--color-header-bg: #EFF5F2;");
+    expect(tokensSource).toContain("--color-border: #DCE6E2;");
     expect(tokensSource).toContain("--surface-selected: var(--color-surface);");
     expect(tokensSource).toContain("--border-selected: var(--color-primary);");
     expect(tokensSource).toContain(".ui-category-sidebar__item--active {");
     expect(tokensSource).toContain("border-color: var(--border-selected);");
-    expect(appStylesSource).toContain("--color-bg: #F8FAFB;");
-    expect(appStylesSource).toContain("--color-surface-subtle: #F5F7F9;");
+    expect(appStylesSource).toContain("--color-bg: #F9FBFA;");
+    expect(appStylesSource).toContain("--color-surface-subtle: #F3F7F5;");
     expect(appStylesSource).toContain("border-color: var(--border-selected);");
     expect(appStylesSource).toContain("box-shadow: inset 0 0 0 1px var(--border-selected);");
   });
@@ -265,6 +268,8 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashEstimateEditorSource).toContain('className="sash-estimate-special__area"');
     expect(sashEstimateEditorSource).not.toContain('className="sash-estimate-special__selected"');
     expect(sashSelectorSource).toContain('const details = [');
+    expect(appStylesSource).toContain("grid-template-columns: repeat(7, minmax(0, 1fr));");
+    expect(appStylesSource).toContain("background: var(--color-header-bg);");
     expect(sashEstimateEditorSource).toContain("행 금액");
     expect(sashEstimateEditorSource).not.toContain("<span>샷시 <strong>");
   });

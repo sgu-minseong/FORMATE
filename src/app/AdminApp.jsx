@@ -8553,7 +8553,7 @@ export default function AdminApp() {
       if (!row.expanded && !photoPanel) return null;
 
       return (
-        <div className="items-v2-expanded-stack">
+        <div className={`items-v2-expanded-stack ${row.itemKind === "sash" ? "items-v2-expanded-stack--sash" : ""}`.trim()}>
           {photoPanel}
           {row.expanded && (
             <div className={`items-v2-detail-panel ${row.itemKind === "sash" ? "items-v2-detail-panel--sash" : ""}`.trim()}>

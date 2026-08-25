@@ -5749,23 +5749,23 @@ const appStyles = `
 
   /* FORMATE v8.1 design layer */
   :root {
-    --color-bg: #F8FAFB;
+    --color-bg: #F9FBFA;
     --color-surface: #FFFFFF;
-    --color-surface-subtle: #F5F7F9;
-    --color-border: #DFE5EA;
-    --color-border-strong: #CDD5DC;
+    --color-surface-subtle: #F3F7F5;
+    --color-border: #DCE6E2;
+    --color-border-strong: #C8D6D0;
     --color-text-primary: #1F2933;
-    --color-text-secondary: #667085;
-    --color-text-muted: #98A2B3;
+    --color-text-secondary: #5F6D68;
+    --color-text-muted: #87938F;
     --color-primary: #0D5C52;
     --color-primary-hover: #042F2C;
     --color-primary-soft: #ECFDF5;
     --color-primary-border: #A7F3D0;
     --color-accent: #10B981;
     --color-brand-deep: #042F2C;
-    --color-header-bg: #F3F6F8;
-    --color-row-alt: #FAFBFC;
-    --color-row-hover: #F5F7F9;
+    --color-header-bg: #EFF5F2;
+    --color-row-alt: #FBFCFC;
+    --color-row-hover: #F3F8F5;
     --color-cell-focus: #ECFDF5;
     --color-danger: #DC2626;
     --color-danger-bg: #FEF2F2;
@@ -7676,11 +7676,11 @@ const appStyles = `
   .items-v2-icon-button:active:not(:disabled) {
     opacity: 0.82;
   }
-  .items-v2-table-section .ui-table__expanded-row td {
+  .items-v2-table-section .ui-table tbody tr.ui-table__expanded-row > td {
     height: auto;
-    padding: 0;
-    border-bottom: var(--space-2) solid var(--color-bg);
-    background: var(--color-surface-subtle) !important;
+    padding: 0 0 var(--space-1);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
   }
   .items-v2-table-section .ui-table__row--owns-expanded td {
     background: var(--color-header-bg);
@@ -7694,6 +7694,11 @@ const appStyles = `
     margin-left: 40px;
     padding: var(--space-1-5) var(--space-2) var(--space-2);
     border-left: 1px solid var(--color-border);
+    background: var(--color-surface-subtle);
+  }
+  .items-v2-expanded-stack--sash {
+    gap: 0;
+    padding: var(--space-1) var(--space-2) var(--space-0-5);
   }
   .items-v2-detail-panel {
     display: grid;
@@ -12500,13 +12505,13 @@ const appStyles = `
     grid-template-columns: 18px minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--space-1);
-    min-height: 48px;
+    min-height: 44px;
     border: 0;
     border-right: 1px solid var(--color-border);
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
     color: var(--color-text-primary);
-    padding: var(--space-0-5) var(--space-1-5);
+    padding: 2px var(--space-1-5);
     text-align: left;
     cursor: pointer;
   }
@@ -12559,7 +12564,7 @@ const appStyles = `
   .sash-estimate-editor {
     display: grid;
     grid-column: 1 / -1;
-    gap: var(--space-1);
+    gap: var(--space-0-5);
     min-width: 0;
   }
   .sash-estimate-editor__tabs {
@@ -12572,50 +12577,53 @@ const appStyles = `
   .sash-estimate-spec,
   .sash-estimate-special {
     display: grid;
-    gap: var(--space-1);
+    gap: var(--space-0-5);
     min-width: 0;
   }
   .sash-estimate-spec__grid {
     display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 0;
     border: 1px solid var(--color-border);
     background: var(--color-surface);
   }
   .sash-estimate-spec__grid > * {
-    min-height: 44px;
-    padding: var(--space-0-5) var(--space-1);
+    min-height: 52px;
+    padding: 2px var(--space-1);
     border-right: 1px solid var(--color-border);
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
   }
   .sash-estimate-spec__reference {
     display: grid;
-    grid-column: span 2;
     align-content: center;
     gap: 1px;
     min-width: 0;
     margin: 0;
+    background: var(--color-header-bg);
   }
   .sash-estimate-spec__grid label {
     display: grid;
-    grid-column: span 2;
     align-content: center;
-    gap: var(--space-0-5);
+    gap: 2px;
     min-width: 0;
   }
   .sash-estimate-spec__grid label.sash-estimate-spec__field--amount {
-    grid-column: span 4;
+    grid-column: auto;
   }
-  .sash-estimate-spec__reference dt,
-  .sash-estimate-spec__grid label > span {
-    color: var(--color-text-secondary);
+  .sash-estimate-spec__reference dt {
+    color: var(--color-text-muted);
     font-size: var(--font-size-caption);
+  }
+  .sash-estimate-spec__grid label > span {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
   }
   .sash-estimate-spec__reference dd {
     overflow: hidden;
     margin: 0;
-    color: var(--color-text-primary);
+    color: var(--color-text-secondary);
     font-size: var(--font-size-table-cell);
     font-weight: var(--font-weight-regular);
     text-overflow: ellipsis;
@@ -12626,10 +12634,10 @@ const appStyles = `
     width: 100%;
     min-width: 0;
     height: var(--button-height-sm);
-    border: 1px solid transparent;
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-input);
     padding: 0 var(--space-input-x);
-    background: var(--color-surface-subtle);
+    background: var(--color-surface);
     color: var(--color-text-primary);
     font: inherit;
     font-size: var(--font-size-table-cell);
@@ -12647,9 +12655,9 @@ const appStyles = `
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    border: 1px solid transparent;
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-input);
-    background: var(--color-surface-subtle);
+    background: var(--color-surface);
     overflow: hidden;
   }
   .sash-estimate-field__unit:hover {
@@ -12679,7 +12687,7 @@ const appStyles = `
     gap: var(--space-1) var(--space-3);
     min-height: 32px;
     align-items: center;
-    padding: var(--space-1) var(--space-table-cell-x);
+    padding: 0 var(--space-table-cell-x);
     border-top: 1px solid var(--color-border);
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface-subtle);
