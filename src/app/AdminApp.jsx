@@ -6672,7 +6672,7 @@ export default function AdminApp() {
       );
       await fetchAdminItems();
     } catch (error) {
-      setAdminError(getFriendlyError(error, "즐겨찾기를 변경하지 못했어요. 다시 시도해주세요."));
+      setAdminError(getFriendlyError(error, "고정 상태를 변경하지 못했어요. 다시 시도해주세요."));
     } finally {
       setAdminSaving(false);
     }
@@ -7005,6 +7005,7 @@ export default function AdminApp() {
         setAdminPriceRowRef={setAdminPriceRowRef}
         setAdminSearch={setAdminSearch}
         setSelectedAdminCategoryId={setSelectedAdminCategoryId}
+        toggleAdminFavorite={toggleAdminFavorite}
         updateAdminSubitemUnit={updateAdminSubitemUnit}
         updateAdminProductVariant={updateAdminProductVariant}
         updateAdminProductVariantKind={updateAdminProductVariantKind}
@@ -7829,6 +7830,7 @@ export default function AdminApp() {
           onDrop={reorderAdminItems}
           onDragStart={handleAdminItemDragStart}
           onDragEnd={clearAdminDragState}
+          onToggleFavorite={toggleAdminFavorite}
         />
         <section className="admin-price-v2-workspace admin-items-v2-workspace">
           <header className="admin-price-v2-header admin-items-v2-header">
@@ -8554,7 +8556,7 @@ export default function AdminApp() {
         <div className="items-v2-expanded-stack">
           {photoPanel}
           {row.expanded && (
-            <div className="items-v2-detail-panel">
+            <div className={`items-v2-detail-panel ${row.itemKind === "sash" ? "items-v2-detail-panel--sash" : ""}`.trim()}>
               {row.itemKind === "sash" && (
                 <SashEstimateEditor
                   companyId={selectedCompanyId}

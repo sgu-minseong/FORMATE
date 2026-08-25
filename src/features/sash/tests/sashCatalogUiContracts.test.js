@@ -34,6 +34,10 @@ const appStylesSource = readFileSync(
   new URL("../../../styles/appStyles.js", import.meta.url),
   "utf8"
 );
+const tokensSource = readFileSync(
+  new URL("../../../styles/tokens.css", import.meta.url),
+  "utf8"
+);
 const designSkillSource = readFileSync(
   new URL("../../../../.codex/skills/formate-design-system.md", import.meta.url),
   "utf8"
@@ -91,7 +95,8 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashSectionSource).toContain("SASH_CATEGORIES.UNSPECIFIED");
     expect(sashSectionSource).toContain('const SASH_SPECIAL_ITEMS_VIEW = "special-items"');
     expect(sashSectionSource).toContain('? "추가작업" : getSashCategoryLabel(view)');
-    expect(sashSectionSource).toContain("미분류 {unspecifiedCount}");
+    expect(sashSectionSource).not.toContain("미분류");
+    expect(sashGridSource).not.toContain('<option value={SASH_CATEGORIES.UNSPECIFIED}>미분류</option>');
     expect(sashSectionSource).not.toMatch(/name.*includes.*balcony|name.*includes.*베란다/i);
     expect(sashSectionSource).toContain('return count > 0 ? `${count}개` : "규격 없음"');
     expect(sashApiSource).toContain('.is("archived_at", null)');
@@ -202,9 +207,22 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashSectionSource).toContain('<div className="sash-catalog-section__editor">');
     expect(appStylesSource).toContain(".sash-catalog-section__row.expanded {");
     expect(appStylesSource).toContain("margin-bottom: var(--space-1);");
+    expect(tableSource).toContain('expandedRow && "ui-table__row--owns-expanded"');
+    expect(appStylesSource).toContain("border-bottom: var(--space-1) solid var(--color-bg);");
     expect(adminCategoryPanelSource).toContain('import { Pin } from "lucide-react";');
-    expect(adminCategoryPanelSource).toContain('<Pin size={14} fill="currentColor" />');
+    expect(adminCategoryPanelSource).toContain('aria-pressed={pinned}');
+    expect(adminCategoryPanelSource).toContain('fill={pinned ? "currentColor" : "none"}');
     expect(adminAppSource).not.toContain('<Star size={14} fill="currentColor" />');
+  });
+
+  it("reuses favorite persistence for interactive category pin toggles", () => {
+    expect(adminCategoryPanelSource).toContain("export function AdminCategoryPinButton");
+    expect(adminCategoryPanelSource).toContain("onToggle?.(item)");
+    expect(adminCategoryPanelSource).not.toContain("disabled=");
+    expect(pricePageSource).toContain("onToggleFavorite={toggleAdminFavorite}");
+    expect(pricePageSource).toContain("고정 항목만 보기");
+    expect(adminAppSource).toContain("{ is_favorite: !item.is_favorite }");
+    expect(adminAppSource).toContain("onToggleFavorite={toggleAdminFavorite}");
   });
 
   it("uses concise editable and estimate states without duplicating sash guidance", () => {
@@ -216,8 +234,25 @@ describe("specialized sash editor UI contracts", () => {
     expect(adminAppSource).toContain('{ key: "material", label: "소재명", width: "38%" }');
     expect(adminAppSource).toContain('{ key: "spec", label: "규격", width: "26%" }');
     expect(adminAppSource).not.toContain("평형과 무관한 샷시 규격을 선택합니다.");
-    expect(appStylesSource).toContain(".sash-special-items__header");
+    expect(sashSectionSource).toContain("categoryNavigation={categoryNavigation}");
+    expect(appStylesSource).toContain(".sash-special-items__count");
     expect(appStylesSource).toContain("width: 100%;");
+  });
+
+  it("uses cool-neutral semantic surfaces and a four-level sash estimate flow", () => {
+    expect(tokensSource).toContain("--color-bg: #F3F5F7;");
+    expect(tokensSource).toContain("--color-surface-subtle: #F1F4F6;");
+    expect(tokensSource).toContain("--color-header-bg: #EEF2F5;");
+    expect(appStylesSource).toContain("--color-bg: #F3F5F7;");
+    expect(appStylesSource).toContain("--color-surface-subtle: #F1F4F6;");
+    expect(sashSelectorSource).toContain("제품 선택");
+    expect(sashEstimateEditorSource).toContain("현장값");
+    expect(sashEstimateEditorSource).toContain("측정 구분");
+    expect(sashEstimateEditorSource).toContain('aria-label="제품 사양"');
+    expect(sashEstimateEditorSource).toContain("행 금액");
+    expect(sashEstimateEditorSource.indexOf("<SashEstimateSpecialItems")).toBeLessThan(
+      sashEstimateEditorSource.indexOf('className="sash-estimate-spec__calculation"')
+    );
   });
 
   it("records the approved specialized editor rule without implementation-specific values", () => {

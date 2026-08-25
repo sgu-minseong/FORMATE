@@ -144,7 +144,9 @@ export default function SashCatalogSection({
   function renderCount(subitemId) {
     if (countsLoading && !entryCounts[subitemId]) return "확인 중";
     if (countsError && !entryCounts[subitemId]) return "확인 실패";
-    const count = Number(entryCounts[subitemId]?.total ?? 0);
+    const count = PRIMARY_SASH_CATEGORIES.reduce((sum, category) => (
+      sum + Number(entryCounts[subitemId]?.[category] ?? 0)
+    ), 0);
     return count > 0 ? `${count}개` : "규격 없음";
   }
 
@@ -161,22 +163,14 @@ export default function SashCatalogSection({
         const expanded = openSubitemId === subitem.id;
         const activeView = activeViews[subitem.id] ?? SASH_CATEGORIES.STANDARD;
         const categoryCounts = entryCounts[subitem.id] ?? {};
-        const unspecifiedCount = Number(categoryCounts[SASH_CATEGORIES.UNSPECIFIED] ?? 0);
         const categoryNavigation = (
-          <div className="sash-catalog-section__navigation">
-            <div className="sash-catalog-section__category-tabs" role="tablist" aria-label={`${subitem.name} 샷시 관리`}>
-              {[...PRIMARY_SASH_CATEGORIES, SASH_SPECIAL_ITEMS_VIEW].map((view) => (
-                <button key={view} type="button" role="tab" aria-selected={activeView === view} className={activeView === view ? "active" : ""} onClick={() => changeView(subitem.id, view)}>
-                  {view === SASH_SPECIAL_ITEMS_VIEW ? "추가작업" : getSashCategoryLabel(view)}
-                  {view !== SASH_SPECIAL_ITEMS_VIEW && <span>{Number(categoryCounts[view] ?? 0)}</span>}
-                </button>
-              ))}
-            </div>
-            {unspecifiedCount > 0 && (
-              <button type="button" className={`sash-catalog-section__maintenance ${activeView === SASH_CATEGORIES.UNSPECIFIED ? "active" : ""}`.trim()} aria-pressed={activeView === SASH_CATEGORIES.UNSPECIFIED} onClick={() => changeView(subitem.id, SASH_CATEGORIES.UNSPECIFIED)}>
-                미분류 {unspecifiedCount}
+          <div className="sash-catalog-section__category-tabs" role="tablist" aria-label={`${subitem.name} 샷시 관리`}>
+            {[...PRIMARY_SASH_CATEGORIES, SASH_SPECIAL_ITEMS_VIEW].map((view) => (
+              <button key={view} type="button" role="tab" aria-selected={activeView === view} className={activeView === view ? "active" : ""} onClick={() => changeView(subitem.id, view)}>
+                {view === SASH_SPECIAL_ITEMS_VIEW ? "추가작업" : getSashCategoryLabel(view)}
+                {view !== SASH_SPECIAL_ITEMS_VIEW && <span>{Number(categoryCounts[view] ?? 0)}</span>}
               </button>
-            )}
+            ))}
           </div>
         );
         return (
@@ -209,7 +203,7 @@ export default function SashCatalogSection({
                   onBlur={(event) => onSubitemNameBlur?.(subitem.id, event.target.value)}
                 />
               </label>
-              <span className={`sash-catalog-section__count ${categoryCounts.total ? "" : "muted"}`.trim()}>
+              <span className={`sash-catalog-section__count ${PRIMARY_SASH_CATEGORIES.some((category) => Number(categoryCounts[category] ?? 0) > 0) ? "" : "muted"}`.trim()}>
                 {renderCount(subitem.id)}
               </span>
               <div className="sash-catalog-section__actions" onClick={(event) => event.stopPropagation()}>
@@ -225,10 +219,11 @@ export default function SashCatalogSection({
             {expanded && (
               <div className="sash-catalog-section__editor">
                 {activeView === SASH_SPECIAL_ITEMS_VIEW ? (
-                  <>
-                    <div className="sash-catalog-grid__toolbar">{categoryNavigation}</div>
-                    <SashSpecialItemsManager companyId={companyId} onDirtyChange={handleSpecialItemsDirtyChange} />
-                  </>
+                  <SashSpecialItemsManager
+                    companyId={companyId}
+                    categoryNavigation={categoryNavigation}
+                    onDirtyChange={handleSpecialItemsDirtyChange}
+                  />
                 ) : (
                   <SashCatalogGrid
                     companyId={companyId}

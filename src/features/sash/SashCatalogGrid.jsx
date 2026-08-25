@@ -434,7 +434,6 @@ export default function SashCatalogGrid({
           aria-label="샷시 분류"
           onChange={(event) => patchEntry(row.id, { sash_category: event.target.value }, { immediate: true })}
         >
-          <option value={SASH_CATEGORIES.UNSPECIFIED}>미분류</option>
           <option value={SASH_CATEGORIES.STANDARD}>일반</option>
           <option value={SASH_CATEGORIES.BALCONY}>베란다</option>
         </select>

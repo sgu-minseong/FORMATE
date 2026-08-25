@@ -136,6 +136,7 @@ export default function Table({
                     id={getRowId?.(row, rowIndex)}
                     className={cx(
                       row.selected && "ui-table__row--selected",
+                      expandedRow && "ui-table__row--owns-expanded",
                       getRowClassName?.(row, rowIndex),
                     )}
                     draggable={draggable}

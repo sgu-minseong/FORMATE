@@ -98,7 +98,7 @@ export default function SashCatalogSelector({
   return (
     <section className="sash-selector" aria-label="샷시 규격 선택">
       <div className="sash-selector__header">
-        <strong>제품</strong>
+        <strong>제품 선택</strong>
       </div>
       <div className="sash-selector__category-tabs" role="tablist" aria-label="샷시 제품 분류">
         {[SASH_CATEGORIES.STANDARD, SASH_CATEGORIES.BALCONY].map((sashCategory) => (

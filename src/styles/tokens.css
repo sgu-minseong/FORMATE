@@ -1,12 +1,12 @@
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
 
 :root {
-  --color-bg: #F6F4EF;
+  --color-bg: #F3F5F7;
   --color-surface: #FFFFFF;
-  --color-surface-subtle: #FBFAF7;
+  --color-surface-subtle: #F1F4F6;
 
-  --color-border: #E2DED6;
-  --color-border-strong: #CFC8BC;
+  --color-border: #DCE2E7;
+  --color-border-strong: #C7D0D9;
 
   --color-text-primary: #1F2933;
   --color-text-secondary: #667085;
@@ -21,9 +21,9 @@
   --color-accent: #10B981;
   --color-brand-deep: #042F2C;
 
-  --color-header-bg: #F3F1EC;
-  --color-row-alt: #FBFAF7;
-  --color-row-hover: #F1EFE8;
+  --color-header-bg: #EEF2F5;
+  --color-row-alt: #F7F9FA;
+  --color-row-hover: #EEF2F5;
   --color-cell-focus: #ECFDF5;
 
   --color-success: #10B981;

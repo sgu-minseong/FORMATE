@@ -87,6 +87,7 @@ export default function PriceTablePage({
   setAdminPriceRowRef,
   setAdminSearch,
   setSelectedAdminCategoryId,
+  toggleAdminFavorite,
   updateAdminProductVariant,
   updateAdminProductVariantKind,
   updateAdminSubitemUnit,
@@ -451,6 +452,7 @@ export default function PriceTablePage({
         onDrop={reorderAdminItems}
         onDragStart={handleAdminItemDragStart}
         onDragEnd={clearAdminDragState}
+        onToggleFavorite={toggleAdminFavorite}
       />
       <section className="admin-price-v2-workspace">
         <header className="admin-price-v2-header">
@@ -533,7 +535,7 @@ export default function PriceTablePage({
                     setAdminFavoriteOnly(event.target.checked)
                   }
                 />
-                즐겨찾기만 보기
+                고정 항목만 보기
               </label>
             </>
           )}

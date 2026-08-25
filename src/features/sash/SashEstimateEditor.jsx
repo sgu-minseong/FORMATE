@@ -23,18 +23,6 @@ import {
   SASH_WINDOW_TYPES,
 } from "./sashCatalogModel";
 
-function getWindowTypeLabel(windowType) {
-  if (windowType === SASH_WINDOW_TYPES.SINGLE) return "단창";
-  if (windowType === SASH_WINDOW_TYPES.DOUBLE) return "2중창";
-  return "미지정";
-}
-
-function getMeasurementKindLabel(measurementKind) {
-  if (measurementKind === SASH_MEASUREMENT_KINDS.MEASURED) return "실측";
-  if (measurementKind === SASH_MEASUREMENT_KINDS.ESTIMATE) return "가견적";
-  return "미지정";
-}
-
 function formatHebe(value) {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue) || numericValue <= 0) return "-";
@@ -99,7 +87,6 @@ function SashEstimateSpecialItems({ companyId, selections = [], onChange }) {
     <section className="sash-estimate-special" aria-labelledby="sash-estimate-special-title">
       <div className="sash-estimate-special__header">
         <strong id="sash-estimate-special-title">추가 작업</strong>
-        <PriceText value={getSashSpecialItemSelectionsAmount(selections)} size="sm" />
       </div>
 
       {loading ? (
@@ -201,6 +188,14 @@ export default function SashEstimateEditor({ companyId, row, included = false, o
   const specialItemsAmount = getSashSpecialItemSelectionsAmount(row?.sashSpecialItemSelections);
   const sashBaseAmount = row?.sashBaseAmount
     ?? (pricingConfirmed ? Number(row?.quantity || 0) * Number(row?.unitPrice || 0) : null);
+  const referenceSpecs = [
+    ["제조사", spec?.brand],
+    ["틀", getSashFrameSpec(spec)],
+    ["페어", spec?.pair_spec],
+    ["유리", spec?.glass_spec],
+    ["가스", spec?.gas_spec],
+    ["망", spec?.screen_spec],
+  ].filter(([, value]) => `${value ?? ""}`.trim());
 
   function patchSpec(patch) {
     onPatch(buildSashEstimateSpecPatch(spec, patch));
@@ -225,16 +220,7 @@ export default function SashEstimateEditor({ companyId, row, included = false, o
       {spec && (
         <>
           <section className="sash-estimate-spec" aria-label="선택한 샷시 제품 정보">
-            <div className="sash-estimate-spec__summary">
-              <dl><dt>제조사</dt><dd>{spec.brand || "-"}</dd></dl>
-              <dl><dt>틀</dt><dd>{getSashFrameSpec(spec) || "-"}</dd></dl>
-              <dl><dt>페어</dt><dd>{spec.pair_spec || "-"}</dd></dl>
-              <dl><dt>유리</dt><dd>{spec.glass_spec || "-"}</dd></dl>
-              <dl><dt>가스</dt><dd>{spec.gas_spec || "-"}</dd></dl>
-              <dl><dt>망</dt><dd>{spec.screen_spec || "-"}</dd></dl>
-              <dl><dt>치수 기준</dt><dd>{getMeasurementKindLabel(spec.measurement_kind)}</dd></dl>
-            </div>
-
+            <div className="sash-estimate-spec__heading">현장값</div>
             <div className="sash-estimate-spec__fields">
               <label>
                 <span>현장 가로</span>
@@ -279,6 +265,20 @@ export default function SashEstimateEditor({ companyId, row, included = false, o
                 </select>
               </label>
               <label>
+                <span>측정 구분</span>
+                <select
+                  value={spec.measurement_kind ?? SASH_MEASUREMENT_KINDS.UNSPECIFIED}
+                  onChange={(event) => onPatch(
+                    buildSashEstimateSpecPatch(spec, { measurement_kind: event.target.value }),
+                    { immediate: true }
+                  )}
+                >
+                  <option value={SASH_MEASUREMENT_KINDS.UNSPECIFIED}>미지정</option>
+                  <option value={SASH_MEASUREMENT_KINDS.ESTIMATE}>가견적</option>
+                  <option value={SASH_MEASUREMENT_KINDS.MEASURED}>실측</option>
+                </select>
+              </label>
+              <label>
                 <span>{usesAreaPricing ? "헤베 단가" : "총액 직접입력"}</span>
                 <div className="sash-estimate-field__unit">
                   <input
@@ -294,14 +294,13 @@ export default function SashEstimateEditor({ companyId, row, included = false, o
               </label>
             </div>
 
-            <div className="sash-estimate-spec__calculation" aria-live="polite">
-              <span>창 유형 <strong>{getWindowTypeLabel(spec.window_type)}</strong></span>
-              <span>{usesAreaPricing ? "헤베" : "수량"} <strong>{usesAreaPricing ? pricingConfirmed ? formatHebe(row.quantity) : "미확정" : "1식"}</strong></span>
-              <span>샷시 금액 <strong>{pricingConfirmed ? <PriceText value={sashBaseAmount} size="sm" /> : "미확정"}</strong></span>
-              {specialItemsAmount > 0 && (
-                <span>추가 작업 <strong><PriceText value={specialItemsAmount} size="sm" /></strong></span>
-              )}
-            </div>
+            {referenceSpecs.length > 0 && (
+              <div className="sash-estimate-spec__summary" aria-label="제품 사양">
+                {referenceSpecs.map(([label, value]) => (
+                  <dl key={label}><dt>{label}</dt><dd>{value}</dd></dl>
+                ))}
+              </div>
+            )}
           </section>
 
           <SashEstimateSpecialItems
@@ -309,6 +308,17 @@ export default function SashEstimateEditor({ companyId, row, included = false, o
             selections={row.sashSpecialItemSelections ?? []}
             onChange={(sashSpecialItemSelections, options) => onPatch({ sashSpecialItemSelections }, options)}
           />
+
+          <div className="sash-estimate-spec__calculation" aria-live="polite">
+            <span>{usesAreaPricing ? "계산 헤베" : "계산 기준"} <strong>{usesAreaPricing ? pricingConfirmed ? formatHebe(row.quantity) : "미확정" : "1식"}</strong></span>
+            {specialItemsAmount > 0 && (
+              <>
+                <span>샷시 <strong><PriceText value={sashBaseAmount} size="sm" /></strong></span>
+                <span>추가 작업 <strong><PriceText value={specialItemsAmount} size="sm" /></strong></span>
+              </>
+            )}
+            <span className="sash-estimate-spec__total">행 금액 <strong>{pricingConfirmed ? <PriceText value={row.totalAmount} size="sm" /> : "미확정"}</strong></span>
+          </div>
         </>
       )}
     </div>

@@ -26,7 +26,7 @@ function getFriendlySpecialItemError(error, fallback) {
   return error?.message || fallback;
 }
 
-export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
+export default function SashSpecialItemsManager({ companyId, categoryNavigation, onDirtyChange }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -297,13 +297,16 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
   }
 
   return (
-    <section className="sash-special-items" aria-labelledby="sash-special-items-title">
-      <div className="sash-special-items__header">
-        <h4 id="sash-special-items-title">추가 작업 {loaded ? persistedItemCount : ""}</h4>
-        <span className={`sash-autosave-status ${autosave.status === "error" ? "error" : ""}`.trim()} aria-live="polite">
-          {autosave.status === "saving" ? "저장 중…" : autosave.status === "error" ? "저장 실패" : autosave.status === "saved" ? "저장됨" : ""}
-        </span>
-        {autosave.status === "error" && <button className="sash-autosave-retry" type="button" onClick={autosave.retry}>재시도</button>}
+    <section className="sash-special-items" aria-label="추가 작업 관리">
+      <div className="sash-catalog-grid__toolbar">
+        {categoryNavigation}
+        <div className="sash-catalog-grid__pin-context">
+          <span className="sash-special-items__count">{loaded ? `${persistedItemCount}개` : ""}</span>
+          <span className={`sash-autosave-status ${autosave.status === "error" ? "error" : ""}`.trim()} aria-live="polite">
+            {autosave.status === "saving" ? "저장 중…" : autosave.status === "error" ? "저장 실패" : autosave.status === "saved" ? "저장됨" : ""}
+          </span>
+          {autosave.status === "error" && <button className="sash-autosave-retry" type="button" onClick={autosave.retry}>재시도</button>}
+        </div>
       </div>
 
       {error && items.length > 0 && <div className="error-box sash-catalog-grid__message">{error}</div>}
