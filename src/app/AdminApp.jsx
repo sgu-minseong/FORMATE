@@ -2320,6 +2320,7 @@ export default function AdminApp() {
     filteredAdminItems,
     getAutoSaveStatusLabel,
     getCurrentAutoSaveTarget,
+    handleSashSaveStateChange,
     hasUnsavedAdminCatalogChanges,
     markAdminCatalogDirty,
     markAdminCatalogError,
@@ -2329,6 +2330,7 @@ export default function AdminApp() {
     normalizeAdminSaveTarget,
     pendingAdminLeaveActionRef,
     resetAdminAutoSave,
+    retryAdminCatalogMutation,
     scrollToAdminPriceRow,
     selectedAdminCategoryId,
     selectedSubitemIdByProduct,
@@ -6985,6 +6987,7 @@ export default function AdminApp() {
         handleAdminProductDragStart={handleAdminProductDragStart}
         handleAdminSubitemDragOver={handleAdminSubitemDragOver}
         handleAdminSubitemDragStart={handleAdminSubitemDragStart}
+        handleSashSaveStateChange={handleSashSaveStateChange}
         markAdminCatalogDirty={markAdminCatalogDirty}
         materialNamePlaceholder={MATERIAL_NAME_PLACEHOLDER}
         newlyAddedSubitemId={newlyAddedSubitemId}
@@ -6996,6 +6999,7 @@ export default function AdminApp() {
         reorderAdminProducts={reorderAdminProducts}
         reorderAdminSubitems={reorderAdminSubitems}
         requestAdminCatalogLeave={requestAdminCatalogLeave}
+        retryAdminCatalogMutation={retryAdminCatalogMutation}
         saveAdminPrices={saveAdminPrices}
         selectAdminCanonicalVariant={selectAdminCanonicalVariant}
         selectedAdminPriceItem={selectedAdminPriceItem}
@@ -7566,6 +7570,7 @@ export default function AdminApp() {
           }}
           onSubitemNameInput={markAdminCatalogDirty}
           onSubitemNameBlur={renameAdminSubitem}
+          onSaveStateChange={handleSashSaveStateChange}
         />
       );
     }
@@ -7856,10 +7861,11 @@ export default function AdminApp() {
               >
                 {excelExportTarget === EXCEL_IMPORT_TARGETS.TEMPLATES ? "내보내는 중" : "Excel 내보내기"}
               </Button>
-              {!isSashItem(item) && (
-                <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
-                  {getAutoSaveStatusLabel()}
-                </span>
+              <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
+                {getAutoSaveStatusLabel()}
+              </span>
+              {isSashItem(item) && autoSaveStatus === "error" && (
+                <button type="button" className="sash-autosave-retry" onClick={retryAdminCatalogMutation}>재시도</button>
               )}
               <Button
                 variant="secondary"

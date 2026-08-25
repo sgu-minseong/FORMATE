@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPriceTableAutosave } from "./priceTableAutosave";
 import { filterAdminProductRows } from "./priceTableModel";
 
@@ -50,6 +50,7 @@ export default function usePriceTableController({
   const autoSaveRunningRef = useRef(false);
   const autoSaveQueuedRef = useRef(false);
   const autoSaveTargetRef = useRef("");
+  const adminCatalogRetryRef = useRef(null);
 
   pageRef.current = page;
   adminConditionStepRef.current = adminConditionStep;
@@ -194,6 +195,23 @@ export default function usePriceTableController({
     autosaveRef.current.reset();
   }
 
+  const handleSashSaveStateChange = useCallback(({ status, error, retry }) => {
+    adminCatalogRetryRef.current = retry || null;
+    const target = pageRef.current === "admin-prices"
+      ? "prices"
+      : pageRef.current === "admin-items" && adminConditionStepRef.current === "edit"
+        ? "quantities"
+        : "";
+    if (!target) return;
+    if (status === "saving") autosaveRef.current.markSaving(target);
+    if (status === "saved") autosaveRef.current.markSaved(target);
+    if (status === "error") autosaveRef.current.markError(error, target);
+  }, []);
+
+  const retryAdminCatalogMutation = useCallback(() => (
+    adminCatalogRetryRef.current?.() ?? Promise.resolve(false)
+  ), []);
+
   function getAutoSaveStatusLabel() {
     if (autoSaveStatus === "dirty") return "변경사항 있음";
     if (autoSaveStatus === "saving") return "자동 저장 중...";
@@ -264,6 +282,7 @@ export default function usePriceTableController({
     filteredAdminItems,
     getAutoSaveStatusLabel,
     getCurrentAutoSaveTarget,
+    handleSashSaveStateChange,
     hasUnsavedAdminCatalogChanges,
     markAdminCatalogDirty,
     markAdminCatalogError,
@@ -273,6 +292,7 @@ export default function usePriceTableController({
     normalizeAdminSaveTarget,
     pendingAdminLeaveActionRef,
     resetAdminAutoSave,
+    retryAdminCatalogMutation,
     runAdminAutoSave,
     scrollToAdminPriceRow,
     selectedAdminCategoryId,

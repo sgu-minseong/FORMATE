@@ -30,6 +30,18 @@ const tableSource = readFileSync(
   new URL("../../../components/ui/Table.jsx", import.meta.url),
   "utf8"
 );
+const selectSource = readFileSync(
+  new URL("../../../components/ui/Select.jsx", import.meta.url),
+  "utf8"
+);
+const mutationStatusSource = readFileSync(
+  new URL("../../../shared/hooks/useMutationSaveStatus.js", import.meta.url),
+  "utf8"
+);
+const sashSpecialItemApiSource = readFileSync(
+  new URL("../sashSpecialItemApi.js", import.meta.url),
+  "utf8"
+);
 const appStylesSource = readFileSync(
   new URL("../../../styles/appStyles.js", import.meta.url),
   "utf8"
@@ -197,10 +209,42 @@ describe("specialized sash editor UI contracts", () => {
   });
 
   it("keeps canonical product pins clickable regardless of optional sash specs", () => {
-    expect(sashGridSource).toContain("disabled={isLocalSashCatalogEntry(row) || !pinPyeong}");
+    expect(sashGridSource).toContain("disabled={isLocalSashCatalogEntry(row)}");
+    expect(sashGridSource).not.toContain("disabled={isLocalSashCatalogEntry(row) || !pinPyeong}");
+    expect(sashGridSource).toContain('setPinRequirement("평수를 먼저 선택하세요")');
+    expect(sashGridSource).toContain("pinPyeongSelectRef.current?.click()");
     expect(sashGridSource).not.toMatch(/disabled=\{[^}]*pair_spec|disabled=\{[^}]*glass_spec|disabled=\{[^}]*gas_spec|disabled=\{[^}]*screen_spec/);
     expect(sashGridSource).toContain("pinSaveQueueRef.current");
     expect(sashGridSource).toContain("upsertSashCatalogPin({");
+  });
+
+  it("reports sash mutations through the page autosave owner", () => {
+    expect(sashGridSource).toContain("useMutationSaveStatus");
+    expect(sashSpecialItemsSource).toContain("useMutationSaveStatus");
+    expect(sashSectionSource).toContain("onSaveStateChange={onSaveStateChange}");
+    expect(pricePageSource).toContain("onSaveStateChange={handleSashSaveStateChange}");
+    expect(pricePageSource).toContain('className={`autosave-pill ${autoSaveStatus}`.trim()}');
+    expect(adminAppSource).toContain("onSaveStateChange={handleSashSaveStateChange}");
+    expect(mutationStatusSource).toContain("pendingRef.current += 1");
+    expect(mutationStatusSource).toContain('pendingCount > 0 || ["dirty", "saving"].includes(autosave.status)');
+  });
+
+  it("persists product and special-item reorder without touching usage ranking", () => {
+    expect(sashGridSource).toContain("saveSashCatalogEntryOrder(nextEntries, companyId)");
+    expect(sashSpecialItemsSource).toContain("saveSashSpecialItemOrder(nextItems, companyId)");
+    expect(sashSpecialItemsSource).toContain("onReorder={reorderItems}");
+    expect(sashSpecialItemApiSource).toContain(".update({ sort_order: item.sort_order })");
+    expect(sashSpecialItemApiSource).not.toMatch(/usage|ranking/i);
+  });
+
+  it("uses the shared non-native select and shared table scrollbar", () => {
+    expect(sashGridSource).not.toContain("<select");
+    expect(sashEstimateEditorSource).not.toContain("<select");
+    expect(sashGridSource).toContain("<Select");
+    expect(sashEstimateEditorSource).toContain("<Select");
+    expect(selectSource).toContain('role="combobox"');
+    expect(selectSource).toContain("createPortal");
+    expect(tableSource).toContain('className="ui-table-scroll formate-scroll-light"');
   });
 
   it("keeps expanded sash ownership structural and uses pin icons for major categories", () => {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import PriceText from "../../components/PriceText";
+import Select from "../../components/ui/Select";
 import {
   formatMoneyInputValue,
   stripNumberInputFormatting,
@@ -238,9 +239,8 @@ export default function SashEstimateEditor({ companyId, row, included = false, o
                   <em>mm</em>
                 </div>
               </label>
-              <label>
-                <span>창 유형</span>
-                <select
+                <Select
+                  label="창 유형"
                   value={spec.window_type ?? SASH_WINDOW_TYPES.UNSPECIFIED}
                   onChange={(event) => onPatch(
                     buildSashEstimateSpecPatch(spec, { window_type: event.target.value }),
@@ -250,11 +250,9 @@ export default function SashEstimateEditor({ companyId, row, included = false, o
                   <option value={SASH_WINDOW_TYPES.UNSPECIFIED}>선택 필요</option>
                   <option value={SASH_WINDOW_TYPES.SINGLE}>단창</option>
                   <option value={SASH_WINDOW_TYPES.DOUBLE}>2중창</option>
-                </select>
-              </label>
-              <label>
-                <span>측정 구분</span>
-                <select
+                </Select>
+                <Select
+                  label="측정 구분"
                   value={spec.measurement_kind ?? SASH_MEASUREMENT_KINDS.UNSPECIFIED}
                   onChange={(event) => onPatch(
                     buildSashEstimateSpecPatch(spec, { measurement_kind: event.target.value }),
@@ -264,8 +262,7 @@ export default function SashEstimateEditor({ companyId, row, included = false, o
                   <option value={SASH_MEASUREMENT_KINDS.UNSPECIFIED}>미지정</option>
                   <option value={SASH_MEASUREMENT_KINDS.ESTIMATE}>가견적</option>
                   <option value={SASH_MEASUREMENT_KINDS.MEASURED}>실측</option>
-                </select>
-              </label>
+                </Select>
               <label className="sash-estimate-spec__field--amount">
                 <span>{usesAreaPricing ? "헤베 단가" : "총액 직접입력"}</span>
                 <div className="sash-estimate-field__unit">

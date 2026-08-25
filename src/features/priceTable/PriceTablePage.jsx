@@ -67,6 +67,7 @@ export default function PriceTablePage({
   handleAdminProductDragStart,
   handleAdminSubitemDragOver,
   handleAdminSubitemDragStart,
+  handleSashSaveStateChange,
   materialNamePlaceholder,
   markAdminCatalogDirty,
   newlyAddedSubitemId,
@@ -78,6 +79,7 @@ export default function PriceTablePage({
   reorderAdminProducts,
   reorderAdminSubitems,
   requestAdminCatalogLeave,
+  retryAdminCatalogMutation,
   saveAdminPrices,
   selectAdminCanonicalVariant,
   selectedAdminPriceItem,
@@ -324,6 +326,7 @@ export default function PriceTablePage({
           }}
           onSubitemNameInput={markAdminCatalogDirty}
           onSubitemNameBlur={renameAdminSubitem}
+          onSaveStateChange={handleSashSaveStateChange}
         />
       );
     }
@@ -479,13 +482,14 @@ export default function PriceTablePage({
             >
               {excelExporting ? "내보내는 중" : "Excel 내보내기"}
             </Button>
-            {getConstructionItemRendererKind(item) !== CONSTRUCTION_ITEM_RENDERER_KINDS.SASH && (
-              <span
-                className={`autosave-pill ${autoSaveStatus}`.trim()}
-                title={autoSaveError || getAutoSaveStatusLabel()}
-              >
-                {getAutoSaveStatusLabel()}
-              </span>
+            <span
+              className={`autosave-pill ${autoSaveStatus}`.trim()}
+              title={autoSaveError || getAutoSaveStatusLabel()}
+            >
+              {getAutoSaveStatusLabel()}
+            </span>
+            {getConstructionItemRendererKind(item) === CONSTRUCTION_ITEM_RENDERER_KINDS.SASH && autoSaveStatus === "error" && (
+              <button type="button" className="sash-autosave-retry" onClick={retryAdminCatalogMutation}>재시도</button>
             )}
             <Button
               variant="secondary"

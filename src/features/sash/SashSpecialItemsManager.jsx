@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Archive, Plus } from "lucide-react";
 import Table from "../../components/ui/Table";
 import useDebouncedAutosave from "../../shared/hooks/useDebouncedAutosave";
+import useMutationSaveStatus from "../../shared/hooks/useMutationSaveStatus";
 import { formatDisplayDate } from "../../shared/utils/dates";
 import {
   formatMoneyInputValue,
@@ -11,6 +12,7 @@ import {
   archiveSashSpecialItem,
   fetchActiveSashSpecialItems,
   insertSashSpecialItem,
+  saveSashSpecialItemOrder,
   updateSashSpecialItem,
 } from "./sashSpecialItemApi";
 import {
@@ -26,7 +28,19 @@ function getFriendlySpecialItemError(error, fallback) {
   return error?.message || fallback;
 }
 
-export default function SashSpecialItemsManager({ companyId, categoryNavigation, onDirtyChange }) {
+function moveItem(items, sourceIndex, targetIndex) {
+  const nextItems = [...items];
+  const [movedItem] = nextItems.splice(sourceIndex, 1);
+  nextItems.splice(targetIndex, 0, movedItem);
+  return nextItems.map((item, index) => ({ ...item, sort_order: index }));
+}
+
+export default function SashSpecialItemsManager({
+  companyId,
+  categoryNavigation,
+  onDirtyChange,
+  onSaveStateChange,
+}) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -41,6 +55,7 @@ export default function SashSpecialItemsManager({ companyId, categoryNavigation,
   itemsRef.current = items;
   dirtyItemIdsRef.current = dirtyItemIds;
   const autosave = useDebouncedAutosave({ save: persistDirtyItems });
+  const mutationStatus = useMutationSaveStatus({ autosave, onChange: onSaveStateChange });
   const persistedItemCount = items.filter((item) => !isLocalSashSpecialItem(item)).length;
 
   useEffect(() => {
@@ -188,7 +203,10 @@ export default function SashSpecialItemsManager({ companyId, categoryNavigation,
     setSavingId(item.id);
     setError("");
     try {
-      await archiveSashSpecialItem(item.id, companyId);
+      await mutationStatus.run(
+        () => archiveSashSpecialItem(item.id, companyId),
+        () => archiveItem(item)
+      );
       const nextItems = itemsRef.current.filter((currentItem) => currentItem.id !== item.id);
       const nextDirtyIds = new Set(dirtyItemIdsRef.current);
       nextDirtyIds.delete(item.id);
@@ -200,6 +218,28 @@ export default function SashSpecialItemsManager({ companyId, categoryNavigation,
       setError(getFriendlySpecialItemError(nextError, "추가 작업을 보관하지 못했습니다."));
     } finally {
       setSavingId("");
+    }
+  }
+
+  async function reorderItems(sourceIndex, targetIndex) {
+    if (itemsRef.current.some(isLocalSashSpecialItem)) return;
+    const previousItems = itemsRef.current;
+    const nextItems = moveItem(previousItems, sourceIndex, targetIndex);
+    itemsRef.current = nextItems;
+    setItems(nextItems);
+    setError("");
+    try {
+      await mutationStatus.run(
+        () => saveSashSpecialItemOrder(nextItems, companyId),
+        () => reorderItems(sourceIndex, targetIndex)
+      );
+    } catch (nextError) {
+      itemsRef.current = previousItems;
+      setItems(previousItems);
+      setError(getFriendlySpecialItemError(
+        nextError,
+        "추가작업 순서를 저장하지 못했습니다. 기존 순서로 되돌렸습니다."
+      ));
     }
   }
 
@@ -302,10 +342,6 @@ export default function SashSpecialItemsManager({ companyId, categoryNavigation,
         {categoryNavigation}
         <div className="sash-catalog-grid__pin-context">
           <span className="sash-special-items__count">{loaded ? `${persistedItemCount}개` : ""}</span>
-          <span className={`sash-autosave-status ${autosave.status === "error" ? "error" : ""}`.trim()} aria-live="polite">
-            {autosave.status === "saving" ? "저장 중…" : autosave.status === "error" ? "저장 실패" : autosave.status === "saved" ? "저장됨" : ""}
-          </span>
-          {autosave.status === "error" && <button className="sash-autosave-retry" type="button" onClick={autosave.retry}>재시도</button>}
         </div>
       </div>
 
@@ -329,6 +365,8 @@ export default function SashSpecialItemsManager({ companyId, categoryNavigation,
           rowHeight={40}
           stickyHeader
           scrollCue
+          draggable={!items.some(isLocalSashSpecialItem)}
+          onReorder={reorderItems}
           className="sash-special-items__table"
         />
       ) : (

@@ -12330,6 +12330,11 @@ const appStyles = `
     width: 92px;
     white-space: nowrap;
   }
+  .sash-catalog-grid__pin-requirement {
+    color: var(--color-warning);
+    font-size: var(--font-size-table-cell);
+    white-space: nowrap;
+  }
   .sash-catalog-grid .ui-table__input::placeholder {
     color: var(--color-text-muted);
   }
@@ -12602,7 +12607,8 @@ const appStyles = `
     margin: 0;
     background: var(--color-header-bg);
   }
-  .sash-estimate-spec__grid label {
+  .sash-estimate-spec__grid label,
+  .sash-estimate-spec__grid .ui-field {
     display: grid;
     align-content: center;
     gap: 2px;
@@ -12629,7 +12635,7 @@ const appStyles = `
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .sash-estimate-spec__grid select,
+  .sash-estimate-spec__grid .ui-select,
   .sash-estimate-spec__grid input {
     width: 100%;
     min-width: 0;
@@ -12642,11 +12648,11 @@ const appStyles = `
     font: inherit;
     font-size: var(--font-size-table-cell);
   }
-  .sash-estimate-spec__grid select:hover,
+  .sash-estimate-spec__grid .ui-select:hover,
   .sash-estimate-spec__grid input:hover {
     border-color: var(--color-border);
   }
-  .sash-estimate-spec__grid select:focus,
+  .sash-estimate-spec__grid .ui-select:focus,
   .sash-estimate-spec__grid input:focus {
     border-color: var(--color-primary);
     outline: none;
@@ -12913,7 +12919,8 @@ const appStyles = `
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .sash-estimate-spec__reference,
-    .sash-estimate-spec__grid label {
+    .sash-estimate-spec__grid label,
+    .sash-estimate-spec__grid .ui-field {
       grid-column: span 1;
     }
     .sash-estimate-spec__grid label.sash-estimate-spec__field--amount {

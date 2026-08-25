@@ -32,6 +32,7 @@ export default function SashCatalogSection({
   onSubitemNameBlur,
   onSubitemNameChange,
   onSubitemNameInput,
+  onSaveStateChange,
 }) {
   const [openSubitemId, setOpenSubitemId] = useState("");
   const [activeViews, setActiveViews] = useState({});
@@ -223,6 +224,7 @@ export default function SashCatalogSection({
                     companyId={companyId}
                     categoryNavigation={categoryNavigation}
                     onDirtyChange={handleSpecialItemsDirtyChange}
+                    onSaveStateChange={onSaveStateChange}
                   />
                 ) : (
                   <SashCatalogGrid
@@ -235,6 +237,7 @@ export default function SashCatalogSection({
                     onDirtyChange={handleEditorDirtyChange}
                     onEntryCategoryMove={handleEntryCategoryMove}
                     onPersistedCountChange={handlePersistedCountChange}
+                    onSaveStateChange={onSaveStateChange}
                   />
                 )}
               </div>

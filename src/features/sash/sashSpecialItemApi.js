@@ -39,6 +39,17 @@ export async function updateSashSpecialItem(item, companyId) {
   return data;
 }
 
+export async function saveSashSpecialItemOrder(items, companyId) {
+  await Promise.all((items ?? []).map(async (item) => {
+    const { error } = await supabase
+      .from("sash_special_items")
+      .update({ sort_order: item.sort_order })
+      .eq("id", item.id)
+      .eq("company_id", companyId);
+    throwIfError(error);
+  }));
+}
+
 export async function archiveSashSpecialItem(itemId, companyId) {
   const { data, error } = await supabase
     .from("sash_special_items")

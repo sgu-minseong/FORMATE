@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pin, Plus, Trash2 } from "lucide-react";
+import Select from "../../components/ui/Select";
 import Table from "../../components/ui/Table";
 import useDebouncedAutosave from "../../shared/hooks/useDebouncedAutosave";
+import useMutationSaveStatus from "../../shared/hooks/useMutationSaveStatus";
 import {
   formatMoneyInputValue,
   stripNumberInputFormatting,
@@ -70,6 +72,7 @@ export default function SashCatalogGrid({
   onDirtyChange,
   onEntryCategoryMove,
   onPersistedCountChange,
+  onSaveStateChange,
 }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -82,10 +85,10 @@ export default function SashCatalogGrid({
     normalizeDefaultPyeong(initialDefaultPyeong)
   ));
   const [pinnedEntryId, setPinnedEntryId] = useState("");
-  const [pinLoading, setPinLoading] = useState(false);
   const [pinSaving, setPinSaving] = useState(false);
-  const [pinSaveStatus, setPinSaveStatus] = useState("idle");
+  const [pinRequirement, setPinRequirement] = useState("");
   const firstDraftInputRef = useRef(null);
+  const pinPyeongSelectRef = useRef(null);
   const entriesRef = useRef(entries);
   const dirtyEntryIdsRef = useRef(dirtyEntryIds);
   const entryRevisionsRef = useRef(new Map());
@@ -103,6 +106,7 @@ export default function SashCatalogGrid({
   dirtyEntryIdsRef.current = dirtyEntryIds;
 
   const autosave = useDebouncedAutosave({ save: persistDirtyEntries });
+  const mutationStatus = useMutationSaveStatus({ autosave, onChange: onSaveStateChange });
 
   useEffect(() => {
     const nextPyeong = normalizeDefaultPyeong(initialDefaultPyeong);
@@ -112,14 +116,11 @@ export default function SashCatalogGrid({
   useEffect(() => {
     let cancelled = false;
     const requestRevision = ++pinRequestRevisionRef.current;
-    setPinSaveStatus("idle");
     if (!companyId || !selectedSubitemId || !pinPyeong) {
       setPinnedEntryId("");
-      setPinLoading(false);
       return undefined;
     }
 
-    setPinLoading(true);
     fetchSashCatalogPin(companyId, pinPyeong, selectedSubitemId)
       .then((row) => {
         if (!cancelled && pinRequestRevisionRef.current === requestRevision) {
@@ -131,9 +132,6 @@ export default function SashCatalogGrid({
           setPinnedEntryId("");
           setError(getFriendlySashError(nextError, "고정 샷시 제품을 불러오지 못했습니다."));
         }
-      })
-      .finally(() => {
-        if (!cancelled) setPinLoading(false);
       });
 
     return () => {
@@ -309,7 +307,10 @@ export default function SashCatalogGrid({
     setSavingId(entry.id);
     setError("");
     try {
-      await archiveSashCatalogEntry(entry.id, companyId);
+      await mutationStatus.run(
+        () => archiveSashCatalogEntry(entry.id, companyId),
+        () => archiveEntry(entry)
+      );
       const nextEntries = entriesRef.current.filter((currentEntry) => currentEntry.id !== entry.id);
       const nextDirtyIds = new Set(dirtyEntryIdsRef.current);
       nextDirtyIds.delete(entry.id);
@@ -346,38 +347,53 @@ export default function SashCatalogGrid({
     setEntries(nextEntries);
     setError("");
     try {
-      await saveSashCatalogEntryOrder(nextEntries, companyId);
+      entriesRef.current = nextEntries;
+      await mutationStatus.run(
+        () => saveSashCatalogEntryOrder(nextEntries, companyId),
+        () => reorderEntries(sourceIndex, targetIndex)
+      );
     } catch (nextError) {
+      entriesRef.current = previousEntries;
       setEntries(previousEntries);
       setError(getFriendlySashError(nextError, "순서를 저장하지 못했습니다. 기존 순서로 되돌렸습니다."));
     }
   }
 
   async function togglePinnedEntry(entryId) {
-    if (!companyId || !selectedSubitemId || !pinPyeong) return;
+    if (!companyId || !selectedSubitemId) return;
+    if (!pinPyeong) {
+      setPinRequirement("평수를 먼저 선택하세요");
+      window.requestAnimationFrame(() => {
+        pinPyeongSelectRef.current?.focus();
+        pinPyeongSelectRef.current?.click();
+      });
+      return;
+    }
+    setPinRequirement("");
     const requestRevision = ++pinRequestRevisionRef.current;
     const previousEntryId = pinnedEntryId;
     const nextEntryId = entryId === pinnedEntryId ? "" : entryId;
     setPinnedEntryId(nextEntryId);
     setPinSaving(true);
-    setPinSaveStatus("saving");
     setError("");
-    const saveRequest = pinSaveQueueRef.current
-      .catch(() => undefined)
-      .then(() => upsertSashCatalogPin({
-        companyId,
-        pyeong: pinPyeong,
-        constructionSubitemId: selectedSubitemId,
-        sashCatalogEntryId: nextEntryId,
-      }));
+    const previousSaveRequest = pinSaveQueueRef.current;
+    const saveRequest = mutationStatus.run(
+      () => previousSaveRequest
+        .catch(() => undefined)
+        .then(() => upsertSashCatalogPin({
+          companyId,
+          pyeong: pinPyeong,
+          constructionSubitemId: selectedSubitemId,
+          sashCatalogEntryId: nextEntryId,
+        })),
+      () => togglePinnedEntry(entryId)
+    );
     pinSaveQueueRef.current = saveRequest;
     try {
       await saveRequest;
-      if (pinRequestRevisionRef.current === requestRevision) setPinSaveStatus("saved");
     } catch (nextError) {
       if (pinRequestRevisionRef.current === requestRevision) {
         setPinnedEntryId(previousEntryId);
-        setPinSaveStatus("error");
         setError(getFriendlySashError(nextError, "고정 샷시 제품을 저장하지 못했습니다."));
       }
     } finally {
@@ -416,10 +432,10 @@ export default function SashCatalogGrid({
         <button
           type="button"
           className={`sash-catalog-grid__pin ${pinned ? "is-pinned" : ""}`.trim()}
-          disabled={isLocalSashCatalogEntry(row) || !pinPyeong}
+          disabled={isLocalSashCatalogEntry(row)}
           aria-pressed={pinned}
-          aria-label={pinned ? `${pinPyeong}평 대표제품 고정 해제` : `${pinPyeong}평 대표제품으로 고정`}
-          title={pinned ? `${pinPyeong}평 대표제품 고정 해제` : `${pinPyeong}평 대표제품으로 고정`}
+          aria-label={!pinPyeong ? "대표제품 고정 평수 선택" : pinned ? `${pinPyeong}평 대표제품 고정 해제` : `${pinPyeong}평 대표제품으로 고정`}
+          title={!pinPyeong ? "평수를 선택한 뒤 대표제품으로 고정" : pinned ? `${pinPyeong}평 대표제품 고정 해제` : `${pinPyeong}평 대표제품으로 고정`}
           onClick={() => togglePinnedEntry(row.id)}
         >
           <Pin size={15} strokeWidth={1.5} fill={pinned ? "currentColor" : "none"} />
@@ -428,15 +444,15 @@ export default function SashCatalogGrid({
     }
     if (column.key === "sash_category") {
       return (
-        <select
-          className="items-v2-inline-select"
+        <Select
+          selectClassName="items-v2-inline-select"
           value={row.sash_category}
           aria-label="샷시 분류"
           onChange={(event) => patchEntry(row.id, { sash_category: event.target.value }, { immediate: true })}
         >
           <option value={SASH_CATEGORIES.STANDARD}>일반</option>
           <option value={SASH_CATEGORIES.BALCONY}>베란다</option>
-        </select>
+        </Select>
       );
     }
     if ([
@@ -470,8 +486,8 @@ export default function SashCatalogGrid({
     }
     if (column.key === "window_type") {
       return (
-        <select
-          className="items-v2-inline-select"
+        <Select
+          selectClassName="items-v2-inline-select"
           value={row.window_type}
           aria-label="단창 또는 2중창"
           onChange={(event) => patchEntry(row.id, { window_type: event.target.value }, { immediate: true })}
@@ -484,13 +500,13 @@ export default function SashCatalogGrid({
           </option>
           <option value={SASH_WINDOW_TYPES.SINGLE}>단창</option>
           <option value={SASH_WINDOW_TYPES.DOUBLE}>2중창</option>
-        </select>
+        </Select>
       );
     }
     if (column.key === "measurement_kind") {
       return (
-        <select
-          className="items-v2-inline-select"
+        <Select
+          selectClassName="items-v2-inline-select"
           value={row.measurement_kind}
           aria-label="치수 기준"
           onChange={(event) => patchEntry(row.id, { measurement_kind: event.target.value }, { immediate: true })}
@@ -498,7 +514,7 @@ export default function SashCatalogGrid({
           {!usesAreaPricing && <option value={SASH_MEASUREMENT_KINDS.UNSPECIFIED}>미지정</option>}
           <option value={SASH_MEASUREMENT_KINDS.ESTIMATE}>가견적</option>
           <option value={SASH_MEASUREMENT_KINDS.MEASURED}>실측</option>
-        </select>
+        </Select>
       );
     }
     if (column.key === "width_mm" || column.key === "height_mm") {
@@ -589,25 +605,24 @@ export default function SashCatalogGrid({
           {categoryNavigation}
           <div className="sash-catalog-grid__pin-context">
           {!usesTemplatePyeong && (
-            <label>
-              <select
-                className="items-v2-inline-select"
+              <Select
+                ref={pinPyeongSelectRef}
+                selectClassName="items-v2-inline-select"
                 value={pinPyeong}
                 disabled={pinSaving}
                 aria-label={`${subitem.name} 고정 제품 평수`}
-                onChange={(event) => setPinPyeong(event.target.value)}
+                onChange={(event) => {
+                  setPinPyeong(event.target.value);
+                  setPinRequirement("");
+                }}
               >
                 <option value="">평수 선택</option>
                 {PYEONG_OPTIONS.map((pyeong) => (
                   <option key={pyeong} value={pyeong}>{pyeong}평</option>
                 ))}
-              </select>
-            </label>
+              </Select>
           )}
-          <span className={`sash-autosave-status ${autosave.status === "error" || pinSaveStatus === "error" ? "error" : ""}`.trim()} aria-live="polite">
-            {pinLoading ? "불러오는 중…" : pinSaving || autosave.status === "saving" ? "저장 중…" : autosave.status === "error" || pinSaveStatus === "error" ? "저장 실패" : autosave.status === "saved" || pinSaveStatus === "saved" ? "저장됨" : ""}
-          </span>
-          {autosave.status === "error" && <button className="sash-autosave-retry" type="button" onClick={autosave.retry}>재시도</button>}
+          {pinRequirement && <span className="sash-catalog-grid__pin-requirement" role="status">{pinRequirement}</span>}
           </div>
         </div>
       )}
