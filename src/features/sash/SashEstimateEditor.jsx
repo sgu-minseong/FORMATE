@@ -17,7 +17,6 @@ import {
   buildSashEstimateSpecPatch,
   formatSashArea,
   getSashFrameSpec,
-  isBalconySashCategory,
   isSashEstimateSpecPricingConfirmed,
   SASH_MEASUREMENT_KINDS,
   SASH_PRICING_BASES,
@@ -63,7 +62,7 @@ function SashEstimateSpecialItems({ companyId, selections = [], onChange }) {
       .catch((nextError) => {
         if (!cancelled) {
           setItems([]);
-          setError(nextError?.message || "베란다 특이사항을 불러오지 못했습니다.");
+          setError(nextError?.message || "추가 작업을 불러오지 못했습니다.");
         }
       })
       .finally(() => {
@@ -79,10 +78,13 @@ function SashEstimateSpecialItems({ companyId, selections = [], onChange }) {
 
   function toggleItem(item) {
     if (selectedIds.has(item.id)) {
-      onChange(selections.filter((selection) => selection.sashSpecialItemId !== item.id));
+      onChange(
+        selections.filter((selection) => selection.sashSpecialItemId !== item.id),
+        { immediate: true }
+      );
       return;
     }
-    onChange([...selections, buildSashSpecialItemSelection(item)]);
+    onChange([...selections, buildSashSpecialItemSelection(item)], { immediate: true });
   }
 
   function patchSelection(selectionId, patch) {
@@ -96,15 +98,12 @@ function SashEstimateSpecialItems({ companyId, selections = [], onChange }) {
   return (
     <section className="sash-estimate-special" aria-labelledby="sash-estimate-special-title">
       <div className="sash-estimate-special__header">
-        <div>
-          <strong id="sash-estimate-special-title">베란다 특이사항</strong>
-          <span>여러 항목을 선택할 수 있으며 금액은 면적과 무관합니다.</span>
-        </div>
-        <PriceText value={getSashSpecialItemSelectionsAmount(selections, "balcony")} size="sm" />
+        <strong id="sash-estimate-special-title">추가 작업</strong>
+        <PriceText value={getSashSpecialItemSelectionsAmount(selections)} size="sm" />
       </div>
 
       {loading ? (
-        <p className="sash-selector__status">특이사항을 불러오는 중...</p>
+        <p className="sash-selector__status">추가 작업을 불러오는 중...</p>
       ) : error ? (
         <div className="error-box sash-selector__status">{error}</div>
       ) : items.length ? (
@@ -122,7 +121,7 @@ function SashEstimateSpecialItems({ companyId, selections = [], onChange }) {
           ))}
         </div>
       ) : (
-        <p className="sash-selector__status">등록된 베란다 특이사항이 없습니다.</p>
+        <p className="sash-selector__status">등록된 추가 작업이 없습니다.</p>
       )}
 
       {selections.length > 0 && (
@@ -195,14 +194,11 @@ function SashEstimateSpecialItems({ companyId, selections = [], onChange }) {
   );
 }
 
-export default function SashEstimateEditor({ companyId, row, onPatch }) {
+export default function SashEstimateEditor({ companyId, row, included = false, onPatch }) {
   const spec = row?.sashSpec;
   const usesAreaPricing = spec?.pricing_basis === SASH_PRICING_BASES.AREA;
   const pricingConfirmed = isSashEstimateSpecPricingConfirmed(spec);
-  const specialItemsAmount = getSashSpecialItemSelectionsAmount(
-    row?.sashSpecialItemSelections,
-    row
-  );
+  const specialItemsAmount = getSashSpecialItemSelectionsAmount(row?.sashSpecialItemSelections);
   const sashBaseAmount = row?.sashBaseAmount
     ?? (pricingConfirmed ? Number(row?.quantity || 0) * Number(row?.unitPrice || 0) : null);
 
@@ -211,7 +207,7 @@ export default function SashEstimateEditor({ companyId, row, onPatch }) {
   }
 
   return (
-    <div className="sash-estimate-editor">
+    <div className={`sash-estimate-editor ${included ? "is-included" : "is-preview"}`.trim()}>
       <SashCatalogSelector
         companyId={companyId}
         constructionSubitemId={row.subitemId}
@@ -221,10 +217,9 @@ export default function SashEstimateEditor({ companyId, row, onPatch }) {
         usageRanking={row.sashUsageRanking}
         onSelect={(entry, usage) => onPatch({
           ...buildSashEstimateSelectionPatch(entry),
-          ...(!isBalconySashCategory(entry) ? { sashSpecialItemSelections: [] } : {}),
           sashSelectionSource: "manual",
           sashUsageCount: usage?.usageCount ?? 0,
-        })}
+        }, { immediate: true })}
       />
 
       {spec && (
@@ -273,7 +268,10 @@ export default function SashEstimateEditor({ companyId, row, onPatch }) {
                 <span>창 유형</span>
                 <select
                   value={spec.window_type ?? SASH_WINDOW_TYPES.UNSPECIFIED}
-                  onChange={(event) => patchSpec({ window_type: event.target.value })}
+                  onChange={(event) => onPatch(
+                    buildSashEstimateSpecPatch(spec, { window_type: event.target.value }),
+                    { immediate: true }
+                  )}
                 >
                   <option value={SASH_WINDOW_TYPES.UNSPECIFIED}>선택 필요</option>
                   <option value={SASH_WINDOW_TYPES.SINGLE}>단창</option>
@@ -281,7 +279,7 @@ export default function SashEstimateEditor({ companyId, row, onPatch }) {
                 </select>
               </label>
               <label>
-                <span>{usesAreaPricing ? "헤베 단가" : "고정 금액"}</span>
+                <span>{usesAreaPricing ? "헤베 단가" : "총액 직접입력"}</span>
                 <div className="sash-estimate-field__unit">
                   <input
                     type="text"
@@ -301,18 +299,16 @@ export default function SashEstimateEditor({ companyId, row, onPatch }) {
               <span>{usesAreaPricing ? "헤베" : "수량"} <strong>{usesAreaPricing ? pricingConfirmed ? formatHebe(row.quantity) : "미확정" : "1식"}</strong></span>
               <span>샷시 금액 <strong>{pricingConfirmed ? <PriceText value={sashBaseAmount} size="sm" /> : "미확정"}</strong></span>
               {specialItemsAmount > 0 && (
-                <span>특이사항 <strong><PriceText value={specialItemsAmount} size="sm" /></strong></span>
+                <span>추가 작업 <strong><PriceText value={specialItemsAmount} size="sm" /></strong></span>
               )}
             </div>
           </section>
 
-          {isBalconySashCategory(row) && (
-            <SashEstimateSpecialItems
-              companyId={companyId}
-              selections={row.sashSpecialItemSelections ?? []}
-              onChange={(sashSpecialItemSelections) => onPatch({ sashSpecialItemSelections })}
-            />
-          )}
+          <SashEstimateSpecialItems
+            companyId={companyId}
+            selections={row.sashSpecialItemSelections ?? []}
+            onChange={(sashSpecialItemSelections, options) => onPatch({ sashSpecialItemSelections }, options)}
+          />
         </>
       )}
     </div>

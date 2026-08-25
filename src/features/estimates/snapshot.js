@@ -9,7 +9,7 @@ import {
 } from "../../shared/utils/numbers";
 import {
   getEstimateItemsDataAdjustments,
-  getEstimateItemsDataItems,
+  getEstimateItemsDataDraftItems,
   getEstimateItemsDataMeta,
   getEstimateItemsDataSiteMemo,
   toConstructionDays,
@@ -102,6 +102,7 @@ export function buildConditionSnapshot({
 
 export function buildEstimateItemsData({
   items,
+  draftItems = items,
   adjustments,
   siteMemo,
   estimateMeta,
@@ -112,6 +113,7 @@ export function buildEstimateItemsData({
 }) {
   return {
     items,
+    draftItems,
     adjustments,
     siteMemo: `${siteMemo ?? ""}`.trim(),
     estimateMeta,
@@ -142,7 +144,7 @@ export function buildEstimateInsertPayload({
 }
 
 export function restoreEstimateDraft(estimate) {
-  const savedItems = getEstimateItemsDataItems(estimate?.items_data);
+  const savedItems = getEstimateItemsDataDraftItems(estimate?.items_data);
   const snapshot = estimate?.condition_snapshot ?? {};
   const groupedItems = {};
   const catalogGroups = [];
@@ -199,7 +201,7 @@ export function restoreEstimateDraft(estimate) {
       totalAmount: toNumberOrZero(item.totalAmount ?? item.price ?? item.amount),
       hasTemplateValue: true,
       expanded: false,
-      selected: true,
+      selected: item.selected !== false,
     });
   });
 

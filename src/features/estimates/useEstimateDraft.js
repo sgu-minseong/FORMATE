@@ -33,6 +33,8 @@ export function useEstimateDraft() {
   const [estimateCatalog, setEstimateCatalog] = useState([]);
   const [estimateLoading, setEstimateLoading] = useState(false);
   const [estimateSaving, setEstimateSaving] = useState(false);
+  const [estimateAutoSaveStatus, setEstimateAutoSaveStatus] = useState("idle");
+  const [estimateAutoSaveError, setEstimateAutoSaveError] = useState("");
   const [estimateError, setEstimateError] = useState("");
   const [estimateNotice, setEstimateNotice] = useState("");
   const [estimateDraftSource, setEstimateDraftSource] = useState("template");
@@ -69,6 +71,8 @@ export function useEstimateDraft() {
     estimateCatalog, setEstimateCatalog,
     estimateLoading, setEstimateLoading,
     estimateSaving, setEstimateSaving,
+    estimateAutoSaveStatus, setEstimateAutoSaveStatus,
+    estimateAutoSaveError, setEstimateAutoSaveError,
     estimateError, setEstimateError,
     estimateNotice, setEstimateNotice,
     estimateDraftSource, setEstimateDraftSource,

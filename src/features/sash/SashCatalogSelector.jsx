@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Pin } from "lucide-react";
 import PriceText from "../../components/PriceText";
 import {
   fetchActiveSashCatalogEntries,
@@ -10,7 +11,6 @@ import {
   getSashCategoryLabel,
   getSashEntryArea,
   getSashFrameSpec,
-  getSashSpecLabel,
   orderSashCatalogEntriesForDisplay,
   SASH_CATEGORIES,
   SASH_PRICING_BASES,
@@ -50,14 +50,6 @@ export default function SashCatalogSelector({
       rankedEntry,
     ])
   ), [usageRanking]);
-  const visibleCategories = useMemo(() => {
-    const categories = [SASH_CATEGORIES.STANDARD, SASH_CATEGORIES.BALCONY];
-    if (
-      entries.some((entry) => getSashCategory(entry) === SASH_CATEGORIES.UNSPECIFIED)
-      || activeCategory === SASH_CATEGORIES.UNSPECIFIED
-    ) categories.push(SASH_CATEGORIES.UNSPECIFIED);
-    return categories;
-  }, [activeCategory, entries]);
   const categoryEntries = useMemo(() => entries.filter((entry) => (
     getSashCategory(entry) === activeCategory
   )), [activeCategory, entries]);
@@ -68,7 +60,8 @@ export default function SashCatalogSelector({
 
   useEffect(() => {
     if (!selectedSashSpec) return;
-    setActiveCategory(getSashCategory(selectedSashSpec));
+    const selectedCategory = getSashCategory(selectedSashSpec);
+    if (selectedCategory !== SASH_CATEGORIES.UNSPECIFIED) setActiveCategory(selectedCategory);
   }, [selectedEntryId, selectedSashSpec]);
 
   useEffect(() => {
@@ -105,11 +98,10 @@ export default function SashCatalogSelector({
   return (
     <section className="sash-selector" aria-label="샷시 규격 선택">
       <div className="sash-selector__header">
-        <strong>샷시 규격 선택</strong>
-        <span>현장 규격을 하나 선택하세요.</span>
+        <strong>제품</strong>
       </div>
       <div className="sash-selector__category-tabs" role="tablist" aria-label="샷시 제품 분류">
-        {visibleCategories.map((sashCategory) => (
+        {[SASH_CATEGORIES.STANDARD, SASH_CATEGORIES.BALCONY].map((sashCategory) => (
           <button
             key={sashCategory}
             type="button"
@@ -122,11 +114,6 @@ export default function SashCatalogSelector({
           </button>
         ))}
       </div>
-      {selectedSashSpec && !orderedEntries.some((entry) => entry.id === selectedEntryId) && (
-        <p className="sash-selector__snapshot">
-          현재 선택: {getSashSpecLabel(selectedSashSpec)} · {formatSashArea(selectedSashSpec.area_sqm)}
-        </p>
-      )}
       {orderedEntries.length ? (
         <div className="sash-selector__list">
           {orderedEntries.map((entry) => {
@@ -145,7 +132,7 @@ export default function SashCatalogSelector({
                 <span className="sash-selector__copy">
                   <strong>
                     {entry.brand} / {getSashFrameSpec(entry)}
-                    {pinned && <em className="sash-selector__pin">고정됨</em>}
+                    {pinned && <Pin className="sash-selector__pin" size={13} strokeWidth={1.5} fill="currentColor" aria-label="대표제품" />}
                     {usage?.usageCount > 0 && (
                       <em className="sash-selector__usage">
                         {usage.usageCount}회 사용
@@ -173,9 +160,7 @@ export default function SashCatalogSelector({
           })}
         </div>
       ) : (
-        <p className="sash-selector__status">
-          등록된 샷시 규격이 없습니다. 단가표 관리에서 샷시 규격을 먼저 등록하세요.
-        </p>
+        <p className="sash-selector__status">등록된 제품이 없습니다.</p>
       )}
     </section>
   );

@@ -14,6 +14,7 @@ import {
   Home,
   Image,
   MessageSquare,
+  Pin,
   Plus,
   Printer,
   RefreshCcw,
@@ -21,7 +22,6 @@ import {
   Search,
   SlidersHorizontal,
   Upload,
-  Star,
   TriangleAlert,
   Trash2,
   Users,
@@ -116,6 +116,7 @@ import DeleteSavedEstimateDialog from "../features/estimates/DeleteSavedEstimate
 import {
   fetchEstimateConstructionCatalogRows,
   fetchSavedEstimateLists,
+  saveEstimateDraft,
   saveEstimateDraftWithTemplate,
   moveSavedEstimateToTrash,
   restoreSavedEstimate,
@@ -124,6 +125,7 @@ import {
 } from "../features/estimates/estimateApi";
 import {
   buildSelectedEstimateRows,
+  buildEstimateDraftRows,
   buildEstimateSummary,
   calculateEstimateRow,
   cleanEstimateAdjustments as getCleanEstimateAdjustments,
@@ -2225,6 +2227,8 @@ export default function AdminApp() {
     estimateCatalog, setEstimateCatalog,
     estimateLoading, setEstimateLoading,
     estimateSaving, setEstimateSaving,
+    estimateAutoSaveStatus, setEstimateAutoSaveStatus,
+    estimateAutoSaveError, setEstimateAutoSaveError,
     estimateError, setEstimateError,
     estimateNotice, setEstimateNotice,
     estimateDraftSource, setEstimateDraftSource,
@@ -2247,6 +2251,16 @@ export default function AdminApp() {
   }
   const estimateItemsRef = useRef(items);
   estimateItemsRef.current = items;
+  const estimateAutoSaveTimerRef = useRef(null);
+  const estimateAutoSaveRunningRef = useRef(false);
+  const estimateAutoSaveQueuedRef = useRef(false);
+  const estimateAutoSaveRunnerRef = useRef(null);
+  estimateAutoSaveRunnerRef.current = () => saveEstimateToSupabase({ auto: true });
+  useEffect(() => () => {
+    if (estimateAutoSaveTimerRef.current !== null) {
+      globalThis.clearTimeout(estimateAutoSaveTimerRef.current);
+    }
+  }, []);
   const [estimatePhotoViewerIndex, setEstimatePhotoViewerIndex] = useState(null);
   const [selectedAdminPyeong, setSelectedAdminPyeong] = useState("");
   const [selectedAdminBuildType, setSelectedAdminBuildType] = useState("");
@@ -5610,7 +5624,6 @@ export default function AdminApp() {
         ),
         markBootstrapAttempted: () => {
           adminCatalogBootstrapAttemptedRef.current.add(companyId);
-          setEstimateNotice("FORMATE 기본 시공항목을 준비하고 있습니다.");
         },
       });
       if (
@@ -5618,7 +5631,6 @@ export default function AdminApp() {
         || companyId !== selectedCompanyIdRef.current
       ) return false;
       const { itemRows, subitemRows } = snapshot;
-      const defaultCatalogPrepared = snapshot.bootstrapped;
 
       let templateValueRows = [];
       let templateFound = false;
@@ -5629,16 +5641,7 @@ export default function AdminApp() {
         if (templateRow?.id) {
           templateFound = true;
           templateValueRows = await fetchAdminTemplateValues(templateRow.id);
-          if (defaultCatalogPrepared) {
-            setEstimateNotice("기본 시공항목이 준비되었습니다. 단가표와 견적 템플릿을 바탕으로 견적서를 작성할 수 있습니다.");
-          } else if (templateValueRows.length) {
-            setEstimateNotice("저장된 견적 템플릿의 기본 수량과 기본 인원을 불러왔습니다. 이번 현장에 맞게 수정할 수 있습니다.");
-          }
-        } else {
-          setEstimateNotice("저장된 견적 템플릿이 없어 단가표 항목을 불러왔습니다. 수량과 인원은 현장에 맞게 입력하세요.");
         }
-      } else if (forceBlank) {
-        setEstimateNotice("빈 견적서로 시작했습니다. 단가표 항목은 불러왔고, 수량과 인원은 직접 입력하세요.");
       }
 
       if (
@@ -5683,6 +5686,11 @@ export default function AdminApp() {
 
       setEstimateCatalog(catalog);
       setItems(draftResult.items);
+      if (!preserveDraft) {
+        clearEstimateAutoSaveTimer();
+        setEstimateAutoSaveStatus("idle");
+        setEstimateAutoSaveError("");
+      }
       setEstimateTemplateConflicts(draftResult.conflicts);
       setEstimateTemplateConditionKey(makeConditionKey(nextCondition));
       if (!preserveDraft) setActiveCategories([]);
@@ -5737,6 +5745,9 @@ export default function AdminApp() {
 
       setEstimateCatalog(catalog);
       setItems(nextItems);
+      clearEstimateAutoSaveTimer();
+      setEstimateAutoSaveStatus("idle");
+      setEstimateAutoSaveError("");
       setActiveCategories([]);
       setOpenCategory(catalog[0]?.id ?? "");
       setEstimateDraftSource("blank");
@@ -5764,13 +5775,61 @@ export default function AdminApp() {
     return calculateEstimateRow(row);
   }
 
-  function updateItem(categoryId, index, patch) {
+  function clearEstimateAutoSaveTimer() {
+    if (estimateAutoSaveTimerRef.current === null) return;
+    globalThis.clearTimeout(estimateAutoSaveTimerRef.current);
+    estimateAutoSaveTimerRef.current = null;
+  }
+
+  async function runEstimateAutoSave() {
+    clearEstimateAutoSaveTimer();
+    if (estimateAutoSaveRunningRef.current) {
+      estimateAutoSaveQueuedRef.current = true;
+      return;
+    }
+    estimateAutoSaveRunningRef.current = true;
+    setEstimateAutoSaveStatus("saving");
+    setEstimateAutoSaveError("");
+    try {
+      const saved = await estimateAutoSaveRunnerRef.current?.();
+      setEstimateAutoSaveStatus(saved === false ? "dirty" : "saved");
+    } catch (error) {
+      setEstimateAutoSaveStatus("error");
+      setEstimateAutoSaveError(getFriendlyError(error, "견적 작업본을 자동 저장하지 못했습니다."));
+    } finally {
+      estimateAutoSaveRunningRef.current = false;
+      if (estimateAutoSaveQueuedRef.current) {
+        estimateAutoSaveQueuedRef.current = false;
+        estimateAutoSaveTimerRef.current = globalThis.setTimeout(() => {
+          estimateAutoSaveTimerRef.current = null;
+          void runEstimateAutoSave();
+        }, 800);
+      }
+    }
+  }
+
+  function queueEstimateAutoSave({ immediate = false } = {}) {
+    clearEstimateAutoSaveTimer();
+    setEstimateAutoSaveStatus((current) => (current === "saving" ? current : "dirty"));
+    setEstimateAutoSaveError("");
+    if (estimateAutoSaveRunningRef.current) {
+      estimateAutoSaveQueuedRef.current = true;
+      return;
+    }
+    estimateAutoSaveTimerRef.current = globalThis.setTimeout(() => {
+      estimateAutoSaveTimerRef.current = null;
+      void runEstimateAutoSave();
+    }, immediate ? 0 : 800);
+  }
+
+  function updateItem(categoryId, index, patch, { immediate = false } = {}) {
     setItems((current) => ({
       ...current,
       [categoryId]: current[categoryId].map((row, rowIndex) =>
         rowIndex === index ? recalculateEstimateRow(applyEstimateRowPatch(row, patch)) : row
       ),
     }));
+    queueEstimateAutoSave({ immediate });
   }
 
   function getEstimateTemplateConflict(row, categoryId) {
@@ -6205,6 +6264,8 @@ export default function AdminApp() {
     const restoredDraft = restoreEstimateDraft(estimate);
     const restoredConditionVariant = restoredDraft.condition.conditionVariant;
 
+    clearEstimateAutoSaveTimer();
+    estimateAutoSaveQueuedRef.current = false;
     estimateAggregateIdRef.current = copy ? null : estimate.id;
     estimateClientDraftKeyRef.current = copy
       ? createEstimateDraftKey()
@@ -6241,6 +6302,8 @@ export default function AdminApp() {
     setStep(3);
     setSelectedEstimate(null);
     setEstimateError("");
+    setEstimateAutoSaveStatus(copy ? "idle" : "saved");
+    setEstimateAutoSaveError("");
     setEstimateNotice(copy ? "기존 견적서를 복사한 새 초안입니다. 고객 정보와 현장 정보를 입력한 뒤 저장하세요." : "");
     setEstimateDraftSource("template");
     setEstimateConditionEditMode(false);
@@ -6325,6 +6388,8 @@ export default function AdminApp() {
   }
 
   function resetEstimateDraftForNewStart() {
+    clearEstimateAutoSaveTimer();
+    estimateAutoSaveQueuedRef.current = false;
     estimateAggregateIdRef.current = null;
     estimateClientDraftKeyRef.current = createEstimateDraftKey();
     estimateBlankCatalogRequestRef.current += 1;
@@ -6357,6 +6422,8 @@ export default function AdminApp() {
     setEstimateCatalog([]);
     setEstimateError("");
     setEstimateNotice("");
+    setEstimateAutoSaveStatus("idle");
+    setEstimateAutoSaveError("");
     setEstimateDraftSource("template");
     setEstimateConditionEditMode(false);
     setEstimateTemplateConflicts([]);
@@ -6978,7 +7045,7 @@ export default function AdminApp() {
                   ::
                 </span>
                 <span className="admin-price-v2-category-name">
-                  {item.is_favorite && <Star size={14} fill="currentColor" />}
+                  {item.is_favorite && <Pin size={14} fill="currentColor" />}
                   <span>{item.name}</span>
                 </span>
                 <span className="admin-price-v2-category-count">{(item.subitems ?? []).length}개</span>
@@ -7102,7 +7169,7 @@ export default function AdminApp() {
                   ::
                 </span>
                 <span className="admin-price-v2-category-name">
-                  {item.is_favorite && <Star size={14} fill="currentColor" />}
+                  {item.is_favorite && <Pin size={14} fill="currentColor" />}
                   <span>{item.name}</span>
                 </span>
                 <span className="admin-price-v2-category-count">{(item.subitems ?? []).length}개</span>
@@ -7766,7 +7833,7 @@ export default function AdminApp() {
         <section className="admin-price-v2-workspace admin-items-v2-workspace">
           <header className="admin-price-v2-header admin-items-v2-header">
             <div className="items-v2-titleline">
-              <h1>기본 견적 설정</h1>
+              <h1>견적 템플릿 만들기</h1>
             </div>
             <div className="items-v2-header-actions">
               <Button
@@ -7787,9 +7854,11 @@ export default function AdminApp() {
               >
                 {excelExportTarget === EXCEL_IMPORT_TARGETS.TEMPLATES ? "내보내는 중" : "Excel 내보내기"}
               </Button>
-              <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
-                {getAutoSaveStatusLabel()}
-              </span>
+              {!isSashItem(item) && (
+                <span className={`autosave-pill ${autoSaveStatus}`.trim()} title={autoSaveError || getAutoSaveStatusLabel()}>
+                  {getAutoSaveStatusLabel()}
+                </span>
+              )}
               <Button
                 variant="secondary"
                 size="sm"
@@ -7870,7 +7939,7 @@ export default function AdminApp() {
           ) : (
             <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section">
               <EmptyState
-                title="기본 견적 설정을 불러오지 못했습니다."
+                title="견적 템플릿을 불러오지 못했습니다."
                 description="오류 내용을 확인한 뒤 되돌리기를 눌러 다시 시도하세요."
               />
             </section>
@@ -8079,18 +8148,21 @@ export default function AdminApp() {
     }
   }
 
-  async function saveEstimateToSupabase() {
-    setEstimateSaving(true);
-    setEstimateError("");
-    setEstimateNotice("");
+  async function saveEstimateToSupabase({ auto = false } = {}) {
+    if (!auto) {
+      clearEstimateAutoSaveTimer();
+      setEstimateSaving(true);
+      setEstimateError("");
+      setEstimateNotice("");
+    }
     try {
       if (!isSupabaseConfigured) {
         throw new Error(".env에 VITE_SUPABASE_URL과 VITE_SUPABASE_ANON_KEY를 입력해야 합니다.");
       }
-      if (!selectedRows.length) {
+      if (!auto && !selectedRows.length) {
         throw new Error("견적서에 포함할 소재를 하나 이상 선택하세요.");
       }
-      const incompleteSashRow = selectedRows.find((row) => (
+      const incompleteSashRow = !auto && selectedRows.find((row) => (
         row.itemKind === "sash" && getSashEstimateRowValidationMessage(row)
       ));
       if (incompleteSashRow) throw new Error(getSashEstimateRowValidationMessage(incompleteSashRow));
@@ -8106,6 +8178,14 @@ export default function AdminApp() {
       });
       const itemsData = buildEstimateItemsData({
         items: selectedRows,
+        draftItems: buildEstimateDraftRows({
+          items,
+          estimateCatalog,
+          fallbackCategories: categories,
+          conditionPyeong: condition.size,
+          estimatePyeong,
+          getSpecLabel: getEstimateRowSpecLabel,
+        }),
         adjustments: cleanEstimateAdjustments,
         siteMemo,
         estimateMeta: {
@@ -8130,8 +8210,8 @@ export default function AdminApp() {
         itemsData,
         total,
       });
-      const templateWrite = getBlankEstimateTemplateWrite();
-      const saveResult = await saveEstimateDraftWithTemplate({
+      const templateWrite = auto ? null : getBlankEstimateTemplateWrite();
+      const saveOptions = {
         estimate: estimatePayload,
         estimateId: estimateAggregateIdRef.current,
         clientDraftKey: estimateClientDraftKeyRef.current,
@@ -8140,13 +8220,18 @@ export default function AdminApp() {
         projectName: address.trim(),
         templateCondition: templateWrite?.condition ?? null,
         templateValues: templateWrite?.values ?? [],
-      });
+      };
+      const saveResult = auto
+        ? await saveEstimateDraft(saveOptions)
+        : await saveEstimateDraftWithTemplate(saveOptions);
       estimateAggregateIdRef.current = saveResult.estimateId;
       updateEstimateListResource({
         status: "idle",
         companyId,
         scopeKey: "estimates",
       });
+
+      if (auto) return true;
 
       const createdTemplate = Boolean(saveResult.templateCreated);
 
@@ -8159,10 +8244,14 @@ export default function AdminApp() {
       setPreviewBackPage("items");
       setEstimatePreviewType("general");
       setPage("preview");
+      setEstimateAutoSaveStatus("saved");
+      return true;
     } catch (error) {
+      if (auto) throw error;
       setEstimateError(getFriendlyError(error, "견적서를 저장하지 못했어요. 다시 시도해주세요."));
+      return false;
     } finally {
-      setEstimateSaving(false);
+      if (!auto) setEstimateSaving(false);
     }
   }
 
@@ -8282,8 +8371,8 @@ export default function AdminApp() {
       : "";
     const itemTableColumns = [
       { key: "selected", label: "", width: "32px" },
-      { key: "material", label: "소재명" },
-      { key: "spec", label: "규격", width: "120px" },
+      { key: "material", label: "소재명", width: "38%" },
+      { key: "spec", label: "규격", width: "26%" },
       { key: "quantity", label: "수량", align: "right", width: "100px" },
       { key: "unit", label: "단위", width: "60px" },
       { key: "totalAmount", label: "합계", align: "right", width: "140px" },
@@ -8310,7 +8399,7 @@ export default function AdminApp() {
               onChange={(event) => updateItem(openCategory, rowIndex, {
                 selected: event.target.checked,
                 ...(row.itemKind === "sash" && event.target.checked ? { expanded: true } : {}),
-              })}
+              }, { immediate: true })}
             />
           </label>
         );
@@ -8338,7 +8427,7 @@ export default function AdminApp() {
               {row.itemKind === "sash"
                 && row.sashSelectionSource === "pinned" && (
                   <em className="items-v2-badge items-v2-badge--muted">
-                    고정
+                    <Pin size={12} strokeWidth={1.5} fill="currentColor" /> 대표
                   </em>
                 )}
               {row.selected && <em className="items-v2-badge items-v2-badge--selected">포함</em>}
@@ -8346,7 +8435,7 @@ export default function AdminApp() {
                 <em className="items-v2-badge items-v2-badge--warning">규격 선택 필요</em>
               ) : row.itemKind === "sash" && row.selected && !isSashEstimateSpecPricingConfirmed(row.sashSpec) ? (
                 <em className="items-v2-badge items-v2-badge--warning">창 유형 선택 필요</em>
-              ) : !row.hasTemplateValue && (
+              ) : row.itemKind !== "sash" && !row.hasTemplateValue && (
                 <em className="items-v2-badge items-v2-badge--warning">미입력</em>
               )}
             </span>
@@ -8358,10 +8447,10 @@ export default function AdminApp() {
         if (row.itemKind === "sash") {
           return (
             <span
-              className={row.sashSpec ? "" : "items-v2-muted-value"}
+              className={`items-v2-sash-summary ${row.sashSpec ? "" : "items-v2-muted-value"}`.trim()}
               title={getEstimateRowSpecLabel(row) || undefined}
             >
-              {getEstimateRowSpecLabel(row) || "샷시 규격을 선택하세요"}
+              {getEstimateRowSpecLabel(row) || "제품 미선택"}
             </span>
           );
         }
@@ -8417,6 +8506,11 @@ export default function AdminApp() {
         if (row.itemKind === "sash" && row.selected && !isSashEstimateSpecPricingConfirmed(row.sashSpec)) {
           return <span className="items-v2-muted-value">미확정</span>;
         }
+        if (row.itemKind === "sash" && !row.selected) {
+          return row.sashSpec
+            ? <span className="items-v2-sash-preview-amount"><PriceText value={row.totalAmount} size="sm" /></span>
+            : <span className="items-v2-muted-value">—</span>;
+        }
         return <PriceText value={row.totalAmount} size="sm" />;
       }
 
@@ -8462,19 +8556,12 @@ export default function AdminApp() {
           {row.expanded && (
             <div className="items-v2-detail-panel">
               {row.itemKind === "sash" && (
-                <>
-                  {row.selected ? (
-                    <SashEstimateEditor
-                      companyId={selectedCompanyId}
-                      row={row}
-                      onPatch={(patch) => updateItem(openCategory, rowIndex, patch)}
-                    />
-                  ) : (
-                    <p className="items-v2-detail-note">
-                      견적에 포함한 뒤 실제 현장에 맞는 샷시 규격을 선택하세요.
-                    </p>
-                  )}
-                </>
+                <SashEstimateEditor
+                  companyId={selectedCompanyId}
+                  row={row}
+                  included={Boolean(row.selected)}
+                  onPatch={(patch, options) => updateItem(openCategory, rowIndex, patch, options)}
+                />
               )}
               {row.itemKind !== "sash" && (
                 <>
@@ -8762,6 +8849,12 @@ export default function AdminApp() {
               <span>{estimateConditionDisplay}</span>
             </div>
             <div className="items-v2-header-actions">
+              <span className={`autosave-pill ${estimateAutoSaveStatus}`.trim()} title={estimateAutoSaveError || undefined}>
+                {estimateAutoSaveStatus === "saving" ? "저장 중…" : estimateAutoSaveStatus === "error" ? "저장 실패" : estimateAutoSaveStatus === "saved" ? "저장됨" : "자동 저장"}
+              </span>
+              {estimateAutoSaveStatus === "error" && (
+                <button type="button" className="sash-autosave-retry" onClick={runEstimateAutoSave}>재시도</button>
+              )}
               <Button
                 variant="primary"
                 onClick={() => openEstimatePreview("general")}
@@ -8828,11 +8921,9 @@ export default function AdminApp() {
             <div className="items-v2-section-header">
               <div>
                 <h2>{currentCategory?.name || "공사 항목"} 견적 내역</h2>
-                <p>
-                  {currentCategory?.item_kind === "sash"
-                    ? "평형과 무관한 샷시 규격을 선택합니다."
-                    : condition.size ? `${condition.size}평 템플릿` : "견적 템플릿"}
-                </p>
+                {currentCategory?.item_kind !== "sash" && (
+                  <p>{condition.size ? `${condition.size}평 템플릿` : "견적 템플릿"}</p>
+                )}
               </div>
               <span>{currentRows.length}개 항목</span>
             </div>
@@ -9576,13 +9667,13 @@ export default function AdminApp() {
             <div className="ai-setup-header">
               <div>
                 <p className="eyebrow dark">Excel 가져오기</p>
-                <h2 id="excel-import-modal-title">{excelImportTarget === EXCEL_IMPORT_TARGETS.PRICES ? "단가표 Excel 업로드" : "기본 견적 설정 Excel 업로드"}</h2>
+                <h2 id="excel-import-modal-title">{excelImportTarget === EXCEL_IMPORT_TARGETS.PRICES ? "단가표 Excel 업로드" : "견적 템플릿 Excel 업로드"}</h2>
                 <p className="muted">
                   기존 Excel 단가표를 분석해 FORMATE 항목으로 가져옵니다. 저장 전 결과를 검토할 수 있습니다.
                 </p>
               </div>
               <div className="excel-import-modal-head-actions">
-                <span className="ai-status-pill">대상: {excelImportTarget === EXCEL_IMPORT_TARGETS.PRICES ? "단가표" : "기본 견적 설정"}</span>
+                <span className="ai-status-pill">대상: {excelImportTarget === EXCEL_IMPORT_TARGETS.PRICES ? "단가표" : "견적 템플릿"}</span>
                 <span className={`ai-status-pill ${aiSetupStatus}`.trim()}>{aiSetupStatusLabel}</span>
                 <Button variant="tertiary" size="sm" onClick={closeExcelImport}>닫기</Button>
               </div>

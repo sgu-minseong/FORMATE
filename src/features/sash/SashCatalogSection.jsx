@@ -6,9 +6,10 @@ import SashCatalogGrid from "./SashCatalogGrid";
 import SashSpecialItemsManager from "./SashSpecialItemsManager";
 
 const PRIMARY_SASH_CATEGORIES = [SASH_CATEGORIES.STANDARD, SASH_CATEGORIES.BALCONY];
+const SASH_SPECIAL_ITEMS_VIEW = "special-items";
 
 function confirmDiscardSashDraft() {
-  return window.confirm("저장하지 않은 샷시 관리 변경이 있습니다. 변경 내용을 버리고 이동할까요?");
+  return window.confirm("아직 입력 중인 빈 샷시 행이 있습니다. 이 행을 버리고 이동할까요?");
 }
 
 export default function SashCatalogSection({
@@ -33,7 +34,7 @@ export default function SashCatalogSection({
   onSubitemNameInput,
 }) {
   const [openSubitemId, setOpenSubitemId] = useState("");
-  const [activeCategories, setActiveCategories] = useState({});
+  const [activeViews, setActiveViews] = useState({});
   const [catalogDirty, setCatalogDirty] = useState(false);
   const [specialItemsDirty, setSpecialItemsDirty] = useState(false);
   const [entryCounts, setEntryCounts] = useState({});
@@ -45,7 +46,7 @@ export default function SashCatalogSection({
 
   useEffect(() => {
     setOpenSubitemId("");
-    setActiveCategories({});
+    setActiveViews({});
     setCatalogDirty(false);
     setSpecialItemsDirty(false);
   }, [item?.id]);
@@ -119,7 +120,7 @@ export default function SashCatalogSection({
     }
     if (openSubitemId && !canLeaveOpenEditor()) return;
     setOpenSubitemId(subitemId);
-    setActiveCategories((current) => ({
+    setActiveViews((current) => ({
       ...current,
       [subitemId]: current[subitemId] ?? SASH_CATEGORIES.STANDARD,
     }));
@@ -127,10 +128,10 @@ export default function SashCatalogSection({
     setSpecialItemsDirty(false);
   }
 
-  function changeCategory(subitemId, sashCategory) {
-    if (activeCategories[subitemId] === sashCategory) return;
+  function changeView(subitemId, view) {
+    if (activeViews[subitemId] === view) return;
     if (!canLeaveOpenEditor()) return;
-    setActiveCategories((current) => ({ ...current, [subitemId]: sashCategory }));
+    setActiveViews((current) => ({ ...current, [subitemId]: view }));
     setCatalogDirty(false);
     setSpecialItemsDirty(false);
   }
@@ -158,14 +159,26 @@ export default function SashCatalogSection({
 
       {subitems.map((subitem) => {
         const expanded = openSubitemId === subitem.id;
-        const activeCategory = activeCategories[subitem.id] ?? SASH_CATEGORIES.STANDARD;
+        const activeView = activeViews[subitem.id] ?? SASH_CATEGORIES.STANDARD;
         const categoryCounts = entryCounts[subitem.id] ?? {};
-        const visibleCategories = (
-          Number(categoryCounts[SASH_CATEGORIES.UNSPECIFIED] ?? 0) > 0
-          || activeCategory === SASH_CATEGORIES.UNSPECIFIED
-        )
-          ? [...PRIMARY_SASH_CATEGORIES, SASH_CATEGORIES.UNSPECIFIED]
-          : PRIMARY_SASH_CATEGORIES;
+        const unspecifiedCount = Number(categoryCounts[SASH_CATEGORIES.UNSPECIFIED] ?? 0);
+        const categoryNavigation = (
+          <div className="sash-catalog-section__navigation">
+            <div className="sash-catalog-section__category-tabs" role="tablist" aria-label={`${subitem.name} 샷시 관리`}>
+              {[...PRIMARY_SASH_CATEGORIES, SASH_SPECIAL_ITEMS_VIEW].map((view) => (
+                <button key={view} type="button" role="tab" aria-selected={activeView === view} className={activeView === view ? "active" : ""} onClick={() => changeView(subitem.id, view)}>
+                  {view === SASH_SPECIAL_ITEMS_VIEW ? "추가작업" : getSashCategoryLabel(view)}
+                  {view !== SASH_SPECIAL_ITEMS_VIEW && <span>{Number(categoryCounts[view] ?? 0)}</span>}
+                </button>
+              ))}
+            </div>
+            {unspecifiedCount > 0 && (
+              <button type="button" className={`sash-catalog-section__maintenance ${activeView === SASH_CATEGORIES.UNSPECIFIED ? "active" : ""}`.trim()} aria-pressed={activeView === SASH_CATEGORIES.UNSPECIFIED} onClick={() => changeView(subitem.id, SASH_CATEGORIES.UNSPECIFIED)}>
+                미분류 {unspecifiedCount}
+              </button>
+            )}
+          </div>
+        );
         return (
           <div
             key={subitem.id}
@@ -211,26 +224,23 @@ export default function SashCatalogSection({
 
             {expanded && (
               <div className="sash-catalog-section__editor">
-                <div className="sash-catalog-section__category-tabs" role="tablist" aria-label={`${subitem.name} 샷시 분류`}>
-                  {visibleCategories.map((sashCategory) => (
-                    <button key={sashCategory} type="button" role="tab" aria-selected={activeCategory === sashCategory} className={activeCategory === sashCategory ? "active" : ""} onClick={() => changeCategory(subitem.id, sashCategory)}>
-                      {getSashCategoryLabel(sashCategory)}
-                      <span>{Number(categoryCounts[sashCategory] ?? 0)}</span>
-                    </button>
-                  ))}
-                </div>
-                <SashCatalogGrid
-                  companyId={companyId}
-                  subitem={subitem}
-                  sashCategory={activeCategory}
-                  initialDefaultPyeong={pyeong}
-                  title={`${subitem.name} ${getSashCategoryLabel(activeCategory)} 샷시 규격`}
-                  onDirtyChange={handleEditorDirtyChange}
-                  onEntryCategoryMove={handleEntryCategoryMove}
-                  onPersistedCountChange={handlePersistedCountChange}
-                />
-                {activeCategory === SASH_CATEGORIES.BALCONY && (
-                  <SashSpecialItemsManager companyId={companyId} onDirtyChange={handleSpecialItemsDirtyChange} />
+                {activeView === SASH_SPECIAL_ITEMS_VIEW ? (
+                  <>
+                    <div className="sash-catalog-grid__toolbar">{categoryNavigation}</div>
+                    <SashSpecialItemsManager companyId={companyId} onDirtyChange={handleSpecialItemsDirtyChange} />
+                  </>
+                ) : (
+                  <SashCatalogGrid
+                    companyId={companyId}
+                    subitem={subitem}
+                    sashCategory={activeView}
+                    initialDefaultPyeong={pyeong}
+                    categoryNavigation={categoryNavigation}
+                    title={`${subitem.name} ${getSashCategoryLabel(activeView)} 샷시 규격`}
+                    onDirtyChange={handleEditorDirtyChange}
+                    onEntryCategoryMove={handleEntryCategoryMove}
+                    onPersistedCountChange={handlePersistedCountChange}
+                  />
                 )}
               </div>
             )}

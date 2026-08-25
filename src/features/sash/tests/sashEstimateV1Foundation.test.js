@@ -246,7 +246,7 @@ describe("sash estimate v1 domain contract", () => {
     expect(payload).not.toHaveProperty("area_sqm");
   });
 
-  it("selects canonical special-item IDs and freezes direct amounts in balcony snapshots", () => {
+  it("selects canonical special-item IDs for both categories and freezes direct amounts", () => {
     const selection = buildSashSpecialItemSelection(canonicalSpecialItem);
     const secondSelection = buildSashSpecialItemSelection({
       ...canonicalSpecialItem,
@@ -298,7 +298,11 @@ describe("sash estimate v1 domain contract", () => {
     expect(buildSashSpecialItemSelectionsSnapshot(
       [selection],
       SASH_CATEGORIES.STANDARD
-    )).toEqual([]);
+    )).toEqual([selection]);
+    expect(getSashSpecialItemSelectionsAmount(
+      [selection],
+      SASH_CATEGORIES.STANDARD
+    )).toBe(150000);
     expect(() => buildSashSpecialItemSelectionsSnapshot([{
       sashSpecialItemId: "special-item-a",
       sashSpecialItemSnapshot: {

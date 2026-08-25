@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Archive, Plus, Save } from "lucide-react";
+import { Archive, Plus } from "lucide-react";
 import Table from "../../components/ui/Table";
+import useDebouncedAutosave from "../../shared/hooks/useDebouncedAutosave";
 import { formatDisplayDate } from "../../shared/utils/dates";
 import {
   formatMoneyInputValue,
@@ -31,14 +32,20 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
   const [loaded, setLoaded] = useState(false);
   const [savingId, setSavingId] = useState("");
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const [dirtyItemIds, setDirtyItemIds] = useState(() => new Set());
   const firstDraftInputRef = useRef(null);
+  const itemsRef = useRef(items);
+  const dirtyItemIdsRef = useRef(dirtyItemIds);
+  const itemRevisionsRef = useRef(new Map());
+  itemsRef.current = items;
+  dirtyItemIdsRef.current = dirtyItemIds;
+  const autosave = useDebouncedAutosave({ save: persistDirtyItems });
+  const persistedItemCount = items.filter((item) => !isLocalSashSpecialItem(item)).length;
 
   useEffect(() => {
-    onDirtyChange?.(dirtyItemIds.size > 0);
-  }, [dirtyItemIds, onDirtyChange]);
+    onDirtyChange?.(items.some(isLocalSashSpecialItem));
+  }, [items, onDirtyChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +59,6 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
     setLoading(true);
     setLoaded(false);
     setError("");
-    setNotice("");
     setDirtyItemIds(new Set());
     fetchActiveSashSpecialItems(companyId)
       .then((rows) => {
@@ -66,7 +72,7 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
           setItems([]);
           setError(getFriendlySpecialItemError(
             nextError,
-            "베란다 특이사항을 불러오지 못했습니다. 다시 시도해주세요."
+            "추가 작업을 불러오지 못했습니다. 다시 시도해주세요."
           ));
         }
       })
@@ -80,51 +86,87 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
   }, [companyId, reloadToken]);
 
   function patchItem(itemId, patch) {
-    setItems((current) => current.map((item) => (
+    const nextItems = itemsRef.current.map((item) => (
       item.id === itemId ? { ...item, ...patch } : item
-    )));
-    setDirtyItemIds((current) => new Set(current).add(itemId));
+    ));
+    const nextDirtyIds = new Set(dirtyItemIdsRef.current).add(itemId);
+    itemRevisionsRef.current.set(itemId, (itemRevisionsRef.current.get(itemId) ?? 0) + 1);
+    itemsRef.current = nextItems;
+    dirtyItemIdsRef.current = nextDirtyIds;
+    setItems(nextItems);
+    setDirtyItemIds(nextDirtyIds);
+    autosave.markDirty();
   }
 
   function addItem() {
     const nextItem = createLocalSashSpecialItem({ sortOrder: items.length });
-    setItems((current) => [...current, nextItem]);
-    setDirtyItemIds((current) => new Set(current).add(nextItem.id));
+    const nextItems = [...itemsRef.current, nextItem];
+    itemsRef.current = nextItems;
+    setItems(nextItems);
     setError("");
-    setNotice("");
     window.requestAnimationFrame(() => firstDraftInputRef.current?.focus());
   }
 
-  async function saveItem(item) {
+  async function persistDirtyItems() {
+    const dirtyIds = [...dirtyItemIdsRef.current];
+    let hasIncompleteDraft = false;
+    for (const itemId of dirtyIds) {
+      const item = itemsRef.current.find((candidate) => candidate.id === itemId);
+      if (!item) continue;
+      const validationError = getSashSpecialItemValidationError(item);
+      if (validationError) {
+        if (isLocalSashSpecialItem(item)) {
+          hasIncompleteDraft = true;
+          continue;
+        }
+        throw new Error(validationError);
+      }
+      await saveItem(item, { autosave: true });
+    }
+    return !hasIncompleteDraft;
+  }
+
+  async function saveItem(item, { autosave: isAutosave = false } = {}) {
     const validationError = getSashSpecialItemValidationError(item);
     if (validationError) {
-      setError(validationError);
-      return;
+      if (!isAutosave || !isLocalSashSpecialItem(item)) setError(validationError);
+      return false;
     }
 
+    const revisionAtSave = itemRevisionsRef.current.get(item.id) ?? 0;
     setSavingId(item.id);
     setError("");
-    setNotice("");
     try {
       const savedItem = isLocalSashSpecialItem(item)
         ? await insertSashSpecialItem(item, companyId)
         : await updateSashSpecialItem(item, companyId);
-      setItems((current) => current.map((currentItem) => (
-        currentItem.id === item.id
-          ? normalizeSashSpecialItem(savedItem)
-          : currentItem
-      )));
-      setDirtyItemIds((current) => {
-        const next = new Set(current);
-        next.delete(item.id);
-        return next;
-      });
-      setNotice("베란다 특이사항을 저장했습니다.");
-    } catch (nextError) {
-      setError(getFriendlySpecialItemError(
-        nextError,
-        "베란다 특이사항을 저장하지 못했습니다. 입력값과 권한을 확인해주세요."
+      const normalizedSavedItem = normalizeSashSpecialItem(savedItem);
+      const currentRevision = itemRevisionsRef.current.get(item.id) ?? 0;
+      const latestItem = itemsRef.current.find((candidate) => candidate.id === item.id);
+      const replacementItem = currentRevision === revisionAtSave || !latestItem
+        ? normalizedSavedItem
+        : { ...normalizedSavedItem, ...latestItem, id: normalizedSavedItem.id };
+      const nextItems = itemsRef.current.map((currentItem) => (
+        currentItem.id === item.id ? replacementItem : currentItem
       ));
+      const nextDirtyIds = new Set(dirtyItemIdsRef.current);
+      nextDirtyIds.delete(item.id);
+      if (currentRevision !== revisionAtSave) nextDirtyIds.add(normalizedSavedItem.id);
+      itemsRef.current = nextItems;
+      dirtyItemIdsRef.current = nextDirtyIds;
+      setItems(nextItems);
+      setDirtyItemIds(nextDirtyIds);
+      if (currentRevision !== revisionAtSave) {
+        itemRevisionsRef.current.set(normalizedSavedItem.id, currentRevision);
+      }
+      return true;
+    } catch (nextError) {
+      const message = getFriendlySpecialItemError(
+        nextError,
+        "추가 작업을 저장하지 못했습니다. 입력값과 권한을 확인해주세요."
+      );
+      setError(message);
+      throw new Error(message);
     } finally {
       setSavingId("");
     }
@@ -132,43 +174,43 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
 
   async function archiveItem(item) {
     if (isLocalSashSpecialItem(item)) {
-      setItems((current) => current.filter((currentItem) => currentItem.id !== item.id));
-      setDirtyItemIds((current) => {
-        const next = new Set(current);
-        next.delete(item.id);
-        return next;
-      });
+      const nextItems = itemsRef.current.filter((currentItem) => currentItem.id !== item.id);
+      const nextDirtyIds = new Set(dirtyItemIdsRef.current);
+      nextDirtyIds.delete(item.id);
+      itemsRef.current = nextItems;
+      dirtyItemIdsRef.current = nextDirtyIds;
+      setItems(nextItems);
+      setDirtyItemIds(nextDirtyIds);
       return;
     }
-    if (!window.confirm(`“${item.description}” 특이사항을 보관할까요?`)) return;
+    if (!window.confirm(`“${item.description}” 추가 작업을 보관할까요?`)) return;
 
     setSavingId(item.id);
     setError("");
-    setNotice("");
     try {
       await archiveSashSpecialItem(item.id, companyId);
-      setItems((current) => current.filter((currentItem) => currentItem.id !== item.id));
-      setDirtyItemIds((current) => {
-        const next = new Set(current);
-        next.delete(item.id);
-        return next;
-      });
-      setNotice("베란다 특이사항을 보관했습니다.");
+      const nextItems = itemsRef.current.filter((currentItem) => currentItem.id !== item.id);
+      const nextDirtyIds = new Set(dirtyItemIdsRef.current);
+      nextDirtyIds.delete(item.id);
+      itemsRef.current = nextItems;
+      dirtyItemIdsRef.current = nextDirtyIds;
+      setItems(nextItems);
+      setDirtyItemIds(nextDirtyIds);
     } catch (nextError) {
-      setError(getFriendlySpecialItemError(nextError, "베란다 특이사항을 보관하지 못했습니다."));
+      setError(getFriendlySpecialItemError(nextError, "추가 작업을 보관하지 못했습니다."));
     } finally {
       setSavingId("");
     }
   }
 
   const columns = [
-    { key: "description", label: "설명", width: "260px" },
-    { key: "width_mm", label: "기본 가로", align: "right", width: "112px" },
-    { key: "height_mm", label: "기본 세로", align: "right", width: "112px" },
-    { key: "area_sqm", label: "면적", align: "right", width: "96px" },
-    { key: "amount", label: "직접입력 금액", align: "right", width: "144px" },
-    { key: "updated_at", label: "최종 저장일", width: "104px" },
-    { key: "actions", label: "", width: "64px" },
+    { key: "description", label: "설명", width: "220px" },
+    { key: "width_mm", label: "가로", align: "right", width: "96px" },
+    { key: "height_mm", label: "세로", align: "right", width: "96px" },
+    { key: "area_sqm", label: "면적", align: "right", width: "88px" },
+    { key: "amount", label: "금액", align: "right", width: "120px" },
+    { key: "updated_at", label: "저장일", width: "84px" },
+    { key: "actions", label: "", width: "40px" },
   ];
 
   function renderCell({ row, column }) {
@@ -179,8 +221,9 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
           ref={isLocalSashSpecialItem(row) ? firstDraftInputRef : undefined}
           className="ui-table__input"
           value={row.description}
-          aria-label="특이사항 설명"
+          aria-label="추가 작업 설명"
           onChange={(event) => patchItem(row.id, { description: event.target.value })}
+          onBlur={autosave.run}
         />
       );
     }
@@ -192,10 +235,11 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
             type="text"
             inputMode="numeric"
             value={row[column.key]}
-            aria-label={column.key === "width_mm" ? "특이사항 기본 가로 mm" : "특이사항 기본 세로 mm"}
+            aria-label={column.key === "width_mm" ? "추가 작업 기본 가로 mm" : "추가 작업 기본 세로 mm"}
             onChange={(event) => patchItem(row.id, {
               [column.key]: event.target.value.replace(/[^\d]/g, ""),
             })}
+            onBlur={autosave.run}
           />
           <span>mm</span>
         </div>
@@ -216,10 +260,11 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
             type="text"
             inputMode="numeric"
             value={formatMoneyInputValue(row.amount)}
-            aria-label="특이사항 직접입력 금액"
+            aria-label="추가 작업 직접입력 금액"
             onChange={(event) => patchItem(row.id, {
               amount: stripNumberInputFormatting(event.target.value),
             })}
+            onBlur={autosave.run}
           />
           <span>원</span>
         </div>
@@ -239,17 +284,7 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
             type="button"
             className="items-v2-icon-button"
             disabled={isSaving}
-            aria-label="베란다 특이사항 저장"
-            title="저장"
-            onClick={() => saveItem(row)}
-          >
-            <Save size={16} strokeWidth={1.5} />
-          </button>
-          <button
-            type="button"
-            className="items-v2-icon-button"
-            disabled={isSaving}
-            aria-label="베란다 특이사항 보관"
+            aria-label="추가 작업 보관"
             title="보관"
             onClick={() => archiveItem(row)}
           >
@@ -264,24 +299,23 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
   return (
     <section className="sash-special-items" aria-labelledby="sash-special-items-title">
       <div className="sash-special-items__header">
-        <div>
-          <h4 id="sash-special-items-title">베란다 특이사항</h4>
-          <span>회사 공통 · 평수 무관</span>
-        </div>
-        {loaded && <span>{items.length}개</span>}
+        <h4 id="sash-special-items-title">추가 작업 {loaded ? persistedItemCount : ""}</h4>
+        <span className={`sash-autosave-status ${autosave.status === "error" ? "error" : ""}`.trim()} aria-live="polite">
+          {autosave.status === "saving" ? "저장 중…" : autosave.status === "error" ? "저장 실패" : autosave.status === "saved" ? "저장됨" : ""}
+        </span>
+        {autosave.status === "error" && <button className="sash-autosave-retry" type="button" onClick={autosave.retry}>재시도</button>}
       </div>
 
       {error && items.length > 0 && <div className="error-box sash-catalog-grid__message">{error}</div>}
-      {notice && <div className="status-box sash-catalog-grid__message" aria-live="polite">{notice}</div>}
 
       {loading ? (
-        <div className="admin-items-v2-loading-table sash-catalog-grid__loading" aria-label="베란다 특이사항 불러오는 중">
+        <div className="admin-items-v2-loading-table sash-catalog-grid__loading" aria-label="추가 작업 불러오는 중">
           <div className="admin-items-v2-loading-row" />
           <div className="admin-items-v2-loading-row" />
         </div>
       ) : error && !items.length ? (
         <div className="sash-catalog-grid__empty">
-          <span>베란다 특이사항을 불러오지 못했습니다.</span>
+          <span>추가 작업을 불러오지 못했습니다.</span>
           <button type="button" onClick={() => setReloadToken((current) => current + 1)}>다시 시도</button>
         </div>
       ) : items.length ? (
@@ -289,15 +323,16 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
           columns={columns}
           rows={items}
           renderCell={renderCell}
-          rowHeight={44}
+          rowHeight={40}
           stickyHeader
+          scrollCue
           className="sash-special-items__table"
         />
       ) : (
         <div className="sash-catalog-grid__empty">
-          <span>등록된 베란다 특이사항이 없습니다.</span>
+          <span>등록된 추가 작업이 없습니다.</span>
           <button type="button" onClick={addItem}>
-            <Plus size={16} strokeWidth={1.5} />특이사항 추가
+            <Plus size={16} strokeWidth={1.5} />추가
           </button>
         </div>
       )}
@@ -310,7 +345,7 @@ export default function SashSpecialItemsManager({ companyId, onDirtyChange }) {
           onClick={addItem}
         >
           <Plus size={16} strokeWidth={1.5} />
-          특이사항 추가
+          추가
         </button>
       )}
     </section>

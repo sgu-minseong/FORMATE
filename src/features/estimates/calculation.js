@@ -131,7 +131,7 @@ export function buildEstimateSummary(rows, adjustments = []) {
   };
 }
 
-export function buildSelectedEstimateRows({
+export function buildEstimateDraftRows({
   items,
   estimateCatalog,
   fallbackCategories,
@@ -143,7 +143,6 @@ export function buildSelectedEstimateRows({
     const catalogItem = (estimateCatalog ?? []).find((entry) => entry.id === categoryId);
     const fallbackCategory = (fallbackCategories ?? []).find((entry) => entry.id === categoryId);
     return (rows ?? [])
-      .filter((row) => row.selected)
       .map((row) => {
         const calculated = calculateEstimateRow(row);
         const quantity = toNumberOrZero(row?.quantity);
@@ -156,6 +155,7 @@ export function buildSelectedEstimateRows({
           categoryName: row.itemName ?? catalogItem?.name ?? fallbackCategory?.name ?? categoryId,
           itemType: row.itemType ?? catalogItem?.item_type ?? "itemized",
           itemKind: row.itemKind ?? catalogItem?.item_kind ?? "standard",
+          selected: Boolean(row.selected),
           subitemId: row.subitemId,
           material: row.displayMaterial ?? row.material,
           sashCatalogEntryId: row.sashCatalogEntryId ?? "",
@@ -196,6 +196,10 @@ export function buildSelectedEstimateRows({
   });
 }
 
+export function buildSelectedEstimateRows(options) {
+  return buildEstimateDraftRows(options).filter((row) => row.selected);
+}
+
 export function getTemporaryTaxAmount(amount) {
   return Math.round(toNumberOrZero(amount) * 0.1);
 }
@@ -204,6 +208,11 @@ export function getEstimateItemsDataItems(itemsData) {
   if (Array.isArray(itemsData)) return itemsData;
   if (Array.isArray(itemsData?.items)) return itemsData.items;
   return [];
+}
+
+export function getEstimateItemsDataDraftItems(itemsData) {
+  if (Array.isArray(itemsData?.draftItems)) return itemsData.draftItems;
+  return getEstimateItemsDataItems(itemsData);
 }
 
 export function getEstimateItemsDataAdjustments(itemsData) {

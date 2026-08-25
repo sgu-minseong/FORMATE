@@ -12018,6 +12018,9 @@ const appStyles = `
     background: var(--color-primary-soft);
     box-shadow: inset 3px 0 0 var(--color-primary);
   }
+  .sash-catalog-section__row.expanded {
+    margin-bottom: var(--space-1);
+  }
   .sash-catalog-section__row.dragging {
     opacity: 0.56;
   }
@@ -12079,10 +12082,20 @@ const appStyles = `
     min-height: 28px;
     padding: 0;
   }
+  .sash-catalog-section__actions .admin-price-v2-danger-button {
+    background: transparent;
+    color: var(--color-text-muted);
+  }
+  .sash-catalog-section__actions .admin-price-v2-danger-button:hover {
+    background: var(--color-danger-bg);
+    color: var(--color-danger);
+  }
   .sash-catalog-section__editor {
     min-width: 0;
+    margin-left: 40px;
     border-top: 1px solid var(--color-border);
-    background: var(--color-surface);
+    border-left: 1px solid var(--color-border);
+    background: var(--color-surface-subtle);
   }
   .sash-catalog-section__add-subitem {
     border-bottom: 1px solid var(--color-border);
@@ -12091,11 +12104,31 @@ const appStyles = `
     display: inline-flex;
     align-items: center;
     width: fit-content;
-    margin: var(--space-1) var(--space-table-cell-x);
+    margin: 0;
     padding: 2px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-button);
     background: var(--color-surface-subtle);
+  }
+  .sash-catalog-section__navigation {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .sash-catalog-section__maintenance {
+    min-height: 28px;
+    border: 0;
+    padding: 0 var(--space-1);
+    background: transparent;
+    color: var(--color-text-muted);
+    font: inherit;
+    font-size: var(--font-size-caption);
+    cursor: pointer;
+  }
+  .sash-catalog-section__maintenance.active {
+    color: var(--color-primary);
+    font-weight: var(--font-weight-semibold);
   }
   .sash-catalog-section__category-tabs button {
     display: inline-flex;
@@ -12124,6 +12157,10 @@ const appStyles = `
   .sash-catalog-section__category-tabs button span {
     color: var(--color-text-muted);
     font-variant-numeric: var(--font-variant-numeric);
+  }
+  .sash-catalog-section__category-tabs button.compatibility,
+  .sash-selector__category-tabs button.compatibility {
+    color: var(--color-text-muted);
   }
   .sash-catalog-section__message {
     margin: var(--space-1);
@@ -12178,11 +12215,47 @@ const appStyles = `
     box-shadow: var(--focus-ring);
   }
   .sash-catalog-grid__table {
-    min-width: 1820px;
+    min-width: 1448px;
+    table-layout: fixed;
   }
   .sash-catalog-grid .ui-table-wrap {
     border: 0;
     border-radius: 0;
+  }
+  .sash-catalog-grid .ui-table th,
+  .sash-catalog-grid .ui-table td,
+  .sash-special-items .ui-table th,
+  .sash-special-items .ui-table td {
+    padding-right: var(--space-1);
+    padding-left: var(--space-1);
+  }
+  .sash-catalog-grid .items-v2-inline-select {
+    width: 100%;
+    min-width: 0;
+    height: 30px;
+    border-color: transparent;
+    border-radius: 0;
+    padding: 0 4px;
+    background: transparent;
+    font-size: var(--font-size-table-cell);
+  }
+  .sash-catalog-grid .items-v2-inline-select:hover {
+    border-color: var(--color-border);
+    background: var(--color-surface-subtle);
+  }
+  .sash-catalog-grid .items-v2-inline-select:focus {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+  }
+  .sash-catalog-grid__toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    min-height: 36px;
+    padding: 2px var(--space-1);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
   }
   .sash-catalog-grid__number-input {
     display: grid;
@@ -12196,15 +12269,17 @@ const appStyles = `
     font-size: var(--font-size-table-cell);
     font-variant-numeric: var(--font-variant-numeric);
   }
+  .sash-catalog-grid__number-input input {
+    text-align: right;
+    font-variant-numeric: var(--font-variant-numeric);
+  }
 
   .sash-catalog-grid__pin-context {
     display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: var(--space-1-5);
-    padding: var(--space-1) var(--space-table-cell-x);
-    border-top: 1px solid var(--color-border);
-    border-bottom: 1px solid var(--color-border);
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+    min-width: 0;
   }
   .sash-catalog-grid__pin-context > strong {
     align-self: center;
@@ -12213,8 +12288,9 @@ const appStyles = `
     white-space: nowrap;
   }
   .sash-catalog-grid__pin-context > label {
-    display: grid;
-    gap: var(--space-0-5);
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
   }
   .sash-catalog-grid__pin-context > .muted {
     align-self: center;
@@ -12226,22 +12302,48 @@ const appStyles = `
     font-size: var(--font-size-table-cell);
     font-variant-numeric: var(--font-variant-numeric);
   }
-  .sash-catalog-grid__pin {
+  .sash-catalog-grid__pin-context .items-v2-inline-select {
+    width: 92px;
+    white-space: nowrap;
+  }
+  .sash-catalog-grid .ui-table__input::placeholder {
+    color: var(--color-text-muted);
+  }
+  .sash-autosave-status {
+    min-width: 48px;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .sash-autosave-status.error {
+    color: var(--color-danger);
+  }
+  .sash-autosave-retry {
     min-height: 24px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-badge);
-    padding: 0 var(--space-1);
-    background: var(--color-surface);
-    color: var(--color-text-secondary);
+    border: 0;
+    padding: 0 4px;
+    background: transparent;
+    color: var(--color-danger);
     font: inherit;
-    font-size: var(--font-size-table-header);
+    font-size: var(--font-size-caption);
+    cursor: pointer;
+  }
+  .sash-catalog-grid__pin {
+    display: inline-grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border: 0;
+    border-radius: var(--radius-button);
+    padding: 0;
+    background: transparent;
+    color: var(--color-text-muted);
     cursor: pointer;
   }
   .sash-catalog-grid__pin.is-pinned {
-    border-color: var(--color-primary);
     background: var(--color-primary-soft);
     color: var(--color-primary);
-    font-weight: var(--font-weight-semibold);
   }
   .sash-catalog-grid__pin:disabled {
     opacity: 0.5;
@@ -12267,7 +12369,11 @@ const appStyles = `
   .sash-catalog-grid__actions {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: var(--space-0-5);
+  }
+  .sash-catalog-grid__actions .items-v2-icon-button {
+    color: var(--color-text-muted);
   }
   .sash-catalog-grid__delete:hover {
     background: var(--color-danger-bg);
@@ -12279,7 +12385,7 @@ const appStyles = `
     justify-content: flex-start;
     gap: var(--space-1);
     width: fit-content;
-    min-height: var(--button-height);
+    min-height: 28px;
     border: 0;
     background: transparent;
     color: var(--color-primary);
@@ -12338,44 +12444,45 @@ const appStyles = `
   }
   .sash-special-items {
     min-width: 0;
-    border-top: 1px solid var(--color-border);
-    background: var(--color-surface);
+    margin: var(--space-0-5) var(--space-1) var(--space-1) var(--space-3);
+    border-left: 1px solid var(--color-border);
+    background: transparent;
   }
   .sash-special-items__header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    min-height: 52px;
-    padding: var(--space-1) var(--space-table-cell-x);
+    justify-content: flex-start;
+    gap: var(--space-1);
+    min-height: 28px;
+    padding: 0 var(--space-1);
     border-bottom: 1px solid var(--color-border);
-    background: var(--color-header-bg);
-  }
-  .sash-special-items__header > div {
-    display: grid;
-    gap: var(--space-0-5);
+    background: transparent;
   }
   .sash-special-items__header h4 {
     margin: 0;
-    color: var(--color-text-primary);
-    font-size: var(--font-size-body);
-    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
   }
   .sash-special-items__header span {
     color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
+  }
+  .sash-special-items__header .sash-autosave-status {
+    margin-left: auto;
   }
   .sash-special-items .ui-table-wrap {
     border: 0;
     border-radius: 0;
   }
   .sash-special-items__table {
-    min-width: 900px;
+    min-width: 760px;
+    table-layout: fixed;
   }
   .sash-selector {
     display: grid;
     gap: var(--space-1);
-    width: min(100%, 760px);
+    width: 100%;
   }
   .sash-selector__header {
     display: flex;
@@ -12451,22 +12558,19 @@ const appStyles = `
     white-space: nowrap;
   }
   .sash-selector__pin {
-    display: inline-flex;
-    margin-left: 8px;
-    border-radius: var(--radius-badge);
-    padding: 1px 6px;
-    background: var(--color-primary-soft);
+    display: inline-block;
+    margin-left: var(--space-1);
     color: var(--color-primary-700);
-    font-size: 11px;
-    font-style: normal;
-    font-weight: 700;
-    white-space: nowrap;
+    vertical-align: -2px;
   }
   .sash-estimate-editor {
     display: grid;
     grid-column: 1 / -1;
     gap: var(--space-2);
     min-width: 0;
+  }
+  .sash-estimate-editor.is-preview .sash-estimate-spec__calculation {
+    color: var(--color-text-muted);
   }
   .sash-estimate-spec,
   .sash-estimate-special {
@@ -12521,13 +12625,18 @@ const appStyles = `
     width: 100%;
     min-width: 0;
     height: var(--button-height);
-    border: 1px solid var(--color-border-strong);
+    border: 1px solid transparent;
     border-radius: var(--radius-input);
     padding: 0 var(--space-input-x);
-    background: var(--color-surface);
+    background: var(--color-surface-subtle);
     color: var(--color-text-primary);
     font: inherit;
     font-size: var(--font-size-table-cell);
+  }
+  .sash-estimate-spec__fields select:hover,
+  .sash-estimate-spec__fields input:hover,
+  .sash-estimate-special__row input:hover {
+    border-color: var(--color-border);
   }
   .sash-estimate-spec__fields select:focus,
   .sash-estimate-spec__fields input:focus,
@@ -12539,10 +12648,13 @@ const appStyles = `
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    border: 1px solid var(--color-border-strong);
+    border: 1px solid transparent;
     border-radius: var(--radius-input);
-    background: var(--color-surface);
+    background: var(--color-surface-subtle);
     overflow: hidden;
+  }
+  .sash-estimate-field__unit:hover {
+    border-color: var(--color-border);
   }
   .sash-estimate-field__unit:focus-within {
     border-color: var(--color-primary);
@@ -12550,6 +12662,8 @@ const appStyles = `
   .sash-estimate-field__unit input {
     border: 0;
     border-radius: 0;
+    text-align: right;
+    font-variant-numeric: var(--font-variant-numeric);
   }
   .sash-estimate-field__unit input:focus {
     border: 0;
@@ -12578,13 +12692,9 @@ const appStyles = `
   }
   .sash-estimate-special__header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
-  }
-  .sash-estimate-special__header > div {
-    display: grid;
-    gap: var(--space-0-5);
   }
   .sash-estimate-special__header strong {
     color: var(--color-text-primary);
@@ -12594,6 +12704,21 @@ const appStyles = `
   .sash-estimate-special__header span {
     color: var(--color-text-secondary);
     font-size: var(--font-size-caption);
+  }
+  .items-v2-sash-summary {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .items-v2-sash-preview-amount {
+    color: var(--color-text-muted);
+    opacity: 0.72;
+  }
+  .items-v2-badge > svg {
+    flex: 0 0 auto;
   }
   .sash-estimate-special__options {
     display: grid;
@@ -12629,6 +12754,9 @@ const appStyles = `
     gap: var(--space-1);
     padding: var(--space-1) 0;
     border-bottom: 1px solid var(--color-border);
+  }
+  .sash-estimate-special__description input {
+    text-align: left;
   }
   .sash-estimate-special__readonly strong {
     display: flex;
@@ -12799,7 +12927,11 @@ const appStyles = `
     .sash-estimate-special__row {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .sash-estimate-special__description {
+  .sash-estimate-special__description {
+    text-align: left;
+  }
+  .sash-estimate-special__description input {
+    text-align: left;
       grid-column: 1 / -1;
     }
   }

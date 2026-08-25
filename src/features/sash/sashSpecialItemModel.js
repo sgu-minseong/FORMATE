@@ -2,10 +2,7 @@ import {
   hasNumericInput,
   toNonNegativeNumberOrZero,
 } from "../../shared/utils/numbers";
-import {
-  getSashAreaPreview,
-  isBalconySashCategory,
-} from "./sashCatalogModel";
+import { getSashAreaPreview } from "./sashCatalogModel";
 
 export const LOCAL_SASH_SPECIAL_ITEM_PREFIX = "local-sash-special-item-";
 const SASH_SPECIAL_ITEM_SNAPSHOT_VERSION = 1;
@@ -148,11 +145,7 @@ function normalizeSashSpecialItemSelection(selection) {
   };
 }
 
-export function buildSashSpecialItemSelectionsSnapshot(
-  selections = [],
-  sashContext = null
-) {
-  if (!isBalconySashCategory(sashContext)) return [];
+export function buildSashSpecialItemSelectionsSnapshot(selections = []) {
   const seenIds = new Set();
   return (selections ?? []).map((selection) => {
     const normalized = normalizeSashSpecialItemSelection(selection);
@@ -164,11 +157,7 @@ export function buildSashSpecialItemSelectionsSnapshot(
   });
 }
 
-export function getSashSpecialItemSelectionsAmount(
-  selections = [],
-  sashContext = null
-) {
-  if (!isBalconySashCategory(sashContext)) return 0;
+export function getSashSpecialItemSelectionsAmount(selections = []) {
   return (selections ?? []).reduce((sum, selection) => {
     const snapshot = selection?.sashSpecialItemSnapshot ?? selection?.snapshot ?? selection;
     return sum + toNonNegativeNumberOrZero(snapshot?.amount);

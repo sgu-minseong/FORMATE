@@ -477,12 +477,14 @@ export default function PriceTablePage({
             >
               {excelExporting ? "내보내는 중" : "Excel 내보내기"}
             </Button>
-            <span
-              className={`autosave-pill ${autoSaveStatus}`.trim()}
-              title={autoSaveError || getAutoSaveStatusLabel()}
-            >
-              {getAutoSaveStatusLabel()}
-            </span>
+            {getConstructionItemRendererKind(item) !== CONSTRUCTION_ITEM_RENDERER_KINDS.SASH && (
+              <span
+                className={`autosave-pill ${autoSaveStatus}`.trim()}
+                title={autoSaveError || getAutoSaveStatusLabel()}
+              >
+                {getAutoSaveStatusLabel()}
+              </span>
+            )}
             <Button
               variant="secondary"
               size="sm"

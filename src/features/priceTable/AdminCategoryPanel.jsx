@@ -1,4 +1,4 @@
-import { Star } from "lucide-react";
+import { Pin } from "lucide-react";
 
 export default function AdminCategoryPanel({
   ariaLabel = "대분류",
@@ -51,7 +51,7 @@ export default function AdminCategoryPanel({
                 ::
               </span>
               <span className="admin-price-v2-category-name">
-                {item.is_favorite && <Star size={14} fill="currentColor" />}
+                {item.is_favorite && <Pin size={14} fill="currentColor" />}
                 <span>{item.name}</span>
               </span>
               <span className="admin-price-v2-category-count">

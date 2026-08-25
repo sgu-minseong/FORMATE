@@ -1018,10 +1018,33 @@ textarea {
 }
 
 .ui-table-wrap {
+  position: relative;
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-table);
   background: var(--color-surface);
+}
+
+.ui-table-wrap--can-scroll-right::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  pointer-events: none;
+  background: rgb(31 41 51 / 0.14);
+  box-shadow: -12px 0 18px rgb(31 41 51 / 0.1);
+}
+
+.ui-table-wrap--can-scroll-right .ui-table-scroll {
+  scrollbar-color: rgb(98 108 125 / 0.34) transparent;
+}
+
+.ui-table-wrap--can-scroll-right .ui-table-scroll::-webkit-scrollbar-thumb {
+  background: rgb(98 108 125 / 0.34);
+  background-clip: padding-box;
 }
 
 .ui-table-scroll {
@@ -1084,6 +1107,20 @@ textarea {
   box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
+.ui-table .ui-table__cell--sticky {
+  position: sticky;
+  left: var(--ui-table-sticky-left, 0);
+  z-index: 2;
+}
+
+.ui-table--sticky-header th.ui-table__cell--sticky {
+  z-index: 4;
+}
+
+.ui-table .ui-table__cell--sticky-end {
+  box-shadow: 1px 0 0 var(--color-border), 6px 0 8px rgb(31 41 51 / 0.05);
+}
+
 .ui-table .ui-table__cell--right {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -1110,6 +1147,16 @@ textarea {
   border-color: var(--color-primary);
   background: var(--color-surface);
   outline: none;
+}
+
+.ui-table__input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+.ui-table__input:hover:not(:focus) {
+  border-color: var(--color-border);
+  background: var(--color-surface-subtle);
 }
 
 .ui-table__drag-cell {
