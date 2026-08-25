@@ -39,4 +39,15 @@ describe("global page shell contracts", () => {
     expect(styles).toMatch(/\.photo-management-page\.photo-management-landing\s*\{[^}]*padding:\s*0 var\(--space-2\) var\(--space-2\);/s);
     expect(operationsStyles).toMatch(/\.customer-projects-workspace-page\s*\{[^}]*gap:\s*var\(--space-1-5\);/s);
   });
+
+  it("uses standard arrow navigation without pressed movement", () => {
+    const shellSource = read("src/components/layout/AppShell.jsx");
+    const tokens = read("src/styles/tokens.css");
+
+    expect(shellSource).toContain("ArrowLeft");
+    expect(shellSource).toContain("ArrowRight");
+    expect(shellSource).not.toContain("ChevronLeft");
+    expect(shellSource).not.toContain("ChevronRight");
+    expect(tokens).toMatch(/\.formate-app-shell__history-button:active:not\(:disabled\)\s*\{[^}]*transform:\s*none/s);
+  });
 });

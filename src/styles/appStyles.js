@@ -7378,12 +7378,18 @@ const appStyles = `
     padding: 0;
   }
   .items-v2-page {
+    --estimate-photo-pane-width: clamp(320px, 24vw, 400px);
     display: grid;
-    grid-template-columns: var(--layout-local-sidebar) minmax(0, 1fr);
+    grid-template-columns: var(--layout-local-sidebar) minmax(0, 1fr) 0;
     min-height: 100dvh;
     min-width: 0;
+    overflow-x: clip;
     background: var(--color-bg);
     animation: none;
+    transition: grid-template-columns 200ms ease-out;
+  }
+  .items-v2-page--photo-pane-open {
+    grid-template-columns: var(--layout-local-sidebar) minmax(0, 1fr) var(--estimate-photo-pane-width);
   }
   .items-v2-category-sidebar {
     position: sticky;
@@ -7490,6 +7496,9 @@ const appStyles = `
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .items-v2-condition-edit {
+    flex: 0 0 auto;
+  }
   .items-v2-pyeong-controls {
     display: inline-flex;
     align-items: center;
@@ -7552,6 +7561,14 @@ const appStyles = `
   }
   .items-v2-table-section .ui-table {
     table-layout: fixed;
+  }
+  .items-v2-page--photo-pane-open .items-v2-table {
+    min-width: 760px;
+  }
+  .items-v2-page--photo-pane-open .items-v2-table th,
+  .items-v2-page--photo-pane-open .items-v2-table td {
+    padding-right: var(--space-1);
+    padding-left: var(--space-1);
   }
   .items-v2-table-section .ui-table th,
   .items-v2-table-section .ui-table td {
@@ -7667,6 +7684,126 @@ const appStyles = `
   }
   .items-v2-icon-button:active:not(:disabled) {
     opacity: 0.82;
+  }
+  .items-v2-photo-trigger.active {
+    background: transparent;
+    color: var(--color-primary);
+    box-shadow: inset 0 0 0 1px var(--color-primary-border);
+  }
+  .estimate-photo-context-pane {
+    position: sticky;
+    top: 0;
+    display: flex;
+    width: 100%;
+    height: 100dvh;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--color-surface);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 160ms ease-out, visibility 0s linear 200ms;
+  }
+  .estimate-photo-context-pane.is-open {
+    border-left: 1px solid var(--color-border);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
+  .estimate-photo-context-pane__header {
+    display: flex;
+    min-height: 52px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .estimate-photo-context-pane__header > div {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: var(--space-1);
+  }
+  .estimate-photo-context-pane__header h2 {
+    margin: 0;
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-body);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .estimate-photo-context-pane__header span {
+    flex: 0 0 auto;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+  }
+  .estimate-photo-context-pane__body {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--space-2);
+  }
+  .estimate-photo-context-pane__state {
+    margin: 0;
+    padding: var(--space-3) var(--space-1);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+    text-align: center;
+  }
+  .estimate-photo-context-pane__state--error {
+    color: var(--color-danger);
+  }
+  .estimate-photo-context-pane__list {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .estimate-photo-context-pane__list figure {
+    min-width: 0;
+    margin: 0;
+  }
+  .estimate-photo-context-pane__list button {
+    display: grid;
+    width: 100%;
+    min-height: 160px;
+    place-items: center;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-table);
+    background: var(--color-surface-subtle);
+    color: var(--color-text-muted);
+    cursor: zoom-in;
+  }
+  .estimate-photo-context-pane__list button:hover,
+  .estimate-photo-context-pane__list button:focus-visible {
+    border-color: var(--color-primary-border);
+  }
+  .estimate-photo-context-pane__list button:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+  .estimate-photo-context-pane__list img {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: calc(100dvh - 132px);
+  }
+  .estimate-photo-context-pane__list figcaption {
+    margin-top: var(--space-0-5);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
   }
   .items-v2-table-section .ui-table tbody tr.ui-table__expanded-row > td {
     height: auto;
@@ -8554,6 +8691,10 @@ const appStyles = `
   }
   .items-v2-table .items-v2-row--template-conflict td:first-child {
     box-shadow: inset 3px 0 0 var(--color-warning);
+  }
+  .items-v2-table .items-v2-row--photo-context {
+    outline: 1px solid var(--color-primary);
+    outline-offset: -1px;
   }
   .items-v2-inline-input--template-conflict,
   .items-v2-money-field--template-conflict {
@@ -9955,7 +10096,8 @@ const appStyles = `
     .success-box,
     .autosave-pill,
     .pyeong-photo-thumbnail-loading,
-    .admin-price-v2-category-item {
+    .admin-price-v2-category-item,
+    .estimate-photo-context-pane {
       animation: none !important;
       transition: none !important;
     }
@@ -11957,6 +12099,12 @@ const appStyles = `
     height: 54px;
     transform: translateY(-50%);
     z-index: 2;
+    transition: border-color 100ms ease, background-color 100ms ease;
+  }
+  .photo-viewer-nav:active:not(:disabled) {
+    transform: translateY(-50%);
+    border-color: rgba(255, 255, 255, 0.54);
+    background: rgba(255, 255, 255, 0.2);
   }
   .photo-viewer-nav.previous { left: clamp(8px, 2vw, 28px); }
   .photo-viewer-nav.next { right: clamp(8px, 2vw, 28px); }

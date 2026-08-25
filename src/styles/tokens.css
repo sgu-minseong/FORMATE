@@ -485,6 +485,11 @@ textarea {
   color: var(--text-inverse);
 }
 
+.formate-app-shell__history-button:active:not(:disabled) {
+  transform: none;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .formate-app-shell__history-button:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);

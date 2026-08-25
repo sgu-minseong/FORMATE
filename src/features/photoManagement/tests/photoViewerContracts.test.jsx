@@ -72,6 +72,24 @@ describe("common photo viewer contracts", () => {
     expect(source).toContain("event.target === event.currentTarget");
     expect(source).toContain('createPortal(viewer, document.body)');
   });
+
+  it("routes mouse and keyboard arrows through the same immediate navigation owners", () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), "src/components/PhotoViewer.jsx"),
+      "utf8"
+    );
+    const styles = fs.readFileSync(
+      path.resolve(process.cwd(), "src/styles/appStyles.js"),
+      "utf8"
+    );
+
+    expect(source).toContain("onClick={showPrevious}");
+    expect(source).toContain("onClick={showNext}");
+    expect(source.match(/showPrevious\(\);/g)).toHaveLength(1);
+    expect(source.match(/showNext\(\);/g)).toHaveLength(1);
+    expect(styles).toMatch(/\.photo-viewer-nav:active:not\(:disabled\)\s*\{[^}]*transform:\s*translateY\(-50%\)/s);
+    expect(styles).toMatch(/\.photo-viewer-nav\s*\{[^}]*transition:\s*border-color 100ms ease, background-color 100ms ease/s);
+  });
 });
 
 describe("canonical photo surfaces", () => {

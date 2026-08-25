@@ -14,6 +14,7 @@ import {
   Home,
   Image,
   MessageSquare,
+  Pencil,
   Pin,
   Plus,
   Printer,
@@ -168,6 +169,7 @@ import {
   getLegacyEstimateHistorySpecLabel,
 } from "../features/estimates/estimateHistoryCompatibility";
 import EstimateEditorPage from "../features/estimates/EstimateEditorPage";
+import EstimatePhotoContextPane from "../features/estimates/EstimatePhotoContextPane";
 import EstimatePreviewPage from "../features/estimates/EstimatePreviewPage";
 import SavedEstimatesPage from "../features/estimates/SavedEstimatesPage";
 import PhotoManagementPage from "../features/photoManagement/PhotoManagementPage";
@@ -2255,6 +2257,7 @@ export default function AdminApp() {
   const estimateAutoSaveRunningRef = useRef(false);
   const estimateAutoSaveQueuedRef = useRef(false);
   const estimateAutoSaveRunnerRef = useRef(null);
+  const estimateConditionBeforeQuickEditRef = useRef(null);
   estimateAutoSaveRunnerRef.current = () => saveEstimateToSupabase({ auto: true });
   useEffect(() => () => {
     if (estimateAutoSaveTimerRef.current !== null) {
@@ -5489,6 +5492,11 @@ export default function AdminApp() {
       loadCatalog: fetchEstimateCatalog,
     });
 
+    if (result.applied && preserveDraft) {
+      estimateConditionBeforeQuickEditRef.current = null;
+      queueEstimateAutoSave({ immediate: true });
+    }
+
     if (result.applied && navigateToItems) {
       setEstimateConditionEditMode(false);
       setEstimateConditionDrawerOpen(false);
@@ -5562,6 +5570,17 @@ export default function AdminApp() {
     setPage("condition");
   }
 
+  function openEstimateConditionQuickEdit() {
+    estimatePyeongChangeRef.current?.reset();
+    estimateConditionBeforeQuickEditRef.current = {
+      ...condition,
+      expansionSpaces: [...(condition.expansionSpaces ?? [])],
+    };
+    setEstimateConditionEditMode(true);
+    setEstimateConditionDrawerOpen(true);
+    setEstimateError("");
+  }
+
   function moveAppHistory(direction) {
     if (!canMoveInternalPageHistory(navigationHistory, direction)) return;
     const nextHistory = moveInternalPageHistory(navigationHistory, direction);
@@ -5592,6 +5611,13 @@ export default function AdminApp() {
     if (page === "condition") {
       moveAppHistory("back");
       return;
+    }
+    const previousCondition = estimateConditionBeforeQuickEditRef.current;
+    if (previousCondition) {
+      estimateConditionBeforeQuickEditRef.current = null;
+      estimateConditionRef.current = previousCondition;
+      setCondition(previousCondition);
+      setEstimateConditionEditMode(false);
     }
     setEstimateConditionDrawerOpen(false);
   }
@@ -8377,16 +8403,27 @@ export default function AdminApp() {
     const estimateConditionDrawerSummary = hasEstimateCondition && conditionChips.length > 0
       ? conditionChips.join(" · ")
       : "";
-    const itemTableColumns = [
-      { key: "selected", label: "", width: "32px" },
-      { key: "material", label: "소재명", width: "38%" },
-      { key: "spec", label: "규격", width: "26%" },
-      { key: "quantity", label: "수량", align: "right", width: "100px" },
-      { key: "unit", label: "단위", width: "60px" },
-      { key: "totalAmount", label: "합계", align: "right", width: "140px" },
-      { key: "photos", label: "사진", width: "56px" },
-      { key: "expanded", label: "", width: "48px" },
-    ];
+    const itemTableColumns = selectedPhotoSubitemId
+      ? [
+          { key: "selected", label: "", width: "34px" },
+          { key: "material", label: "소재명", width: "34%" },
+          { key: "spec", label: "규격", width: "18%" },
+          { key: "quantity", label: "수량", align: "right", width: "72px" },
+          { key: "unit", label: "단위", width: "44px" },
+          { key: "totalAmount", label: "합계", align: "right", width: "126px" },
+          { key: "photos", label: "사진", width: "44px" },
+          { key: "expanded", label: "", width: "44px" },
+        ]
+      : [
+          { key: "selected", label: "", width: "32px" },
+          { key: "material", label: "소재명", width: "38%" },
+          { key: "spec", label: "규격", width: "26%" },
+          { key: "quantity", label: "수량", align: "right", width: "100px" },
+          { key: "unit", label: "단위", width: "60px" },
+          { key: "totalAmount", label: "합계", align: "right", width: "140px" },
+          { key: "photos", label: "사진", width: "56px" },
+          { key: "expanded", label: "", width: "48px" },
+        ];
     const categoryItems = estimateCatalog.map((category) => ({
       id: category.id,
       label: category.name,
@@ -8526,7 +8563,8 @@ export default function AdminApp() {
         return (
           <button
             type="button"
-            className={`items-v2-icon-button ${selectedPhotoSubitemId === row.subitemId ? "active" : ""}`.trim()}
+            className={`items-v2-icon-button items-v2-photo-trigger ${selectedPhotoSubitemId === row.subitemId ? "active" : ""}`.trim()}
+            aria-pressed={selectedPhotoSubitemId === row.subitemId}
             aria-label={`${rowLabel} 사진보기`}
             title="사진보기"
             onClick={() => handleOpenItemPhotos(row)}
@@ -8554,15 +8592,12 @@ export default function AdminApp() {
     };
 
     const renderItemExpandedRow = ({ row, rowIndex }) => {
-      const photoPanel = renderEstimateItemPhotoPanel(row);
       const rowConflict = getEstimateTemplateConflict(row, openCategory);
-      if (!row.expanded && !photoPanel) return null;
+      if (!row.expanded) return null;
 
       return (
         <div className={`items-v2-expanded-stack ${row.itemKind === "sash" ? "items-v2-expanded-stack--sash" : ""}`.trim()}>
-          {photoPanel}
-          {row.expanded && (
-            <div className={`items-v2-detail-panel ${row.itemKind === "sash" ? "items-v2-detail-panel--sash" : ""}`.trim()}>
+          <div className={`items-v2-detail-panel ${row.itemKind === "sash" ? "items-v2-detail-panel--sash" : ""}`.trim()}>
               {row.itemKind === "sash" && (
                 <SashEstimateEditor
                   companyId={selectedCompanyId}
@@ -8631,8 +8666,7 @@ export default function AdminApp() {
               </label>
                 </>
               )}
-            </div>
-          )}
+          </div>
         </div>
       );
     };
@@ -8832,7 +8866,7 @@ export default function AdminApp() {
 
             <div className="estimate-condition-drawer__actions">
               <Button variant="primary" disabled={!hasEstimateCondition || estimateLoading} onClick={() => loadEstimateFromCondition()}>
-                {estimateLoading ? "불러오는 중..." : "기본 견적 불러오기"}
+                {estimateLoading ? "불러오는 중..." : estimateConditionEditMode ? "수정한 조건 적용" : "기본 견적 불러오기"}
               </Button>
             </div>
             <div className="estimate-condition-drawer__spacer" aria-hidden="true" />
@@ -8842,7 +8876,7 @@ export default function AdminApp() {
     };
 
     return renderAppShell(
-      <main className={`items-v2-page ${estimateConditionDrawerOpen ? "items-v2-page--condition-drawer-open" : ""}`.trim()}>
+      <main className={`items-v2-page ${selectedPhotoSubitemId ? "items-v2-page--photo-pane-open" : ""} ${estimateConditionDrawerOpen ? "items-v2-page--condition-drawer-open" : ""}`.trim()}>
         <CategorySidebar
           title="공사 항목"
           items={categoryItems}
@@ -8882,6 +8916,15 @@ export default function AdminApp() {
             <div className="items-v2-condition-summary">
               <span>현재 조건</span>
               <strong>{estimateConditionDisplay}</strong>
+              <Button
+                variant="tertiary"
+                size="sm"
+                className="items-v2-condition-edit"
+                leftIcon={<Pencil size={15} />}
+                onClick={openEstimateConditionQuickEdit}
+              >
+                조건 수정
+              </Button>
             </div>
             <div className="items-v2-pyeong-controls">
               <label htmlFor="items-v2-estimate-pyeong">견적 기준 평수</label>
@@ -8944,11 +8987,10 @@ export default function AdminApp() {
                 zebra
                 rowHeight={40}
                 emptyAsZeroMuted
-                getRowClassName={(row) => (
-                  getEstimateTemplateConflict(row, openCategory)
-                    ? "items-v2-row--template-conflict"
-                    : ""
-                )}
+                getRowClassName={(row) => [
+                  getEstimateTemplateConflict(row, openCategory) ? "items-v2-row--template-conflict" : "",
+                  selectedPhotoSubitemId === row.subitemId ? "items-v2-row--photo-context" : "",
+                ].filter(Boolean).join(" ")}
                 getRowId={(row) => {
                   const conflict = getEstimateTemplateConflict(row, openCategory);
                   return conflict ? `estimate-template-conflict-${encodeURIComponent(conflict.rowKey)}` : undefined;
@@ -8997,6 +9039,15 @@ export default function AdminApp() {
             )}
           />
         </section>
+        <EstimatePhotoContextPane
+          open={Boolean(selectedPhotoSubitemId)}
+          title={selectedPhotoSubitemName}
+          photos={estimateItemPhotos}
+          loading={isLoadingEstimateItemPhotos}
+          error={estimateItemPhotosError}
+          onClose={closeEstimateItemPhotoPanel}
+          onOpenPhoto={setEstimatePhotoViewerIndex}
+        />
         {renderEstimateConditionDrawer()}
       </main>,
       { className: "formate-app-shell--items-v2" }
@@ -12140,7 +12191,7 @@ export default function AdminApp() {
           initialIndex={estimatePhotoViewerIndex}
           onClose={() => setEstimatePhotoViewerIndex(null)}
           getPhotoUrl={getPhotoImageUrl}
-          getPhotoAlt={(photo) => photo?.original_filename || `${selectedPhotoSubitemName || "세부항목"} 사진`}
+          getPhotoAlt={(photo) => photo?.originalFilename || photo?.original_filename || `${selectedPhotoSubitemName || "세부항목"} 사진`}
         />
       )}
     </div>
