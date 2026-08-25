@@ -3203,7 +3203,7 @@
   min-height: 0;
   margin-inline: 0;
   align-content: stretch;
-  gap: 20px;
+  gap: var(--space-1-5);
   overflow: hidden;
 }
 

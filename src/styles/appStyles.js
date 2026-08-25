@@ -7225,21 +7225,13 @@ const appStyles = `
     padding-top: var(--space-2);
     border-top: 1px solid var(--color-border);
   }
-  .detail-cost-page > .editor-header {
-    min-height: 56px;
-    margin-bottom: var(--space-2);
-    padding: 0 0 var(--space-1);
-    border: 0;
-    border-bottom: 1px solid var(--color-border);
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
+  .saved-estimates-page,
+  .detail-cost-page {
+    padding: 0;
   }
-  .detail-cost-page > .editor-header h2 {
-    color: var(--color-text-primary);
-    font-size: var(--font-size-work-title);
-    font-weight: var(--font-weight-semibold);
-    line-height: var(--line-height-work-title);
+  .saved-estimates-page > .ui-page-header,
+  .detail-cost-page > .ui-page-header {
+    margin-bottom: var(--space-1-5);
   }
   .detail-cost-page .detail-cost-layout {
     display: grid;
@@ -10730,28 +10722,11 @@ const appStyles = `
   .photo-management-page.photo-management-landing {
     display: block;
     overflow-y: auto;
-    padding: var(--space-3);
+    padding: 0 var(--space-2) var(--space-2);
     background: var(--color-bg);
   }
-  .photo-management-landing__header {
-    margin-bottom: var(--space-3);
-  }
-  .photo-management-landing__header h1,
-  .photo-management-landing__header p {
-    margin: 0;
-  }
-  .photo-management-landing__header h1 {
-    color: var(--color-text-primary);
-    font-size: var(--font-size-page-title);
-    font-weight: var(--font-weight-semibold);
-    line-height: var(--line-height-page-title);
-    white-space: nowrap;
-    word-break: keep-all;
-  }
-  .photo-management-landing__header p {
-    margin-top: var(--space-1);
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-body-sm);
+  .photo-management-landing > .ui-page-header {
+    margin-bottom: var(--space-1-5);
   }
   .photo-management-mode-grid {
     display: grid;

@@ -11679,25 +11679,15 @@ export default function AdminApp() {
       {isConditionQuantityAdminPage && adminVerified && renderAdminItemsWorkbench()}
 
       {page === "admin-detail-costs" && adminVerified && renderAppShell(
-        <DetailCostsPage controller={detailCostsController} onBack={() => setPage("admin")} />
+        <DetailCostsPage controller={detailCostsController} />
       )}
 
       {page === "admin-estimates" && renderAppShell(
         <SavedEstimatesPage>
           <main className="panel-page admin-page saved-estimates-page">
-          <div className="editor-header">
-            <div>
-              <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={() => setPage("landing")}>
-                홈으로
-              </Button>
-              <h2>{estimateListView === "trash" ? "견적 휴지통" : "저장한 견적"}</h2>
-              <p className="muted caption">
-                {estimateListView === "trash"
-                  ? "삭제한 견적을 확인하고 저장 견적 목록으로 복원할 수 있습니다."
-                  : "고객명이나 주소로 찾고 다시 열 수 있습니다."}
-              </p>
-            </div>
-            <div className="admin-actions">
+          <PageHeader
+            title={estimateListView === "trash" ? "견적 휴지통" : "저장한 견적"}
+            actions={(
               <Button
                 variant="secondary"
                 leftIcon={<RefreshCcw />}
@@ -11706,8 +11696,8 @@ export default function AdminApp() {
               >
                 새로고침
               </Button>
-            </div>
-          </div>
+            )}
+          />
 
           <nav className="saved-estimate-view-tabs" aria-label="저장 견적 분류">
             <button

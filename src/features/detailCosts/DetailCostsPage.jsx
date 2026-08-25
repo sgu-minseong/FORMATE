@@ -1,12 +1,13 @@
-import { ArrowLeft, Plus, RefreshCcw, Trash2 } from "lucide-react";
+import { Plus, RefreshCcw, Trash2 } from "lucide-react";
 import Button from "../../components/ui/Button";
 import CategorySidebar from "../../components/ui/CategorySidebar";
 import EmptyState from "../../components/ui/EmptyState";
 import Input from "../../components/ui/Input";
+import PageHeader from "../../components/ui/PageHeader";
 import Table from "../../components/ui/Table";
 import { formatMoneyInputValue, stripNumberInputFormatting } from "../../shared/utils/numbers";
 
-export default function DetailCostsPage({ controller, onBack }) {
+export default function DetailCostsPage({ controller }) {
   const {
     subitems, selectedSubitemId, setSelectedSubitemId, costs, newCost, setNewCost,
     bulkInput, setBulkInput, loading, saving, error, groups, selectedSubitem, selectedGroup,
@@ -14,16 +15,12 @@ export default function DetailCostsPage({ controller, onBack }) {
   } = controller;
   return (
     <main className="panel-page admin-page detail-cost-page">
-      <div className="editor-header">
-        <div>
-          <Button variant="tertiary" leftIcon={<ArrowLeft />} onClick={onBack}>관리자 홈</Button>
-          <h2>세부견적 관리</h2>
-          <p className="muted caption">고객용 견적서에는 표시하지 않는 내부 비용입니다.</p>
-        </div>
-        <div className="admin-actions">
+      <PageHeader
+        title="세부 비용 관리"
+        actions={(
           <Button variant="secondary" leftIcon={<RefreshCcw />} disabled={loading || saving} onClick={() => { loadSubitems(); if (selectedSubitemId) loadCosts(selectedSubitemId); }}>되돌리기</Button>
-        </div>
-      </div>
+        )}
+      />
       {loading && <div className="status-box">불러오는 중...</div>}
       {saving && <div className="status-box">저장 중...</div>}
       {error && <div className="error-box">{error}</div>}
