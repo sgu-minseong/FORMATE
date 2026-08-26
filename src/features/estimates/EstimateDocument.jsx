@@ -13,11 +13,6 @@ export default function EstimateDocument({
   customerPhone,
   address,
   workDate,
-  onCustomerNameChange,
-  onCustomerPhoneChange,
-  onAddressChange,
-  onWorkDateChange,
-  onVatStatusChange,
   conditionSummary,
   conditionPyeong,
   estimatePyeong,
@@ -25,10 +20,7 @@ export default function EstimateDocument({
   constructionDayParts,
   renderGeneralTable,
   renderDetailTable,
-  renderAdjustmentEditor,
   renderAdjustmentSummary,
-  siteMemo,
-  onSiteMemoChange,
   estimateNumber,
 }) {
   const outputModeClassName = outputMode === "pdf"
@@ -39,6 +31,7 @@ export default function EstimateDocument({
     <div
       className={`pdf-capture-area estimate-document ${outputModeClassName} ${previewType === "general" ? "general-estimate-document" : "detail-estimate-document"}`.trim()}
       data-estimate-document={outputMode}
+      data-estimate-document-page="1"
       ref={documentRef}
     >
       <div className="pdf-title-row">
@@ -73,31 +66,23 @@ export default function EstimateDocument({
         </div>
       </div>
 
-      <div className="form-grid">
-        <label>
-          고객명
-          <input value={customerName} onChange={onCustomerNameChange} placeholder="예: 홍길동" />
-        </label>
-        <label>
-          연락처
-          <input value={customerPhone} onChange={onCustomerPhoneChange} placeholder="예: 010-0000-0000" />
-        </label>
-        <label>
-          현장 주소
-          <input value={address} onChange={onAddressChange} placeholder="예: 서울시 강남구 ..." />
-        </label>
-        <label>
-          시공 예정일
-          <input type="date" value={workDate} onChange={onWorkDateChange} />
-        </label>
-        <label>
-          부가세 표시
-          <select value={vatStatus} onChange={onVatStatusChange}>
-            <option value="부가세 별도">부가세 별도</option>
-            <option value="부가세 포함">부가세 포함</option>
-            <option value="부가세 없음">부가세 없음</option>
-          </select>
-        </label>
+      <div className="estimate-customer-grid">
+        <div>
+          <span>고객명</span>
+          <strong>{customerName || "-"}</strong>
+        </div>
+        <div>
+          <span>연락처</span>
+          <strong>{customerPhone || "-"}</strong>
+        </div>
+        <div>
+          <span>현장 주소</span>
+          <strong>{address || "-"}</strong>
+        </div>
+        <div>
+          <span>시공 예정일</span>
+          <strong>{workDate || "미정"}</strong>
+        </div>
       </div>
 
       <div className="key-box compact-key">
@@ -126,18 +111,7 @@ export default function EstimateDocument({
 
       {previewType === "detail" ? renderDetailTable() : renderGeneralTable()}
       <p className="tax-note">세액은 공급가의 10%로 임시 계산했습니다.</p>
-      {previewType === "general" ? renderAdjustmentEditor() : renderAdjustmentSummary()}
-
-      <div className="site-memo-panel preview-site-memo">
-        <label>
-          현장메모
-          <textarea
-            value={siteMemo}
-            onChange={onSiteMemoChange}
-            placeholder="고객에게 보여주지 않을 내부 메모를 적어주세요."
-          />
-        </label>
-      </div>
+      {renderAdjustmentSummary()}
 
       <div className="estimate-note-box">
         <strong>견적 조건</strong>

@@ -2221,6 +2221,7 @@ export default function AdminApp() {
     siteMemo, setSiteMemo,
     estimateVatStatus, setEstimateVatStatus,
     estimateIssuedAt, setEstimateIssuedAt,
+    estimateValidUntil, setEstimateValidUntil,
     estimateConditionVariantLabels, setEstimateConditionVariantLabels,
     conditionLabelEditOpen, setConditionLabelEditOpen,
     conditionLabelDrafts, setConditionLabelDrafts,
@@ -2491,9 +2492,9 @@ export default function AdminApp() {
   const accountDisplayName = `${authUserMetadata.display_name || authUserMetadata.full_name || authUserMetadata.name || "운영자"}`.trim();
   const accountAvatarUrl = `${authUserMetadata.avatar_url || authUserMetadata.picture || ""}`.trim();
   const estimateCreatedDate = useMemo(() => formatDisplayDate(estimateIssuedAt), [estimateIssuedAt]);
-  const estimateValidUntil = useMemo(
-    () => formatDisplayDate(addDaysToDateInput(estimateIssuedAt, 30)),
-    [estimateIssuedAt]
+  const estimateValidUntilDisplay = useMemo(
+    () => formatDisplayDate(estimateValidUntil),
+    [estimateValidUntil]
   );
   const adminVerified = isAdminVerifiedForCompany(selectedCompanyId);
   const isProtectedAdminPage = PROTECTED_ADMIN_PAGES.includes(page);
@@ -5850,6 +5851,11 @@ export default function AdminApp() {
     }, immediate ? 0 : 800);
   }
 
+  function updateEstimateDocumentField(setter, value, { immediate = false } = {}) {
+    setter(value);
+    queueEstimateAutoSave({ immediate });
+  }
+
   function updateItem(categoryId, index, patch, { immediate = false } = {}) {
     setItems((current) => ({
       ...current,
@@ -6027,6 +6033,7 @@ export default function AdminApp() {
         memo: "",
       },
     ]);
+    queueEstimateAutoSave({ immediate: true });
   }
 
   function updateEstimateAdjustment(adjustmentId, patch) {
@@ -6035,12 +6042,14 @@ export default function AdminApp() {
         adjustment.id === adjustmentId ? { ...adjustment, ...patch } : adjustment
       )
     );
+    queueEstimateAutoSave();
   }
 
   function removeEstimateAdjustment(adjustmentId) {
     setEstimateAdjustments((current) =>
       current.filter((adjustment) => adjustment.id !== adjustmentId)
     );
+    queueEstimateAutoSave({ immediate: true });
   }
 
   function renderEstimateAdjustmentEditor() {
@@ -6312,7 +6321,15 @@ export default function AdminApp() {
     setAddress(copy ? "" : estimate.address ?? "");
     setWorkDate(copy ? "" : estimate.construction_date ?? "");
     setEstimateVatStatus(restoredDraft.meta.vatStatus ?? "부가세 별도");
-    setEstimateIssuedAt(copy ? getTodayDateInput() : restoredDraft.meta.createdDate ?? getDateInputFromValue(estimate.created_at));
+    const restoredIssuedAt = copy
+      ? getTodayDateInput()
+      : getDateInputFromValue(restoredDraft.meta.createdDate || estimate.created_at);
+    setEstimateIssuedAt(restoredIssuedAt);
+    setEstimateValidUntil(copy
+      ? addDaysToDateInput(restoredIssuedAt, 30)
+      : restoredDraft.meta.validUntil
+        ? getDateInputFromValue(restoredDraft.meta.validUntil)
+        : addDaysToDateInput(restoredIssuedAt, 30));
     const restoredConditionVariantLabel =
       `${snapshot.condition_variant_display_label ?? snapshot.conditionVariantDisplayLabel ?? ""}`.trim();
     const restoredConditionVariantLabelOverrides =
@@ -6395,7 +6412,9 @@ export default function AdminApp() {
     setEstimateAdjustments([]);
     setSiteMemo("");
     setEstimateVatStatus("부가세 별도");
-    setEstimateIssuedAt(getTodayDateInput());
+    const today = getTodayDateInput();
+    setEstimateIssuedAt(today);
+    setEstimateValidUntil(addDaysToDateInput(today, 30));
     setEstimateConditionVariantLabels({});
     setConditionLabelEditOpen(false);
     setConditionLabelDrafts({});
@@ -6443,7 +6462,9 @@ export default function AdminApp() {
     setEstimateAdjustments([]);
     setSiteMemo("");
     setEstimateVatStatus("부가세 별도");
-    setEstimateIssuedAt(getTodayDateInput());
+    const today = getTodayDateInput();
+    setEstimateIssuedAt(today);
+    setEstimateValidUntil(addDaysToDateInput(today, 30));
     setEstimateConditionVariantLabels({});
     setConditionLabelEditOpen(false);
     setConditionLabelDrafts({});
@@ -8228,7 +8249,7 @@ export default function AdminApp() {
           customerPhone: customerPhone.trim(),
           companyName: selectedCompanyName,
           createdDate: estimateIssuedAt,
-          validUntil: addDaysToDateInput(estimateIssuedAt, 30),
+          validUntil: estimateValidUntil,
           vatStatus: estimateVatStatus,
         },
         selectedItemsTotal,
@@ -9006,6 +9027,8 @@ export default function AdminApp() {
             )}
           </section>
 
+          {renderEstimateAdjustmentEditor()}
+
           <details className="items-v2-site-memo">
             <summary>현장 메모</summary>
             <textarea
@@ -9486,13 +9509,6 @@ export default function AdminApp() {
               </button>
             </div>
           </section>
-        </div>
-      )}
-
-      {conditionSummary && page === "preview" && (
-        <div className="sticky-summary">
-          <span>견적 조건</span>
-          <strong>{conditionSummary}</strong>
         </div>
       )}
 
@@ -12132,6 +12148,9 @@ export default function AdminApp() {
           notice={estimateNotice}
           error={estimateError}
           saving={estimateSaving}
+          autoSaveStatus={estimateAutoSaveStatus}
+          autoSaveError={estimateAutoSaveError}
+          onRetryAutoSave={runEstimateAutoSave}
           onSave={saveEstimateToSupabase}
           onDownloadPdf={downloadEstimatePdf}
           onShare={previewEstimate && previewEstimateShareAction
@@ -12149,17 +12168,21 @@ export default function AdminApp() {
             companyName: selectedCompanyName,
             total,
             createdDate: estimateCreatedDate,
-            validUntil: estimateValidUntil,
+            validUntil: estimateValidUntilDisplay,
             vatStatus: estimateVatStatus,
             customerName,
             customerPhone,
             address,
             workDate,
-            onCustomerNameChange: (event) => setCustomerName(event.target.value),
-            onCustomerPhoneChange: (event) => setCustomerPhone(event.target.value),
-            onAddressChange: (event) => setAddress(event.target.value),
-            onWorkDateChange: (event) => setWorkDate(event.target.value),
-            onVatStatusChange: (event) => setEstimateVatStatus(event.target.value),
+            issuedAt: estimateIssuedAt,
+            validUntilDate: estimateValidUntil,
+            onCustomerNameChange: (event) => updateEstimateDocumentField(setCustomerName, event.target.value),
+            onCustomerPhoneChange: (event) => updateEstimateDocumentField(setCustomerPhone, event.target.value),
+            onAddressChange: (event) => updateEstimateDocumentField(setAddress, event.target.value),
+            onWorkDateChange: (event) => updateEstimateDocumentField(setWorkDate, event.target.value, { immediate: true }),
+            onVatStatusChange: (event) => updateEstimateDocumentField(setEstimateVatStatus, event.target.value, { immediate: true }),
+            onIssuedAtChange: (event) => updateEstimateDocumentField(setEstimateIssuedAt, event.target.value, { immediate: true }),
+            onValidUntilChange: (event) => updateEstimateDocumentField(setEstimateValidUntil, event.target.value, { immediate: true }),
             conditionSummary,
             conditionPyeong: condition.size,
             estimatePyeong,
@@ -12167,10 +12190,7 @@ export default function AdminApp() {
             constructionDayParts: selectedConstructionDayParts,
             renderGeneralTable: renderGeneralEstimateTable,
             renderDetailTable: renderDetailEstimateTable,
-            renderAdjustmentEditor: renderEstimateAdjustmentEditor,
             renderAdjustmentSummary: renderEstimateAdjustmentSummary,
-            siteMemo,
-            onSiteMemoChange: (event) => setSiteMemo(event.target.value),
             estimateNumber,
           }}
         />,
