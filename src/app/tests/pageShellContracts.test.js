@@ -2,7 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const read = (filePath) => fs.readFileSync(path.resolve(process.cwd(), filePath), "utf8");
+const read = (filePath) => fs
+  .readFileSync(path.resolve(process.cwd(), filePath), "utf8")
+  .replaceAll("\r\n", "\n");
 
 describe("global page shell contracts", () => {
   it("keeps work pages on the shared compact header without duplicate navigation copy", () => {

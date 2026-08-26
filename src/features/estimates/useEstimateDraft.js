@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getTodayDateInput } from "../../shared/utils/dates";
+import { addDaysToDateInput, getTodayDateInput } from "../../shared/utils/dates";
 
 export function useEstimateDraft() {
   const [condition, setCondition] = useState({
@@ -25,6 +25,7 @@ export function useEstimateDraft() {
   const [siteMemo, setSiteMemo] = useState("");
   const [estimateVatStatus, setEstimateVatStatus] = useState("부가세 별도");
   const [estimateIssuedAt, setEstimateIssuedAt] = useState(getTodayDateInput);
+  const [estimateValidUntil, setEstimateValidUntil] = useState(() => addDaysToDateInput(getTodayDateInput(), 30));
   const [estimateConditionVariantLabels, setEstimateConditionVariantLabels] = useState({});
   const [conditionLabelEditOpen, setConditionLabelEditOpen] = useState(false);
   const [conditionLabelDrafts, setConditionLabelDrafts] = useState({});
@@ -63,6 +64,7 @@ export function useEstimateDraft() {
     siteMemo, setSiteMemo,
     estimateVatStatus, setEstimateVatStatus,
     estimateIssuedAt, setEstimateIssuedAt,
+    estimateValidUntil, setEstimateValidUntil,
     estimateConditionVariantLabels, setEstimateConditionVariantLabels,
     conditionLabelEditOpen, setConditionLabelEditOpen,
     conditionLabelDrafts, setConditionLabelDrafts,
