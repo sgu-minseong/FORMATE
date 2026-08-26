@@ -1,5 +1,6 @@
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import { calculateEstimatePageSlices } from "./estimatePagination";
 
 export function sanitizeEstimateFileNamePart(value, fallback) {
   const cleaned = `${value ?? ""}`
@@ -46,18 +47,14 @@ export async function exportEstimatePdf({
   const margin = 10;
   const renderWidth = pageWidth - margin * 2;
   const renderHeight = (canvas.height * renderWidth) / canvas.width;
-  let remainingHeight = renderHeight;
-  let position = margin;
+  const pageContentHeight = pageHeight - margin * 2;
+  const slices = calculateEstimatePageSlices(canvas.width, canvas.height);
 
-  pdf.addImage(imageData, "PNG", margin, position, renderWidth, renderHeight);
-  remainingHeight -= pageHeight - margin * 2;
-
-  while (remainingHeight > 0) {
-    position = remainingHeight - renderHeight + margin;
-    pdf.addPage();
+  slices.forEach((slice, index) => {
+    if (index > 0) pdf.addPage();
+    const position = margin - slice.index * pageContentHeight;
     pdf.addImage(imageData, "PNG", margin, position, renderWidth, renderHeight);
-    remainingHeight -= pageHeight - margin * 2;
-  }
+  });
 
   pdf.save(buildEstimatePdfFileName({
     companyName,

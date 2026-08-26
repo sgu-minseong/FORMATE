@@ -23,9 +23,7 @@ export default function EstimateDocument({
   renderAdjustmentSummary,
   estimateNumber,
 }) {
-  const outputModeClassName = outputMode === "pdf"
-    ? "estimate-document--pdf"
-    : "estimate-document--screen";
+  const outputModeClassName = `estimate-document--${outputMode}`;
 
   return (
     <div

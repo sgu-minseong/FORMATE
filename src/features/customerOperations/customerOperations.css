@@ -631,7 +631,7 @@
 }
 
 .aftercare-workspace__row.is-selected {
-  background: var(--color-primary-soft);
+  background: var(--surface-selected);
 }
 
 .aftercare-workspace__row.is-selected::before {
@@ -1297,7 +1297,7 @@
 
 .customer-operations__request-list > button.is-selected {
   box-shadow: inset 2px 0 0 var(--color-primary);
-  background: var(--color-primary-soft);
+  background: var(--surface-selected);
 }
 
 .customer-operations__request-list > button > span:first-child {
@@ -3376,7 +3376,7 @@
 }
 
 .customer-projects-workspace__project-row.is-selected {
-  background: var(--color-primary-soft);
+  background: var(--surface-selected);
 }
 
 .customer-projects-workspace__project-row.is-selected::before {

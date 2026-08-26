@@ -20,6 +20,7 @@ import {
   buildEstimatePdfFileName,
   exportEstimatePdf,
 } from "../exportEstimatePdf";
+import { calculateEstimatePageSlices } from "../estimatePagination";
 
 const estimateApiSource = readFileSync(
   new URL("../estimateApi.js", import.meta.url),
@@ -246,6 +247,9 @@ describe("estimate PDF generation contracts", () => {
     });
     expect(pdf.addImage).toHaveBeenCalled();
     expect(pdf.addPage).toHaveBeenCalled();
+    const slices = calculateEstimatePageSlices(canvas.width, canvas.height);
+    expect(pdf.addImage).toHaveBeenCalledTimes(slices.length);
+    expect(pdf.addImage.mock.calls[1][3]).toBeCloseTo(10 - 277);
     expect(pdf.save).toHaveBeenCalledWith("견적서_FORMATE_서울_2026-07-28.pdf");
   });
 
