@@ -83,10 +83,11 @@ AppShell
 ### Header
 
 - 전체 Workspace Header 높이는 최소 `56px`로 유지하고 상단에 sticky 처리한다.
-- 좌측에 제목과 한 줄 설명, 우측에 상태와 주요 행동을 배치한다.
-- 제목은 workspace 기준 20px, 설명은 12px를 사용한다.
+- 좌측에 compact title, 필요한 경우에만 한 줄 문맥, 우측에 상태와 주요 행동을 배치한다.
+- 제목은 workspace 기준 20px을 사용한다. 업무 화면은 큰 marketing-style title이나 상시 helper description보다 실제 작업 content를 위쪽에서 시작하는 것을 우선한다.
 - 버튼은 한 줄을 유지하고 8px 간격으로 배치한다. 핵심 저장 행동만 Primary를 사용한다.
 - Header 아래 도구가 필요한 경우 별도 Toolbar 행을 둔다. Header에 검색과 필터를 과밀하게 넣지 않는다.
+- Sidebar/global navigation과 중복되는 홈·뒤로가기 action을 Header에 반복하지 않는다. 실제 workflow 전환에 필요한 경우만 둔다.
 
 ### Workspace와 Panel
 
@@ -95,6 +96,7 @@ AppShell
 - 인접 Panel은 카드 간격 대신 1px Border로 분리한다.
 - 고정 Panel Header, 스크롤 Body, 고정 Footer가 필요한 경우 각 영역의 flex 축을 분리한다.
 - 한 Workspace 안에서 배경은 페이지 `#F6F4EF`, 입력·목록 Surface는 `#FFFFFF`로 구분한다.
+- Docked Context Pane은 사용자가 workspace를 떠나지 않고 관련 정보를 확인·입력할 때 사용한다. Main workspace를 transform/scale하지 않고 split width를 reflow하며, pane은 1px boundary와 독립 scroll을 가질 수 있다.
 
 ### Management Page Pattern
 
@@ -146,7 +148,7 @@ List 320-380px | Detail minmax(0, 1fr)
 - List에는 대상 식별에 필요한 최소 정보만 표시한다.
 - Detail Header에는 현재 대상과 상태만 표시한다.
 - 정적 속성, 활동, 위험 행동은 Drawer나 명시적 상세 섹션으로 분리한다.
-- 선택 행은 배경과 좌측 3px 강조선으로 표시한다.
+- 선택 행은 기본 surface와 restrained accent outline/border로 표시한다. 넓은 mint/green background fill을 selection decoration으로 사용하지 않는다.
 
 ### Specialized Editor Rule
 
@@ -172,14 +174,14 @@ List 320-380px | Detail minmax(0, 1fr)
 | Brand Deep | `--color-brand-deep` | `#042F2C` | Global Sidebar |
 | Background | `--color-bg` | `#F6F4EF` | Page, Workspace |
 | Surface | `--color-surface` | `#FFFFFF` | Table, Panel, Input, Modal |
-| Surface Subtle | `--color-surface-subtle` | `#FBFAF7` | Hover, alternate row, selected neutral |
+| Surface Subtle | `--color-surface-subtle` | `#FBFAF7` | Hover, alternate row |
 | Header Background | `--color-header-bg` | `#F3F1EC` | Table header |
 | Border | `--color-border` | `#E2DED6` | Row, Panel, section divider |
 | Border Strong | `--color-border-strong` | `#CFC8BC` | Input, emphasized boundary |
 | Text Primary | `--color-text-primary` | `#1F2933` | 제목, 본문 핵심 값 |
 | Text Secondary | `--color-text-secondary` | `#667085` | 설명, 레이블, 보조 값 |
 | Text Muted | `--color-text-muted` | `#98A2B3` | Placeholder, disabled-like value |
-| Selected Surface | `--color-primary-soft` | `#ECFDF5` | 선택 행, 선택 메뉴 |
+| Selected Surface | `--color-primary-soft` | `#ECFDF5` | Legacy soft accent; 새 light-surface selection에는 사용하지 않음 |
 | Selected Border | `--color-primary-border` | `#A7F3D0` | Drop target, selected outline |
 | Success | `--color-success` | `#10B981` | 완료, 정상 저장 |
 | Warning | `--color-warning` | `#D97706` | 주의, 확인 필요 |
@@ -194,6 +196,9 @@ List 320-380px | Detail minmax(0, 1fr)
 - Success, Warning, Error, Info는 실제 의미가 있을 때만 사용한다. 장식용 색점으로 쓰지 않는다.
 - 카테고리 색상은 기존 `--cat-*` 토큰에 한정하고, 선택 상태 전체를 무지개색으로 만들지 않는다.
 - 모든 새 색은 먼저 `src/styles/tokens.css`의 기존 역할로 표현 가능한지 확인한다.
+- Near-white neutral canvas(`--color-bg`)와 true-white/high working surface(`--color-surface`)를 분리한다. 장식 목적의 넓은 green/mint tinted surface는 만들지 않는다.
+- Dark green은 primary CTA, Pin, focus/selected accent처럼 역할이 분명한 곳에만 제한한다. Success green은 실제 성공 상태에만 사용하며 selection decoration과 혼동하지 않는다.
+- Light-surface row/context selection은 기본 surface를 유지하고 restrained accent outline/border로 표시한다. Tab/navigation selection은 accent text와 underline을 사용한다. 넓은 mint/green fill은 selection의 기본 표현이 아니다.
 
 ## 4. Typography System
 
@@ -241,9 +246,9 @@ Pretendard Variable과 기존 시스템 fallback을 사용한다. 별도 서체�
 - Local Sidebar: 240px
 - Header: 최소 56px
 - Button/Input: 36px
-- Small Button/Table Input: 32px
+- Dense inline control: 32-36px
 - Table Header: 36px
-- Table Row: 40px
+- Dense Table Row: 36-40px
 - Badge: 22px
 - Sticky Total Bar: 64px
 - 기본 Icon: 18px, Sidebar Icon: 18-20px, stroke 1.5
@@ -296,13 +301,14 @@ Pretendard Variable과 기존 시스템 fallback을 사용한다. 별도 서체�
 - Table 셀 trigger에는 선택된 canonical `variant value + unit`과 Chevron만 표시하고 별도 관리 버튼을 두지 않는다.
 - dropdown은 canonical ordering의 variant를 `construction_subitem_id`로 선택하며, 목록 아래 구분선과 `관리` action을 둔다.
 - `관리`는 Modal이나 두 번째 Popover를 열지 않고 같은 dropdown surface를 관리 mode로 전환한다. 추가·수정·비파괴 보관 후 `완료`하면 선택 mode로 돌아간다.
-- 행 높이 32px, 기존 Surface/Border/Primary Soft token, focus-visible, Escape와 바깥 클릭 닫기를 유지한다.
+- 행 높이 32px, 기존 Surface/Border/Primary accent token, focus-visible, Escape와 바깥 클릭 닫기를 유지한다.
 - 기준 구현: `src/features/constructionCatalog/CanonicalVariantSelect.jsx`, `CanonicalVariantManager.jsx`, `src/features/priceTable/PriceTablePage.jsx`.
 
 ### Table/List Row
 
 - 목적: 반복 업무 데이터의 비교와 편집.
-- 기본: Header 36px, Row 40px, Cell 좌우 12px, 1px bottom/right Border.
+- 기본: Header 36px, dense row 36-40px, Cell 좌우 12px, 1px bottom/right Border. Inline control은 32-36px으로 유지한다.
+- Numeric value는 우측 정렬과 tabular numbers를 사용하고, icon/numeric column은 compact하게 유지한다. nowrap/ellipsis/tooltip은 긴 content에만 적용한다.
 - 상태: hover, selected, drag, drop target, error, newly added.
 - 금지: 각 행을 독립 Card로 만들기, 행마다 그림자 사용, 열 정렬을 화면마다 변경.
 
@@ -320,6 +326,16 @@ Pretendard Variable과 기존 시스템 fallback을 사용한다. 별도 서체�
 - Drawer는 우측 고정, 420px 이하, 100dvh를 기본으로 한다.
 - Drawer가 열릴 때 배경 문맥은 약한 opacity/blur로 비활성 상태를 전달한다.
 - 금지: 빈 Modal, 가짜 CTA, 전체 페이지를 Modal로 구현.
+- Overlay Drawer는 일시적인 설정·선택 작업을 위해 현재 workspace 위를 덮고 permanent layout width를 소비하지 않는다. 지속적으로 보이며 workspace 맥락을 보존해야 하는 정보는 Docked Context Pane을 사용한다.
+
+### Contextual Help / Tooltip
+
+- 기본 화면에는 설명문을 상시 노출하지 않는다. 전문 domain 개념, 오해하기 쉬운 설정, 결과가 즉시 명확하지 않은 기능에만 contextual help를 사용한다.
+- Trigger는 14-16px 수준의 dark-neutral circular `?` 또는 기존 Help icon을 사용하되 실제 hit target은 약 28px 이상으로 둔다. 큰 button surface를 만들지 않는다.
+- Desktop은 hover와 keyboard focus, touch는 tap으로 열고 Esc·outside click으로 닫는다. 가능하면 한 번에 하나만 연다.
+- Tooltip은 짧은 제목과 1-3줄 설명으로 구성하고 compact width·높은 readability·neutral surface·1px boundary를 사용한다. 큰 card, illustration, 강한 shadow는 사용하지 않는다.
+- 자명한 일반 UI에는 붙이지 않으며, tooltip을 보지 않아도 핵심 workflow를 수행할 수 있어야 한다.
+- 예: `샷시 조건 (?) [기본 ▾]`처럼 label 바로 뒤에 compact trigger를 둔다. Tooltip은 저장된 규격을 불러오는 범위처럼 필요한 설명만 제공하고, 확정된 입력 구조를 바꾸지 않는다.
 
 ### Badge
 
@@ -354,17 +370,17 @@ Pretendard Variable과 기존 시스템 fallback을 사용한다. 별도 서체�
 
 ### Row와 Cell
 
-- Header 36px, Row 40px를 기본으로 한다.
+- Header 36px, dense row 36-40px를 기본으로 한다.
 - Cell은 좌우 12px, 우측 1px Border를 사용한다. 마지막 Cell Border는 제거한다.
 - 행은 Bottom Border 하나로 구분한다. Top과 Bottom Border를 동시에 반복하지 않는다.
 - 숫자, 금액, 수량, 인원은 우측 정렬하고 tabular 숫자를 사용한다.
-- Label Cell은 말줄임하고, 편집 컨트롤은 Cell 폭을 전부 사용한다.
+- Label Cell은 기본적으로 말줄임하지 않고, 편집 컨트롤은 Cell 폭을 충분히 사용한다. 긴 content에만 nowrap/ellipsis/tooltip을 적용한다.
 - 0 또는 빈 값은 Text Muted로 낮추되 값 자체를 숨기지 않는다.
 
 ### 상태
 
 - Hover: Surface Subtle로만 변화시킨다.
-- Selected: Primary Soft 배경과 좌측 3px Primary inset line을 사용한다.
+- Selected row/context: 기본 surface를 유지하고 restrained primary accent outline/border로 표시한다. 넓은 Primary Soft/mint fill을 selection decoration으로 사용하지 않는다.
 - Focus: Cell Input에 Primary Border와 Surface를 표시한다.
 - Error: Danger Soft 배경, 좌측 3px Danger line, Cell 아래 12px helper를 사용한다.
 - Dragging: opacity를 낮추고 아주 약한 scale만 사용한다.
@@ -387,6 +403,11 @@ Pretendard Variable과 기존 시스템 fallback을 사용한다. 별도 서체�
 - KPI처럼 한 단위로 비교하는 요약
 - Modal, Popover, 독립 설정 묶음
 
+### Parent / Child Grouping
+
+- Parent/child hierarchy는 shadow나 card stacking으로 만들지 않는다. subtle surface, indentation, 1px boundary/connector, alignment, sibling gap으로 flat but structured하게 표현한다.
+- Parent와 child를 같은 card 안에 반복해서 감싸지 않는다. 관계를 읽는 데 필요한 구분만 남긴다.
+
 ### 사용 금지
 
 - 전체 업무 페이지를 감싸는 큰 Card
@@ -408,6 +429,8 @@ Pretendard Variable과 기존 시스템 fallback을 사용한다. 별도 서체�
 - Hover와 Focus transition은 150-160ms를 사용한다.
 - 자동 장식 애니메이션을 추가하지 않는다.
 - `focus-visible`은 컨트롤 자체에 가까운 작고 절제된 단일 표시를 제공한다.
+- 일반 context transition은 180-220ms를 참고하되, hover/focus feedback은 150-160ms로 더 짧게 유지한다. Bounce, spring, 과한 translate, pressed movement는 사용하지 않는다.
+- Drag, pan, zoom 같은 direct manipulation은 transition보다 즉시 pointer/input을 따라야 하며 `prefers-reduced-motion`을 존중한다.
 - Hover만으로 필수 행동을 숨기지 않는다. Hover 노출 icon은 Focus와 Active 상태에서도 보여야 한다.
 
 ### Interaction Cost Minimization Rule
@@ -432,7 +455,7 @@ Pretendard Variable과 기존 시스템 fallback을 사용한다. 별도 서체�
 ### 상태 정의
 
 - Hover: Surface Subtle, Text Primary, Border Strong 중 필요한 최소 변화만 사용한다.
-- Active/Selected: Primary Soft와 Primary line을 사용하고 글자 굵기를 500으로 올린다.
+- Active/Selected: tab/navigation은 primary text와 underline, row/context는 기본 surface와 restrained primary outline/border를 사용한다. Primary Soft/mint fill은 selection decoration으로 사용하지 않는다.
 - Disabled: `cursor: not-allowed`, opacity 0.56을 기본으로 한다.
 - Loading: 실제 Panel과 Row 구조를 유지한 skeleton 또는 해당 위치의 `불러오는 중` 상태를 사용한다.
 - Saving: 자동 저장 pill을 유지하고 편집 데이터는 화면에서 사라지지 않게 한다.
