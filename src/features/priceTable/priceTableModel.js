@@ -204,6 +204,7 @@ export function isEmptyLocalPriceTableSubitemPlaceholder(subitem, materialNamePl
     "labor_rate_occupied",
     "quantity",
     "labor_count",
+    "labor_count_occupied",
   ];
   if (
     numericFields.some(
@@ -401,6 +402,7 @@ export function normalizeAdminItems(
               subitem.labor_rate_occupied ?? subitem.labor_rate ?? "",
             quantity: templateValue?.quantity ?? "",
             labor_count: templateValue?.labor_count ?? "",
+            labor_count_occupied: templateValue?.labor_count_occupied ?? "",
             construction_days:
               toConstructionDaysValue(templateValue?.construction_days) || "",
             template_value_id: templateValue?.id ?? null,
@@ -427,6 +429,7 @@ export function buildAdminTemplateValueSaveOperations({
           const values = {
             quantity: toNullableNumber(subitem.quantity),
             labor_count: toNullableNumber(subitem.labor_count),
+            labor_count_occupied: toNullableNumber(subitem.labor_count_occupied),
             construction_days: toConstructionDaysValue(subitem.construction_days),
           };
           if (subitem.template_value_id) {
@@ -475,6 +478,7 @@ export function buildAdminTemplateValueAtomicWrites({
           subitem_ref: subitem.id,
           quantity: toNullableNumber(subitem.quantity),
           labor_count: toNullableNumber(subitem.labor_count),
+          labor_count_occupied: toNullableNumber(subitem.labor_count_occupied),
           construction_days: toConstructionDaysValue(subitem.construction_days),
         }))
   ));
@@ -503,6 +507,7 @@ export function buildAdminTemplateValueClonePayloads({
       option_value: "",
       quantity: value.quantity,
       labor_count: value.labor_count,
+      labor_count_occupied: value.labor_count_occupied,
       construction_days: value.construction_days,
     };
   });

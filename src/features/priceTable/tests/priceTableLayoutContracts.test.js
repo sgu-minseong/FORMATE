@@ -62,6 +62,7 @@ describe("admin table geometry ownership contracts", () => {
     );
     expect(skeletonSource).toContain('listClassName: "admin-items-v2-grid-list quantity-table-list"');
     expect(skeletonSource).toContain('headerClassName: "admin-quantity-table-header"');
+    expect(skeletonSource).toContain("columnCount: 8");
   });
 
   it("removes legacy competing geometry and uses one horizontal data viewport", () => {

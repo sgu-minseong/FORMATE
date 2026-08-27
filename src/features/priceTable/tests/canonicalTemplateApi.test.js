@@ -75,6 +75,7 @@ describe("canonical template value reader", () => {
       call.table === "admin_condition_template_values" && call.method === "select"
     ));
     expect(selectCall?.value).toContain("subitem_id");
+    expect(selectCall?.value).toContain("labor_count_occupied");
     expect(selectCall?.value).not.toContain("option_value");
   });
 

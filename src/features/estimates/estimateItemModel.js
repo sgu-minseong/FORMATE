@@ -51,12 +51,16 @@ function createVariantOptionId(subitemId) {
 }
 
 function hasTemplateValue(row) {
-  return hasNumericInput(row?.quantity) || hasNumericInput(row?.labor_count ?? row?.laborCount);
+  return hasNumericInput(row?.quantity)
+    || hasNumericInput(row?.labor_count ?? row?.laborCount)
+    || hasNumericInput(row?.labor_count_occupied);
 }
 
 function getEstimateOptionSource(subitem, residenceStatus) {
   const quantity = subitem?.quantity ?? "";
-  const laborCount = subitem?.labor_count ?? "";
+  const laborCount = residenceStatus === "occupied"
+    ? subitem?.labor_count_occupied ?? ""
+    : subitem?.labor_count ?? "";
   const unitPrice = toNonNegativeNumberOrZero(subitem?.unit_price);
   const laborRate = getLaborRateForResidence(subitem, residenceStatus);
   return {
