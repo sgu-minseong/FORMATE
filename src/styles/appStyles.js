@@ -8944,16 +8944,43 @@ const appStyles = `
     background: var(--color-bg);
   }
   .template-condition-switcher {
-    position: relative;
-    width: min(440px, 100%);
+    width: 100%;
     min-width: 0;
   }
-  .template-condition-switcher__trigger {
+  .template-condition-switcher__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .template-condition-switcher__summary > div:first-child {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px;
+    min-width: 0;
+  }
+  .template-condition-switcher__summary > div:first-child > span,
+  .template-condition-switcher__list-title {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+  }
+  .template-condition-switcher__summary strong {
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .template-condition-switcher__summary-actions,
+  .template-condition-switcher__drawer-actions {
+    display: flex;
+    flex: 0 0 auto;
     align-items: center;
     gap: var(--space-1);
-    width: 100%;
+  }
+  .template-condition-switcher__trigger {
     height: var(--button-height-sm);
     padding: 0 var(--space-1-5);
     border: 1px solid var(--color-border-strong);
@@ -8962,14 +8989,8 @@ const appStyles = `
     color: var(--color-text-primary);
     font: inherit;
     font-size: var(--font-size-body-sm);
-    text-align: left;
     cursor: pointer;
     transition: background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
-  }
-  .template-condition-switcher__trigger span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .template-condition-switcher__trigger:hover:not(:disabled) {
     border-color: var(--color-primary-border);
@@ -8979,6 +9000,7 @@ const appStyles = `
     opacity: 0.82;
   }
   .template-condition-switcher__trigger:focus-visible,
+  .template-condition-switcher__manage:focus-visible,
   .template-condition-switcher__icon:focus-visible,
   .template-condition-switcher__select:focus-visible,
   .template-condition-switcher__create:focus-visible,
@@ -8986,20 +9008,39 @@ const appStyles = `
     outline: none;
     box-shadow: var(--focus-ring);
   }
-  .template-condition-switcher__popover {
-    position: absolute;
-    z-index: 20;
-    top: calc(100% + var(--space-1));
-    left: 0;
+  .template-condition-switcher__manage {
+    height: var(--button-height-sm);
+    padding: 0 var(--space-1-5);
+    border: 0;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+  }
+  .template-condition-switcher__manage:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .template-condition-switcher__drawer {
     display: flex;
     flex-direction: column;
-    width: min(420px, calc(100vw - var(--space-4)));
-    max-height: min(520px, calc(100dvh - 144px));
-    border: 1px solid var(--color-border-strong);
-    border-radius: var(--radius-panel);
-    background: var(--color-surface);
-    box-shadow: var(--shadow-popover);
     overflow: hidden;
+  }
+  .template-condition-switcher__drawer-header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 48px;
+    padding: 0 var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .template-condition-switcher__drawer-header strong {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
   }
   .template-condition-switcher__search {
     flex: 0 0 auto;
@@ -9014,35 +9055,30 @@ const appStyles = `
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-    border-top: 1px solid var(--color-border);
   }
-  .template-condition-switcher__section {
-    display: grid;
-    padding: var(--space-1) 0;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .template-condition-switcher__section > strong {
-    padding: var(--space-0-5) var(--space-1-5);
-    color: var(--color-text-muted);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-medium);
+  .template-condition-switcher__list-title {
+    display: block;
+    padding: var(--space-1) var(--space-1-5) var(--space-0-5);
   }
   .template-condition-switcher__row {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 32px 32px;
+    grid-template-columns: minmax(0, 1fr) 32px;
     align-items: center;
     min-height: var(--table-row-height);
     padding: 0 var(--space-1);
     color: var(--color-text-primary);
     transition: background-color 120ms ease, box-shadow 120ms ease;
   }
+  .template-condition-switcher__row.manage {
+    grid-template-columns: minmax(0, 1fr) 32px 32px;
+  }
   .template-condition-switcher__row:hover {
     background: var(--color-surface-subtle);
   }
   .template-condition-switcher__row.active {
-    background: var(--surface-selected);
-    box-shadow: inset 0 0 0 1px var(--border-selected);
+    background: var(--color-surface);
+    box-shadow: inset 0 0 0 1px var(--color-primary-border);
   }
   .template-condition-switcher__select {
     display: grid;
@@ -9144,6 +9180,13 @@ const appStyles = `
   .template-condition-switcher__create:hover {
     background: var(--color-primary-soft);
   }
+  .template-condition-switcher__drawer-actions {
+    flex: 0 0 auto;
+    justify-content: space-between;
+    min-height: 48px;
+    padding: var(--space-1);
+    border-top: 1px solid var(--color-border);
+  }
   .template-condition-switcher__empty {
     margin: 0;
     padding: var(--space-3) var(--space-2);
@@ -9191,7 +9234,7 @@ const appStyles = `
     margin: 0;
     padding-left: 0;
     gap: 0;
-    --quantity-table-columns: 48px minmax(220px, 1fr) minmax(120px, 140px) 96px minmax(96px, 120px) minmax(96px, 120px) 64px;
+    --quantity-table-columns: 48px minmax(200px, 1fr) minmax(120px, 140px) 96px minmax(96px, 112px) minmax(108px, 124px) minmax(108px, 124px) 64px;
   }
   .admin-items-v2-grid-list.quantity-table-list,
   .admin-items-v2-grid-list.admin-subitem-list {

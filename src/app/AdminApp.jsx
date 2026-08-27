@@ -6264,7 +6264,7 @@ export default function AdminApp() {
     );
   }
 
-  function getEstimateTemplateValuePayloads() {
+  function getEstimateTemplateValuePayloads(residenceStatus) {
     return Object.values(items)
       .flatMap((rows) => rows ?? [])
       .filter((row) => row.subitemId && (hasNumericInput(row.quantity) || hasNumericInput(row.laborCount)))
@@ -6272,7 +6272,9 @@ export default function AdminApp() {
         item_id: row.itemId,
         subitem_ref: row.subitemId,
         quantity: toNullableNumber(row.quantity),
-        labor_count: toNullableNumber(row.laborCount),
+        ...(residenceStatus === "occupied"
+          ? { labor_count_occupied: toNullableNumber(row.laborCount) }
+          : { labor_count: toNullableNumber(row.laborCount) }),
       }));
   }
 
@@ -6282,7 +6284,7 @@ export default function AdminApp() {
     const templateCondition = getEstimateTemplateCondition(condition);
     if (!templateCondition) return null;
 
-    const pendingTemplateValues = getEstimateTemplateValuePayloads();
+    const pendingTemplateValues = getEstimateTemplateValuePayloads(condition.occupancy);
     if (!pendingTemplateValues.length) return null;
     return {
       condition: templateCondition,
@@ -6629,6 +6631,7 @@ export default function AdminApp() {
       archived_at: null,
       quantity: "",
       labor_count: "",
+      labor_count_occupied: "",
       template_value_id: null,
       sort_order: nextSortOrder,
     };
@@ -7241,7 +7244,8 @@ export default function AdminApp() {
         <span>규격/두께</span>
         <span>공사기간</span>
         <span>수량</span>
-        <span>인원</span>
+        <span>인원(빈집)</span>
+        <span>인원(살림집)</span>
         <span>삭제</span>
       </div>
     );
@@ -7562,7 +7566,7 @@ export default function AdminApp() {
           />
         </label>
         <label className="admin-items-v2-number-cell">
-          <span className="field-label">인원</span>
+          <span className="field-label">인원(빈집)</span>
           <input
             className="items-v2-inline-input items-v2-inline-input--number"
             type="text"
@@ -7570,6 +7574,17 @@ export default function AdminApp() {
             placeholder="0"
             value={subitem.labor_count ?? ""}
             onChange={(event) => updateLocalSubitemPrice(subitem.id, { labor_count: event.target.value })}
+          />
+        </label>
+        <label className="admin-items-v2-number-cell">
+          <span className="field-label">인원(살림집)</span>
+          <input
+            className="items-v2-inline-input items-v2-inline-input--number"
+            type="text"
+            inputMode="decimal"
+            placeholder="0"
+            value={subitem.labor_count_occupied ?? ""}
+            onChange={(event) => updateLocalSubitemPrice(subitem.id, { labor_count_occupied: event.target.value })}
           />
         </label>
       </>

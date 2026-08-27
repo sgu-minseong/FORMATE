@@ -6,7 +6,7 @@ const SKELETON_CONFIG = {
     rowClassName: "admin-price-v2-grid",
   },
   quantity: {
-    columnCount: 7,
+    columnCount: 8,
     listClassName: "admin-items-v2-grid-list quantity-table-list",
     headerClassName: "admin-quantity-table-header",
     rowClassName: "",

@@ -120,7 +120,7 @@ export async function fetchAdminTemplateValues(templateId) {
   const { data, error } = await supabase
     .from("admin_condition_template_values")
     .select(
-      "id, template_id, item_id, subitem_id, quantity, labor_count, construction_days"
+      "id, template_id, item_id, subitem_id, quantity, labor_count, labor_count_occupied, construction_days"
     )
     .eq("template_id", templateId);
   throwIfError(error);
@@ -133,7 +133,7 @@ export async function fetchAdminTemplateValueCandidate(
 ) {
   const { data, error } = await supabase
     .from("admin_condition_template_values")
-    .select("id, quantity, labor_count, construction_days")
+    .select("id, quantity, labor_count, labor_count_occupied, construction_days")
     .eq("template_id", templateId)
     .eq("subitem_id", subitemId)
     .limit(2);

@@ -109,16 +109,24 @@ describe("admin template management layout contracts", () => {
 });
 
 describe("condition context switcher contracts", () => {
-  it("provides search, current selection, recent, favorites, and explicit CRUD actions", () => {
+  it("keeps selection simple and exposes CRUD only through condition management", () => {
     expect(switcherSource).toContain('placeholder="조건 검색"');
-    expect(switcherSource).toContain('renderSection("최근 사용"');
-    expect(switcherSource).toContain('renderSection("즐겨찾기"');
-    expect(switcherSource).toContain('renderSection("모든 조건"');
-    expect(switcherSource).toContain("active={");
+    expect(switcherSource).toContain("현재 조건");
+    expect(switcherSource).toContain("조건 바꾸기");
+    expect(switcherSource).toContain("조건 관리");
+    expect(switcherSource).toContain("active={`${currentTemplateId}`");
     expect(switcherSource).toContain("조건 수정");
     expect(switcherSource).toContain("복제");
     expect(switcherSource).toContain("삭제");
-    expect(switcherSource).toContain("새 조건 만들기");
+    expect(switcherSource).toContain("새 조건 추가");
+    expect(switcherSource).not.toContain("renderSection(");
+  });
+
+  it("uses the fixed right drawer without a permanent template pane", () => {
+    expect(switcherSource).toContain("estimate-condition-drawer admin-template-condition-drawer");
+    expect(switcherSource).toContain('role="dialog"');
+    expect(appStyles).toMatch(/\.admin-template-condition-drawer\s*\{[\s\S]*?position:\s*fixed;/);
+    expect(switcherSource).not.toContain("template-condition-switcher__popover");
   });
 
   it("reuses the compact drawer and clones template values when duplicating", () => {
