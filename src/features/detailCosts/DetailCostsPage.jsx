@@ -5,20 +5,39 @@ import EmptyState from "../../components/ui/EmptyState";
 import Input from "../../components/ui/Input";
 import PageHeader from "../../components/ui/PageHeader";
 import Table from "../../components/ui/Table";
+import { usePersistentTableWidths } from "../../components/ui/tableWidths";
+import { formatDisplayTimestampDate } from "../../shared/utils/dates";
 import { formatMoneyInputValue, stripNumberInputFormatting } from "../../shared/utils/numbers";
+
+export const DETAIL_COST_TABLE_COLUMNS = [
+  { key: "name", label: "비용명/부자재명", defaultWidth: 240, minWidth: 160, maxWidth: 420 },
+  { key: "cost", label: "단가", align: "right", defaultWidth: 110, minWidth: 88, maxWidth: 180 },
+  { key: "categoryType", label: "구분", defaultWidth: 220, minWidth: 180, maxWidth: 320 },
+  { key: "updated_at", label: "수정일", defaultWidth: 92, minWidth: 76, maxWidth: 140 },
+  { key: "actions", label: "삭제", align: "right", defaultWidth: 80, minWidth: 64, maxWidth: 112 },
+];
 
 export default function DetailCostsPage({ controller }) {
   const {
+    companyId,
     subitems, selectedSubitemId, setSelectedSubitemId, costs, newCost, setNewCost,
     bulkInput, setBulkInput, loading, saving, error, groups, selectedSubitem, selectedGroup,
     loadSubitems, loadCosts, add, updateLocal, update, remove, applyBulk,
   } = controller;
+  const tableLayout = usePersistentTableWidths({
+    companyId,
+    tableId: "detail-costs",
+    columns: DETAIL_COST_TABLE_COLUMNS,
+  });
   return (
     <main className="panel-page admin-page detail-cost-page">
       <PageHeader
         title="세부 비용 관리"
         actions={(
-          <Button variant="secondary" leftIcon={<RefreshCcw />} disabled={loading || saving} onClick={() => { loadSubitems(); if (selectedSubitemId) loadCosts(selectedSubitemId); }}>되돌리기</Button>
+          <>
+            <Button variant="tertiary" className="table-layout-reset" onClick={tableLayout.resetWidths}>열 너비 초기화</Button>
+            <Button variant="secondary" leftIcon={<RefreshCcw />} disabled={loading || saving} onClick={() => { loadSubitems(); if (selectedSubitemId) loadCosts(selectedSubitemId); }}>되돌리기</Button>
+          </>
         )}
       />
       {loading && <div className="status-box">불러오는 중...</div>}
@@ -67,14 +86,12 @@ export default function DetailCostsPage({ controller }) {
             {costs.length > 0 && (
               <Table
                 className="detail-cost-table"
-                columns={[
-                  { key: "name", label: "비용명/부자재명", width: "36%" },
-                  { key: "cost", label: "단가", align: "right", width: "20%" },
-                  { key: "categoryType", label: "구분", width: "30%" },
-                  { key: "actions", label: "삭제", align: "right", width: "14%" },
-                ]}
+                columns={tableLayout.columns}
                 rows={costs.map((cost) => ({ id: cost.id, detailCost: cost }))}
                 emptyAsZeroMuted
+                resizable
+                onColumnResizeStart={tableLayout.startResize}
+                onColumnResizeBy={tableLayout.resizeColumnBy}
                 renderCell={({ row, column }) => {
                   const cost = row.detailCost;
                   if (column.key === "name") return <input className="detail-cost-table-input" value={cost.name} onChange={(event) => updateLocal(cost.id, { name: event.target.value })} onBlur={(event) => update(cost.id, { name: event.target.value })} />;
@@ -83,6 +100,7 @@ export default function DetailCostsPage({ controller }) {
                     <label className={cost.category_type === "basic" ? "selected" : ""}><input type="radio" name={`detail-type-${cost.id}`} checked={cost.category_type === "basic"} onChange={() => update(cost.id, { category_type: "basic" })} />기본에 포함</label>
                     <label className={cost.category_type === "full" ? "selected" : ""}><input type="radio" name={`detail-type-${cost.id}`} checked={cost.category_type === "full"} onChange={() => update(cost.id, { category_type: "full" })} />전체에만 포함</label>
                   </div>;
+                  if (column.key === "updated_at") return <span className="management-updated-at" title={cost.updated_at || undefined}>{formatDisplayTimestampDate(cost.updated_at)}</span>;
                   return <Button variant="danger" size="sm" leftIcon={<Trash2 />} disabled={saving} onClick={() => remove(cost.id)}>삭제</Button>;
                 }}
               />

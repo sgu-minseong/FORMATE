@@ -406,6 +406,7 @@ export function normalizeAdminItems(
             construction_days:
               toConstructionDaysValue(templateValue?.construction_days) || "",
             template_value_id: templateValue?.id ?? null,
+            template_value_updated_at: templateValue?.updated_at ?? null,
           };
         }),
       };

@@ -7555,6 +7555,49 @@ const appStyles = `
     font-weight: var(--font-weight-semibold);
     line-height: var(--line-height-section-title);
   }
+  .items-v2-section-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .table-layout-reset {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .table-column-header {
+    position: relative;
+    min-width: 0;
+  }
+  .table-column-header > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .management-updated-at {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    overflow: hidden;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .management-current-updated-at {
+    flex: 0 0 auto;
+    margin-left: auto;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .detail-cost-list .ui-table-wrap--resizable {
+    border: 0;
+    box-shadow: inset 0 0 0 1px var(--color-border);
+  }
   .items-v2-table-section .ui-table-wrap {
     border: 0;
     border-radius: 0;
@@ -8401,13 +8444,12 @@ const appStyles = `
   }
   .admin-price-v2-grid-list {
     display: block;
-    width: 100%;
-    min-width: 820px;
+    width: var(--price-table-width);
+    min-width: var(--price-table-width);
     max-width: none;
     margin: 0;
     padding-left: 0;
     gap: 0;
-    --price-table-columns: 40px minmax(160px, 1fr) 110px 80px 110px 110px 110px 60px 40px;
   }
   .admin-price-v2-grid-list.price-table-list,
   .admin-price-v2-grid-list.admin-subitem-list {
@@ -8506,7 +8548,7 @@ const appStyles = `
     background: var(--color-row-alt);
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row:hover {
-    background: var(--color-row-alt);
+    background: var(--color-row-hover);
   }
   .admin-price-v2-grid-list .admin-value-row.common-price-row.admin-price-v2-row-error {
     min-height: 56px;
@@ -9228,13 +9270,12 @@ const appStyles = `
   }
   .admin-items-v2-grid-list {
     display: block;
-    width: 100%;
-    min-width: 740px;
+    width: var(--quantity-table-width);
+    min-width: var(--quantity-table-width);
     max-width: none;
     margin: 0;
     padding-left: 0;
     gap: 0;
-    --quantity-table-columns: 48px minmax(200px, 1fr) minmax(120px, 140px) 96px minmax(96px, 112px) minmax(108px, 124px) minmax(108px, 124px) 64px;
   }
   .admin-items-v2-grid-list.quantity-table-list,
   .admin-items-v2-grid-list.admin-subitem-list {
@@ -9319,7 +9360,7 @@ const appStyles = `
     background: var(--color-row-alt);
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row:hover {
-    background: var(--color-row-alt);
+    background: var(--color-row-hover);
   }
   .admin-items-v2-grid-list .admin-value-row.condition-quantity-row label {
     gap: 0;
@@ -12045,6 +12086,16 @@ const appStyles = `
     background: var(--color-surface-subtle);
     outline: none;
   }
+  .pyeong-photo-updated-at {
+    display: block;
+    min-height: 24px;
+    padding: var(--space-0-5) var(--space-1-5);
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+    line-height: 16px;
+  }
   .pyeong-photo-caption-editor {
     position: relative;
     display: grid;
@@ -12158,6 +12209,20 @@ const appStyles = `
   .pyeong-caption-snippet-handle {
     color: var(--color-text-muted);
     cursor: grab;
+  }
+  .pyeong-caption-snippet-content {
+    display: grid;
+    min-width: 0;
+  }
+  .pyeong-caption-snippet-content time {
+    overflow: hidden;
+    padding: 0 var(--space-1);
+    color: var(--color-text-muted);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    line-height: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .pyeong-caption-snippet-apply,
   .pyeong-caption-snippet-row input {
@@ -12869,7 +12934,6 @@ const appStyles = `
     box-shadow: var(--focus-ring);
   }
   .sash-catalog-grid__table {
-    min-width: 1448px;
     table-layout: fixed;
   }
   .sash-catalog-grid .ui-table-wrap {
@@ -13116,7 +13180,6 @@ const appStyles = `
     border-radius: 0;
   }
   .sash-special-items__table {
-    min-width: 760px;
     table-layout: fixed;
   }
   .sash-selector {

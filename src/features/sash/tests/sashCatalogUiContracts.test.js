@@ -201,8 +201,8 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashSectionSource).toContain("categoryNavigation={categoryNavigation}");
     expect(sashGridSource).toContain('className="sash-catalog-grid__toolbar"');
     expect(sashGridSource).not.toContain('<span className="field-label">평수</span>');
-    expect(sashGridSource).toContain('{ key: "pin", label: "", width: "36px", sticky: true }');
-    expect(sashGridSource).toContain('{ key: "brand", label: "제조사", width: "84px", sticky: true }');
+    expect(sashGridSource).toContain('{ key: "pin", label: "", ariaLabel: "대표제품", defaultWidth: 36');
+    expect(sashGridSource).toContain('{ key: "brand", label: "제조사", defaultWidth: 84');
     expect(sashGridSource).toContain('sticky: true, stickyEnd: true');
     expect(tableSource).toContain('column.sticky && "ui-table__cell--sticky"');
     expect(tableSource).toContain('"--ui-table-sticky-left"');
@@ -278,8 +278,8 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashSelectorSource).not.toContain("현재 선택:");
     expect(sashSelectorSource).not.toContain("단가표 관리에서 샷시 규격을 먼저 등록하세요.");
     expect(adminAppSource).toContain('<h1>견적 템플릿 만들기</h1>');
-    expect(adminAppSource).toContain('{ key: "material", label: "소재명", width: "38%" }');
-    expect(adminAppSource).toContain('{ key: "spec", label: "규격", width: "26%" }');
+    expect(adminAppSource).toContain('{ key: "material", label: "소재명", defaultWidth: 260');
+    expect(adminAppSource).toContain('{ key: "spec", label: "규격", defaultWidth: 120');
     expect(adminAppSource).not.toContain("평형과 무관한 샷시 규격을 선택합니다.");
     expect(sashSectionSource).toContain("categoryNavigation={categoryNavigation}");
     expect(appStylesSource).toContain(".sash-special-items__count");

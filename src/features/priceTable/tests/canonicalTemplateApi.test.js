@@ -19,6 +19,14 @@ function createQuery(table) {
       mockState.calls.push({ table, method: "limit", value });
       return query;
     },
+    in(column, value) {
+      mockState.calls.push({ table, method: "in", column, value });
+      return query;
+    },
+    maybeSingle() {
+      mockState.calls.push({ table, method: "maybeSingle" });
+      return query;
+    },
     then(resolve, reject) {
       return Promise.resolve(mockState.result).then(resolve, reject);
     },
@@ -33,8 +41,11 @@ vi.mock("../../../lib/supabaseClient", () => ({
 }));
 
 import {
+  fetchAdminTemplateUpdatedAtRow,
   fetchAdminTemplateValueCandidate,
+  fetchAdminTemplateValueUpdatedAtRows,
   fetchAdminTemplateValues,
+  fetchConstructionSubitemUpdatedAtRows,
 } from "../priceTableApi";
 
 describe("canonical template value reader", () => {
@@ -76,7 +87,46 @@ describe("canonical template value reader", () => {
     ));
     expect(selectCall?.value).toContain("subitem_id");
     expect(selectCall?.value).toContain("labor_count_occupied");
+    expect(selectCall?.value).toContain("updated_at");
     expect(selectCall?.value).not.toContain("option_value");
+  });
+
+  it("narrowly reads DB updated_at rows after a successful catalog write", async () => {
+    mockState.result = { data: [{ id: "subitem-a", updated_at: "2026-08-31T01:02:03Z" }], error: null };
+    await expect(fetchConstructionSubitemUpdatedAtRows(["subitem-a"]))
+      .resolves.toEqual(mockState.result.data);
+    expect(mockState.calls).toContainEqual({
+      table: "construction_subitems",
+      method: "select",
+      value: "id, updated_at",
+    });
+    expect(mockState.calls).toContainEqual({
+      table: "construction_subitems",
+      method: "in",
+      column: "id",
+      value: ["subitem-a"],
+    });
+
+    mockState.calls = [];
+    mockState.result = { data: { id: "template-a", updated_at: "2026-08-31T01:02:04Z" }, error: null };
+    await expect(fetchAdminTemplateUpdatedAtRow("company-a", "template-a"))
+      .resolves.toEqual(mockState.result.data);
+    expect(mockState.calls).toContainEqual({
+      table: "admin_condition_templates",
+      method: "select",
+      value: "id, updated_at",
+    });
+
+    mockState.calls = [];
+    mockState.result = { data: [{ id: "value-a", subitem_id: "subitem-a", updated_at: "2026-08-31T01:02:05Z" }], error: null };
+    await expect(fetchAdminTemplateValueUpdatedAtRows("template-a", ["value-a"]))
+      .resolves.toEqual(mockState.result.data);
+    expect(mockState.calls).toContainEqual({
+      table: "admin_condition_template_values",
+      method: "in",
+      column: "id",
+      value: ["value-a"],
+    });
   });
 
   it("fails closed when legacy rows make one UUID ambiguous", async () => {

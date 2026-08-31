@@ -120,9 +120,42 @@ export async function fetchAdminTemplateValues(templateId) {
   const { data, error } = await supabase
     .from("admin_condition_template_values")
     .select(
-      "id, template_id, item_id, subitem_id, quantity, labor_count, labor_count_occupied, construction_days"
+      "id, template_id, item_id, subitem_id, quantity, labor_count, labor_count_occupied, construction_days, updated_at"
     )
     .eq("template_id", templateId);
+  throwIfError(error);
+  return data ?? [];
+}
+
+export async function fetchAdminTemplateUpdatedAtRow(companyId, templateId) {
+  if (!companyId || !templateId) return null;
+  const { data, error } = await supabase
+    .from("admin_condition_templates")
+    .select("id, updated_at")
+    .eq("company_id", companyId)
+    .eq("id", templateId)
+    .maybeSingle();
+  throwIfError(error);
+  return data ?? null;
+}
+
+export async function fetchConstructionSubitemUpdatedAtRows(subitemIds) {
+  if (!(subitemIds ?? []).length) return [];
+  const { data, error } = await supabase
+    .from("construction_subitems")
+    .select("id, updated_at")
+    .in("id", subitemIds);
+  throwIfError(error);
+  return data ?? [];
+}
+
+export async function fetchAdminTemplateValueUpdatedAtRows(templateId, valueIds) {
+  if (!templateId || !(valueIds ?? []).length) return [];
+  const { data, error } = await supabase
+    .from("admin_condition_template_values")
+    .select("id, subitem_id, updated_at")
+    .eq("template_id", templateId)
+    .in("id", valueIds);
   throwIfError(error);
   return data ?? [];
 }

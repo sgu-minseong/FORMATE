@@ -52,7 +52,7 @@ describe("admin template management layout contracts", () => {
     expect(workbenchSource).toContain('const catalogReady = adminTemplateCatalogStatus === "ready"');
     expect(workbenchSource).toContain("const editorReady = catalogReady");
     expect(workbenchSource).toContain('adminConditionStep === "edit"');
-    expect(workbenchSource).toContain('<AdminCatalogTableSkeleton variant="quantity" />');
+    expect(workbenchSource).toContain('<AdminCatalogTableSkeleton variant="quantity" style={adminTemplateTableStyle} />');
     expect(workbenchSource).toContain('aria-label="견적 템플릿 로딩"');
     expect(workbenchSource).not.toContain("불러오는 중...</div>");
     expect(appSource).not.toContain("adminConditionLoaded");

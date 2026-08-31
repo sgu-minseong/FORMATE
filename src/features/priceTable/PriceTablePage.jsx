@@ -30,6 +30,21 @@ import CanonicalVariantSelect from "../constructionCatalog/CanonicalVariantSelec
 import SashCatalogSection from "../sash/SashCatalogSection";
 import AdminCategoryPanel from "./AdminCategoryPanel";
 import AdminCatalogTableSkeleton from "./AdminCatalogTableSkeleton";
+import { formatDisplayTimestampDate } from "../../shared/utils/dates";
+import { usePersistentTableWidths } from "../../components/ui/tableWidths";
+
+export const PRICE_TABLE_COLUMNS = [
+  { key: "drag", label: "", ariaLabel: "순서", defaultWidth: 40, minWidth: 32, maxWidth: 56 },
+  { key: "material", label: "소재명", defaultWidth: 240, minWidth: 160, maxWidth: 480 },
+  { key: "spec", label: "규격/두께", defaultWidth: 120, minWidth: 80, maxWidth: 260 },
+  { key: "unit", label: "단위", defaultWidth: 64, minWidth: 52, maxWidth: 96 },
+  { key: "unit_price", label: "단가", defaultWidth: 110, minWidth: 80, maxWidth: 180 },
+  { key: "labor_empty", label: "인건비(빈집)", defaultWidth: 120, minWidth: 96, maxWidth: 200 },
+  { key: "labor_occupied", label: "인건비(살림집)", defaultWidth: 120, minWidth: 96, maxWidth: 200 },
+  { key: "updated_at", label: "수정일", defaultWidth: 92, minWidth: 76, maxWidth: 140 },
+  { key: "actions", label: "삭제", defaultWidth: 48, minWidth: 40, maxWidth: 64 },
+  { key: "expanded", label: "", ariaLabel: "상세", defaultWidth: 40, minWidth: 32, maxWidth: 56 },
+];
 
 export default function PriceTablePage({
   companyId,
@@ -99,19 +114,37 @@ export default function PriceTablePage({
   const catalogLoading = catalogStatus === "loading";
   const catalogReady = catalogStatus === "ready";
   const catalogUnavailable = !catalogReady;
+  const tableLayout = usePersistentTableWidths({
+    companyId,
+    tableId: "admin-price-standard",
+    columns: PRICE_TABLE_COLUMNS,
+  });
+  const tableLayoutStyle = {
+    "--price-table-columns": tableLayout.gridTemplate,
+    "--price-table-width": `${tableLayout.totalWidth}px`,
+  };
+
+  function handleResizeKeyDown(event, columnKey) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    tableLayout.resizeColumnBy(columnKey, event.key === "ArrowLeft" ? -8 : 8);
+  }
 
   function renderHeader() {
     return (
-      <div className="admin-price-table-header admin-price-v2-grid standard-price-table-header">
-        <span />
-        <span>소재명</span>
-        <span>규격/두께</span>
-        <span>단위</span>
-        <span>단가</span>
-        <span>인건비(빈집)</span>
-        <span>인건비(살림집)</span>
-        <span>삭제</span>
-        <span />
+      <div className="admin-price-table-header admin-price-v2-grid standard-price-table-header" style={tableLayoutStyle}>
+        {PRICE_TABLE_COLUMNS.map((column) => (
+          <span className="table-column-header" key={column.key}>
+            <span>{column.label}</span>
+            <button
+              type="button"
+              className="ui-table__resize-handle"
+              aria-label={`${column.ariaLabel || column.label || column.key} 열 너비 조절`}
+              onPointerDown={(event) => tableLayout.startResize(column.key, event)}
+              onKeyDown={(event) => handleResizeKeyDown(event, column.key)}
+            />
+          </span>
+        ))}
       </div>
     );
   }
@@ -332,7 +365,7 @@ export default function PriceTablePage({
     }
 
     return (
-      <div className="admin-subitem-list price-table-list admin-price-v2-grid-list">
+      <div className="admin-subitem-list price-table-list admin-price-v2-grid-list" style={tableLayoutStyle}>
         {renderHeader()}
         {itemProducts.map((product) => {
           const subitem = resolveAdminProductSubitem(
@@ -405,6 +438,9 @@ export default function PriceTablePage({
                 )}
               </label>
               {renderPrimarySubitemCells(item, product, subitem)}
+              <span className="management-updated-at" title={subitem.updated_at || undefined}>
+                {formatDisplayTimestampDate(subitem.updated_at)}
+              </span>
               <button
                 className="danger-button admin-price-v2-danger-button"
                 disabled={adminSaving}
@@ -541,6 +577,11 @@ export default function PriceTablePage({
                 />
                 고정 항목만 보기
               </label>
+              {item && getConstructionItemRendererKind(item) !== CONSTRUCTION_ITEM_RENDERER_KINDS.SASH && (
+                <Button variant="tertiary" size="sm" className="table-layout-reset" onClick={tableLayout.resetWidths}>
+                  열 너비 초기화
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -553,7 +594,7 @@ export default function PriceTablePage({
         {catalogLoading ? (
           <section className="items-v2-table-section admin-price-v2-table-section" aria-label="단가표 로딩">
             <div className="admin-price-v2-table-scroll formate-scroll-light">
-              <AdminCatalogTableSkeleton variant="price" />
+              <AdminCatalogTableSkeleton variant="price" style={tableLayoutStyle} />
             </div>
           </section>
         ) : catalogReady && item ? (

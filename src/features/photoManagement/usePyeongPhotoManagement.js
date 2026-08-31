@@ -15,6 +15,7 @@ import {
 } from "./photoApi";
 import { createPhotoAutosave } from "./photoAutosave";
 import { normalizePositivePyeong, reorderRowsById } from "./photoModel";
+import { getLatestTimestamp } from "../../shared/utils/dates";
 
 const PYEONG_CAPTION_AUTOSAVE_TARGET = "pyeong-photo-caption";
 
@@ -254,10 +255,18 @@ export function usePyeongPhotoManagement({ companyId, createPhotoId, getFriendly
         || pyeong !== committedPyeongRef.current
         || pendingPyeongRef.current
       ) return false;
-      setPhotosState(rows);
-      setStatus(getReadyStatus(rows));
-      if (rows.length) setPhotoUrlLoading(true);
-      const resolved = rows.length ? await resolvePyeongPhotoUrls(rows) : rows;
+      const rowsWithPendingCaptions = rows.map((photo) => {
+        const pendingCaption = pendingCaptionsRef.current.get(photo.id);
+        return pendingCaption === undefined
+          ? photo
+          : { ...photo, caption: pendingCaption, description: pendingCaption };
+      });
+      setPhotosState(rowsWithPendingCaptions);
+      setStatus(getReadyStatus(rowsWithPendingCaptions));
+      if (rowsWithPendingCaptions.length) setPhotoUrlLoading(true);
+      const resolved = rowsWithPendingCaptions.length
+        ? await resolvePyeongPhotoUrls(rowsWithPendingCaptions)
+        : rowsWithPendingCaptions;
       if (
         !mountedRef.current
         || requestId !== backgroundRequestRef.current
@@ -348,6 +357,7 @@ export function usePyeongPhotoManagement({ companyId, createPhotoId, getFriendly
 
   savePendingCaptionsRef.current = async () => {
     if (!canMutateCommittedContext()) throw new Error("평형 변경이 끝난 뒤 다시 시도해 주세요.");
+    const scopeCompanyId = companyIdRef.current;
     const scopePyeong = committedPyeongRef.current;
     const pending = [...pendingCaptionsRef.current.entries()].filter(([photoId]) => (
       photosRef.current.some((photo) => photo.id === photoId && photo.pyeong === scopePyeong)
@@ -356,18 +366,39 @@ export function usePyeongPhotoManagement({ companyId, createPhotoId, getFriendly
     pendingCaptionsRef.current.clear();
     try {
       const savedRows = await updatePhotoDescriptionsAtomic({
-        companyId: companyIdRef.current,
+        companyId: scopeCompanyId,
         updates: pending.map(([photoId, description]) => ({ photoId, description })),
       });
-      if (committedPyeongRef.current !== scopePyeong || pendingPyeongRef.current) return false;
+      if (
+        companyIdRef.current !== scopeCompanyId
+        || committedPyeongRef.current !== scopePyeong
+        || pendingPyeongRef.current
+      ) return false;
       const savedById = new Map(savedRows.map((photo) => [photo.id, photo]));
       setPhotosState((current) => current.map((photo) => {
         const saved = savedById.get(photo.id);
-        return saved ? { ...photo, ...saved, signedUrl: photo.signedUrl } : photo;
+        if (!saved) return photo;
+        const hasNewPendingCaption = pendingCaptionsRef.current.has(photo.id);
+        return {
+          ...photo,
+          ...saved,
+          ...(hasNewPendingCaption
+            ? { caption: photo.caption, description: photo.description }
+            : {}),
+          signedUrl: photo.signedUrl,
+          updatedAt: getLatestTimestamp(photo.updatedAt, saved.updatedAt),
+        };
       }));
       return true;
     } catch (source) {
-      pending.forEach(([photoId, description]) => pendingCaptionsRef.current.set(photoId, description));
+      if (companyIdRef.current !== scopeCompanyId || committedPyeongRef.current !== scopePyeong) {
+        return false;
+      }
+      pending.forEach(([photoId, description]) => {
+        if (!pendingCaptionsRef.current.has(photoId)) {
+          pendingCaptionsRef.current.set(photoId, description);
+        }
+      });
       setError(friendlyError(source, "사진 설명을 저장하지 못했습니다."));
       throw source;
     }
@@ -392,6 +423,7 @@ export function usePyeongPhotoManagement({ companyId, createPhotoId, getFriendly
 
   async function reorderPhotos(constructionSubitemId, draggedId, dropId) {
     if (!canMutateCommittedContext()) return false;
+    const scopeCompanyId = companyIdRef.current;
     const scopePyeong = committedPyeongRef.current;
     const scoped = photosRef.current.filter((photo) => photo.constructionSubitemId === constructionSubitemId);
     const reordered = reorderRowsById(scoped, draggedId, dropId);
@@ -401,11 +433,48 @@ export function usePyeongPhotoManagement({ companyId, createPhotoId, getFriendly
       ...reordered.map((photo, sortOrder) => ({ ...photo, sortOrder })),
     ]);
     try {
-      await reorderPhotoV2Rows({ companyId: companyIdRef.current, photos: reordered });
-      return committedPyeongRef.current === scopePyeong && !pendingPyeongRef.current;
+      await reorderPhotoV2Rows({ companyId: scopeCompanyId, photos: reordered });
+      try {
+        const refreshed = await listPyeongPhotoRows({
+          companyId: scopeCompanyId,
+          pyeong: scopePyeong,
+        });
+        if (
+          mountedRef.current
+          && companyIdRef.current === scopeCompanyId
+          && committedPyeongRef.current === scopePyeong
+          && !pendingPyeongRef.current
+        ) {
+          const updatedAtById = new Map(refreshed.map((photo) => [photo.id, photo.updatedAt]));
+          setPhotosState((current) => current.map((photo) => ({
+            ...photo,
+            updatedAt: getLatestTimestamp(photo.updatedAt, updatedAtById.get(photo.id)),
+          })));
+        }
+      } catch {
+        // The order write is committed; a later load restores canonical DB timestamps.
+      }
+      return companyIdRef.current === scopeCompanyId
+        && committedPyeongRef.current === scopePyeong
+        && !pendingPyeongRef.current;
     } catch (source) {
+      if (
+        companyIdRef.current !== scopeCompanyId
+        || committedPyeongRef.current !== scopePyeong
+        || pendingPyeongRef.current
+      ) return false;
       setError(friendlyError(source, "사진 순서를 저장하지 못했습니다."));
-      await reloadCommittedPhotos();
+      const previousOrder = new Map(scoped.map((photo, index) => [photo.id, index]));
+      setPhotosState((current) => [
+        ...current.filter((photo) => photo.constructionSubitemId !== constructionSubitemId),
+        ...current
+          .filter((photo) => photo.constructionSubitemId === constructionSubitemId)
+          .sort((left, right) => (
+            (previousOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER)
+            - (previousOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+          ))
+          .map((photo, sortOrder) => ({ ...photo, sortOrder })),
+      ]);
       return false;
     }
   }
@@ -451,7 +520,13 @@ export function usePyeongPhotoManagement({ companyId, createPhotoId, getFriendly
   async function editSnippet(snippetId, content) {
     try {
       const saved = await updatePhotoCaptionSnippet({ companyId: companyIdRef.current, snippetId, content });
-      setSnippets((current) => current.map((snippet) => snippet.id === snippetId ? saved : snippet));
+      setSnippets((current) => current.map((snippet) => snippet.id === snippetId
+        ? {
+            ...snippet,
+            ...saved,
+            updatedAt: getLatestTimestamp(snippet.updatedAt, saved.updatedAt),
+          }
+        : snippet));
       return true;
     } catch (source) {
       setError(friendlyError(source, "자주 쓰는 설명을 수정하지 못했습니다."));
@@ -471,15 +546,41 @@ export function usePyeongPhotoManagement({ companyId, createPhotoId, getFriendly
   }
 
   async function reorderSnippets(draggedId, dropId) {
+    const scopeCompanyId = companyIdRef.current;
+    const previousSnippets = snippets;
     const reordered = reorderRowsById(snippets, draggedId, dropId);
     if (reordered.map((snippet) => snippet.id).join("|") === snippets.map((snippet) => snippet.id).join("|")) return false;
     setSnippets(reordered.map((snippet, sortOrder) => ({ ...snippet, sortOrder })));
     try {
-      await reorderPhotoCaptionSnippets({ companyId: companyIdRef.current, snippets: reordered });
-      return true;
+      await reorderPhotoCaptionSnippets({ companyId: scopeCompanyId, snippets: reordered });
+      try {
+        const refreshed = await listPhotoCaptionSnippets(scopeCompanyId);
+        const updatedAtById = new Map(refreshed.map((snippet) => [snippet.id, snippet.updatedAt]));
+        if (companyIdRef.current === scopeCompanyId) {
+          setSnippets((current) => current.map((snippet) => ({
+            ...snippet,
+            updatedAt: getLatestTimestamp(snippet.updatedAt, updatedAtById.get(snippet.id)),
+          })));
+        }
+      } catch {
+        // The order write is committed; a later load restores canonical DB timestamps.
+      }
+      return companyIdRef.current === scopeCompanyId;
     } catch (source) {
+      if (companyIdRef.current !== scopeCompanyId) return false;
       setError(friendlyError(source, "자주 쓰는 설명 순서를 저장하지 못했습니다."));
-      setSnippets(snippets);
+      const previousOrder = new Map(
+        previousSnippets.map((snippet, index) => [snippet.id, { index, sortOrder: snippet.sortOrder }]),
+      );
+      setSnippets((current) => [...current]
+        .sort((left, right) => (
+          (previousOrder.get(left.id)?.index ?? Number.MAX_SAFE_INTEGER)
+          - (previousOrder.get(right.id)?.index ?? Number.MAX_SAFE_INTEGER)
+        ))
+        .map((snippet, index) => ({
+          ...snippet,
+          sortOrder: previousOrder.get(snippet.id)?.sortOrder ?? snippet.sortOrder ?? index,
+        })));
       return false;
     }
   }
