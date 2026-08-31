@@ -25,6 +25,20 @@ export function formatDisplayDate(dateInput) {
   return date.toLocaleDateString("ko-KR");
 }
 
+export function formatDisplayTimestampDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("ko-KR");
+}
+
+export function getLatestTimestamp(currentValue, nextValue) {
+  const currentTime = Date.parse(currentValue);
+  const nextTime = Date.parse(nextValue);
+  if (Number.isNaN(nextTime)) return currentValue ?? null;
+  return Number.isNaN(currentTime) || nextTime >= currentTime ? nextValue : currentValue;
+}
+
 export function formatDisplayDateTime(value) {
   if (!value) return "";
   const date = new Date(value);

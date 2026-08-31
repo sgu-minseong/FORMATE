@@ -1,19 +1,19 @@
 const SKELETON_CONFIG = {
   price: {
-    columnCount: 9,
+    columnCount: 10,
     listClassName: "admin-price-v2-grid-list price-table-list",
     headerClassName: "admin-price-table-header admin-price-v2-grid",
     rowClassName: "admin-price-v2-grid",
   },
   quantity: {
-    columnCount: 8,
+    columnCount: 9,
     listClassName: "admin-items-v2-grid-list quantity-table-list",
     headerClassName: "admin-quantity-table-header",
     rowClassName: "",
   },
 };
 
-export default function AdminCatalogTableSkeleton({ variant = "price", rowCount = 5 }) {
+export default function AdminCatalogTableSkeleton({ variant = "price", rowCount = 5, style }) {
   const config = SKELETON_CONFIG[variant] ?? SKELETON_CONFIG.price;
   const cells = Array.from({ length: config.columnCount }, (_, index) => index);
   const rows = Array.from({ length: rowCount }, (_, index) => index);
@@ -23,6 +23,7 @@ export default function AdminCatalogTableSkeleton({ variant = "price", rowCount 
       className={`${config.listClassName} admin-catalog-table-skeleton`.trim()}
       role="status"
       aria-label="표 데이터를 불러오는 중"
+      style={style}
     >
       <div className={config.headerClassName} aria-hidden="true">
         {cells.map((cellIndex) => <span key={cellIndex} />)}

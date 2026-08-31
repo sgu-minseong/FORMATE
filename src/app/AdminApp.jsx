@@ -48,6 +48,7 @@ import Input from "../components/ui/Input.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import StickyTotalBar from "../components/ui/StickyTotalBar.jsx";
 import Table from "../components/ui/Table.jsx";
+import { usePersistentTableWidths } from "../components/ui/tableWidths";
 import logoUrl from "../assets/formate-logo-icon.png";
 import { AI_MAPPING_GROUPS, AI_MAPPING_SELECT_OPTIONS, AI_ROW_TYPE_OPTIONS } from "../features/aiExcelImport/constants";
 import {
@@ -98,8 +99,10 @@ import {
   getDateInputFromValue,
   addDaysToDateInput,
   formatDisplayDate,
+  formatDisplayTimestampDate,
   formatDisplayDateTime,
   formatRecentSaveTime,
+  getLatestTimestamp,
 } from "../shared/utils/dates";
 import AftercareServicePage from "../features/customerOperations/AftercareServicePage";
 import CustomerRequestsPage from "../features/customerOperations/CustomerRequestsPage";
@@ -275,7 +278,10 @@ import {
   deleteConstructionItem,
   fetchAdminTemplateCandidates,
   fetchAdminTemplateRows,
+  fetchAdminTemplateUpdatedAtRow,
   fetchAdminTemplateValues,
+  fetchAdminTemplateValueUpdatedAtRows,
+  fetchConstructionSubitemUpdatedAtRows,
   fetchConditionVariantLabelRows,
   insertConstructionItem,
   createStandardCatalogEntriesAtomic,
@@ -360,6 +366,27 @@ const USE_ITEMS_SCREEN_V2 = true;
 const spaces = ["거실", "주방", "작은방", "안방", "베란다", "현관", "다용도실"];
 const ADMIN_TEMPLATE_ORDER_STORAGE_PREFIX = "formate.adminTemplateOrder";
 const MATERIAL_NAME_PLACEHOLDER = "추가된 항목의 이름을 입력하세요";
+export const ADMIN_TEMPLATE_TABLE_COLUMNS = [
+  { key: "drag", label: "", ariaLabel: "순서", defaultWidth: 40, minWidth: 32, maxWidth: 56 },
+  { key: "material", label: "소재명", defaultWidth: 240, minWidth: 160, maxWidth: 480 },
+  { key: "spec", label: "규격/두께", defaultWidth: 120, minWidth: 80, maxWidth: 260 },
+  { key: "days", label: "공사기간", defaultWidth: 88, minWidth: 72, maxWidth: 128 },
+  { key: "quantity", label: "수량", defaultWidth: 88, minWidth: 64, maxWidth: 140 },
+  { key: "labor_empty", label: "인원(빈집)", defaultWidth: 112, minWidth: 88, maxWidth: 180 },
+  { key: "labor_occupied", label: "인원(살림집)", defaultWidth: 112, minWidth: 88, maxWidth: 180 },
+  { key: "updated_at", label: "수정일", defaultWidth: 92, minWidth: 76, maxWidth: 140 },
+  { key: "actions", label: "삭제", defaultWidth: 48, minWidth: 40, maxWidth: 64 },
+];
+export const ESTIMATE_ITEM_TABLE_COLUMNS = [
+  { key: "selected", label: "", ariaLabel: "포함", defaultWidth: 40, minWidth: 32, maxWidth: 56 },
+  { key: "material", label: "소재명", defaultWidth: 260, minWidth: 160, maxWidth: 480 },
+  { key: "spec", label: "규격", defaultWidth: 120, minWidth: 80, maxWidth: 260 },
+  { key: "quantity", label: "수량", align: "right", defaultWidth: 72, minWidth: 56, maxWidth: 120 },
+  { key: "unit", label: "단위", defaultWidth: 60, minWidth: 48, maxWidth: 96 },
+  { key: "totalAmount", label: "합계", align: "right", defaultWidth: 140, minWidth: 104, maxWidth: 220 },
+  { key: "photos", label: "사진", defaultWidth: 56, minWidth: 44, maxWidth: 80 },
+  { key: "expanded", label: "", ariaLabel: "상세", defaultWidth: 48, minWidth: 40, maxWidth: 64 },
+];
 
 function createEmptyAdminTemplateConditionDraft() {
   return {
@@ -2448,6 +2475,20 @@ export default function AdminApp() {
   const selectedCompany = companySession.company;
   const selectedCompanyId = selectedCompany?.id ?? "";
   const selectedCompanyName = selectedCompany?.name ?? "";
+  const adminTemplateTableLayout = usePersistentTableWidths({
+    companyId: selectedCompanyId,
+    tableId: "admin-template-standard",
+    columns: ADMIN_TEMPLATE_TABLE_COLUMNS,
+  });
+  const estimateItemTableLayout = usePersistentTableWidths({
+    companyId: selectedCompanyId,
+    tableId: "estimate-items",
+    columns: ESTIMATE_ITEM_TABLE_COLUMNS,
+  });
+  const adminTemplateTableStyle = {
+    "--quantity-table-columns": adminTemplateTableLayout.gridTemplate,
+    "--quantity-table-width": `${adminTemplateTableLayout.totalWidth}px`,
+  };
   const selectedCompanyIdRef = useRef(selectedCompanyId);
   const adminCatalogLoadRequestRef = useRef(0);
   const adminCatalogSnapshotRef = useRef({ companyId: "", snapshot: null });
@@ -2814,6 +2855,9 @@ export default function AdminApp() {
     aiSetupImportApplyPlanSummary.reviewRows +
     aiSetupImportApplyPlanSummary.ignoredRows;
   const currentAdminTemplateCondition = getAdminTemplateCondition();
+  const currentAdminTemplateRow = adminTemplates.find(
+    (template) => `${template.id}` === `${currentAdminTemplateId}`
+  ) ?? null;
   const currentAdminConditionLabel = currentAdminTemplateCondition
     ? makeTemplateLabel(currentAdminTemplateCondition, conditionVariantLabelMap)
     : "";
@@ -7238,15 +7282,26 @@ export default function AdminApp() {
 
   function renderAdminItemsHeaderV2() {
     return (
-      <div className="admin-quantity-table-header admin-items-v2-table-header standard-quantity-table-header">
-        <span />
-        <span>소재명</span>
-        <span>규격/두께</span>
-        <span>공사기간</span>
-        <span>수량</span>
-        <span>인원(빈집)</span>
-        <span>인원(살림집)</span>
-        <span>삭제</span>
+      <div
+        className="admin-quantity-table-header admin-items-v2-table-header standard-quantity-table-header"
+        style={adminTemplateTableStyle}
+      >
+        {ADMIN_TEMPLATE_TABLE_COLUMNS.map((column) => (
+          <span className="table-column-header" key={column.key}>
+            <span>{column.label}</span>
+            <button
+              type="button"
+              className="ui-table__resize-handle"
+              aria-label={`${column.ariaLabel || column.label || column.key} 열 너비 조절`}
+              onPointerDown={(event) => adminTemplateTableLayout.startResize(column.key, event)}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                event.preventDefault();
+                adminTemplateTableLayout.resizeColumnBy(column.key, event.key === "ArrowLeft" ? -8 : 8);
+              }}
+            />
+          </span>
+        ))}
       </div>
     );
   }
@@ -7638,7 +7693,7 @@ export default function AdminApp() {
     }
 
     return (
-      <div className="admin-subitem-list quantity-table-list admin-items-v2-grid-list">
+      <div className="admin-subitem-list quantity-table-list admin-items-v2-grid-list" style={adminTemplateTableStyle}>
         {renderAdminItemsHeaderV2()}
         {itemProducts.map((product) => {
           const subitem = resolveAdminProductSubitem(
@@ -7700,6 +7755,9 @@ export default function AdminApp() {
                 />
               </div>
               {renderAdminItemsQuantityCells(subitem)}
+              <span className="management-updated-at" title={subitem.template_value_updated_at || undefined}>
+                {formatDisplayTimestampDate(subitem.template_value_updated_at)}
+              </span>
               <button
                 className="danger-button admin-price-v2-danger-button"
                 disabled={adminSaving}
@@ -7960,20 +8018,32 @@ export default function AdminApp() {
             {catalogLoading ? (
               <div className="admin-catalog-toolbar-skeleton" aria-hidden="true" />
             ) : (
-              <TemplateConditionSwitcher
-                templates={orderedAdminTemplates}
-                currentTemplateId={currentAdminTemplateId}
-                favoriteIds={adminTemplateFavoriteIds}
-                recentIds={adminTemplateRecentIds}
-                getLabel={(template) => makeTemplateLabel(template, conditionVariantLabelMap)}
-                disabled={adminSaving}
-                onSelect={(template) => requestAdminCatalogLeave(() => loadAdminTemplate(template))}
-                onToggleFavorite={toggleAdminTemplateFavorite}
-                onCreate={openAdminTemplateConditionDrawer}
-                onEdit={(template) => requestAdminCatalogLeave(() => openAdminTemplateConditionEditDrawer(template))}
-                onDuplicate={(template) => requestAdminCatalogLeave(() => openAdminTemplateConditionDuplicateDrawer(template))}
-                onDelete={openTemplateDeleteDialog}
-              />
+              <>
+                <TemplateConditionSwitcher
+                  templates={orderedAdminTemplates}
+                  currentTemplateId={currentAdminTemplateId}
+                  favoriteIds={adminTemplateFavoriteIds}
+                  recentIds={adminTemplateRecentIds}
+                  getLabel={(template) => makeTemplateLabel(template, conditionVariantLabelMap)}
+                  disabled={adminSaving}
+                  onSelect={(template) => requestAdminCatalogLeave(() => loadAdminTemplate(template))}
+                  onToggleFavorite={toggleAdminTemplateFavorite}
+                  onCreate={openAdminTemplateConditionDrawer}
+                  onEdit={(template) => requestAdminCatalogLeave(() => openAdminTemplateConditionEditDrawer(template))}
+                  onDuplicate={(template) => requestAdminCatalogLeave(() => openAdminTemplateConditionDuplicateDrawer(template))}
+                  onDelete={openTemplateDeleteDialog}
+                />
+                {currentAdminTemplateRow?.updated_at && (
+                  <span className="management-current-updated-at" title={currentAdminTemplateRow.updated_at}>
+                    수정일 {formatDisplayDateTime(currentAdminTemplateRow.updated_at)}
+                  </span>
+                )}
+                {!isSashItem(item) && (
+                  <Button variant="tertiary" size="sm" className="table-layout-reset" onClick={adminTemplateTableLayout.resetWidths}>
+                    열 너비 초기화
+                  </Button>
+                )}
+              </>
             )}
           </div>
 
@@ -7985,7 +8055,7 @@ export default function AdminApp() {
           {catalogLoading ? (
             <section className="items-v2-table-section admin-price-v2-table-section admin-items-v2-table-section" aria-label="견적 템플릿 로딩">
               <div className="admin-price-v2-table-scroll formate-scroll-light">
-                <AdminCatalogTableSkeleton variant="quantity" />
+                <AdminCatalogTableSkeleton variant="quantity" style={adminTemplateTableStyle} />
               </div>
             </section>
           ) : editorReady ? (
@@ -8120,11 +8190,33 @@ export default function AdminApp() {
         localId: entry.clientId,
         persistedSubitem: entry.subitem,
       }));
+      let constructionUpdatedAtRows = [];
+      let templateUpdatedAtRow = null;
+      let templateValueUpdatedAtRows = [];
+      try {
+        if (isCommonPriceSave) {
+          constructionUpdatedAtRows = await fetchConstructionSubitemUpdatedAtRows(
+            existingSubitems.map((subitem) => subitem.id)
+          );
+        } else {
+          const valueIds = (atomicResult.templateValues ?? []).map((value) => value.valueId);
+          [templateUpdatedAtRow, templateValueUpdatedAtRows] = await Promise.all([
+            fetchAdminTemplateUpdatedAtRow(companyId, atomicResult.templateId),
+            fetchAdminTemplateValueUpdatedAtRows(atomicResult.templateId, valueIds),
+          ]);
+        }
+      } catch {
+        // The catalog write is already committed; a later load restores DB timestamps.
+      }
       const reconciledLocalSubitems = reconcileInsertedSubitems(
         localSubitems,
         insertResults
       );
-      if (localSubitems.length) {
+      const constructionUpdatedAtById = new Map([
+        ...constructionUpdatedAtRows.map((row) => [row.id, row.updated_at]),
+        ...insertResults.map(({ persistedSubitem }) => [persistedSubitem.id, persistedSubitem.updated_at]),
+      ].filter(([, updatedAt]) => Boolean(updatedAt)));
+      if (localSubitems.length || constructionUpdatedAtById.size) {
         const persistedByLocalId = new Map(
           localSubitems.map((subitem, index) => [
             subitem.id,
@@ -8135,12 +8227,17 @@ export default function AdminApp() {
           current.map((item) => {
             const nextSubitems = (item.subitems ?? []).map((subitem) => {
               const persisted = persistedByLocalId.get(subitem.id);
-              if (!persisted || persisted.id === subitem.id) return subitem;
+              const persistedId = persisted?.id ?? subitem.id;
+              const updatedAt = constructionUpdatedAtById.get(persistedId);
+              if ((!persisted || persistedId === subitem.id) && !updatedAt) return subitem;
               return {
                 ...subitem,
-                id: persisted.id,
-                created_at: persisted.created_at ?? subitem.created_at,
-                updated_at: persisted.updated_at ?? subitem.updated_at,
+                id: persistedId,
+                created_at: persisted?.created_at ?? subitem.created_at,
+                updated_at: getLatestTimestamp(
+                  subitem.updated_at,
+                  updatedAt ?? persisted?.updated_at,
+                ),
               };
             });
             return rebuildAdminItemCanonicalProducts({
@@ -8151,13 +8248,19 @@ export default function AdminApp() {
         );
       }
 
-      const persistedTemplateValueIds = new Map(
+      const templateValueUpdatedAtById = new Map(
+        templateValueUpdatedAtRows.map((row) => [row.id, row.updated_at])
+      );
+      const persistedTemplateValues = new Map(
         (atomicResult.templateValues ?? []).map((value) => [
           value.subitemId,
-          value.valueId,
+          {
+            id: value.valueId,
+            updatedAt: templateValueUpdatedAtById.get(value.valueId) ?? null,
+          },
         ])
       );
-      if (persistedTemplateValueIds.size) {
+      if (persistedTemplateValues.size) {
         setAdminItems((current) => current.map((item) => ({
           ...item,
           subitems: (item.subitems ?? []).map((subitem) => {
@@ -8165,11 +8268,17 @@ export default function AdminApp() {
               (entry) => entry.localId === subitem.id
             )?.persistedSubitem;
             const constructionSubitemId = persistedSubitem?.id ?? subitem.id;
-            return persistedTemplateValueIds.has(constructionSubitemId)
+            const persistedTemplateValue = persistedTemplateValues.get(constructionSubitemId);
+            return persistedTemplateValue
               ? {
                   ...subitem,
                   ...(persistedSubitem ? { id: constructionSubitemId } : {}),
-                  template_value_id: persistedTemplateValueIds.get(constructionSubitemId),
+                  template_value_id: persistedTemplateValue.id,
+                  template_value_updated_at:
+                    getLatestTimestamp(
+                      subitem.template_value_updated_at,
+                      persistedTemplateValue.updatedAt,
+                    ),
                   template_option_value: "",
                   option_value: "",
                 }
@@ -8177,10 +8286,22 @@ export default function AdminApp() {
           }),
         })));
       }
+      if (templateUpdatedAtRow?.updated_at) {
+        setAdminTemplates((current) => current.map((template) => (
+          `${template.id}` === `${templateUpdatedAtRow.id}`
+            ? {
+                ...template,
+                updated_at: getLatestTimestamp(template.updated_at, templateUpdatedAtRow.updated_at),
+              }
+            : template
+        )));
+      }
 
       if (isCommonPriceSave) {
-        const savedAt = new Date().toISOString();
-        setAdminCommonPriceSavedAt(savedAt);
+        const savedAt = [...constructionUpdatedAtById.values()].sort().at(-1);
+        if (savedAt) {
+          setAdminCommonPriceSavedAt((current) => getLatestTimestamp(current, savedAt));
+        }
         if (!auto) setAdminNotice("공통 단가/인건비를 저장했습니다.");
         if (refetch) await fetchAdminItems({ mode: "prices" });
         if (!auto) {
@@ -8439,27 +8560,7 @@ export default function AdminApp() {
     const estimateConditionDrawerSummary = hasEstimateCondition && conditionChips.length > 0
       ? conditionChips.join(" · ")
       : "";
-    const itemTableColumns = selectedPhotoSubitemId
-      ? [
-          { key: "selected", label: "", width: "34px" },
-          { key: "material", label: "소재명", width: "34%" },
-          { key: "spec", label: "규격", width: "18%" },
-          { key: "quantity", label: "수량", align: "right", width: "72px" },
-          { key: "unit", label: "단위", width: "44px" },
-          { key: "totalAmount", label: "합계", align: "right", width: "126px" },
-          { key: "photos", label: "사진", width: "44px" },
-          { key: "expanded", label: "", width: "44px" },
-        ]
-      : [
-          { key: "selected", label: "", width: "32px" },
-          { key: "material", label: "소재명", width: "38%" },
-          { key: "spec", label: "규격", width: "26%" },
-          { key: "quantity", label: "수량", align: "right", width: "100px" },
-          { key: "unit", label: "단위", width: "60px" },
-          { key: "totalAmount", label: "합계", align: "right", width: "140px" },
-          { key: "photos", label: "사진", width: "56px" },
-          { key: "expanded", label: "", width: "48px" },
-        ];
+    const itemTableColumns = estimateItemTableLayout.columns;
     const categoryItems = estimateCatalog.map((category) => ({
       id: category.id,
       label: category.name,
@@ -8550,7 +8651,10 @@ export default function AdminApp() {
             ))}
           </select>
         ) : (
-          <span className={getEstimateRowSpecLabel(row) ? "" : "items-v2-muted-value"}>
+          <span
+            className={`items-v2-sash-summary ${getEstimateRowSpecLabel(row) ? "" : "items-v2-muted-value"}`.trim()}
+            title={getEstimateRowSpecLabel(row) || undefined}
+          >
             {getEstimateRowSpecLabel(row) || "규격 없음"}
           </span>
         );
@@ -9012,7 +9116,12 @@ export default function AdminApp() {
                   <p>{condition.size ? `${condition.size}평 템플릿` : "견적 템플릿"}</p>
                 )}
               </div>
-              <span>{currentRows.length}개 항목</span>
+              <div className="items-v2-section-actions">
+                <span>{currentRows.length}개 항목</span>
+                <Button variant="tertiary" size="sm" className="table-layout-reset" onClick={estimateItemTableLayout.resetWidths}>
+                  열 너비 초기화
+                </Button>
+              </div>
             </div>
             {openCategory && currentRows.length ? (
               <Table
@@ -9023,6 +9132,9 @@ export default function AdminApp() {
                 zebra
                 rowHeight={40}
                 emptyAsZeroMuted
+                resizable
+                onColumnResizeStart={estimateItemTableLayout.startResize}
+                onColumnResizeBy={estimateItemTableLayout.resizeColumnBy}
                 getRowClassName={(row) => [
                   getEstimateTemplateConflict(row, openCategory) ? "items-v2-row--template-conflict" : "",
                   selectedPhotoSubitemId === row.subitemId ? "items-v2-row--photo-context" : "",

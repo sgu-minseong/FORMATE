@@ -18,6 +18,7 @@ import Button from "../../components/ui/Button";
 import CanonicalVariantManager from "../constructionCatalog/CanonicalVariantManager";
 import CanonicalVariantSelect from "../constructionCatalog/CanonicalVariantSelect";
 import AdminCategoryPanel from "../priceTable/AdminCategoryPanel";
+import { formatDisplayDateTime } from "../../shared/utils/dates";
 import {
   CONSTRUCTION_PRODUCT_KINDS,
   CONSTRUCTION_VARIANT_VALUE_TYPES,
@@ -68,23 +69,30 @@ function CaptionSnippetPopover({
             >
               <GripVertical size={14} />
             </span>
-            {editingId === snippet.id ? (
-              <input
-                autoFocus
-                value={editingContent}
-                onChange={(event) => setEditingContent(event.target.value)}
-                onKeyDown={async (event) => {
-                  if (event.key === "Enter" && await onEdit(snippet.id, editingContent)) setEditingId("");
-                  if (event.key === "Escape") setEditingId("");
-                }}
-                onBlur={async () => { if (await onEdit(snippet.id, editingContent)) setEditingId(""); }}
-                aria-label="자주 쓰는 설명 수정"
-              />
-            ) : (
-              <button type="button" className="pyeong-caption-snippet-apply" onMouseDown={(event) => event.preventDefault()} onClick={() => onApply(snippet.content)}>
-                {snippet.content}
-              </button>
-            )}
+            <div className="pyeong-caption-snippet-content">
+              {editingId === snippet.id ? (
+                <input
+                  autoFocus
+                  value={editingContent}
+                  onChange={(event) => setEditingContent(event.target.value)}
+                  onKeyDown={async (event) => {
+                    if (event.key === "Enter" && await onEdit(snippet.id, editingContent)) setEditingId("");
+                    if (event.key === "Escape") setEditingId("");
+                  }}
+                  onBlur={async () => { if (await onEdit(snippet.id, editingContent)) setEditingId(""); }}
+                  aria-label="자주 쓰는 설명 수정"
+                />
+              ) : (
+                <button type="button" className="pyeong-caption-snippet-apply" onMouseDown={(event) => event.preventDefault()} onClick={() => onApply(snippet.content)}>
+                  {snippet.content}
+                </button>
+              )}
+              {snippet.updatedAt && (
+                <time dateTime={snippet.updatedAt} title={snippet.updatedAt}>
+                  수정일 {formatDisplayDateTime(snippet.updatedAt)}
+                </time>
+              )}
+            </div>
             <button
               type="button"
               onMouseDown={(event) => event.preventDefault()}
@@ -507,6 +515,11 @@ export default function PyeongPhotoManagement({ controller, onBack }) {
             </button>
           )}
         </div>
+        {photo.updatedAt && (
+          <time className="pyeong-photo-updated-at" dateTime={photo.updatedAt} title={photo.updatedAt}>
+            수정일 {formatDisplayDateTime(photo.updatedAt)}
+          </time>
+        )}
       </article>
     );
   }

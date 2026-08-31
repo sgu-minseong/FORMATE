@@ -131,7 +131,7 @@ export function useDetailCosts({ companyId, getFriendlyError }) {
   }
 
   return {
-    subitems, selectedSubitemId, setSelectedSubitemId, costs, newCost, setNewCost,
+    companyId, subitems, selectedSubitemId, setSelectedSubitemId, costs, newCost, setNewCost,
     bulkInput, setBulkInput, loading, saving, error, notice, groups, selectedSubitem,
     selectedGroup, loadSubitems, loadCosts, add, updateLocal, update, remove, applyBulk, reset,
   };

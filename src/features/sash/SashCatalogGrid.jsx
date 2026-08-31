@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pin, Plus, Trash2 } from "lucide-react";
+import Button from "../../components/ui/Button";
 import Select from "../../components/ui/Select";
 import Table from "../../components/ui/Table";
+import { usePersistentTableWidths } from "../../components/ui/tableWidths";
 import useDebouncedAutosave from "../../shared/hooks/useDebouncedAutosave";
 import useMutationSaveStatus from "../../shared/hooks/useMutationSaveStatus";
 import {
   formatMoneyInputValue,
   stripNumberInputFormatting,
 } from "../../shared/utils/numbers";
-import { formatDisplayDate } from "../../shared/utils/dates";
+import { formatDisplayTimestampDate, getLatestTimestamp } from "../../shared/utils/dates";
 import { PYEONG_OPTIONS } from "../../shared/constants/estimateOptions";
 import {
   archiveSashCatalogEntry,
@@ -62,6 +64,27 @@ function normalizeDefaultPyeong(value) {
   return PYEONG_OPTIONS.includes(numericValue) ? String(numericValue) : "";
 }
 
+export const SASH_CATALOG_TABLE_COLUMNS = [
+  { key: "pin", label: "", ariaLabel: "대표제품", defaultWidth: 36, minWidth: 32, maxWidth: 48, sticky: true },
+  { key: "sash_category", label: "분류", defaultWidth: 72, minWidth: 64, maxWidth: 112 },
+  { key: "brand", label: "제조사", defaultWidth: 84, minWidth: 72, maxWidth: 180, sticky: true },
+  { key: "frame_spec", label: "틀", defaultWidth: 90, minWidth: 72, maxWidth: 180, sticky: true, stickyEnd: true },
+  { key: "pair_spec", label: "페어", defaultWidth: 78, minWidth: 64, maxWidth: 160 },
+  { key: "glass_spec", label: "유리", defaultWidth: 82, minWidth: 64, maxWidth: 160 },
+  { key: "gas_spec", label: "가스", defaultWidth: 70, minWidth: 60, maxWidth: 140 },
+  { key: "screen_spec", label: "망", defaultWidth: 72, minWidth: 60, maxWidth: 140 },
+  { key: "window_type", label: "창", defaultWidth: 76, minWidth: 64, maxWidth: 120 },
+  { key: "measurement_kind", label: "치수", defaultWidth: 76, minWidth: 64, maxWidth: 120 },
+  { key: "width_mm", label: "가로", align: "right", defaultWidth: 82, minWidth: 68, maxWidth: 140 },
+  { key: "height_mm", label: "세로", align: "right", defaultWidth: 82, minWidth: 68, maxWidth: 140 },
+  { key: "area_sqm", label: "헤베", align: "right", defaultWidth: 84, minWidth: 68, maxWidth: 140 },
+  { key: "unit_price", label: "단가", align: "right", defaultWidth: 100, minWidth: 80, maxWidth: 180 },
+  { key: "amount", label: "금액", align: "right", defaultWidth: 104, minWidth: 84, maxWidth: 190 },
+  { key: "cost_price", label: "원가", align: "right", defaultWidth: 96, minWidth: 80, maxWidth: 180 },
+  { key: "updated_at", label: "수정일", defaultWidth: 92, minWidth: 76, maxWidth: 140 },
+  { key: "actions", label: "", ariaLabel: "삭제", defaultWidth: 40, minWidth: 36, maxWidth: 56 },
+];
+
 export default function SashCatalogGrid({
   companyId,
   subitem = null,
@@ -94,6 +117,11 @@ export default function SashCatalogGrid({
   const entryRevisionsRef = useRef(new Map());
   const pinRequestRevisionRef = useRef(0);
   const pinSaveQueueRef = useRef(Promise.resolve());
+  const tableLayout = usePersistentTableWidths({
+    companyId,
+    tableId: "sash-catalog",
+    columns: SASH_CATALOG_TABLE_COLUMNS,
+  });
 
   const selectedSubitemId = subitem?.id ?? "";
   const hasLocalEntry = entries.some(isLocalSashCatalogEntry);
@@ -254,8 +282,16 @@ export default function SashCatalogGrid({
       const currentRevision = entryRevisionsRef.current.get(entry.id) ?? 0;
       const latestEntry = currentEntries.find((currentEntry) => currentEntry.id === entry.id);
       const replacementEntry = currentRevision === revisionAtSave || !latestEntry
-        ? normalizedSavedEntry
-        : { ...normalizedSavedEntry, ...latestEntry, id: normalizedSavedEntry.id };
+        ? {
+            ...normalizedSavedEntry,
+            updated_at: getLatestTimestamp(latestEntry?.updated_at, normalizedSavedEntry.updated_at),
+          }
+        : {
+            ...normalizedSavedEntry,
+            ...latestEntry,
+            id: normalizedSavedEntry.id,
+            updated_at: getLatestTimestamp(latestEntry.updated_at, normalizedSavedEntry.updated_at),
+          };
       const resolvedEntries = normalizedSavedEntry.sash_category === sashCategory
         ? currentEntries.map((currentEntry) => (
             currentEntry.id === entry.id ? replacementEntry : currentEntry
@@ -352,9 +388,37 @@ export default function SashCatalogGrid({
         () => saveSashCatalogEntryOrder(nextEntries, companyId),
         () => reorderEntries(sourceIndex, targetIndex)
       );
+      try {
+        const refreshedEntries = (
+          await fetchActiveSashCatalogEntries(companyId, selectedSubitemId, sashCategory)
+        ).map(normalizeSashCatalogEntry);
+        const updatedAtById = new Map(
+          refreshedEntries.map((entry) => [entry.id, entry.updated_at]),
+        );
+        const mergedEntries = entriesRef.current.map((entry) => ({
+          ...entry,
+          updated_at: getLatestTimestamp(entry.updated_at, updatedAtById.get(entry.id)),
+        }));
+        entriesRef.current = mergedEntries;
+        setEntries(mergedEntries);
+      } catch {
+        // The order write is committed; a later load restores canonical DB timestamps.
+      }
     } catch (nextError) {
-      entriesRef.current = previousEntries;
-      setEntries(previousEntries);
+      const previousOrder = new Map(
+        previousEntries.map((entry, index) => [entry.id, { index, sortOrder: entry.sort_order }]),
+      );
+      const restoredEntries = [...entriesRef.current]
+        .sort((left, right) => (
+          (previousOrder.get(left.id)?.index ?? Number.MAX_SAFE_INTEGER)
+          - (previousOrder.get(right.id)?.index ?? Number.MAX_SAFE_INTEGER)
+        ))
+        .map((entry, index) => ({
+          ...entry,
+          sort_order: previousOrder.get(entry.id)?.sortOrder ?? entry.sort_order ?? index,
+        }));
+      entriesRef.current = restoredEntries;
+      setEntries(restoredEntries);
       setError(getFriendlySashError(nextError, "순서를 저장하지 못했습니다. 기존 순서로 되돌렸습니다."));
     }
   }
@@ -400,27 +464,6 @@ export default function SashCatalogGrid({
       if (pinRequestRevisionRef.current === requestRevision) setPinSaving(false);
     }
   }
-
-  const columns = [
-    { key: "pin", label: "", width: "36px", sticky: true },
-    { key: "sash_category", label: "분류", width: "72px" },
-    { key: "brand", label: "제조사", width: "84px", sticky: true },
-    { key: "frame_spec", label: "틀", width: "90px", sticky: true, stickyEnd: true },
-    { key: "pair_spec", label: "페어", width: "78px" },
-    { key: "glass_spec", label: "유리", width: "82px" },
-    { key: "gas_spec", label: "가스", width: "70px" },
-    { key: "screen_spec", label: "망", width: "72px" },
-    { key: "window_type", label: "창", width: "76px" },
-    { key: "measurement_kind", label: "치수", width: "76px" },
-    { key: "width_mm", label: "가로", align: "right", width: "82px" },
-    { key: "height_mm", label: "세로", align: "right", width: "82px" },
-    { key: "area_sqm", label: "헤베", align: "right", width: "84px" },
-    { key: "unit_price", label: "단가", align: "right", width: "100px" },
-    { key: "amount", label: "금액", align: "right", width: "104px" },
-    { key: "cost_price", label: "원가", align: "right", width: "96px" },
-    { key: "updated_at", label: "저장일", width: "84px" },
-    { key: "actions", label: "", width: "40px" },
-  ];
 
   function renderCell({ row, column }) {
     const isSaving = savingId === row.id;
@@ -575,7 +618,7 @@ export default function SashCatalogGrid({
       );
     }
     if (column.key === "updated_at") {
-      return <span className="sash-catalog-grid__readonly" aria-readonly="true">{row.updated_at ? formatDisplayDate(row.updated_at.slice(0, 10)) : "-"}</span>;
+      return <span className="sash-catalog-grid__readonly" aria-readonly="true">{formatDisplayTimestampDate(row.updated_at)}</span>;
     }
     if (column.key === "actions") {
       return (
@@ -623,6 +666,9 @@ export default function SashCatalogGrid({
               </Select>
           )}
           {pinRequirement && <span className="sash-catalog-grid__pin-requirement" role="status">{pinRequirement}</span>}
+          <Button variant="tertiary" size="sm" className="table-layout-reset" onClick={tableLayout.resetWidths}>
+            열 너비 초기화
+          </Button>
           </div>
         </div>
       )}
@@ -640,7 +686,7 @@ export default function SashCatalogGrid({
         </div>
       ) : entries.length ? (
         <Table
-          columns={columns}
+          columns={tableLayout.columns}
           rows={displayEntries}
           renderCell={renderCell}
           rowHeight={40}
@@ -648,6 +694,9 @@ export default function SashCatalogGrid({
           scrollCue
           draggable={!hasLocalEntry}
           onReorder={reorderEntries}
+          resizable
+          onColumnResizeStart={tableLayout.startResize}
+          onColumnResizeBy={tableLayout.resizeColumnBy}
           className="sash-catalog-grid__table"
         />
       ) : (

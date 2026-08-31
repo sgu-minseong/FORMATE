@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Archive, Plus } from "lucide-react";
+import Button from "../../components/ui/Button";
 import Table from "../../components/ui/Table";
+import { usePersistentTableWidths } from "../../components/ui/tableWidths";
 import useDebouncedAutosave from "../../shared/hooks/useDebouncedAutosave";
 import useMutationSaveStatus from "../../shared/hooks/useMutationSaveStatus";
-import { formatDisplayDate } from "../../shared/utils/dates";
+import { formatDisplayTimestampDate, getLatestTimestamp } from "../../shared/utils/dates";
 import {
   formatMoneyInputValue,
   stripNumberInputFormatting,
@@ -35,6 +37,16 @@ function moveItem(items, sourceIndex, targetIndex) {
   return nextItems.map((item, index) => ({ ...item, sort_order: index }));
 }
 
+export const SASH_SPECIAL_ITEMS_TABLE_COLUMNS = [
+  { key: "description", label: "설명", defaultWidth: 220, minWidth: 160, maxWidth: 420 },
+  { key: "width_mm", label: "가로", align: "right", defaultWidth: 96, minWidth: 72, maxWidth: 150 },
+  { key: "height_mm", label: "세로", align: "right", defaultWidth: 96, minWidth: 72, maxWidth: 150 },
+  { key: "area_sqm", label: "면적", align: "right", defaultWidth: 88, minWidth: 68, maxWidth: 140 },
+  { key: "amount", label: "금액", align: "right", defaultWidth: 120, minWidth: 88, maxWidth: 200 },
+  { key: "updated_at", label: "수정일", defaultWidth: 92, minWidth: 76, maxWidth: 140 },
+  { key: "actions", label: "", ariaLabel: "보관", defaultWidth: 40, minWidth: 36, maxWidth: 56 },
+];
+
 export default function SashSpecialItemsManager({
   companyId,
   categoryNavigation,
@@ -52,6 +64,11 @@ export default function SashSpecialItemsManager({
   const itemsRef = useRef(items);
   const dirtyItemIdsRef = useRef(dirtyItemIds);
   const itemRevisionsRef = useRef(new Map());
+  const tableLayout = usePersistentTableWidths({
+    companyId,
+    tableId: "sash-special-items",
+    columns: SASH_SPECIAL_ITEMS_TABLE_COLUMNS,
+  });
   itemsRef.current = items;
   dirtyItemIdsRef.current = dirtyItemIds;
   const autosave = useDebouncedAutosave({ save: persistDirtyItems });
@@ -159,8 +176,16 @@ export default function SashSpecialItemsManager({
       const currentRevision = itemRevisionsRef.current.get(item.id) ?? 0;
       const latestItem = itemsRef.current.find((candidate) => candidate.id === item.id);
       const replacementItem = currentRevision === revisionAtSave || !latestItem
-        ? normalizedSavedItem
-        : { ...normalizedSavedItem, ...latestItem, id: normalizedSavedItem.id };
+        ? {
+            ...normalizedSavedItem,
+            updated_at: getLatestTimestamp(latestItem?.updated_at, normalizedSavedItem.updated_at),
+          }
+        : {
+            ...normalizedSavedItem,
+            ...latestItem,
+            id: normalizedSavedItem.id,
+            updated_at: getLatestTimestamp(latestItem.updated_at, normalizedSavedItem.updated_at),
+          };
       const nextItems = itemsRef.current.map((currentItem) => (
         currentItem.id === item.id ? replacementItem : currentItem
       ));
@@ -233,25 +258,42 @@ export default function SashSpecialItemsManager({
         () => saveSashSpecialItemOrder(nextItems, companyId),
         () => reorderItems(sourceIndex, targetIndex)
       );
+      try {
+        const refreshedItems = (await fetchActiveSashSpecialItems(companyId))
+          .map(normalizeSashSpecialItem);
+        const updatedAtById = new Map(
+          refreshedItems.map((item) => [item.id, item.updated_at]),
+        );
+        const mergedItems = itemsRef.current.map((item) => ({
+          ...item,
+          updated_at: getLatestTimestamp(item.updated_at, updatedAtById.get(item.id)),
+        }));
+        itemsRef.current = mergedItems;
+        setItems(mergedItems);
+      } catch {
+        // The order write is committed; a later load restores canonical DB timestamps.
+      }
     } catch (nextError) {
-      itemsRef.current = previousItems;
-      setItems(previousItems);
+      const previousOrder = new Map(
+        previousItems.map((item, index) => [item.id, { index, sortOrder: item.sort_order }]),
+      );
+      const restoredItems = [...itemsRef.current]
+        .sort((left, right) => (
+          (previousOrder.get(left.id)?.index ?? Number.MAX_SAFE_INTEGER)
+          - (previousOrder.get(right.id)?.index ?? Number.MAX_SAFE_INTEGER)
+        ))
+        .map((item, index) => ({
+          ...item,
+          sort_order: previousOrder.get(item.id)?.sortOrder ?? item.sort_order ?? index,
+        }));
+      itemsRef.current = restoredItems;
+      setItems(restoredItems);
       setError(getFriendlySpecialItemError(
         nextError,
         "추가작업 순서를 저장하지 못했습니다. 기존 순서로 되돌렸습니다."
       ));
     }
   }
-
-  const columns = [
-    { key: "description", label: "설명", width: "220px" },
-    { key: "width_mm", label: "가로", align: "right", width: "96px" },
-    { key: "height_mm", label: "세로", align: "right", width: "96px" },
-    { key: "area_sqm", label: "면적", align: "right", width: "88px" },
-    { key: "amount", label: "금액", align: "right", width: "120px" },
-    { key: "updated_at", label: "저장일", width: "84px" },
-    { key: "actions", label: "", width: "40px" },
-  ];
 
   function renderCell({ row, column }) {
     const isSaving = savingId === row.id;
@@ -313,7 +355,7 @@ export default function SashSpecialItemsManager({
     if (column.key === "updated_at") {
       return (
         <span className="sash-catalog-grid__readonly" aria-readonly="true">
-          {row.updated_at ? formatDisplayDate(row.updated_at.slice(0, 10)) : "-"}
+          {formatDisplayTimestampDate(row.updated_at)}
         </span>
       );
     }
@@ -342,6 +384,9 @@ export default function SashSpecialItemsManager({
         {categoryNavigation}
         <div className="sash-catalog-grid__pin-context">
           <span className="sash-special-items__count">{loaded ? `${persistedItemCount}개` : ""}</span>
+          <Button variant="tertiary" size="sm" className="table-layout-reset" onClick={tableLayout.resetWidths}>
+            열 너비 초기화
+          </Button>
         </div>
       </div>
 
@@ -359,7 +404,7 @@ export default function SashSpecialItemsManager({
         </div>
       ) : items.length ? (
         <Table
-          columns={columns}
+          columns={tableLayout.columns}
           rows={items}
           renderCell={renderCell}
           rowHeight={40}
@@ -367,6 +412,9 @@ export default function SashSpecialItemsManager({
           scrollCue
           draggable={!items.some(isLocalSashSpecialItem)}
           onReorder={reorderItems}
+          resizable
+          onColumnResizeStart={tableLayout.startResize}
+          onColumnResizeBy={tableLayout.resizeColumnBy}
           className="sash-special-items__table"
         />
       ) : (

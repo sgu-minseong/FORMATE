@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
+import { getTableTotalWidth } from "./tableWidths";
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -37,6 +38,9 @@ export default function Table({
   getRowId,
   className = "",
   scrollCue = false,
+  resizable = false,
+  onColumnResizeStart,
+  onColumnResizeBy,
 }) {
   const scrollRef = useRef(null);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -49,6 +53,14 @@ export default function Table({
       return [[column.key, currentOffset]];
     }));
   }, [columns]);
+  const tableWidth = useMemo(() => (
+    resizable
+      ? getTableTotalWidth(
+          columns,
+          Object.fromEntries(columns.map((column) => [column.key, column.width])),
+        ) + (draggable ? 40 : 0)
+      : null
+  ), [columns, draggable, resizable]);
 
   const updateScrollCue = useCallback(() => {
     const node = scrollRef.current;
@@ -91,7 +103,13 @@ export default function Table({
   };
 
   return (
-    <div className={cx("ui-table-wrap", canScrollRight && "ui-table-wrap--can-scroll-right")}>
+    <div
+      className={cx(
+        "ui-table-wrap",
+        resizable && "ui-table-wrap--resizable",
+        canScrollRight && "ui-table-wrap--can-scroll-right",
+      )}
+    >
       <div ref={scrollRef} className="ui-table-scroll formate-scroll-light">
         <table
           className={cx(
@@ -100,7 +118,19 @@ export default function Table({
             stickyHeader && "ui-table--sticky-header",
             className,
           )}
+          style={resizable ? {
+            width: `${tableWidth}px`,
+            minWidth: `${tableWidth}px`,
+            maxWidth: `${tableWidth}px`,
+            tableLayout: "fixed",
+          } : undefined}
         >
+          {resizable && (
+            <colgroup>
+              {draggable && <col style={{ width: 40 }} />}
+              {columns.map((column) => <col key={column.key} style={{ width: column.width }} />)}
+            </colgroup>
+          )}
           <thead>
             <tr>
               {draggable && <th className="ui-table__drag-cell" scope="col" />}
@@ -120,7 +150,22 @@ export default function Table({
                   }}
                   scope="col"
                 >
-                  {column.label}
+                  {resizable
+                    ? <span className="ui-table__header-label">{column.label}</span>
+                    : column.label}
+                  {resizable && (
+                    <button
+                      type="button"
+                      className="ui-table__resize-handle"
+                      aria-label={`${column.ariaLabel || column.label || column.key} 열 너비 조절`}
+                      onPointerDown={(event) => onColumnResizeStart?.(column.key, event)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                        event.preventDefault();
+                        onColumnResizeBy?.(column.key, event.key === "ArrowLeft" ? -8 : 8);
+                      }}
+                    />
+                  )}
                 </th>
               ))}
             </tr>

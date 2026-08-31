@@ -47,22 +47,25 @@ describe("price table add action layout contracts", () => {
 
 describe("admin table geometry ownership contracts", () => {
   it("keeps one Price geometry owner for header, editable rows, and skeleton rows", () => {
-    expect(appStyles.match(/--price-table-columns:/g)).toHaveLength(1);
+    expect(pageSource).toContain('"--price-table-columns": tableLayout.gridTemplate');
+    expect(pageSource).toContain('"--price-table-width": `${tableLayout.totalWidth}px`');
     expect(appStyles).toMatch(
       /\.admin-price-v2-grid-list \.admin-price-table-header\.admin-price-v2-grid,[\s\S]*?\.admin-value-row\.common-price-row\.admin-price-v2-grid,[\s\S]*?\.admin-catalog-skeleton-row\s*\{[\s\S]*?grid-template-columns:\s*var\(--price-table-columns\);/
     );
-    expect(pageSource).toContain('<AdminCatalogTableSkeleton variant="price" />');
+    expect(pageSource).toContain('<AdminCatalogTableSkeleton variant="price" style={tableLayoutStyle} />');
     expect(skeletonSource).toContain('listClassName: "admin-price-v2-grid-list price-table-list"');
+    expect(skeletonSource).toContain("columnCount: 10");
   });
 
   it("keeps one Template geometry owner for header, editable rows, and skeleton rows", () => {
-    expect(appStyles.match(/--quantity-table-columns:/g)).toHaveLength(1);
+    expect(adminAppSource).toContain('"--quantity-table-columns": adminTemplateTableLayout.gridTemplate');
+    expect(adminAppSource).toContain('"--quantity-table-width": `${adminTemplateTableLayout.totalWidth}px`');
     expect(appStyles).toMatch(
       /\.admin-items-v2-grid-list \.admin-quantity-table-header,[\s\S]*?\.admin-value-row\.condition-quantity-row,[\s\S]*?\.admin-catalog-skeleton-row\s*\{[\s\S]*?grid-template-columns:\s*var\(--quantity-table-columns\);/
     );
     expect(skeletonSource).toContain('listClassName: "admin-items-v2-grid-list quantity-table-list"');
     expect(skeletonSource).toContain('headerClassName: "admin-quantity-table-header"');
-    expect(skeletonSource).toContain("columnCount: 8");
+    expect(skeletonSource).toContain("columnCount: 9");
   });
 
   it("removes legacy competing geometry and uses one horizontal data viewport", () => {
@@ -81,8 +84,10 @@ describe("admin table geometry ownership contracts", () => {
     expect(appStyles).toMatch(
       /\.admin-items-v2-table-section \.admin-price-v2-table-scroll\s*\{[\s\S]*?overflow-x:\s*auto;/
     );
-    expect(appStyles).toMatch(/\.admin-price-v2-grid-list\s*\{[\s\S]*?min-width:\s*820px;/);
-    expect(appStyles).toMatch(/\.admin-items-v2-grid-list\s*\{[\s\S]*?min-width:\s*740px;/);
+    expect(appStyles).toMatch(/\.admin-price-v2-grid-list\s*\{[\s\S]*?width:\s*var\(--price-table-width\);[\s\S]*?min-width:\s*var\(--price-table-width\);/);
+    expect(appStyles).toMatch(/\.admin-items-v2-grid-list\s*\{[\s\S]*?width:\s*var\(--quantity-table-width\);[\s\S]*?min-width:\s*var\(--quantity-table-width\);/);
+    expect(appStyles).not.toMatch(/\.admin-price-v2-grid-list\s*\{[\s\S]*?min-width:\s*820px;/);
+    expect(appStyles).not.toMatch(/\.admin-items-v2-grid-list\s*\{[\s\S]*?min-width:\s*740px;/);
   });
 });
 
