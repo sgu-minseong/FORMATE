@@ -12,6 +12,10 @@ const adminAppSource = readFileSync(
   new URL("../../../app/AdminApp.jsx", import.meta.url),
   "utf8"
 );
+const estimateLiveSummarySource = readFileSync(
+  new URL("../EstimateLiveSummary.jsx", import.meta.url),
+  "utf8"
+);
 
 describe("estimate condition change", () => {
   it("applies a direct pyeong change through the shared condition pipeline", async () => {
@@ -178,7 +182,8 @@ describe("estimate condition change", () => {
     expect(adminAppSource).toContain("function openEstimateConditionQuickEdit()");
     expect(adminAppSource).toContain("setEstimateConditionEditMode(true)");
     expect(adminAppSource).toContain("setEstimateConditionDrawerOpen(true)");
-    expect(adminAppSource).toContain("onClick={openEstimateConditionQuickEdit}");
+    expect(adminAppSource).toContain("onEditCondition: openEstimateConditionQuickEdit");
+    expect(estimateLiveSummarySource).toContain("onClick={onEditCondition}");
     expect(adminAppSource).toContain('preserveDraft: estimateConditionEditMode');
     expect(adminAppSource).toContain("queueEstimateAutoSave({ immediate: true })");
   });
