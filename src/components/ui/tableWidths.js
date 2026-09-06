@@ -64,6 +64,32 @@ export function getTableTotalWidth(columns, widths) {
   return (columns ?? []).reduce((total, column) => total + sanitized[column.key], 0);
 }
 
+export function fitTableColumns(columns, availableWidth) {
+  const preferred = (columns ?? []).map((column) => ({
+    ...column,
+    width: clampColumnWidth(column, toFiniteWidth(column.width)),
+  }));
+  if (!Number.isFinite(availableWidth) || availableWidth <= 0) return preferred;
+
+  const preferredTotal = preferred.reduce((total, column) => total + column.width, 0);
+  if (preferredTotal <= availableWidth) return preferred;
+
+  const minimums = preferred.map((column) => Math.min(
+    column.width,
+    toFiniteWidth(column.fitMinWidth) ?? getColumnBounds(column).minWidth,
+  ));
+  const minimumTotal = minimums.reduce((total, width) => total + width, 0);
+  const shrinkableTotal = preferredTotal - minimumTotal;
+  const ratio = shrinkableTotal > 0
+    ? Math.max(0, Math.min(1, (availableWidth - minimumTotal) / shrinkableTotal))
+    : 0;
+
+  return preferred.map((column, index) => ({
+    ...column,
+    width: minimums[index] + (column.width - minimums[index]) * ratio,
+  }));
+}
+
 export function loadTableWidths(storage, storageKey, columns) {
   if (!storage || !storageKey) return sanitizeTableWidths(columns, null);
   try {

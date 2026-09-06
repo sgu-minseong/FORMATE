@@ -46,7 +46,6 @@ import CategorySidebar from "../components/ui/CategorySidebar.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import Input from "../components/ui/Input.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
-import StickyTotalBar from "../components/ui/StickyTotalBar.jsx";
 import Table from "../components/ui/Table.jsx";
 import { usePersistentTableWidths } from "../components/ui/tableWidths";
 import logoUrl from "../assets/formate-logo-icon.png";
@@ -172,7 +171,7 @@ import {
   getLegacyEstimateHistorySpecLabel,
 } from "../features/estimates/estimateHistoryCompatibility";
 import EstimateEditorPage from "../features/estimates/EstimateEditorPage";
-import EstimatePhotoContextPane from "../features/estimates/EstimatePhotoContextPane";
+import EstimateContextPane from "../features/estimates/EstimateContextPane";
 import EstimatePreviewPage from "../features/estimates/EstimatePreviewPage";
 import SavedEstimatesPage from "../features/estimates/SavedEstimatesPage";
 import PhotoManagementPage from "../features/photoManagement/PhotoManagementPage";
@@ -378,14 +377,14 @@ export const ADMIN_TEMPLATE_TABLE_COLUMNS = [
   { key: "actions", label: "삭제", defaultWidth: 48, minWidth: 40, maxWidth: 64 },
 ];
 export const ESTIMATE_ITEM_TABLE_COLUMNS = [
-  { key: "selected", label: "", ariaLabel: "포함", defaultWidth: 40, minWidth: 32, maxWidth: 56 },
-  { key: "material", label: "소재명", defaultWidth: 260, minWidth: 160, maxWidth: 480 },
-  { key: "spec", label: "규격", defaultWidth: 120, minWidth: 80, maxWidth: 260 },
-  { key: "quantity", label: "수량", align: "right", defaultWidth: 72, minWidth: 56, maxWidth: 120 },
-  { key: "unit", label: "단위", defaultWidth: 60, minWidth: 48, maxWidth: 96 },
-  { key: "totalAmount", label: "합계", align: "right", defaultWidth: 140, minWidth: 104, maxWidth: 220 },
-  { key: "photos", label: "사진", defaultWidth: 56, minWidth: 44, maxWidth: 80 },
-  { key: "expanded", label: "", ariaLabel: "상세", defaultWidth: 48, minWidth: 40, maxWidth: 64 },
+  { key: "selected", label: "", ariaLabel: "포함", defaultWidth: 40, minWidth: 32, fitMinWidth: 32, maxWidth: 56 },
+  { key: "material", label: "소재명", defaultWidth: 260, minWidth: 160, fitMinWidth: 128, maxWidth: 480 },
+  { key: "spec", label: "규격", defaultWidth: 120, minWidth: 80, fitMinWidth: 64, maxWidth: 260 },
+  { key: "quantity", label: "수량", align: "right", defaultWidth: 72, minWidth: 56, fitMinWidth: 48, maxWidth: 120 },
+  { key: "unit", label: "단위", defaultWidth: 60, minWidth: 48, fitMinWidth: 40, maxWidth: 96 },
+  { key: "totalAmount", label: "합계", align: "right", defaultWidth: 140, minWidth: 104, fitMinWidth: 88, maxWidth: 220 },
+  { key: "photos", label: "사진", defaultWidth: 56, minWidth: 44, fitMinWidth: 40, maxWidth: 80 },
+  { key: "expanded", label: "", ariaLabel: "상세", defaultWidth: 48, minWidth: 40, fitMinWidth: 32, maxWidth: 64 },
 ];
 
 function createEmptyAdminTemplateConditionDraft() {
@@ -2293,6 +2292,7 @@ export default function AdminApp() {
     }
   }, []);
   const [estimatePhotoViewerIndex, setEstimatePhotoViewerIndex] = useState(null);
+  const [estimateContextMode, setEstimateContextMode] = useState("estimate");
   const [selectedAdminPyeong, setSelectedAdminPyeong] = useState("");
   const [selectedAdminBuildType, setSelectedAdminBuildType] = useState("");
   const [selectedAdminHasExtension, setSelectedAdminHasExtension] = useState(false);
@@ -5611,6 +5611,7 @@ export default function AdminApp() {
     resetEstimateDraftForNewStart();
     setEstimateTemplateConflicts([]);
     setEstimateTemplateConditionKey("");
+    setEstimateContextMode("estimate");
     setEstimateConditionDrawerOpen(true);
     setPage("condition");
   }
@@ -5958,13 +5959,8 @@ export default function AdminApp() {
   async function handleOpenItemPhotos(row) {
     const subitemId = row?.subitemId ?? "";
     const subitemName = row?.itemType === "flat" ? row?.itemName : row?.material;
+    setEstimateContextMode("photo");
     if (subitemId && selectedPhotoSubitemId === subitemId) {
-      estimatePhotoRequestRef.current = "";
-      setSelectedPhotoSubitemId("");
-      setSelectedPhotoSubitemName("");
-      setEstimateItemPhotos([]);
-      setEstimateItemPhotosError("");
-      setEstimatePhotoViewerIndex(null);
       return;
     }
 
@@ -6308,6 +6304,38 @@ export default function AdminApp() {
     );
   }
 
+  function getEstimateDocumentProps() {
+    return {
+      companyName: selectedCompanyName,
+      total,
+      createdDate: estimateCreatedDate,
+      validUntil: estimateValidUntilDisplay,
+      vatStatus: estimateVatStatus,
+      customerName,
+      customerPhone,
+      address,
+      workDate,
+      issuedAt: estimateIssuedAt,
+      validUntilDate: estimateValidUntil,
+      onCustomerNameChange: (event) => updateEstimateDocumentField(setCustomerName, event.target.value),
+      onCustomerPhoneChange: (event) => updateEstimateDocumentField(setCustomerPhone, event.target.value),
+      onAddressChange: (event) => updateEstimateDocumentField(setAddress, event.target.value),
+      onWorkDateChange: (event) => updateEstimateDocumentField(setWorkDate, event.target.value, { immediate: true }),
+      onVatStatusChange: (event) => updateEstimateDocumentField(setEstimateVatStatus, event.target.value, { immediate: true }),
+      onIssuedAtChange: (event) => updateEstimateDocumentField(setEstimateIssuedAt, event.target.value, { immediate: true }),
+      onValidUntilChange: (event) => updateEstimateDocumentField(setEstimateValidUntil, event.target.value, { immediate: true }),
+      conditionSummary,
+      conditionPyeong: condition.size,
+      estimatePyeong,
+      constructionDaysTotal: selectedConstructionDaysTotal,
+      constructionDayParts: selectedConstructionDayParts,
+      renderGeneralTable: renderGeneralEstimateTable,
+      renderDetailTable: renderDetailEstimateTable,
+      renderAdjustmentSummary: renderEstimateAdjustmentSummary,
+      estimateNumber,
+    };
+  }
+
   function getEstimateTemplateValuePayloads(residenceStatus) {
     return Object.values(items)
       .flatMap((rows) => rows ?? [])
@@ -6406,6 +6434,7 @@ export default function AdminApp() {
     setEstimateItemPhotos([]);
     setIsLoadingEstimateItemPhotos(false);
     setEstimateItemPhotosError("");
+    setEstimateContextMode("estimate");
     setPreviewBackPage(destination === "preview" && !copy ? "admin-estimates" : "items");
     if (destination === "preview") setEstimatePreviewType("general");
     setPage(destination);
@@ -6477,6 +6506,7 @@ export default function AdminApp() {
     setEstimateItemPhotos([]);
     setIsLoadingEstimateItemPhotos(false);
     setEstimateItemPhotosError("");
+    setEstimateContextMode("estimate");
     setEstimatePreviewType("general");
   }
 
@@ -6529,6 +6559,7 @@ export default function AdminApp() {
     setEstimateItemPhotos([]);
     setIsLoadingEstimateItemPhotos(false);
     setEstimateItemPhotosError("");
+    setEstimateContextMode("estimate");
     setPreviewBackPage("items");
     setEstimatePreviewType("general");
   }
@@ -8811,12 +8842,11 @@ export default function AdminApp() {
       );
     };
 
-    const renderEstimateConditionDrawer = () => {
+    const renderEstimateConditionContent = () => {
       if (!estimateConditionDrawerOpen) return null;
 
       return (
-        <>
-          <aside className="estimate-condition-drawer" aria-label="견적 조건 설정">
+          <div className="estimate-condition-content" aria-label="견적 조건 설정">
             <div className="estimate-condition-drawer__header">
               <div>
                 <span>견적 조건 설정</span>
@@ -9009,14 +9039,12 @@ export default function AdminApp() {
                 {estimateLoading ? "불러오는 중..." : estimateConditionEditMode ? "수정한 조건 적용" : "기본 견적 불러오기"}
               </Button>
             </div>
-            <div className="estimate-condition-drawer__spacer" aria-hidden="true" />
-          </aside>
-        </>
+          </div>
       );
     };
 
     return renderAppShell(
-      <main className={`items-v2-page ${selectedPhotoSubitemId ? "items-v2-page--photo-pane-open" : ""} ${estimateConditionDrawerOpen ? "items-v2-page--condition-drawer-open" : ""}`.trim()}>
+      <main className="items-v2-page">
         <CategorySidebar
           title="공사 항목"
           items={categoryItems}
@@ -9024,11 +9052,12 @@ export default function AdminApp() {
           className="items-v2-category-sidebar"
           aria-label="견적 공사 항목"
         />
-        <section className="items-v2-workspace">
+        <section className={`items-v2-workspace ${estimateConditionDrawerOpen ? "items-v2-workspace--condition" : ""}`.trim()}>
+          {!estimateConditionDrawerOpen && (
+            <>
           <header className="items-v2-header">
             <div className="items-v2-titleline">
               <h1>견적서 작성</h1>
-              <span>{estimateConditionDisplay}</span>
             </div>
             <div className="items-v2-header-actions">
               <span className={`autosave-pill ${estimateAutoSaveStatus}`.trim()} title={estimateAutoSaveError || undefined}>
@@ -9051,38 +9080,6 @@ export default function AdminApp() {
               </Button>
             </div>
           </header>
-
-          <div className="items-v2-toolbar">
-            <div className="items-v2-condition-summary">
-              <span>현재 조건</span>
-              <strong>{estimateConditionDisplay}</strong>
-              <Button
-                variant="tertiary"
-                size="sm"
-                className="items-v2-condition-edit"
-                leftIcon={<Pencil size={15} />}
-                onClick={openEstimateConditionQuickEdit}
-              >
-                조건 수정
-              </Button>
-            </div>
-            <div className="items-v2-pyeong-controls">
-              <label htmlFor="items-v2-estimate-pyeong">견적 기준 평수</label>
-              <div>
-                <input
-                  id="items-v2-estimate-pyeong"
-                  type="number"
-                  min="1"
-                  max="90"
-                  value={estimatePyeong}
-                  onChange={handleEstimatePyeongInputChange}
-                  onBlur={handleEstimatePyeongInputBlur}
-                  onKeyDown={handleEstimatePyeongInputKeyDown}
-                />
-                <span>평</span>
-              </div>
-            </div>
-          </div>
 
           {estimateLoading && <div className="status-box">시공 항목을 불러오는 중...</div>}
           {estimateNotice && <div className="status-box">{estimateNotice}</div>}
@@ -9133,6 +9130,7 @@ export default function AdminApp() {
                 rowHeight={40}
                 emptyAsZeroMuted
                 resizable
+                fitToContainer
                 onColumnResizeStart={estimateItemTableLayout.startResize}
                 onColumnResizeBy={estimateItemTableLayout.resizeColumnBy}
                 getRowClassName={(row) => [
@@ -9165,40 +9163,29 @@ export default function AdminApp() {
               placeholder="고객에게 보여주지 않을 내부 메모를 적어두세요."
             />
           </details>
-
-          <StickyTotalBar
-            className="items-v2-total-bar"
-            label={`${selectedRows.length}개 선택`}
-            amounts={[
-              { label: "선택 항목 합계", value: `${selectedItemsTotal.toLocaleString("ko-KR")}원` },
-              { label: "추가금/할인", value: `${adjustmentTotal >= 0 ? "+" : "-"}${Math.abs(adjustmentTotal).toLocaleString("ko-KR")}원` },
-              ...(selectedConstructionDaysTotal > 0
-                ? [{ label: "예상 공사일정", value: `${selectedConstructionDaysTotal.toLocaleString("ko-KR")}일` }]
-                : []),
-              { label: "최종 견적 금액", value: `${total.toLocaleString("ko-KR")}원` },
-            ]}
-            actions={(
-              <div className="items-v2-total-actions">
-                <Button
-                  variant="primary"
-                  onClick={() => openEstimatePreview("general")}
-                >
-                  견적서 출력하기
-                </Button>
-              </div>
-            )}
-          />
+            </>
+          )}
         </section>
-        <EstimatePhotoContextPane
-          open={Boolean(selectedPhotoSubitemId)}
-          title={selectedPhotoSubitemName}
+        <EstimateContextPane
+          activeMode={estimateConditionDrawerOpen ? "condition" : estimateContextMode}
+          onModeChange={setEstimateContextMode}
+          estimateSummaryProps={{
+            conditionSummary: estimateConditionDisplay,
+            onEditCondition: openEstimateConditionQuickEdit,
+            onOutput: () => openEstimatePreview("general"),
+            rowsByCategory: selectedRowsByCategory,
+            selectedCount: selectedRows.length,
+            selectedItemsTotal,
+            adjustmentTotal,
+            finalTotal: total,
+          }}
+          conditionContent={renderEstimateConditionContent()}
+          photoTitle={selectedPhotoSubitemName}
           photos={estimateItemPhotos}
-          loading={isLoadingEstimateItemPhotos}
-          error={estimateItemPhotosError}
-          onClose={closeEstimateItemPhotoPanel}
+          photosLoading={isLoadingEstimateItemPhotos}
+          photosError={estimateItemPhotosError}
           onOpenPhoto={setEstimatePhotoViewerIndex}
         />
-        {renderEstimateConditionDrawer()}
       </main>,
       { className: "formate-app-shell--items-v2" }
     );
@@ -12291,35 +12278,7 @@ export default function AdminApp() {
               })
             : undefined}
           printableDocumentRef={printableEstimateDocumentRef}
-          documentProps={{
-            companyName: selectedCompanyName,
-            total,
-            createdDate: estimateCreatedDate,
-            validUntil: estimateValidUntilDisplay,
-            vatStatus: estimateVatStatus,
-            customerName,
-            customerPhone,
-            address,
-            workDate,
-            issuedAt: estimateIssuedAt,
-            validUntilDate: estimateValidUntil,
-            onCustomerNameChange: (event) => updateEstimateDocumentField(setCustomerName, event.target.value),
-            onCustomerPhoneChange: (event) => updateEstimateDocumentField(setCustomerPhone, event.target.value),
-            onAddressChange: (event) => updateEstimateDocumentField(setAddress, event.target.value),
-            onWorkDateChange: (event) => updateEstimateDocumentField(setWorkDate, event.target.value, { immediate: true }),
-            onVatStatusChange: (event) => updateEstimateDocumentField(setEstimateVatStatus, event.target.value, { immediate: true }),
-            onIssuedAtChange: (event) => updateEstimateDocumentField(setEstimateIssuedAt, event.target.value, { immediate: true }),
-            onValidUntilChange: (event) => updateEstimateDocumentField(setEstimateValidUntil, event.target.value, { immediate: true }),
-            conditionSummary,
-            conditionPyeong: condition.size,
-            estimatePyeong,
-            constructionDaysTotal: selectedConstructionDaysTotal,
-            constructionDayParts: selectedConstructionDayParts,
-            renderGeneralTable: renderGeneralEstimateTable,
-            renderDetailTable: renderDetailEstimateTable,
-            renderAdjustmentSummary: renderEstimateAdjustmentSummary,
-            estimateNumber,
-          }}
+          documentProps={getEstimateDocumentProps()}
         />,
         { className: "formate-app-shell--estimate-preview" }
       )}

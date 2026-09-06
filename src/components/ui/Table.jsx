@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
-import { getTableTotalWidth } from "./tableWidths";
+import { fitTableColumns, getTableTotalWidth } from "./tableWidths";
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -39,28 +39,36 @@ export default function Table({
   className = "",
   scrollCue = false,
   resizable = false,
+  fitToContainer = false,
   onColumnResizeStart,
   onColumnResizeBy,
 }) {
   const scrollRef = useRef(null);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [availableWidth, setAvailableWidth] = useState(null);
+  const renderedColumns = useMemo(
+    () => fitToContainer ? fitTableColumns(columns, availableWidth) : columns,
+    [availableWidth, columns, fitToContainer],
+  );
   const stickyOffsets = useMemo(() => {
     let offset = 0;
-    return new Map(columns.flatMap((column) => {
+    return new Map(renderedColumns.flatMap((column) => {
       if (!column.sticky) return [];
       const currentOffset = offset;
       offset += Number.parseFloat(column.width) || 0;
       return [[column.key, currentOffset]];
     }));
-  }, [columns]);
+  }, [renderedColumns]);
   const tableWidth = useMemo(() => (
     resizable
-      ? getTableTotalWidth(
-          columns,
-          Object.fromEntries(columns.map((column) => [column.key, column.width])),
-        ) + (draggable ? 40 : 0)
+      ? (fitToContainer
+          ? renderedColumns.reduce((total, column) => total + column.width, 0)
+          : getTableTotalWidth(
+              columns,
+              Object.fromEntries(columns.map((column) => [column.key, column.width])),
+            )) + (draggable ? 40 : 0)
       : null
-  ), [columns, draggable, resizable]);
+  ), [columns, draggable, fitToContainer, renderedColumns, resizable]);
 
   const updateScrollCue = useCallback(() => {
     const node = scrollRef.current;
@@ -85,6 +93,20 @@ export default function Table({
       node.removeEventListener("scroll", updateScrollCue);
     };
   }, [columns, rows, scrollCue, updateScrollCue]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!fitToContainer || !node) {
+      setAvailableWidth(null);
+      return undefined;
+    }
+    const update = () => setAvailableWidth(node.clientWidth);
+    update();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [fitToContainer]);
 
   const handleDragStart = (event, index) => {
     event.dataTransfer.setData("text/plain", String(index));
@@ -128,13 +150,13 @@ export default function Table({
           {resizable && (
             <colgroup>
               {draggable && <col style={{ width: 40 }} />}
-              {columns.map((column) => <col key={column.key} style={{ width: column.width }} />)}
+              {renderedColumns.map((column) => <col key={column.key} style={{ width: column.width }} />)}
             </colgroup>
           )}
           <thead>
             <tr>
               {draggable && <th className="ui-table__drag-cell" scope="col" />}
-              {columns.map((column) => (
+              {renderedColumns.map((column) => (
                 <th
                   key={column.key}
                   className={cx(
@@ -197,7 +219,7 @@ export default function Table({
                         </span>
                       </td>
                     )}
-                    {columns.map((column) => {
+                    {renderedColumns.map((column) => {
                       const rawValue = row[column.key];
                       const muted = emptyAsZeroMuted && isMutedValue(rawValue);
                       const cellClassName = cx(
