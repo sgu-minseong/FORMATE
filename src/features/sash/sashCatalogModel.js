@@ -1,6 +1,6 @@
 import {
   hasNumericInput,
-  toNonNegativeNumberOrZero,
+  toNullableNumber,
 } from "../../shared/utils/numbers";
 
 export const SASH_ITEM_KIND = "sash";
@@ -54,6 +54,15 @@ function normalizeEnum(value, allowedValues, fallback) {
 function toOptionalText(value) {
   const normalized = String(value ?? "").trim();
   return normalized || null;
+}
+
+function toOptionalInteger(value) {
+  const numericValue = toNullableNumber(value);
+  return numericValue === null ? null : Math.trunc(numericValue);
+}
+
+function isPresent(value) {
+  return String(value ?? "").trim() !== "";
 }
 
 function roundSashArea(value) {
@@ -198,18 +207,21 @@ export function getSashBillableArea(entry) {
   if (rawArea !== null) {
     return roundSashArea(rawArea * getSashWindowMultiplier(entry?.window_type));
   }
+  if (
+    Object.prototype.hasOwnProperty.call(entry ?? {}, "width_mm")
+    || Object.prototype.hasOwnProperty.call(entry ?? {}, "height_mm")
+  ) return "";
   const storedArea = Number(entry?.billable_area_sqm);
   return Number.isFinite(storedArea) && storedArea > 0 ? roundSashArea(storedArea) : "";
 }
 
 export function getSashCatalogEntryAmount(entry) {
-  const unitPrice = toNonNegativeNumberOrZero(entry?.unit_price);
+  const unitPrice = toNullableNumber(entry?.unit_price);
+  if (unitPrice === null || unitPrice < 0) return null;
   if (entry?.pricing_basis !== SASH_PRICING_BASES.AREA) return unitPrice;
   if (!hasExplicitSashWindowType(entry?.window_type)) return null;
-  const billableArea = Number(getSashBillableArea(entry));
-  return Number.isFinite(billableArea) && billableArea > 0
-    ? billableArea * unitPrice
-    : 0;
+  const billableArea = getSashBillableArea(entry);
+  return billableArea === "" ? null : Number(billableArea) * unitPrice;
 }
 
 export function createLocalSashCatalogEntry({
@@ -236,6 +248,10 @@ export function createLocalSashCatalogEntry({
     glass_spec: "",
     gas_spec: "",
     screen_spec: "",
+    glass_thickness: "",
+    handle_type: "",
+    window_count: "",
+    window_type_option_id: null,
     window_type: normalizeEnum(
       windowType,
       VALID_SASH_WINDOW_TYPES,
@@ -276,6 +292,10 @@ export function normalizeSashCatalogEntry(entry) {
     glass_spec: String(entry?.glass_spec ?? ""),
     gas_spec: String(entry?.gas_spec ?? ""),
     screen_spec: String(entry?.screen_spec ?? ""),
+    glass_thickness: String(entry?.glass_thickness ?? ""),
+    handle_type: String(entry?.handle_type ?? ""),
+    window_count: String(entry?.window_count ?? ""),
+    window_type_option_id: entry?.window_type_option_id ?? null,
     window_type: normalizeEnum(
       entry?.window_type,
       VALID_SASH_WINDOW_TYPES,
@@ -302,6 +322,10 @@ export function normalizeSashCatalogEntry(entry) {
 export function getSashEntryArea(entry) {
   const calculatedArea = getSashAreaPreview(entry?.width_mm, entry?.height_mm);
   if (calculatedArea !== "") return calculatedArea;
+  if (
+    Object.prototype.hasOwnProperty.call(entry ?? {}, "width_mm")
+    || Object.prototype.hasOwnProperty.call(entry ?? {}, "height_mm")
+  ) return "";
   const storedArea = Number(entry?.area_sqm);
   return Number.isFinite(storedArea) && storedArea > 0 ? roundSashArea(storedArea) : "";
 }
@@ -312,28 +336,25 @@ export function getSashFrameSpec(entry) {
 }
 
 export function getSashCatalogEntryValidationError(entry) {
-  if (!String(entry?.brand ?? "").trim()) return "제조사를 입력하세요.";
-  if (!getSashFrameSpec(entry)) return "틀 사양을 입력하세요.";
-  if (!hasNumericInput(entry?.width_mm) || Number(entry.width_mm) <= 0) {
+  const width = toNullableNumber(entry?.width_mm);
+  const height = toNullableNumber(entry?.height_mm);
+  const unitPrice = toNullableNumber(entry?.unit_price);
+  const costPrice = toNullableNumber(entry?.cost_price);
+  if (isPresent(entry?.width_mm) && (
+    !hasNumericInput(entry.width_mm) || !Number.isInteger(width) || width <= 0
+  )) {
     return "가로(mm)를 0보다 크게 입력하세요.";
   }
-  if (!hasNumericInput(entry?.height_mm) || Number(entry.height_mm) <= 0) {
+  if (isPresent(entry?.height_mm) && (
+    !hasNumericInput(entry.height_mm) || !Number.isInteger(height) || height <= 0
+  )) {
     return "세로(mm)를 0보다 크게 입력하세요.";
   }
-  if (entry?.pricing_basis === SASH_PRICING_BASES.AREA) {
-    if (!String(entry?.frame_spec ?? "").trim()) return "틀 사양을 입력하세요.";
-    if (!String(entry?.pair_spec ?? "").trim()) return "페어 사양을 입력하세요.";
-    if (!String(entry?.glass_spec ?? "").trim()) return "유리 사양을 입력하세요.";
-    if (!String(entry?.gas_spec ?? "").trim()) return "가스 사양을 입력하세요.";
-    if (!String(entry?.screen_spec ?? "").trim()) return "망 사양을 입력하세요.";
-    if (![SASH_WINDOW_TYPES.SINGLE, SASH_WINDOW_TYPES.DOUBLE].includes(entry?.window_type)) {
-      return "단창·2중창을 선택하세요.";
-    }
-    if (![SASH_MEASUREMENT_KINDS.ESTIMATE, SASH_MEASUREMENT_KINDS.MEASURED]
-      .includes(entry?.measurement_kind)) {
-      return "가견적 치수인지 실측 치수인지 선택하세요.";
-    }
-    if (!hasNumericInput(entry?.unit_price)) return "단가를 입력하세요.";
+  if (isPresent(entry?.unit_price) && (!hasNumericInput(entry.unit_price) || unitPrice < 0)) {
+    return "단가를 0 이상으로 입력하세요.";
+  }
+  if (isPresent(entry?.cost_price) && (!hasNumericInput(entry.cost_price) || costPrice < 0)) {
+    return "원가를 0 이상으로 입력하세요.";
   }
   return "";
 }
@@ -342,18 +363,23 @@ export function buildSashCatalogEntryPayload(entry, {
   companyId,
   constructionSubitemId = entry?.construction_subitem_id,
 } = {}) {
-  const frameSpec = toOptionalText(entry?.frame_spec);
+  const validationError = getSashCatalogEntryValidationError(entry);
+  if (validationError) throw new Error(validationError);
   return {
     company_id: companyId,
     construction_subitem_id: constructionSubitemId,
     sash_category: getSashCategory(entry),
-    brand: String(entry?.brand ?? "").trim(),
-    product_type: String(entry?.product_type ?? "").trim() || frameSpec || "",
-    frame_spec: frameSpec,
+    brand: toOptionalText(entry?.brand),
+    product_type: toOptionalText(entry?.product_type),
+    frame_spec: toOptionalText(entry?.frame_spec),
     pair_spec: toOptionalText(entry?.pair_spec),
     glass_spec: toOptionalText(entry?.glass_spec),
     gas_spec: toOptionalText(entry?.gas_spec),
     screen_spec: toOptionalText(entry?.screen_spec),
+    glass_thickness: toOptionalText(entry?.glass_thickness),
+    handle_type: toOptionalText(entry?.handle_type),
+    window_count: toOptionalText(entry?.window_count),
+    window_type_option_id: entry?.window_type_option_id || null,
     window_type: normalizeEnum(
       entry?.window_type,
       VALID_SASH_WINDOW_TYPES,
@@ -369,12 +395,20 @@ export function buildSashCatalogEntryPayload(entry, {
       VALID_SASH_PRICING_BASES,
       SASH_PRICING_BASES.FIXED
     ),
-    width_mm: Math.trunc(Number(entry?.width_mm)),
-    height_mm: Math.trunc(Number(entry?.height_mm)),
-    unit_price: toNonNegativeNumberOrZero(entry?.unit_price),
-    cost_price: toNonNegativeNumberOrZero(entry?.cost_price),
+    width_mm: toOptionalInteger(entry?.width_mm),
+    height_mm: toOptionalInteger(entry?.height_mm),
+    unit_price: toNullableNumber(entry?.unit_price),
+    cost_price: toNullableNumber(entry?.cost_price),
     sort_order: Number(entry?.sort_order ?? 0),
   };
+}
+
+export function buildSashCatalogEntryPatch(entry, fieldNames = []) {
+  const payload = buildSashCatalogEntryPayload(entry);
+  const requestedFields = new Set(fieldNames);
+  return Object.fromEntries(
+    Object.entries(payload).filter(([fieldName]) => requestedFields.has(fieldName))
+  );
 }
 
 export function getSashSpecLabel(spec) {
@@ -387,9 +421,10 @@ export function getSashSpecLabel(spec) {
 
 export function createSashSpecSnapshot(entry) {
   const calculatedBillableArea = getSashBillableArea(entry);
+  const area = getSashEntryArea(entry);
   const billableArea = calculatedBillableArea === ""
     ? null
-    : Number(calculatedBillableArea) || 0;
+    : Number(calculatedBillableArea);
   return {
     sash_spec_version: SASH_SPEC_VERSION,
     sash_catalog_entry_id: entry.id,
@@ -401,6 +436,10 @@ export function createSashSpecSnapshot(entry) {
     glass_spec: String(entry?.glass_spec ?? ""),
     gas_spec: String(entry?.gas_spec ?? ""),
     screen_spec: String(entry?.screen_spec ?? ""),
+    glass_thickness: String(entry?.glass_thickness ?? ""),
+    handle_type: String(entry?.handle_type ?? ""),
+    window_count: String(entry?.window_count ?? ""),
+    window_type_option_id: entry?.window_type_option_id ?? null,
     window_type: normalizeEnum(
       entry?.window_type,
       VALID_SASH_WINDOW_TYPES,
@@ -416,11 +455,11 @@ export function createSashSpecSnapshot(entry) {
       VALID_SASH_PRICING_BASES,
       SASH_PRICING_BASES.FIXED
     ),
-    width_mm: Number(entry?.width_mm),
-    height_mm: Number(entry?.height_mm),
-    area_sqm: Number(getSashEntryArea(entry)),
+    width_mm: toNullableNumber(entry?.width_mm),
+    height_mm: toNullableNumber(entry?.height_mm),
+    area_sqm: area === "" ? null : Number(area),
     billable_area_sqm: billableArea,
-    unit_price: toNonNegativeNumberOrZero(entry?.unit_price),
+    unit_price: toNullableNumber(entry?.unit_price),
     calculated_amount: getSashCatalogEntryAmount(entry),
   };
 }
@@ -449,17 +488,26 @@ export function buildSashEstimateSelectionPatch(entry) {
 
 export function isSashEstimateSpecPricingConfirmed(spec) {
   if (!spec) return false;
+  const unitPrice = toNullableNumber(spec.unit_price);
+  if (unitPrice === null || unitPrice < 0) return false;
   if (spec.pricing_basis !== SASH_PRICING_BASES.AREA) return true;
-  return hasExplicitSashWindowType(spec.window_type);
+  return hasExplicitSashWindowType(spec.window_type) && getSashBillableArea(spec) !== "";
 }
 
 export function buildSashEstimateSpecPatch(spec, patch = {}) {
   const canonicalId = String(spec?.sash_catalog_entry_id ?? "").trim();
   if (!canonicalId) return {};
 
+  const normalizedPatch = {
+    ...patch,
+    ...(Object.prototype.hasOwnProperty.call(patch, "window_type")
+      && !Object.prototype.hasOwnProperty.call(patch, "window_type_option_id")
+      ? { window_type_option_id: null }
+      : {}),
+  };
   const nextSpec = createSashSpecSnapshot({
     ...spec,
-    ...patch,
+    ...normalizedPatch,
     id: canonicalId,
     area_sqm: null,
     billable_area_sqm: null,

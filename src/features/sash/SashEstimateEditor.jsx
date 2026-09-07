@@ -6,6 +6,7 @@ import {
   stripNumberInputFormatting,
 } from "../../shared/utils/numbers";
 import SashCatalogSelector from "./SashCatalogSelector";
+import SashConditionControl from "./SashConditionControl";
 import { fetchActiveSashSpecialItems } from "./sashSpecialItemApi";
 import {
   buildSashSpecialItemSelection,
@@ -133,7 +134,20 @@ function SashEstimateSpecialItems({ companyId, selections = [], onChange }) {
   );
 }
 
-export default function SashEstimateEditor({ companyId, row, included = false, onPatch }) {
+export default function SashEstimateEditor({
+  companyId,
+  row,
+  included = false,
+  sashConditions = [],
+  activeSashConditionId = "",
+  sashConditionLoading = false,
+  onSashConditionChange,
+  onSashConditionCreate,
+  onSashConditionRename,
+  onSashConditionReorder,
+  onSashConditionArchive,
+  onPatch,
+}) {
   const spec = row?.sashSpec;
   const selectedCategory = getSashCategory(spec);
   const [activeTab, setActiveTab] = useState(() => {
@@ -151,6 +165,9 @@ export default function SashEstimateEditor({ companyId, row, included = false, o
     ["유리", spec?.glass_spec],
     ["가스", spec?.gas_spec],
     ["망", spec?.screen_spec],
+    ["유리 두께", spec?.glass_thickness],
+    ["손잡이", spec?.handle_type],
+    ["창 수", spec?.window_count],
   ].filter(([, value]) => `${value ?? ""}`.trim());
 
   useEffect(() => {
@@ -166,19 +183,31 @@ export default function SashEstimateEditor({ companyId, row, included = false, o
 
   return (
     <div className={`sash-estimate-editor ${included ? "is-included" : "is-preview"}`.trim()}>
-      <div className="sash-selector__category-tabs sash-estimate-editor__tabs" role="tablist" aria-label="샷시 견적 편집">
-        {[SASH_CATEGORIES.STANDARD, SASH_CATEGORIES.BALCONY, SPECIAL_ITEMS_TAB].map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab}
-            className={activeTab === tab ? "active" : ""}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab === SPECIAL_ITEMS_TAB ? "추가작업" : getSashCategoryLabel(tab)}
-          </button>
-        ))}
+      <div className="sash-estimate-editor__toolbar">
+        <div className="sash-selector__category-tabs sash-estimate-editor__tabs" role="tablist" aria-label="샷시 견적 편집">
+          {[SASH_CATEGORIES.STANDARD, SASH_CATEGORIES.BALCONY, SPECIAL_ITEMS_TAB].map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
+              className={activeTab === tab ? "active" : ""}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab === SPECIAL_ITEMS_TAB ? "추가작업" : getSashCategoryLabel(tab)}
+            </button>
+          ))}
+        </div>
+        <SashConditionControl
+          conditions={sashConditions}
+          value={activeSashConditionId}
+          disabled={sashConditionLoading}
+          onChange={onSashConditionChange}
+          onCreate={onSashConditionCreate}
+          onRename={onSashConditionRename}
+          onReorder={onSashConditionReorder}
+          onArchive={onSashConditionArchive}
+        />
       </div>
 
       {activeTab === SPECIAL_ITEMS_TAB ? (

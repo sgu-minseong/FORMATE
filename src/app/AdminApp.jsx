@@ -144,6 +144,7 @@ import {
   toConstructionDays,
 } from "../features/estimates/calculation";
 import {
+  applySashConditionMappings,
   applyEstimateRowPatch,
   buildEstimateItemsFromTemplate,
   getEstimateRowSpecChoices,
@@ -266,6 +267,14 @@ import {
 } from "../features/priceTable/templateConditionPreferences";
 import SashCatalogSection from "../features/sash/SashCatalogSection";
 import SashEstimateEditor from "../features/sash/SashEstimateEditor";
+import {
+  archiveSashCondition,
+  createSashCondition,
+  listSashConditions,
+  loadSashConditionMappings,
+  renameSashCondition,
+  reorderSashConditions,
+} from "../features/sash/sashConditionApi";
 import { fetchSashUsageRankingContext } from "../features/sash/sashUsageRankingApi";
 import {
   getSashSpecLabel,
@@ -2191,6 +2200,7 @@ export default function AdminApp() {
   const printableEstimateDocumentRef = useRef(null);
   const estimatePhotoRequestRef = useRef("");
   const estimateBlankCatalogRequestRef = useRef(0);
+  const sashConditionRequestRef = useRef(0);
   const estimateListRequestRef = useRef(0);
   const estimateListResourceRef = useRef({ status: "idle", companyId: "", scopeKey: "estimates" });
   const conditionLabelsRequestRef = useRef(0);
@@ -2265,6 +2275,7 @@ export default function AdminApp() {
     estimateConditionDrawerOpen, setEstimateConditionDrawerOpen,
     estimateTemplateConflicts, setEstimateTemplateConflicts,
     estimateTemplateConditionKey, setEstimateTemplateConditionKey,
+    activeSashConditionId, setActiveSashConditionId,
     selectedPhotoSubitemId, setSelectedPhotoSubitemId,
     selectedPhotoSubitemName, setSelectedPhotoSubitemName,
     estimateItemPhotos, setEstimateItemPhotos,
@@ -2280,6 +2291,8 @@ export default function AdminApp() {
   }
   const estimateItemsRef = useRef(items);
   estimateItemsRef.current = items;
+  const activeSashConditionIdRef = useRef(activeSashConditionId);
+  activeSashConditionIdRef.current = activeSashConditionId;
   const estimateAutoSaveTimerRef = useRef(null);
   const estimateAutoSaveRunningRef = useRef(false);
   const estimateAutoSaveQueuedRef = useRef(false);
@@ -2293,6 +2306,8 @@ export default function AdminApp() {
   }, []);
   const [estimatePhotoViewerIndex, setEstimatePhotoViewerIndex] = useState(null);
   const [estimateContextMode, setEstimateContextMode] = useState("estimate");
+  const [sashConditions, setSashConditions] = useState([]);
+  const [sashConditionLoading, setSashConditionLoading] = useState(false);
   const [selectedAdminPyeong, setSelectedAdminPyeong] = useState("");
   const [selectedAdminBuildType, setSelectedAdminBuildType] = useState("");
   const [selectedAdminHasExtension, setSelectedAdminHasExtension] = useState(false);
@@ -3005,6 +3020,35 @@ export default function AdminApp() {
     setConditionLabelEditOpen(false);
     setEstimatePhotoViewerIndex(null);
   }, [page]);
+
+  useEffect(() => {
+    if (page !== "items" || !selectedCompanyId || sashConditions.length) return undefined;
+    let cancelled = false;
+    const requestId = sashConditionRequestRef.current + 1;
+    sashConditionRequestRef.current = requestId;
+    setSashConditionLoading(true);
+    listSashConditions(selectedCompanyId)
+      .then((rows) => {
+        if (
+          !cancelled
+          && requestId === sashConditionRequestRef.current
+          && selectedCompanyId === selectedCompanyIdRef.current
+        ) setSashConditions(rows);
+      })
+      .catch((error) => {
+        if (!cancelled && requestId === sashConditionRequestRef.current) {
+          setEstimateError(getFriendlyError(error, "샷시 조건을 불러오지 못했습니다."));
+        }
+      })
+      .finally(() => {
+        if (!cancelled && requestId === sashConditionRequestRef.current) {
+          setSashConditionLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [page, selectedCompanyId, sashConditions.length]);
 
   useEffect(() => () => {
     estimatePyeongChangeRef.current?.reset();
@@ -5668,6 +5712,81 @@ export default function AdminApp() {
     setEstimateConditionDrawerOpen(false);
   }
 
+  async function changeActiveSashCondition(nextCondition) {
+    const nextConditionId = String(nextCondition?.id ?? nextCondition ?? "").trim();
+    if (!nextConditionId || !selectedCompanyId) return false;
+    const requestId = sashConditionRequestRef.current + 1;
+    sashConditionRequestRef.current = requestId;
+    const companyId = selectedCompanyId;
+    setSashConditionLoading(true);
+    setEstimateError("");
+    try {
+      const [conditionEntries, sashUsageContext] = await Promise.all([
+        loadSashConditionMappings(companyId, nextConditionId),
+        fetchSashUsageRankingContext(companyId),
+      ]);
+      if (
+        requestId !== sashConditionRequestRef.current
+        || companyId !== selectedCompanyIdRef.current
+      ) return false;
+      setItems((current) => applySashConditionMappings(
+        current,
+        conditionEntries,
+        estimatePyeong || condition.size,
+        {
+          sashUsageRankings: sashUsageContext.rankings,
+          sashCatalogEntries: sashUsageContext.sashCatalogEntries,
+          sashCatalogPins: sashUsageContext.sashCatalogPins,
+        }
+      ));
+      activeSashConditionIdRef.current = nextConditionId;
+      setActiveSashConditionId(nextConditionId);
+      queueEstimateAutoSave({ immediate: true });
+      return true;
+    } catch (error) {
+      if (requestId === sashConditionRequestRef.current) {
+        setEstimateError(getFriendlyError(error, "샷시 조건을 불러오지 못했습니다."));
+      }
+      return false;
+    } finally {
+      if (requestId === sashConditionRequestRef.current) setSashConditionLoading(false);
+    }
+  }
+
+  async function createEstimateSashCondition(name) {
+    const created = await createSashCondition({
+      companyId: requireSelectedCompanyId(),
+      name,
+      sortOrder: sashConditions.length,
+    });
+    setSashConditions((current) => [...current, created]);
+    return created;
+  }
+
+  async function renameEstimateSashCondition(target, name) {
+    const updated = await renameSashCondition(target.id, requireSelectedCompanyId(), name);
+    setSashConditions((current) => current.map((entry) => (
+      entry.id === updated.id ? updated : entry
+    )));
+    return updated;
+  }
+
+  async function reorderEstimateSashConditions(nextConditions) {
+    await reorderSashConditions(nextConditions, requireSelectedCompanyId());
+    setSashConditions(nextConditions);
+  }
+
+  async function archiveEstimateSashCondition(target) {
+    await archiveSashCondition(target.id, requireSelectedCompanyId());
+    const remaining = sashConditions.filter((entry) => entry.id !== target.id);
+    setSashConditions(remaining);
+    if (activeSashConditionIdRef.current !== target.id) return;
+    activeSashConditionIdRef.current = "";
+    setActiveSashConditionId("");
+    if (remaining[0]) await changeActiveSashCondition(remaining[0]);
+    else queueEstimateAutoSave({ immediate: true });
+  }
+
   async function fetchEstimateCatalog(pyeong = condition.size, nextCondition = condition, options = {}) {
     const requestId = estimateBlankCatalogRequestRef.current + 1;
     estimateBlankCatalogRequestRef.current = requestId;
@@ -5730,6 +5849,8 @@ export default function AdminApp() {
         snapshot.canonicalCatalog
       );
       let sashUsageContext = {};
+      let sashConditionEntries = [];
+      let nextSashConditionId = "";
       if (catalog.some((item) => isSashItem(item))) {
         try {
           sashUsageContext = await fetchSashUsageRankingContext(companyId);
@@ -5737,12 +5858,27 @@ export default function AdminApp() {
           console.error("Failed to load sash usage rankings", rankingError);
           setEstimateNotice("대표제품 사용 이력을 불러오지 못해 샷시는 미선택으로 시작합니다.");
         }
+        try {
+          const nextSashConditions = await listSashConditions(companyId);
+          const currentSashCondition = nextSashConditions.find(
+            (entry) => entry.id === activeSashConditionIdRef.current
+          );
+          nextSashConditionId = currentSashCondition?.id
+            ?? (preserveDraft ? "" : nextSashConditions[0]?.id ?? "");
+          sashConditionEntries = nextSashConditionId
+            ? await loadSashConditionMappings(companyId, nextSashConditionId)
+            : [];
+          setSashConditions(nextSashConditions);
+        } catch (sashConditionError) {
+          console.error("Failed to load sash conditions", sashConditionError);
+          setEstimateNotice("샷시 조건을 불러오지 못해 기존 대표제품 기준으로 시작합니다.");
+        }
       }
       if (
         requestId !== estimateBlankCatalogRequestRef.current
         || companyId !== selectedCompanyIdRef.current
       ) return false;
-      const nextItems = buildEstimateItemsFromTemplate(
+      const defaultItems = buildEstimateItemsFromTemplate(
         catalog,
         pyeong,
         nextCondition.occupancy,
@@ -5752,6 +5888,18 @@ export default function AdminApp() {
           sashCatalogPins: sashUsageContext.sashCatalogPins,
         }
       );
+      const nextItems = nextSashConditionId
+        ? applySashConditionMappings(
+            defaultItems,
+            sashConditionEntries,
+            pyeong,
+            {
+              sashUsageRankings: sashUsageContext.rankings,
+              sashCatalogEntries: sashUsageContext.sashCatalogEntries,
+              sashCatalogPins: sashUsageContext.sashCatalogPins,
+            }
+          )
+        : defaultItems;
       const firstCategoryId = catalog[0]?.id ?? "";
 
       const draftResult = preserveDraft
@@ -5772,6 +5920,8 @@ export default function AdminApp() {
         preserveDraft && catalog.some((item) => item.id === current) ? current : firstCategoryId
       );
       setEstimatePyeong(String(pyeong));
+      activeSashConditionIdRef.current = nextSashConditionId;
+      setActiveSashConditionId(nextSashConditionId);
       setEstimateDraftSource(templateFound ? "template" : "blank");
       return true;
     } catch (error) {
@@ -6428,6 +6578,14 @@ export default function AdminApp() {
     setEstimateConditionEditMode(false);
     setEstimateTemplateConflicts([]);
     setEstimateTemplateConditionKey(makeConditionKey(restoredDraft.condition));
+    sashConditionRequestRef.current += 1;
+    const restoredSashConditionId = String(
+      restoredDraft.meta.sashConditionId
+        ?? restoredDraft.meta.activeSashConditionId
+        ?? ""
+    ).trim();
+    activeSashConditionIdRef.current = restoredSashConditionId;
+    setActiveSashConditionId(restoredSashConditionId);
     estimatePhotoRequestRef.current = "";
     setSelectedPhotoSubitemId("");
     setSelectedPhotoSubitemName("");
@@ -6500,6 +6658,11 @@ export default function AdminApp() {
     setEstimateConditionEditMode(false);
     setEstimateTemplateConflicts([]);
     setEstimateTemplateConditionKey("");
+    sashConditionRequestRef.current += 1;
+    activeSashConditionIdRef.current = "";
+    setActiveSashConditionId("");
+    setSashConditions([]);
+    setSashConditionLoading(false);
     estimatePhotoRequestRef.current = "";
     setSelectedPhotoSubitemId("");
     setSelectedPhotoSubitemName("");
@@ -6553,6 +6716,11 @@ export default function AdminApp() {
     setEstimateConditionEditMode(false);
     setEstimateTemplateConflicts([]);
     setEstimateTemplateConditionKey("");
+    sashConditionRequestRef.current += 1;
+    activeSashConditionIdRef.current = "";
+    setActiveSashConditionId("");
+    setSashConditions([]);
+    setSashConditionLoading(false);
     estimatePhotoRequestRef.current = "";
     setSelectedPhotoSubitemId("");
     setSelectedPhotoSubitemName("");
@@ -8415,6 +8583,7 @@ export default function AdminApp() {
           customerName: customerName.trim(),
           customerPhone: customerPhone.trim(),
           companyName: selectedCompanyName,
+          sashConditionId: activeSashConditionIdRef.current || null,
           createdDate: estimateIssuedAt,
           validUntil: estimateValidUntil,
           vatStatus: estimateVatStatus,
@@ -8774,6 +8943,14 @@ export default function AdminApp() {
                   companyId={selectedCompanyId}
                   row={row}
                   included={Boolean(row.selected)}
+                  sashConditions={sashConditions}
+                  activeSashConditionId={activeSashConditionId}
+                  sashConditionLoading={sashConditionLoading}
+                  onSashConditionChange={changeActiveSashCondition}
+                  onSashConditionCreate={createEstimateSashCondition}
+                  onSashConditionRename={renameEstimateSashCondition}
+                  onSashConditionReorder={reorderEstimateSashConditions}
+                  onSashConditionArchive={archiveEstimateSashCondition}
                   onPatch={(patch, options) => updateItem(openCategory, rowIndex, patch, options)}
                 />
               )}

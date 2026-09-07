@@ -138,6 +138,19 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashGridSource).toContain("규격 추가");
     expect(sashGridSource).toContain("useDebouncedAutosave");
     expect(sashGridSource).toContain("autosave.markDirty");
+    expect(sashGridSource).toContain("void autosave.run()");
+    expect(sashGridSource).toContain("dirtyEntryPatchesRef");
+    expect(sashGridSource).toContain("updateSashCatalogEntry(entry, patch, context)");
+    expect(sashGridSource).toContain("onDirtyChange?.(dirtyEntryIds.size > 0)");
+    expect(sashGridSource).toContain("replacementEntry.sash_category === sashCategory");
+    expect(sashGridSource).toContain("return saveEntry(replacementEntry");
+    expect(sashGridSource).not.toContain('replace(/[^\\d]/g, "")');
+    expect(sashGridSource).not.toContain("stripNumberInputFormatting(event.target.value)");
+    expect(sashGridSource).toContain("conditionMappingReady");
+    expect(sashGridSource).toContain("loadedConditionScope");
+    expect(sashSectionSource).toContain("activeSashConditionId");
+    expect(sashSectionSource).toContain("onActiveConditionChange={setActiveSashConditionId}");
+    expect(sashGridSource).toContain("entriesRef.current.some(isLocalSashCatalogEntry)");
     expect(sashGridSource).not.toContain("<Save");
     expect(sashSpecialItemsSource).not.toContain("<Save");
     expect(sashGridSource).toContain('<Pin size={15}');
@@ -195,6 +208,21 @@ describe("specialized sash editor UI contracts", () => {
     expect(adminAppSource).toContain("included={Boolean(row.selected)}");
     expect(adminAppSource).toContain("row.itemKind !== \"sash\" && !row.hasTemplateValue");
     expect(adminAppSource).toContain("items-v2-sash-summary");
+  });
+
+  it("shows sparse catalog choices without fabricating dimensions or prices", () => {
+    expect(sashSelectorSource).toContain("getDimensionsLabel(entry)");
+    expect(sashSelectorSource).toContain('|| "규격 정보 없음"');
+    expect(sashSelectorSource).toContain("hasNumericInput(entry.unit_price)");
+    expect(sashSelectorSource).toContain("if (!hasNumericInput(entry?.width_mm)");
+    expect(sashSelectorSource).toContain('area === "" ? "" : formatSashArea(area)');
+  });
+
+  it("persists the independent Sash Condition identity with an estimate draft", () => {
+    expect(adminAppSource).toContain("sashConditionId: activeSashConditionIdRef.current || null");
+    expect(adminAppSource).toContain("restoredDraft.meta.sashConditionId");
+    expect(adminAppSource).toContain('?? (preserveDraft ? "" : nextSashConditions[0]?.id ?? "")');
+    expect(adminAppSource).toContain("else queueEstimateAutoSave({ immediate: true })");
   });
 
   it("keeps the pin context compact and preserves product identity during horizontal scroll", () => {

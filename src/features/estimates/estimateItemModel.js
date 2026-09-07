@@ -230,7 +230,7 @@ function buildStableVariantGroupRow(
   return row ? { ...row, variantGroupId: product.variantGroupId } : null;
 }
 
-function applySashUsageDefault(row, pyeong, context = {}) {
+export function applySashUsageDefault(row, pyeong, context = {}) {
   const usageRanking = getSashUsageRanking(
     context.sashUsageRankings,
     pyeong,
@@ -264,22 +264,57 @@ function applySashUsageDefault(row, pyeong, context = {}) {
     entry.id === pinned?.sash_catalog_entry_id
   ));
   const representativeEntry = pinnedEntry ?? rankedRepresentative?.entry;
-  if (!representativeEntry) {
-    return {
-      ...row,
-      sashUsageRanking: usageRanking,
-      sashPinnedCatalogEntryId: "",
-    };
-  }
-
-  return calculateEstimateRow({
+  const resetRow = {
     ...row,
-    ...buildSashEstimateSelectionPatch(representativeEntry),
+    sashCatalogEntryId: "",
+    selectedSashCatalogEntryId: "",
+    sashSpec: null,
+    sashCategory: SASH_CATEGORIES.UNSPECIFIED,
+    quantity: 1,
+    baseQuantity: 1,
+    unitPrice: 0,
+    baseUnitPrice: 0,
+    unit: "식",
+    hasTemplateValue: false,
+    sashSelectionSource: undefined,
+    sashUsageCount: 0,
     sashUsageRanking: usageRanking,
     sashPinnedCatalogEntryId: pinnedEntry?.id ?? "",
+  };
+  if (!representativeEntry) return calculateEstimateRow(resetRow);
+
+  return calculateEstimateRow({
+    ...resetRow,
+    ...buildSashEstimateSelectionPatch(representativeEntry),
     sashSelectionSource: pinnedEntry ? "pinned" : "ranking",
     sashUsageCount: rankingByEntryId.get(representativeEntry.id)?.usageCount ?? 0,
   });
+}
+
+export function applySashConditionMappings(items, conditionEntries, pyeong, context = {}) {
+  const mappedEntryBySubitemId = new Map(
+    (conditionEntries ?? []).flatMap((mapping) => {
+      const entry = mapping?.sash_catalog_entry ?? mapping?.sash_catalog_entries;
+      return mapping?.archived_at || !entry || entry.archived_at
+        ? []
+        : [[mapping.construction_subitem_id, entry]];
+    })
+  );
+
+  return Object.fromEntries(Object.entries(items ?? {}).map(([categoryId, rows]) => [
+    categoryId,
+    (rows ?? []).map((row) => {
+      if (row.itemKind !== "sash") return row;
+      const entry = mappedEntryBySubitemId.get(row.subitemId);
+      if (!entry) return applySashUsageDefault(row, pyeong, context);
+      return calculateEstimateRow({
+        ...row,
+        ...buildSashEstimateSelectionPatch(entry),
+        sashSelectionSource: "condition",
+        sashUsageCount: 0,
+      });
+    }),
+  ]));
 }
 
 function buildEstimateItemRows(item, pyeong, residenceStatus, context = {}) {

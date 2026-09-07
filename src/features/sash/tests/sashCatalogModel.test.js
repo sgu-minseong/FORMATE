@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSashCatalogEntryPayload,
   buildSashCatalogEntryCounts,
   buildSashEstimateSelectionPatch,
+  createLocalSashCatalogEntry,
   formatSashArea,
+  getSashBillableArea,
+  getSashCatalogEntryAmount,
+  getSashEntryArea,
   getSashAreaPreview,
   getSashCatalogEntryValidationError,
   isSashItem,
+  SASH_WINDOW_TYPES,
 } from "../sashCatalogModel";
 
 describe("sash catalog model", () => {
@@ -33,19 +39,46 @@ describe("sash catalog model", () => {
     });
   });
 
-  it("requires only the DB-backed editable fields before a row is saved", () => {
-    expect(getSashCatalogEntryValidationError({
-      brand: "LG",
-      product_type: "발코니",
-      width_mm: "4000",
+  it("allows sparse rows while rejecting supplied invalid numeric values", () => {
+    const sparseEntry = createLocalSashCatalogEntry({
+      constructionSubitemId: "subitem-a",
+    });
+    expect(getSashCatalogEntryValidationError(sparseEntry)).toBe("");
+    expect(buildSashCatalogEntryPayload(sparseEntry, {
+      companyId: "company-a",
+    })).toMatchObject({
+      company_id: "company-a",
+      construction_subitem_id: "subitem-a",
+      brand: null,
+      product_type: null,
+      width_mm: null,
+      height_mm: null,
+      unit_price: null,
+      cost_price: null,
+    });
+    expect(getSashCatalogEntryAmount(sparseEntry)).toBeNull();
+    expect(getSashEntryArea({
+      ...sparseEntry,
+      width_mm: "",
       height_mm: "2400",
+      area_sqm: 9.6,
     })).toBe("");
-    expect(getSashCatalogEntryValidationError({
-      brand: "",
-      product_type: "발코니",
-      width_mm: "4000",
+    expect(getSashBillableArea({
+      ...sparseEntry,
+      width_mm: "",
       height_mm: "2400",
-    })).toBe("제조사를 입력하세요.");
+      window_type: SASH_WINDOW_TYPES.SINGLE,
+      billable_area_sqm: 9.6,
+    })).toBe("");
+
+    ["-1", "NaN", "Infinity", "1.5"].forEach((width_mm) => {
+      expect(getSashCatalogEntryValidationError({ ...sparseEntry, width_mm }))
+        .toContain("가로");
+    });
+    ["-1", "NaN", "Infinity"].forEach((unit_price) => {
+      expect(getSashCatalogEntryValidationError({ ...sparseEntry, unit_price }))
+        .toContain("단가");
+    });
   });
 
   it("creates an estimate snapshot and one-set calculation contract from a selected spec", () => {

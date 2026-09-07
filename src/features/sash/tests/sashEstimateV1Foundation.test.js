@@ -133,7 +133,17 @@ describe("sash estimate v1 domain contract", () => {
 
     expect(getSashBillableArea(unresolvedEntry)).toBe("");
     expect(getSashCatalogEntryAmount(unresolvedEntry)).toBeNull();
-    expect(getSashCatalogEntryValidationError(unresolvedEntry)).toContain("단창·2중창");
+    expect(getSashCatalogEntryValidationError(unresolvedEntry)).toBe("");
+    expect(isSashEstimateSpecPricingConfirmed(unresolvedEntry)).toBe(false);
+
+    const missingDimension = { ...areaPricedEntry, width_mm: null };
+    expect(getSashBillableArea(missingDimension)).toBe("");
+    expect(getSashCatalogEntryAmount(missingDimension)).toBeNull();
+    expect(isSashEstimateSpecPricingConfirmed(missingDimension)).toBe(false);
+
+    const missingPrice = { ...areaPricedEntry, unit_price: null };
+    expect(getSashCatalogEntryAmount(missingPrice)).toBeNull();
+    expect(isSashEstimateSpecPricingConfirmed(missingPrice)).toBe(false);
   });
 
   it("recalculates an estimate snapshot from editable site dimensions, window type, and unit price", () => {
@@ -182,6 +192,19 @@ describe("sash estimate v1 domain contract", () => {
       productAmount: null,
       totalAmount: null,
     });
+  });
+
+  it("clears a custom window option UUID when its calculation semantic is edited directly", () => {
+    const selected = buildSashEstimateSelectionPatch({
+      ...areaPricedEntry,
+      window_type_option_id: "custom-double-option",
+    });
+    const edited = buildSashEstimateSpecPatch(selected.sashSpec, {
+      window_type: SASH_WINDOW_TYPES.SINGLE,
+    });
+
+    expect(edited.sashSpec.window_type).toBe(SASH_WINDOW_TYPES.SINGLE);
+    expect(edited.sashSpec.window_type_option_id).toBeNull();
   });
 
   it("keeps legacy fixed-price entries on the existing one-set calculation", () => {

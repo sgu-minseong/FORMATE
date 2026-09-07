@@ -160,6 +160,7 @@ export default function Table({
                 <th
                   key={column.key}
                   className={cx(
+                    column.className,
                     column.align === "right" && "ui-table__cell--right",
                     column.sticky && "ui-table__cell--sticky",
                     column.stickyEnd && "ui-table__cell--sticky-end",
@@ -223,6 +224,7 @@ export default function Table({
                       const rawValue = row[column.key];
                       const muted = emptyAsZeroMuted && isMutedValue(rawValue);
                       const cellClassName = cx(
+                        column.className,
                         column.align === "right" && "ui-table__cell--right",
                         muted && "ui-table__empty-value",
                         column.sticky && "ui-table__cell--sticky",
