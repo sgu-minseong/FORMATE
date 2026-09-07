@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pin, Plus, Trash2 } from "lucide-react";
+import { Check, Pin, Plus, Trash2 } from "lucide-react";
 import Button from "../../components/ui/Button";
 import Select from "../../components/ui/Select";
 import Table from "../../components/ui/Table";
@@ -8,7 +8,6 @@ import useDebouncedAutosave from "../../shared/hooks/useDebouncedAutosave";
 import useMutationSaveStatus from "../../shared/hooks/useMutationSaveStatus";
 import {
   formatMoneyInputValue,
-  stripNumberInputFormatting,
 } from "../../shared/utils/numbers";
 import { formatDisplayTimestampDate, getLatestTimestamp } from "../../shared/utils/dates";
 import { PYEONG_OPTIONS } from "../../shared/constants/estimateOptions";
@@ -23,6 +22,25 @@ import {
   fetchSashCatalogPin,
   upsertSashCatalogPin,
 } from "./sashCatalogDefaultApi";
+import {
+  archiveSashCondition,
+  createSashCondition,
+  listSashConditions,
+  loadSashConditionMappings,
+  removeSashConditionMapping,
+  renameSashCondition,
+  reorderSashConditions,
+  upsertSashConditionMapping,
+} from "./sashConditionApi";
+import SashConditionControl from "./SashConditionControl";
+import {
+  archiveSashOptionValue,
+  createSashOptionValue,
+  listSashOptionValues,
+  renameSashOptionValue,
+  SASH_OPTION_KINDS,
+} from "./sashOptionApi";
+import SashOptionSelect from "./SashOptionSelect";
 import {
   createLocalSashCatalogEntry,
   formatSashArea,
@@ -64,35 +82,49 @@ function normalizeDefaultPyeong(value) {
   return PYEONG_OPTIONS.includes(numericValue) ? String(numericValue) : "";
 }
 
+function formatSashMoneyInputValue(value) {
+  const rawValue = String(value ?? "");
+  const ungroupedValue = rawValue.replaceAll(",", "");
+  return /^\d*(?:\.\d*)?$/.test(ungroupedValue)
+    ? formatMoneyInputValue(ungroupedValue)
+    : rawValue;
+}
+
 export const SASH_CATALOG_TABLE_COLUMNS = [
-  { key: "pin", label: "", ariaLabel: "대표제품", defaultWidth: 36, minWidth: 32, maxWidth: 48, sticky: true },
-  { key: "sash_category", label: "분류", defaultWidth: 72, minWidth: 64, maxWidth: 112 },
-  { key: "brand", label: "제조사", defaultWidth: 84, minWidth: 72, maxWidth: 180, sticky: true },
-  { key: "frame_spec", label: "틀", defaultWidth: 90, minWidth: 72, maxWidth: 180, sticky: true, stickyEnd: true },
-  { key: "pair_spec", label: "페어", defaultWidth: 78, minWidth: 64, maxWidth: 160 },
-  { key: "glass_spec", label: "유리", defaultWidth: 82, minWidth: 64, maxWidth: 160 },
-  { key: "gas_spec", label: "가스", defaultWidth: 70, minWidth: 60, maxWidth: 140 },
-  { key: "screen_spec", label: "망", defaultWidth: 72, minWidth: 60, maxWidth: 140 },
-  { key: "window_type", label: "창", defaultWidth: 76, minWidth: 64, maxWidth: 120 },
-  { key: "measurement_kind", label: "치수", defaultWidth: 76, minWidth: 64, maxWidth: 120 },
-  { key: "width_mm", label: "가로", align: "right", defaultWidth: 82, minWidth: 68, maxWidth: 140 },
-  { key: "height_mm", label: "세로", align: "right", defaultWidth: 82, minWidth: 68, maxWidth: 140 },
-  { key: "area_sqm", label: "헤베", align: "right", defaultWidth: 84, minWidth: 68, maxWidth: 140 },
-  { key: "unit_price", label: "단가", align: "right", defaultWidth: 100, minWidth: 80, maxWidth: 180 },
-  { key: "amount", label: "금액", align: "right", defaultWidth: 104, minWidth: 84, maxWidth: 190 },
-  { key: "cost_price", label: "원가", align: "right", defaultWidth: 96, minWidth: 80, maxWidth: 180 },
-  { key: "updated_at", label: "수정일", defaultWidth: 92, minWidth: 76, maxWidth: 140 },
-  { key: "actions", label: "", ariaLabel: "삭제", defaultWidth: 40, minWidth: 36, maxWidth: 56 },
+  { key: "pin", label: "", ariaLabel: "대표제품", defaultWidth: 36, minWidth: 32, maxWidth: 48, sticky: true, className: "sash-catalog-grid__icon-cell" },
+  { key: "condition", label: "조건 적용", ariaLabel: "현재 샷시 조건 적용 규격", defaultWidth: 56, minWidth: 32, maxWidth: 72, className: "sash-catalog-grid__icon-cell" },
+  { key: "sash_category", label: "분류", defaultWidth: 72, minWidth: 56, maxWidth: 112 },
+  { key: "brand", label: "제조사", defaultWidth: 84, minWidth: 44, maxWidth: 180, sticky: true },
+  { key: "frame_spec", label: "틀", defaultWidth: 90, minWidth: 44, maxWidth: 180, sticky: true, stickyEnd: true },
+  { key: "pair_spec", label: "페어", defaultWidth: 78, minWidth: 44, maxWidth: 160 },
+  { key: "glass_spec", label: "유리", defaultWidth: 82, minWidth: 52, maxWidth: 160 },
+  { key: "glass_thickness", label: "유리 두께", defaultWidth: 86, minWidth: 52, maxWidth: 140 },
+  { key: "gas_spec", label: "가스", defaultWidth: 70, minWidth: 52, maxWidth: 140 },
+  { key: "handle_type", label: "손잡이", defaultWidth: 82, minWidth: 52, maxWidth: 140 },
+  { key: "screen_spec", label: "망", defaultWidth: 72, minWidth: 52, maxWidth: 140 },
+  { key: "window_count", label: "창 수", defaultWidth: 72, minWidth: 52, maxWidth: 120 },
+  { key: "window_type", label: "창", defaultWidth: 76, minWidth: 52, maxWidth: 120 },
+  { key: "measurement_kind", label: "치수", defaultWidth: 76, minWidth: 56, maxWidth: 120 },
+  { key: "width_mm", label: "가로", align: "right", defaultWidth: 82, minWidth: 64, maxWidth: 140 },
+  { key: "height_mm", label: "세로", align: "right", defaultWidth: 82, minWidth: 64, maxWidth: 140 },
+  { key: "area_sqm", label: "헤베", align: "right", defaultWidth: 84, minWidth: 52, maxWidth: 140 },
+  { key: "unit_price", label: "단가", align: "right", defaultWidth: 100, minWidth: 72, maxWidth: 180 },
+  { key: "amount", label: "금액", align: "right", defaultWidth: 104, minWidth: 72, maxWidth: 190 },
+  { key: "cost_price", label: "원가", align: "right", defaultWidth: 96, minWidth: 72, maxWidth: 180 },
+  { key: "updated_at", label: "수정일", defaultWidth: 92, minWidth: 64, maxWidth: 140 },
+  { key: "actions", label: "", ariaLabel: "삭제", defaultWidth: 40, minWidth: 36, maxWidth: 56, className: "sash-catalog-grid__icon-cell" },
 ];
 
 export default function SashCatalogGrid({
   companyId,
   subitem = null,
   sashCategory = SASH_CATEGORIES.STANDARD,
+  activeConditionId = "",
   title = "샷시 규격",
   initialDefaultPyeong = "",
   categoryNavigation = null,
   onDirtyChange,
+  onActiveConditionChange,
   onEntryCategoryMove,
   onPersistedCountChange,
   onSaveStateChange,
@@ -110,10 +142,16 @@ export default function SashCatalogGrid({
   const [pinnedEntryId, setPinnedEntryId] = useState("");
   const [pinSaving, setPinSaving] = useState(false);
   const [pinRequirement, setPinRequirement] = useState("");
+  const [conditions, setConditions] = useState([]);
+  const [conditionEntryId, setConditionEntryId] = useState("");
+  const [loadedConditionScope, setLoadedConditionScope] = useState("");
+  const [conditionSaving, setConditionSaving] = useState(false);
+  const [optionValues, setOptionValues] = useState([]);
   const firstDraftInputRef = useRef(null);
   const pinPyeongSelectRef = useRef(null);
   const entriesRef = useRef(entries);
   const dirtyEntryIdsRef = useRef(dirtyEntryIds);
+  const dirtyEntryPatchesRef = useRef(new Map());
   const entryRevisionsRef = useRef(new Map());
   const pinRequestRevisionRef = useRef(0);
   const pinSaveQueueRef = useRef(Promise.resolve());
@@ -124,6 +162,10 @@ export default function SashCatalogGrid({
   });
 
   const selectedSubitemId = subitem?.id ?? "";
+  const conditionScope = activeConditionId && selectedSubitemId
+    ? activeConditionId + ":" + selectedSubitemId
+    : "";
+  const conditionMappingReady = Boolean(conditionScope && loadedConditionScope === conditionScope);
   const hasLocalEntry = entries.some(isLocalSashCatalogEntry);
   const persistedEntryCount = entries.filter((entry) => !isLocalSashCatalogEntry(entry)).length;
   const usesTemplatePyeong = Boolean(normalizeDefaultPyeong(initialDefaultPyeong));
@@ -168,8 +210,72 @@ export default function SashCatalogGrid({
   }, [companyId, pinPyeong, selectedSubitemId]);
 
   useEffect(() => {
-    onDirtyChange?.(entries.some(isLocalSashCatalogEntry));
-  }, [entries, onDirtyChange]);
+    let cancelled = false;
+    if (!companyId) {
+      setConditions([]);
+      onActiveConditionChange?.("");
+      setOptionValues([]);
+      return undefined;
+    }
+    Promise.all([
+      listSashConditions(companyId),
+      listSashOptionValues(companyId, "", { includeArchived: true }),
+    ])
+      .then(([nextConditions, nextOptions]) => {
+        if (cancelled) return;
+        setConditions(nextConditions);
+        const nextConditionId = nextConditions.some((entry) => entry.id === activeConditionId)
+          ? activeConditionId
+          : nextConditions[0]?.id ?? "";
+        if (nextConditionId !== activeConditionId) {
+          onActiveConditionChange?.(nextConditionId);
+        }
+        setOptionValues(nextOptions);
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setError(getFriendlySashError(nextError, "샷시 조건과 옵션을 불러오지 못했습니다."));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!companyId || !activeConditionId || !selectedSubitemId) {
+      setConditionEntryId("");
+      setLoadedConditionScope("");
+      return undefined;
+    }
+    setConditionEntryId("");
+    setLoadedConditionScope("");
+    loadSashConditionMappings(companyId, activeConditionId)
+      .then((rows) => {
+        if (!cancelled) {
+          setConditionEntryId(
+            rows.find((entry) => entry.construction_subitem_id === selectedSubitemId)
+              ?.sash_catalog_entry_id ?? ""
+          );
+          setLoadedConditionScope(activeConditionId + ":" + selectedSubitemId);
+        }
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setConditionEntryId("");
+          setLoadedConditionScope("");
+          setError(getFriendlySashError(nextError, "샷시 조건 구성을 불러오지 못했습니다."));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConditionId, companyId, selectedSubitemId]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirtyEntryIds.size > 0);
+  }, [dirtyEntryIds, onDirtyChange]);
 
   useEffect(() => {
     if (loaded) onPersistedCountChange?.(selectedSubitemId, sashCategory, persistedEntryCount);
@@ -181,12 +287,16 @@ export default function SashCatalogGrid({
       setEntries([]);
       setLoaded(false);
       setDirtyEntryIds(new Set());
+      dirtyEntryPatchesRef.current = new Map();
+      entryRevisionsRef.current = new Map();
       return undefined;
     }
 
     setLoading(true);
     setLoaded(false);
     setDirtyEntryIds(new Set());
+    dirtyEntryPatchesRef.current = new Map();
+    entryRevisionsRef.current = new Map();
     setError("");
     fetchActiveSashCatalogEntries(companyId, selectedSubitemId, sashCategory)
       .then((rows) => {
@@ -215,16 +325,26 @@ export default function SashCatalogGrid({
       entry.id === entryId ? { ...entry, ...patch } : entry
     ));
     const nextDirtyIds = new Set(dirtyEntryIdsRef.current).add(entryId);
+    const nextDirtyPatches = new Map(dirtyEntryPatchesRef.current);
+    nextDirtyPatches.set(entryId, {
+      ...(nextDirtyPatches.get(entryId) ?? {}),
+      ...patch,
+    });
     entryRevisionsRef.current.set(entryId, (entryRevisionsRef.current.get(entryId) ?? 0) + 1);
     entriesRef.current = nextEntries;
     dirtyEntryIdsRef.current = nextDirtyIds;
+    dirtyEntryPatchesRef.current = nextDirtyPatches;
     setEntries(nextEntries);
     setDirtyEntryIds(nextDirtyIds);
     autosave.markDirty({ immediate });
   }
 
   function addEntry() {
-    if (!subitem || sashCategory === SASH_CATEGORIES.UNSPECIFIED) return;
+    if (
+      !subitem
+      || sashCategory === SASH_CATEGORIES.UNSPECIFIED
+      || entriesRef.current.some(isLocalSashCatalogEntry)
+    ) return;
     const nextEntry = createLocalSashCatalogEntry({
       constructionSubitemId: subitem.id,
       sortOrder: entries.length,
@@ -235,35 +355,166 @@ export default function SashCatalogGrid({
     });
     setError("");
     const nextEntries = [...entriesRef.current, nextEntry];
+    const nextDirtyIds = new Set(dirtyEntryIdsRef.current).add(nextEntry.id);
+    const nextDirtyPatches = new Map(dirtyEntryPatchesRef.current);
+    nextDirtyPatches.set(nextEntry.id, {});
     entriesRef.current = nextEntries;
+    dirtyEntryIdsRef.current = nextDirtyIds;
+    dirtyEntryPatchesRef.current = nextDirtyPatches;
+    entryRevisionsRef.current.set(nextEntry.id, 0);
     setEntries(nextEntries);
+    setDirtyEntryIds(nextDirtyIds);
+    void autosave.run();
     window.requestAnimationFrame(() => firstDraftInputRef.current?.focus());
+  }
+
+  async function runRelatedMutation(operation, fallback) {
+    setError("");
+    try {
+      return await mutationStatus.run(operation);
+    } catch (nextError) {
+      const message = getFriendlySashError(nextError, fallback);
+      setError(message);
+      throw new Error(message);
+    }
+  }
+
+  async function createCondition(name) {
+    const created = await runRelatedMutation(
+      () => createSashCondition({
+        companyId,
+        name,
+        sortOrder: conditions.length,
+      }),
+      "샷시 조건을 추가하지 못했습니다."
+    );
+    setConditions((current) => [...current, created]);
+    return created;
+  }
+
+  async function renameCondition(target, name) {
+    const updated = await runRelatedMutation(
+      () => renameSashCondition(target.id, companyId, name),
+      "샷시 조건 이름을 저장하지 못했습니다."
+    );
+    setConditions((current) => current.map((entry) => (
+      entry.id === updated.id ? updated : entry
+    )));
+    return updated;
+  }
+
+  async function reorderConditions(nextConditions) {
+    await runRelatedMutation(
+      () => reorderSashConditions(nextConditions, companyId),
+      "샷시 조건 순서를 저장하지 못했습니다."
+    );
+    setConditions(nextConditions);
+  }
+
+  async function archiveCondition(target) {
+    await runRelatedMutation(
+      () => archiveSashCondition(target.id, companyId),
+      "샷시 조건을 보관하지 못했습니다."
+    );
+    const remaining = conditions.filter((entry) => entry.id !== target.id);
+    setConditions(remaining);
+    if (activeConditionId === target.id) {
+      onActiveConditionChange?.(remaining[0]?.id ?? "");
+      setConditionEntryId("");
+      setLoadedConditionScope("");
+    }
+  }
+
+  async function toggleConditionEntry(entryId) {
+    if (!conditionMappingReady || isLocalSashCatalogEntry(
+      entriesRef.current.find((entry) => entry.id === entryId)
+    )) return;
+    setConditionSaving(true);
+    try {
+      if (conditionEntryId === entryId) {
+        await runRelatedMutation(
+          () => removeSashConditionMapping({
+            companyId,
+            sashConditionId: activeConditionId,
+            constructionSubitemId: selectedSubitemId,
+          }),
+          "샷시 조건 구성을 해제하지 못했습니다."
+        );
+        setConditionEntryId("");
+      } else {
+        await runRelatedMutation(
+          () => upsertSashConditionMapping({
+            companyId,
+            sashConditionId: activeConditionId,
+            constructionSubitemId: selectedSubitemId,
+            sashCatalogEntryId: entryId,
+          }),
+          "샷시 조건 구성을 저장하지 못했습니다."
+        );
+        setConditionEntryId(entryId);
+      }
+    } finally {
+      setConditionSaving(false);
+    }
+  }
+
+  async function createOption(draft) {
+    const created = await runRelatedMutation(
+      () => createSashOptionValue({
+        companyId,
+        optionKind: draft.optionKind,
+        label: draft.label,
+        semanticValue: draft.semanticValue,
+        sortOrder: optionValues.filter(
+          (entry) => entry.option_kind === draft.optionKind
+        ).length,
+      }),
+      "샷시 옵션을 추가하지 못했습니다."
+    );
+    setOptionValues((current) => [...current, created]);
+    return created;
+  }
+
+  async function renameOption(target, label) {
+    const updated = await runRelatedMutation(
+      () => renameSashOptionValue(target.id, companyId, label),
+      "샷시 옵션 이름을 저장하지 못했습니다."
+    );
+    setOptionValues((current) => current.map((entry) => (
+      entry.id === updated.id ? updated : entry
+    )));
+    return updated;
+  }
+
+  async function archiveOption(target) {
+    const archived = await runRelatedMutation(
+      () => archiveSashOptionValue(target.id, companyId),
+      "샷시 옵션을 보관하지 못했습니다."
+    );
+    setOptionValues((current) => current.map((entry) => (
+      entry.id === archived.id ? archived : entry
+    )));
+    return archived;
   }
 
   async function persistDirtyEntries() {
     const dirtyIds = [...dirtyEntryIdsRef.current];
-    let hasIncompleteDraft = false;
     for (const entryId of dirtyIds) {
       const entry = entriesRef.current.find((candidate) => candidate.id === entryId);
       if (!entry) continue;
-      const validationError = getSashCatalogEntryValidationError(entry);
-      if (validationError) {
-        if (isLocalSashCatalogEntry(entry)) {
-          hasIncompleteDraft = true;
-          continue;
-        }
-        throw new Error(validationError);
-      }
-      await saveEntry(entry, { autosave: true });
+      await saveEntry(entry, {
+        autosave: true,
+        patch: dirtyEntryPatchesRef.current.get(entryId) ?? {},
+      });
     }
-    return !hasIncompleteDraft;
+    return true;
   }
 
-  async function saveEntry(entry, { autosave: isAutosave = false } = {}) {
+  async function saveEntry(entry, { patch = {} } = {}) {
     const validationError = getSashCatalogEntryValidationError(entry);
     if (validationError) {
-      if (!isAutosave || !isLocalSashCatalogEntry(entry)) setError(validationError);
-      return false;
+      setError(validationError);
+      throw new Error(validationError);
     }
 
     const revisionAtSave = entryRevisionsRef.current.get(entry.id) ?? 0;
@@ -276,7 +527,7 @@ export default function SashCatalogGrid({
       };
       const savedEntry = isLocalSashCatalogEntry(entry)
         ? await insertSashCatalogEntry(entry, context)
-        : await updateSashCatalogEntry(entry, context);
+        : await updateSashCatalogEntry(entry, patch, context);
       const normalizedSavedEntry = normalizeSashCatalogEntry(savedEntry);
       const currentEntries = entriesRef.current;
       const currentRevision = entryRevisionsRef.current.get(entry.id) ?? 0;
@@ -292,31 +543,45 @@ export default function SashCatalogGrid({
             id: normalizedSavedEntry.id,
             updated_at: getLatestTimestamp(latestEntry.updated_at, normalizedSavedEntry.updated_at),
           };
-      const resolvedEntries = normalizedSavedEntry.sash_category === sashCategory
+      const resolvedEntries = replacementEntry.sash_category === sashCategory
         ? currentEntries.map((currentEntry) => (
             currentEntry.id === entry.id ? replacementEntry : currentEntry
           ))
         : currentEntries.filter((currentEntry) => currentEntry.id !== entry.id);
       entriesRef.current = resolvedEntries;
       setEntries(resolvedEntries);
+      const nextDirtyPatches = new Map(dirtyEntryPatchesRef.current);
       if (currentRevision === revisionAtSave) {
         const nextDirtyIds = new Set(dirtyEntryIdsRef.current);
         nextDirtyIds.delete(entry.id);
+        nextDirtyPatches.delete(entry.id);
         dirtyEntryIdsRef.current = nextDirtyIds;
         setDirtyEntryIds(nextDirtyIds);
       } else if (normalizedSavedEntry.id !== entry.id) {
         const nextDirtyIds = new Set(dirtyEntryIdsRef.current);
+        const latestPatch = nextDirtyPatches.get(entry.id) ?? patch;
         nextDirtyIds.delete(entry.id);
         nextDirtyIds.add(normalizedSavedEntry.id);
+        nextDirtyPatches.delete(entry.id);
+        nextDirtyPatches.set(normalizedSavedEntry.id, latestPatch);
         dirtyEntryIdsRef.current = nextDirtyIds;
         entryRevisionsRef.current.set(normalizedSavedEntry.id, currentRevision);
         setDirtyEntryIds(nextDirtyIds);
       }
+      dirtyEntryPatchesRef.current = nextDirtyPatches;
+      if (currentRevision !== revisionAtSave) {
+        const pendingEntryId = normalizedSavedEntry.id;
+        return saveEntry(replacementEntry, {
+          patch: nextDirtyPatches.get(pendingEntryId)
+            ?? nextDirtyPatches.get(entry.id)
+            ?? patch,
+        });
+      }
       if (
         !isLocalSashCatalogEntry(entry)
-        && normalizedSavedEntry.sash_category !== sashCategory
+        && replacementEntry.sash_category !== sashCategory
       ) {
-        onEntryCategoryMove?.(selectedSubitemId, sashCategory, normalizedSavedEntry.sash_category);
+        onEntryCategoryMove?.(selectedSubitemId, sashCategory, replacementEntry.sash_category);
       }
       return true;
     } catch (nextError) {
@@ -332,9 +597,12 @@ export default function SashCatalogGrid({
     if (isLocalSashCatalogEntry(entry)) {
       const nextEntries = entriesRef.current.filter((currentEntry) => currentEntry.id !== entry.id);
       const nextDirtyIds = new Set(dirtyEntryIdsRef.current);
+      const nextDirtyPatches = new Map(dirtyEntryPatchesRef.current);
       nextDirtyIds.delete(entry.id);
+      nextDirtyPatches.delete(entry.id);
       entriesRef.current = nextEntries;
       dirtyEntryIdsRef.current = nextDirtyIds;
+      dirtyEntryPatchesRef.current = nextDirtyPatches;
       setEntries(nextEntries);
       setDirtyEntryIds(nextDirtyIds);
       return;
@@ -349,9 +617,12 @@ export default function SashCatalogGrid({
       );
       const nextEntries = entriesRef.current.filter((currentEntry) => currentEntry.id !== entry.id);
       const nextDirtyIds = new Set(dirtyEntryIdsRef.current);
+      const nextDirtyPatches = new Map(dirtyEntryPatchesRef.current);
       nextDirtyIds.delete(entry.id);
+      nextDirtyPatches.delete(entry.id);
       entriesRef.current = nextEntries;
       dirtyEntryIdsRef.current = nextDirtyIds;
+      dirtyEntryPatchesRef.current = nextDirtyPatches;
       setEntries(nextEntries);
       setDirtyEntryIds(nextDirtyIds);
       if (entry.id === pinnedEntryId) setPinnedEntryId("");
@@ -474,7 +745,7 @@ export default function SashCatalogGrid({
       return (
         <button
           type="button"
-          className={`sash-catalog-grid__pin ${pinned ? "is-pinned" : ""}`.trim()}
+          className={`admin-price-v2-category-pin ${pinned ? "active" : ""}`.trim()}
           disabled={isLocalSashCatalogEntry(row)}
           aria-pressed={pinned}
           aria-label={!pinPyeong ? "대표제품 고정 평수 선택" : pinned ? `${pinPyeong}평 대표제품 고정 해제` : `${pinPyeong}평 대표제품으로 고정`}
@@ -482,6 +753,24 @@ export default function SashCatalogGrid({
           onClick={() => togglePinnedEntry(row.id)}
         >
           <Pin size={15} strokeWidth={1.5} fill={pinned ? "currentColor" : "none"} />
+        </button>
+      );
+    }
+    if (column.key === "condition") {
+      const selected = row.id === conditionEntryId;
+      return (
+        <button
+          type="button"
+          className={"sash-catalog-grid__condition" + (selected ? " is-selected" : "")}
+          disabled={!conditionMappingReady || conditionSaving || isLocalSashCatalogEntry(row)}
+          aria-pressed={selected}
+          aria-label={selected ? "현재 샷시 조건 구성 해제" : "현재 샷시 조건 구성으로 선택"}
+          title={selected ? "조건 구성 해제" : "조건 구성으로 선택"}
+          onClick={() => toggleConditionEntry(row.id)}
+        >
+          <span className="template-condition-switcher__check" aria-hidden="true">
+            {selected && <Check size={15} strokeWidth={1.8} />}
+          </span>
         </button>
       );
     }
@@ -502,9 +791,6 @@ export default function SashCatalogGrid({
       "brand",
       "frame_spec",
       "pair_spec",
-      "glass_spec",
-      "gas_spec",
-      "screen_spec",
     ].includes(column.key)) {
       const isLegacyFrame = column.key === "frame_spec" && !usesAreaPricing;
       const fieldKey = isLegacyFrame ? "product_type" : column.key;
@@ -518,32 +804,54 @@ export default function SashCatalogGrid({
             brand: "제조사",
             frame_spec: isLegacyFrame ? "기존 제품 구분" : "틀",
             pair_spec: "페어",
-            glass_spec: "유리",
-            gas_spec: "가스",
-            screen_spec: "망",
           }[column.key]}
           onChange={(event) => patchEntry(row.id, { [fieldKey]: event.target.value })}
           onBlur={autosave.run}
         />
       );
     }
+    const optionFieldKinds = {
+      glass_spec: SASH_OPTION_KINDS.GLASS_TYPE,
+      glass_thickness: SASH_OPTION_KINDS.GLASS_THICKNESS,
+      gas_spec: SASH_OPTION_KINDS.GAS,
+      handle_type: SASH_OPTION_KINDS.HANDLE_TYPE,
+      screen_spec: SASH_OPTION_KINDS.SCREEN,
+      window_count: SASH_OPTION_KINDS.WINDOW_COUNT,
+    };
+    if (optionFieldKinds[column.key]) {
+      return (
+        <SashOptionSelect
+          optionKind={optionFieldKinds[column.key]}
+          options={optionValues}
+          value={row[column.key]}
+          ariaLabel={column.label}
+          onCreate={createOption}
+          onRename={renameOption}
+          onArchive={archiveOption}
+          onChange={(option) => patchEntry(
+            row.id,
+            { [column.key]: option?.label ?? "" },
+            { immediate: true }
+          )}
+        />
+      );
+    }
     if (column.key === "window_type") {
       return (
-        <Select
-          selectClassName="items-v2-inline-select"
+        <SashOptionSelect
+          optionKind={SASH_OPTION_KINDS.WINDOW_TYPE}
+          options={optionValues}
           value={row.window_type}
-          aria-label="단창 또는 2중창"
-          onChange={(event) => patchEntry(row.id, { window_type: event.target.value }, { immediate: true })}
-        >
-          <option
-            value={SASH_WINDOW_TYPES.UNSPECIFIED}
-            disabled={usesAreaPricing}
-          >
-            {usesAreaPricing ? "선택 필요" : "미지정"}
-          </option>
-          <option value={SASH_WINDOW_TYPES.SINGLE}>단창</option>
-          <option value={SASH_WINDOW_TYPES.DOUBLE}>2중창</option>
-        </Select>
+          optionId={row.window_type_option_id}
+          ariaLabel="단창 또는 2중창"
+          onCreate={createOption}
+          onRename={renameOption}
+          onArchive={archiveOption}
+          onChange={(option) => patchEntry(row.id, {
+            window_type: option?.semantic_value ?? SASH_WINDOW_TYPES.UNSPECIFIED,
+            window_type_option_id: option?.id ?? null,
+          }, { immediate: true })}
+        />
       );
     }
     if (column.key === "measurement_kind") {
@@ -569,9 +877,14 @@ export default function SashCatalogGrid({
             inputMode="numeric"
             value={row[column.key]}
             aria-label={column.key === "width_mm" ? "가로 mm" : "세로 mm"}
-            onChange={(event) => patchEntry(row.id, {
-              [column.key]: event.target.value.replace(/[^\d]/g, ""),
-            })}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              patchEntry(row.id, {
+                [column.key]: /^[\d,]*$/.test(nextValue)
+                  ? nextValue.replaceAll(",", "")
+                  : nextValue,
+              });
+            }}
             onBlur={autosave.run}
           />
           <span>mm</span>
@@ -592,9 +905,13 @@ export default function SashCatalogGrid({
       if (!hasExplicitWindowType) {
         return <span className="sash-catalog-grid__readonly" aria-readonly="true">미확정</span>;
       }
+      const amount = getSashCatalogEntryAmount(row);
+      if (amount === null) {
+        return <span className="sash-catalog-grid__readonly" aria-readonly="true">미지정</span>;
+      }
       return (
         <span className="sash-catalog-grid__readonly" aria-readonly="true">
-          {formatMoneyInputValue(getSashCatalogEntryAmount(row))}원
+          {formatMoneyInputValue(amount)}원
         </span>
       );
     }
@@ -606,11 +923,16 @@ export default function SashCatalogGrid({
             className="ui-table__input"
             type="text"
             inputMode="numeric"
-            value={formatMoneyInputValue(row[fieldKey])}
+            value={formatSashMoneyInputValue(row[fieldKey])}
             aria-label={column.key === "unit_price" ? "단가" : column.key === "amount" ? "기존 고정 금액" : "원가"}
-            onChange={(event) => patchEntry(row.id, {
-              [fieldKey]: stripNumberInputFormatting(event.target.value),
-            })}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              patchEntry(row.id, {
+                [fieldKey]: /^[\d,.]*$/.test(nextValue)
+                  ? nextValue.replaceAll(",", "")
+                  : nextValue,
+              });
+            }}
             onBlur={autosave.run}
           />
           <span>원</span>
@@ -647,6 +969,16 @@ export default function SashCatalogGrid({
         <div className="sash-catalog-grid__toolbar">
           {categoryNavigation}
           <div className="sash-catalog-grid__pin-context">
+          <SashConditionControl
+            conditions={conditions}
+            value={activeConditionId}
+            disabled={conditionSaving}
+            onChange={(nextCondition) => onActiveConditionChange?.(nextCondition.id)}
+            onCreate={createCondition}
+            onRename={renameCondition}
+            onReorder={reorderConditions}
+            onArchive={archiveCondition}
+          />
           {!usesTemplatePyeong && (
               <Select
                 ref={pinPyeongSelectRef}
@@ -712,7 +1044,7 @@ export default function SashCatalogGrid({
         <button
           type="button"
           className="sash-catalog-grid__add"
-          disabled={loading}
+          disabled={loading || hasLocalEntry}
           onClick={addEntry}
         >
           <Plus size={16} strokeWidth={1.5} />

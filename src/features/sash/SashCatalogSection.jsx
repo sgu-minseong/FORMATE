@@ -38,6 +38,7 @@ export default function SashCatalogSection({
   const [activeViews, setActiveViews] = useState({});
   const [catalogDirty, setCatalogDirty] = useState(false);
   const [specialItemsDirty, setSpecialItemsDirty] = useState(false);
+  const [activeSashConditionId, setActiveSashConditionId] = useState("");
   const [entryCounts, setEntryCounts] = useState({});
   const [countsLoading, setCountsLoading] = useState(false);
   const [countsError, setCountsError] = useState(false);
@@ -51,6 +52,10 @@ export default function SashCatalogSection({
     setCatalogDirty(false);
     setSpecialItemsDirty(false);
   }, [item?.id]);
+
+  useEffect(() => {
+    setActiveSashConditionId("");
+  }, [companyId]);
 
   useEffect(() => {
     if (openSubitemId && !subitemIds.includes(openSubitemId)) {
@@ -231,10 +236,12 @@ export default function SashCatalogSection({
                     companyId={companyId}
                     subitem={subitem}
                     sashCategory={activeView}
+                    activeConditionId={activeSashConditionId}
                     initialDefaultPyeong={pyeong}
                     categoryNavigation={categoryNavigation}
                     title={`${subitem.name} ${getSashCategoryLabel(activeView)} 샷시 규격`}
                     onDirtyChange={handleEditorDirtyChange}
+                    onActiveConditionChange={setActiveSashConditionId}
                     onEntryCategoryMove={handleEntryCategoryMove}
                     onPersistedCountChange={handlePersistedCountChange}
                     onSaveStateChange={onSaveStateChange}

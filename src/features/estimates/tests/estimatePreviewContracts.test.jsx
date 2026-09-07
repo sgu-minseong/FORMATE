@@ -343,7 +343,9 @@ describe("estimate preview rendering contracts", () => {
     expect(appStyles).toMatch(/\.photo-type-row\.active\s*\{[^}]*background:\s*var\(--surface-selected\);/s);
     expect(appStyles).toMatch(/\.preview-type-button\.active\s*\{[^}]*background:\s*var\(--surface-selected\);/s);
     expect(appStyles).toMatch(/\.category-card\.selected\s*\{[^}]*background:\s*var\(--surface-selected\);/s);
-    expect(appStyles).toMatch(/\.sash-catalog-grid__pin\.is-pinned\s*\{[^}]*background:\s*var\(--color-primary\);/s);
+    expect(appStyles).toMatch(/\.admin-price-v2-category-pin\.active\s*\{[^}]*color:\s*var\(--color-primary\);/s);
+    expect(appStyles).not.toMatch(/\.admin-price-v2-category-pin\.active\s*\{[^}]*background:/s);
+    expect(appStyles).not.toContain(".sash-catalog-grid__pin.is-pinned");
     expect(appStyles).toMatch(/\.pdf-capture-area \.general-estimate-table tfoot tr:last-child td\s*\{[^}]*background:\s*var\(--color-primary-soft\);/s);
   });
 

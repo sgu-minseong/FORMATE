@@ -2,6 +2,7 @@ import { supabase } from "../../lib/supabaseClient";
 import {
   buildSashCatalogEntryCounts,
   buildSashCatalogEntryCategoryCounts,
+  buildSashCatalogEntryPatch,
   buildSashCatalogEntryPayload,
 } from "./sashCatalogModel";
 
@@ -87,10 +88,15 @@ export async function insertSashCatalogEntry(entry, context) {
   return data;
 }
 
-export async function updateSashCatalogEntry(entry, context) {
+export async function updateSashCatalogEntry(entry, patch, context) {
+  const payload = buildSashCatalogEntryPatch(
+    { ...entry, ...patch },
+    Object.keys(patch ?? {})
+  );
+  if (!Object.keys(payload).length) return entry;
   const { data, error } = await supabase
     .from("sash_catalog_entries")
-    .update(buildSashCatalogEntryPayload(entry, context))
+    .update(payload)
     .eq("id", entry.id)
     .eq("company_id", context.companyId)
     .select("*")

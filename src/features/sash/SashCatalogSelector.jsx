@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pin } from "lucide-react";
 import PriceText from "../../components/PriceText";
+import { hasNumericInput, toNullableNumber } from "../../shared/utils/numbers";
 import {
   fetchActiveSashCatalogEntries,
 } from "./sashCatalogApi";
@@ -24,6 +25,14 @@ function getWindowTypeLabel(windowType) {
   if (windowType === SASH_WINDOW_TYPES.SINGLE) return "단창";
   if (windowType === SASH_WINDOW_TYPES.DOUBLE) return "2중창";
   return "창 유형 미지정";
+}
+
+function getDimensionsLabel(entry) {
+  if (!hasNumericInput(entry?.width_mm) || !hasNumericInput(entry?.height_mm)) return "";
+  const width = toNullableNumber(entry.width_mm);
+  const height = toNullableNumber(entry.height_mm);
+  if (width <= 0 || height <= 0) return "";
+  return width.toLocaleString("ko-KR") + " × " + height.toLocaleString("ko-KR");
 }
 
 export default function SashCatalogSelector({
@@ -91,18 +100,21 @@ export default function SashCatalogSelector({
             const selected = entry.id === selectedEntryId;
             const usage = rankingByEntryId.get(entry.id);
             const pinned = entry.id === pinnedEntryId;
+            const title = [entry.brand, getSashFrameSpec(entry)]
+              .map((value) => String(value ?? "").trim())
+              .filter(Boolean)
+              .join(" / ") || "규격 정보 없음";
+            const area = entry.pricing_basis === SASH_PRICING_BASES.AREA
+              ? getSashBillableArea(entry)
+              : getSashEntryArea(entry);
             const details = [
               entry.pair_spec,
               entry.glass_spec,
               entry.gas_spec,
               entry.screen_spec,
-              `${Number(entry.width_mm).toLocaleString("ko-KR")} × ${Number(entry.height_mm).toLocaleString("ko-KR")}`,
+              getDimensionsLabel(entry),
               getWindowTypeLabel(entry.window_type),
-              formatSashArea(
-                entry.pricing_basis === SASH_PRICING_BASES.AREA
-                  ? getSashBillableArea(entry)
-                  : getSashEntryArea(entry)
-              ),
+              area === "" ? "" : formatSashArea(area),
             ].filter(Boolean);
             return (
               <button
@@ -115,7 +127,7 @@ export default function SashCatalogSelector({
                 <span className="sash-selector__radio" aria-hidden="true" />
                 <span className="sash-selector__copy">
                   <strong>
-                    {entry.brand} / {getSashFrameSpec(entry)}
+                    {title}
                     {pinned && <Pin className="sash-selector__pin" size={13} strokeWidth={1.5} fill="currentColor" aria-label="대표제품" />}
                     {usage?.usageCount > 0 && (
                       <em className="sash-selector__usage">
@@ -125,7 +137,9 @@ export default function SashCatalogSelector({
                   </strong>
                   <span>{details.join(" · ")}</span>
                 </span>
-                <PriceText value={entry.unit_price} size="sm" />
+                {hasNumericInput(entry.unit_price) && toNullableNumber(entry.unit_price) >= 0
+                  ? <PriceText value={entry.unit_price} size="sm" />
+                  : <span className="muted">—</span>}
               </button>
             );
           })}

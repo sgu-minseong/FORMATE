@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildSelectedEstimateRows, calculateEstimateRow } from "../../estimates/calculation";
 import { reconcileEstimateDraftItems } from "../../estimates/estimateDraftReconciliation";
-import { buildEstimateItemsFromTemplate } from "../../estimates/estimateItemModel";
+import {
+  applySashConditionMappings,
+  buildEstimateItemsFromTemplate,
+} from "../../estimates/estimateItemModel";
 import {
   buildSashEstimateSelectionPatch,
   orderSashCatalogEntriesForDisplay,
@@ -173,6 +176,66 @@ describe("saved estimate sash usage ranking", () => {
       sashCategory: SASH_CATEGORIES.BALCONY,
       sashCatalogEntryId: "balcony-entry",
       sashSelectionSource: "pinned",
+    });
+  });
+
+  it("switches independent condition mappings without changing the sash row identity", () => {
+    const context = {
+      sashUsageRankings: {},
+      sashCatalogEntries: [createEntry("entry-a"), createEntry("entry-b")],
+    };
+    const initial = buildEstimateItemsFromTemplate(
+      sashCatalog,
+      35,
+      "empty",
+      context
+    );
+    const conditionA = applySashConditionMappings(initial, [{
+      construction_subitem_id: "living-room-subitem",
+      sash_catalog_entries: createEntry("entry-a"),
+    }], 35, context);
+    const conditionB = applySashConditionMappings(conditionA, [{
+      construction_subitem_id: "living-room-subitem",
+      sash_catalog_entries: createEntry("entry-b"),
+    }], 35, context);
+
+    expect(Object.keys(conditionB)).toEqual(["sash-item"]);
+    expect(conditionA["sash-item"][0]).toMatchObject({
+      subitemId: "living-room-subitem",
+      sashCatalogEntryId: "entry-a",
+      sashSelectionSource: "condition",
+      sashUsageCount: 0,
+    });
+    expect(conditionB["sash-item"][0]).toMatchObject({
+      subitemId: "living-room-subitem",
+      sashCatalogEntryId: "entry-b",
+      sashSelectionSource: "condition",
+      sashUsageCount: 0,
+    });
+  });
+
+  it("falls back to pin, actual usage, or none when a condition has no mapping", () => {
+    const previous = buildEstimateItemsFromTemplate(sashCatalog, 35, "empty", {
+      sashUsageRankings: {},
+      sashCatalogEntries: [createEntry("entry-a")],
+    });
+    previous["sash-item"][0] = calculateEstimateRow({
+      ...previous["sash-item"][0],
+      ...buildSashEstimateSelectionPatch(createEntry("entry-a")),
+      sashSelectionSource: "condition",
+    });
+
+    const next = applySashConditionMappings(previous, [], 35, {
+      sashUsageRankings: {},
+      sashCatalogEntries: [createEntry("entry-a")],
+    });
+
+    expect(next["sash-item"][0]).toMatchObject({
+      subitemId: "living-room-subitem",
+      sashCatalogEntryId: "",
+      selectedSashCatalogEntryId: "",
+      sashSpec: null,
+      sashSelectionSource: undefined,
     });
   });
 

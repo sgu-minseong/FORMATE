@@ -26,6 +26,17 @@ description: FORMATE 저장소의 개발·버그 수정·Root Cause Audit·검�
 - 하드코딩, 표시 문자열 기반 runtime 분기, 임시 timeout과 fake delay를 사용하지 않는다.
 - 기존 정상 기능을 이유 없이 재작성하지 않는다.
 
+### UI Component Reuse
+
+UI/UX 구현은 `Product Requirement → 최신 FORMATE Design Skill → Existing Canonical Component → Existing Interaction Grammar → Thin Feature Adapter` 순으로 판단한다.
+
+1. 필요한 UI element/component inventory를 작성한다.
+2. repo에서 동일하거나 유사한 역할의 canonical component와 owner를 찾는다.
+3. Existing Component Reuse를 기본값으로 사용한다. 기존 UI와 비슷하게 새로 만드는 것은 재사용이 아니다.
+4. 그대로 재사용할 수 없을 때만 canonical primitive를 조합한 thin feature adapter를 허용한다.
+5. bespoke component는 기존 component로 해결할 수 없는 명확한 구조적 이유가 있을 때만 만든다.
+6. 완료 보고에 재사용한 component와 남은 adapter 및 그 이유를 명시한다.
+
 ## 4. Root Cause Mode
 
 Root Cause 또는 Audit 요청에서는:
