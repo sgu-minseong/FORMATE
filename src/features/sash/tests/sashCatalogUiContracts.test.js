@@ -162,7 +162,7 @@ describe("specialized sash editor UI contracts", () => {
     expect(sashGridSource).toContain("windowType: SASH_WINDOW_TYPES.UNSPECIFIED");
     expect(sashGridSource).toContain("measurementKind: SASH_MEASUREMENT_KINDS.ESTIMATE");
     expect(sashGridSource).toContain("getSashBillableArea(row)");
-    expect(sashGridSource).toContain("getSashCatalogEntryAmount(row)");
+    expect(sashGridSource).toContain("getSashCatalogEntryAmount({ ...row, unit_price: displayedUnitPrice })");
     expect(sashGridSource).toContain("hasExplicitSashWindowType(row.window_type)");
     expect(sashGridSource).toContain("미확정");
     expect(sashGridSource).toContain("총액 직접입력");

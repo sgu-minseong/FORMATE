@@ -26,7 +26,7 @@ describe("sash catalog column interaction floors", () => {
     expect(columns.condition.minWidth).toBe(32);
     expect(columns.actions.minWidth).toBe(36);
     expect(columns.width_mm.minWidth).toBe(64);
-    expect(columns.unit_price.minWidth).toBe(72);
+    expect(columns.unit_price.minWidth).toBe(104);
   });
 
   it("leaves fitMinWidth unset so the shared table uses the same interaction floor", () => {
