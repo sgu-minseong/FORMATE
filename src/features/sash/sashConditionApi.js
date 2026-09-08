@@ -1,4 +1,5 @@
 import { supabase } from "../../lib/supabaseClient";
+import { normalizeSashCatalogEntry } from "./sashCatalogModel";
 
 function throwIfError(error) {
   if (error) throw error;
@@ -75,14 +76,29 @@ export async function archiveSashCondition(conditionId, companyId) {
 export async function loadSashConditionMappings(companyId, sashConditionId) {
   const { data, error } = await supabase
     .from("sash_condition_entries")
-    .select("*, sash_catalog_entry:sash_catalog_entries(*)")
+    .select(`
+      *,
+      sash_catalog_entry:sash_catalog_entries(
+        *,
+        sash_price:sash_prices!sash_catalog_entries_company_sash_price_fkey(
+          id,
+          unit_price,
+          updated_at
+        )
+      )
+    `)
     .eq("company_id", requireText(companyId, "회사 정보가 필요합니다."))
     .eq("sash_condition_id", requireText(sashConditionId, "샷시 조건 정보가 필요합니다."))
     .is("archived_at", null)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
   throwIfError(error);
-  return data ?? [];
+  return (data ?? []).map((mapping) => ({
+    ...mapping,
+    sash_catalog_entry: mapping.sash_catalog_entry
+      ? normalizeSashCatalogEntry(mapping.sash_catalog_entry)
+      : null,
+  }));
 }
 
 export function buildSashConditionMappingPayload({

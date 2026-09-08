@@ -13381,6 +13381,35 @@ const appStyles = `
     text-align: right;
     font-variant-numeric: var(--font-variant-numeric);
   }
+  .sash-catalog-grid__price-input {
+    gap: 2px;
+  }
+  .sash-catalog-grid__shared-price {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: 24px;
+    border: 0;
+    border-radius: var(--radius-button);
+    padding: 0 4px;
+    background: transparent;
+    color: var(--color-primary);
+    font: inherit;
+    font-size: var(--font-size-table-header);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .sash-catalog-grid__shared-price:hover {
+    background: var(--color-surface-subtle);
+  }
+  .sash-catalog-grid__shared-price.needs-review {
+    color: var(--color-warning);
+  }
+  .sash-catalog-grid__shared-price:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
 
   .sash-catalog-grid__pin-context {
     display: flex;
@@ -13535,6 +13564,182 @@ const appStyles = `
   }
   .sash-catalog-grid__message {
     margin: var(--space-1);
+  }
+  .sash-price-dialog__backdrop {
+    position: fixed;
+    z-index: 100;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: var(--space-3);
+    background: rgba(31, 41, 51, 0.42);
+  }
+  .sash-price-dialog {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    width: min(720px, 100%);
+    max-height: min(760px, calc(100dvh - 48px));
+    overflow: hidden;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-popover);
+  }
+  .sash-price-dialog > header,
+  .sash-price-dialog > footer {
+    padding: var(--space-2) var(--space-3);
+  }
+  .sash-price-dialog > header {
+    border-bottom: 1px solid var(--color-border);
+  }
+  .sash-price-dialog > header > span {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-0-5);
+    color: var(--color-primary);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+  }
+  .sash-price-dialog h2,
+  .sash-price-dialog p {
+    margin: 0;
+  }
+  .sash-price-dialog h2 {
+    margin-top: var(--space-0-5);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-section-title);
+    line-height: var(--line-height-section-title);
+  }
+  .sash-price-dialog > header p {
+    margin-top: var(--space-0-5);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-body);
+    font-variant-numeric: var(--font-variant-numeric);
+  }
+  .sash-price-dialog__body {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .sash-price-dialog__section + .sash-price-dialog__section {
+    border-top: 1px solid var(--color-border);
+  }
+  .sash-price-dialog__section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: var(--table-header-height);
+    padding: 0 var(--space-2);
+    background: var(--color-header-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+  }
+  .sash-price-dialog__section-heading strong {
+    color: var(--color-text-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+  .sash-price-dialog__members {
+    display: grid;
+  }
+  .sash-price-dialog__member {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--space-1);
+    padding: var(--space-1-5) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+    cursor: pointer;
+  }
+  .sash-price-dialog__member:hover {
+    background: var(--color-surface-subtle);
+  }
+  .sash-price-dialog__member > input,
+  .sash-price-dialog__move-confirm > input {
+    width: 16px;
+    height: 16px;
+    margin: 2px 0 0;
+    accent-color: var(--color-primary);
+  }
+  .sash-price-dialog__member-copy {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-caption);
+  }
+  .sash-price-dialog__member-heading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .sash-price-dialog__member-heading strong {
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-weight: var(--font-weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sash-price-dialog__match {
+    flex: 0 0 auto;
+    min-height: 20px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-badge);
+    padding: 0 6px;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-table-header);
+    font-style: normal;
+    line-height: 18px;
+  }
+  .sash-price-dialog__match--high {
+    border-color: var(--color-primary-border);
+    color: var(--color-primary);
+  }
+  .sash-price-dialog__match--spec_difference,
+  .sash-price-dialog__difference,
+  .sash-price-dialog__move-warning {
+    color: var(--color-warning);
+  }
+  .sash-price-dialog__member-price {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    font-variant-numeric: var(--font-variant-numeric);
+    white-space: nowrap;
+  }
+  .sash-price-dialog__status,
+  .sash-price-dialog__hint,
+  .sash-price-dialog__error {
+    padding: var(--space-2);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .sash-price-dialog__hint {
+    border-bottom: 1px solid var(--color-border);
+  }
+  .sash-price-dialog__error {
+    color: var(--color-danger);
+  }
+  .sash-price-dialog__move-confirm {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-1);
+    margin: var(--space-2);
+    padding: var(--space-1-5);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-input);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-table-cell);
+    cursor: pointer;
+  }
+  .sash-price-dialog > footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-1);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
   }
   .sash-special-items {
     min-width: 0;

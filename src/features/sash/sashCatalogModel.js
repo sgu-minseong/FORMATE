@@ -251,6 +251,8 @@ export function createLocalSashCatalogEntry({
     glass_thickness: "",
     handle_type: "",
     window_count: "",
+    sash_price_id: null,
+    sash_price: null,
     window_type_option_id: null,
     window_type: normalizeEnum(
       windowType,
@@ -282,6 +284,9 @@ export function createLocalSashCatalogEntry({
 }
 
 export function normalizeSashCatalogEntry(entry) {
+  const joinedPrice = Array.isArray(entry?.sash_price)
+    ? entry.sash_price[0] ?? null
+    : entry?.sash_price ?? entry?.sash_prices ?? null;
   return {
     ...entry,
     sash_category: getSashCategory(entry),
@@ -295,6 +300,8 @@ export function normalizeSashCatalogEntry(entry) {
     glass_thickness: String(entry?.glass_thickness ?? ""),
     handle_type: String(entry?.handle_type ?? ""),
     window_count: String(entry?.window_count ?? ""),
+    sash_price_id: entry?.sash_price_id ?? null,
+    sash_price: joinedPrice,
     window_type_option_id: entry?.window_type_option_id ?? null,
     window_type: normalizeEnum(
       entry?.window_type,
@@ -313,7 +320,7 @@ export function normalizeSashCatalogEntry(entry) {
     ),
     width_mm: entry?.width_mm ?? "",
     height_mm: entry?.height_mm ?? "",
-    unit_price: entry?.unit_price ?? "",
+    unit_price: entry?.sash_price_id ? joinedPrice?.unit_price ?? "" : entry?.unit_price ?? "",
     cost_price: entry?.cost_price ?? "",
     sort_order: Number(entry?.sort_order ?? 0),
   };
@@ -428,6 +435,7 @@ export function createSashSpecSnapshot(entry) {
   return {
     sash_spec_version: SASH_SPEC_VERSION,
     sash_catalog_entry_id: entry.id,
+    sash_price_id: entry?.sash_price_id ?? null,
     sash_category: getSashCategory(entry),
     brand: String(entry?.brand ?? ""),
     product_type: String(entry?.product_type ?? ""),

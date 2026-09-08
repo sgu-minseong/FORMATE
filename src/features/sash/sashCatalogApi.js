@@ -4,7 +4,17 @@ import {
   buildSashCatalogEntryCategoryCounts,
   buildSashCatalogEntryPatch,
   buildSashCatalogEntryPayload,
+  normalizeSashCatalogEntry,
 } from "./sashCatalogModel";
+
+const SASH_CATALOG_ENTRY_SELECT = `
+  *,
+  sash_price:sash_prices!sash_catalog_entries_company_sash_price_fkey(
+    id,
+    unit_price,
+    updated_at
+  )
+`;
 
 function throwIfError(error) {
   if (error) throw error;
@@ -17,7 +27,7 @@ export async function fetchActiveSashCatalogEntries(
 ) {
   let query = supabase
     .from("sash_catalog_entries")
-    .select("*")
+    .select(SASH_CATALOG_ENTRY_SELECT)
     .eq("company_id", companyId)
     .eq("construction_subitem_id", constructionSubitemId)
     .is("archived_at", null);
@@ -26,19 +36,19 @@ export async function fetchActiveSashCatalogEntries(
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
   throwIfError(error);
-  return data ?? [];
+  return (data ?? []).map(normalizeSashCatalogEntry);
 }
 
 export async function fetchActiveCompanySashCatalogEntries(companyId) {
   const { data, error } = await supabase
     .from("sash_catalog_entries")
-    .select("*")
+    .select(SASH_CATALOG_ENTRY_SELECT)
     .eq("company_id", companyId)
     .is("archived_at", null)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
   throwIfError(error);
-  return data ?? [];
+  return (data ?? []).map(normalizeSashCatalogEntry);
 }
 
 export async function fetchActiveSashCatalogEntryCounts(companyId, constructionSubitemIds = []) {
@@ -82,10 +92,10 @@ export async function insertSashCatalogEntry(entry, context) {
   const { data, error } = await supabase
     .from("sash_catalog_entries")
     .insert(buildSashCatalogEntryPayload(entry, context))
-    .select("*")
+    .select(SASH_CATALOG_ENTRY_SELECT)
     .single();
   throwIfError(error);
-  return data;
+  return normalizeSashCatalogEntry(data);
 }
 
 export async function updateSashCatalogEntry(entry, patch, context) {
@@ -99,10 +109,10 @@ export async function updateSashCatalogEntry(entry, patch, context) {
     .update(payload)
     .eq("id", entry.id)
     .eq("company_id", context.companyId)
-    .select("*")
+    .select(SASH_CATALOG_ENTRY_SELECT)
     .single();
   throwIfError(error);
-  return data;
+  return normalizeSashCatalogEntry(data);
 }
 
 export async function archiveSashCatalogEntry(entryId, companyId) {

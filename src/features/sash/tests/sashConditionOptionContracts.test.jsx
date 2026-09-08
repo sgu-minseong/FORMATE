@@ -36,7 +36,8 @@ describe("sash condition and option contracts", () => {
       archived_at: null,
     });
     expect(conditionApiSource).toContain('onConflict: "sash_condition_id,construction_subitem_id"');
-    expect(conditionApiSource).toContain('sash_catalog_entry:sash_catalog_entries(*)');
+    expect(conditionApiSource).toContain('sash_catalog_entry:sash_catalog_entries(');
+    expect(conditionApiSource).toContain('sash_price:sash_prices!sash_catalog_entries_company_sash_price_fkey(');
     expect(conditionApiSource).toContain('.update({ archived_at: new Date().toISOString() })');
   });
 

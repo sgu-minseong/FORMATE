@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Pin, Plus, Trash2 } from "lucide-react";
+import { Check, Link2, Pin, Plus, Trash2 } from "lucide-react";
 import Button from "../../components/ui/Button";
 import Select from "../../components/ui/Select";
 import Table from "../../components/ui/Table";
@@ -8,6 +8,7 @@ import useDebouncedAutosave from "../../shared/hooks/useDebouncedAutosave";
 import useMutationSaveStatus from "../../shared/hooks/useMutationSaveStatus";
 import {
   formatMoneyInputValue,
+  toNullableNumber,
 } from "../../shared/utils/numbers";
 import { formatDisplayTimestampDate, getLatestTimestamp } from "../../shared/utils/dates";
 import { PYEONG_OPTIONS } from "../../shared/constants/estimateOptions";
@@ -41,6 +42,13 @@ import {
   SASH_OPTION_KINDS,
 } from "./sashOptionApi";
 import SashOptionSelect from "./SashOptionSelect";
+import SashPriceImpactDialog from "./SashPriceImpactDialog";
+import {
+  applySharedSashPrice,
+  detachSharedSashPriceMember,
+  fetchSharedSashPriceImpact,
+} from "./sharedSashPriceApi";
+import { SASH_PRICE_IDENTITY_FIELD_KEYS } from "./sharedSashPriceModel";
 import {
   createLocalSashCatalogEntry,
   formatSashArea,
@@ -108,8 +116,8 @@ export const SASH_CATALOG_TABLE_COLUMNS = [
   { key: "width_mm", label: "가로", align: "right", defaultWidth: 82, minWidth: 64, maxWidth: 140 },
   { key: "height_mm", label: "세로", align: "right", defaultWidth: 82, minWidth: 64, maxWidth: 140 },
   { key: "area_sqm", label: "헤베", align: "right", defaultWidth: 84, minWidth: 52, maxWidth: 140 },
-  { key: "unit_price", label: "단가", align: "right", defaultWidth: 100, minWidth: 72, maxWidth: 180 },
-  { key: "amount", label: "금액", align: "right", defaultWidth: 104, minWidth: 72, maxWidth: 190 },
+  { key: "unit_price", label: "단가", align: "right", defaultWidth: 132, minWidth: 104, maxWidth: 200 },
+  { key: "amount", label: "금액", align: "right", defaultWidth: 132, minWidth: 104, maxWidth: 200 },
   { key: "cost_price", label: "원가", align: "right", defaultWidth: 96, minWidth: 72, maxWidth: 180 },
   { key: "updated_at", label: "수정일", defaultWidth: 92, minWidth: 64, maxWidth: 140 },
   { key: "actions", label: "", ariaLabel: "삭제", defaultWidth: 40, minWidth: 36, maxWidth: 56, className: "sash-catalog-grid__icon-cell" },
@@ -147,6 +155,9 @@ export default function SashCatalogGrid({
   const [loadedConditionScope, setLoadedConditionScope] = useState("");
   const [conditionSaving, setConditionSaving] = useState(false);
   const [optionValues, setOptionValues] = useState([]);
+  const [priceDialog, setPriceDialog] = useState(null);
+  const [sharedPriceReviewIds, setSharedPriceReviewIds] = useState(() => new Set());
+  const [unitPriceDrafts, setUnitPriceDrafts] = useState(() => new Map());
   const firstDraftInputRef = useRef(null);
   const pinPyeongSelectRef = useRef(null);
   const entriesRef = useRef(entries);
@@ -155,6 +166,10 @@ export default function SashCatalogGrid({
   const entryRevisionsRef = useRef(new Map());
   const pinRequestRevisionRef = useRef(0);
   const pinSaveQueueRef = useRef(Promise.resolve());
+  const priceInputStartRef = useRef(new Map());
+  const priceBlurSuppressedIdsRef = useRef(new Set());
+  const unitPriceDraftsRef = useRef(unitPriceDrafts);
+  const priceDialogRevisionRef = useRef(0);
   const tableLayout = usePersistentTableWidths({
     companyId,
     tableId: "sash-catalog",
@@ -174,6 +189,7 @@ export default function SashCatalogGrid({
   }), [entries, pinnedEntryId]);
   entriesRef.current = entries;
   dirtyEntryIdsRef.current = dirtyEntryIds;
+  unitPriceDraftsRef.current = unitPriceDrafts;
 
   const autosave = useDebouncedAutosave({ save: persistDirtyEntries });
   const mutationStatus = useMutationSaveStatus({ autosave, onChange: onSaveStateChange });
@@ -283,6 +299,10 @@ export default function SashCatalogGrid({
 
   useEffect(() => {
     let cancelled = false;
+    priceDialogRevisionRef.current += 1;
+    setPriceDialog(null);
+    setSharedPriceReviewIds(new Set());
+    setUnitPriceDrafts(new Map());
     if (!companyId || !selectedSubitemId) {
       setEntries([]);
       setLoaded(false);
@@ -321,6 +341,7 @@ export default function SashCatalogGrid({
   }, [companyId, reloadToken, sashCategory, selectedSubitemId]);
 
   function patchEntry(entryId, patch, { immediate = false } = {}) {
+    const currentEntry = entriesRef.current.find((entry) => entry.id === entryId);
     const nextEntries = entriesRef.current.map((entry) => (
       entry.id === entryId ? { ...entry, ...patch } : entry
     ));
@@ -336,7 +357,141 @@ export default function SashCatalogGrid({
     dirtyEntryPatchesRef.current = nextDirtyPatches;
     setEntries(nextEntries);
     setDirtyEntryIds(nextDirtyIds);
+    if (
+      currentEntry?.sash_price_id
+      && Object.keys(patch).some((fieldName) => SASH_PRICE_IDENTITY_FIELD_KEYS.has(fieldName))
+    ) {
+      setSharedPriceReviewIds((current) => new Set(current).add(entryId));
+    }
     autosave.markDirty({ immediate });
+  }
+
+  function stageUnitPrice(entryId, value) {
+    const nextDrafts = new Map(unitPriceDraftsRef.current);
+    nextDrafts.set(entryId, value);
+    unitPriceDraftsRef.current = nextDrafts;
+    setUnitPriceDrafts(nextDrafts);
+  }
+
+  function clearUnitPriceDraft(entryId) {
+    const nextDrafts = new Map(unitPriceDraftsRef.current);
+    nextDrafts.delete(entryId);
+    unitPriceDraftsRef.current = nextDrafts;
+    setUnitPriceDrafts(nextDrafts);
+  }
+
+  async function openPriceDialog(entry, previousValue = entry.unit_price) {
+    if (isLocalSashCatalogEntry(entry)) return;
+    const unitPrice = toNullableNumber(entry.unit_price);
+    if (unitPrice === null || unitPrice < 0) {
+      clearUnitPriceDraft(entry.id);
+      setError("단가를 0 이상으로 입력하세요.");
+      return;
+    }
+
+    const requestRevision = ++priceDialogRevisionRef.current;
+    setError("");
+    setPriceDialog({
+      entryId: entry.id,
+      error: "",
+      impact: null,
+      loading: true,
+      nextUnitPrice: unitPrice,
+      previousValue,
+      processing: false,
+    });
+
+    const saved = await autosave.run();
+    if (!saved && dirtyEntryIdsRef.current.size > 0) {
+      if (priceDialogRevisionRef.current === requestRevision) {
+        setPriceDialog((current) => current && {
+          ...current,
+          error: "다른 사양을 먼저 저장한 뒤 단가를 적용해주세요.",
+          loading: false,
+        });
+      }
+      return;
+    }
+
+    try {
+      const impact = await fetchSharedSashPriceImpact(companyId, entry.id);
+      if (priceDialogRevisionRef.current !== requestRevision) return;
+      setPriceDialog((current) => current && { ...current, impact, loading: false });
+    } catch (nextError) {
+      if (priceDialogRevisionRef.current !== requestRevision) return;
+      setPriceDialog((current) => current && {
+        ...current,
+        error: getFriendlySashError(nextError, "관련 샷시를 불러오지 못했습니다."),
+        loading: false,
+      });
+    }
+  }
+
+  function closePriceDialog() {
+    priceDialogRevisionRef.current += 1;
+    if (priceDialog?.entryId) clearUnitPriceDraft(priceDialog.entryId);
+    priceInputStartRef.current.delete(priceDialog?.entryId);
+    setPriceDialog(null);
+  }
+
+  async function confirmSharedPrice(selectedEntryIds, confirmGroupMoves, expectedPriceGroups) {
+    if (!priceDialog?.impact) return;
+    setPriceDialog((current) => current && { ...current, error: "", processing: true });
+    try {
+      await applySharedSashPrice({
+        companyId,
+        expectedPriceGroups,
+        impact: priceDialog.impact,
+        selectedEntryIds,
+        unitPrice: priceDialog.nextUnitPrice,
+        confirmGroupMoves,
+      });
+      const refreshedEntries = (
+        await fetchActiveSashCatalogEntries(companyId, selectedSubitemId, sashCategory)
+      ).map(normalizeSashCatalogEntry);
+      entriesRef.current = refreshedEntries;
+      setEntries(refreshedEntries);
+      setSharedPriceReviewIds((current) => {
+        const next = new Set(current);
+        selectedEntryIds.forEach((entryId) => next.delete(entryId));
+        return next;
+      });
+      closePriceDialog();
+    } catch (nextError) {
+      setPriceDialog((current) => current && {
+        ...current,
+        error: getFriendlySashError(nextError, "공유 단가를 적용하지 못했습니다."),
+        processing: false,
+      });
+    }
+  }
+
+  async function detachCurrentSharedPrice() {
+    if (!priceDialog?.impact?.source.sash_price_id) return;
+    setPriceDialog((current) => current && { ...current, error: "", processing: true });
+    try {
+      await detachSharedSashPriceMember({
+        companyId,
+        entry: priceDialog.impact.source,
+      });
+      const refreshedEntries = (
+        await fetchActiveSashCatalogEntries(companyId, selectedSubitemId, sashCategory)
+      ).map(normalizeSashCatalogEntry);
+      entriesRef.current = refreshedEntries;
+      setEntries(refreshedEntries);
+      setSharedPriceReviewIds((current) => {
+        const next = new Set(current);
+        next.delete(priceDialog.impact.source.id);
+        return next;
+      });
+      closePriceDialog();
+    } catch (nextError) {
+      setPriceDialog((current) => current && {
+        ...current,
+        error: getFriendlySashError(nextError, "공유 단가를 해제하지 못했습니다."),
+        processing: false,
+      });
+    }
   }
 
   function addEntry() {
@@ -740,6 +895,7 @@ export default function SashCatalogGrid({
     const isSaving = savingId === row.id;
     const usesAreaPricing = row.pricing_basis === SASH_PRICING_BASES.AREA;
     const hasExplicitWindowType = hasExplicitSashWindowType(row.window_type);
+    const displayedUnitPrice = unitPriceDrafts.get(row.id) ?? row.unit_price;
     if (column.key === "pin") {
       const pinned = row.id === pinnedEntryId;
       return (
@@ -843,6 +999,7 @@ export default function SashCatalogGrid({
           options={optionValues}
           value={row.window_type}
           optionId={row.window_type_option_id}
+          disabled={Boolean(row.sash_price_id)}
           ariaLabel="단창 또는 2중창"
           onCreate={createOption}
           onRename={renameOption}
@@ -875,6 +1032,7 @@ export default function SashCatalogGrid({
             className="ui-table__input"
             type="text"
             inputMode="numeric"
+            disabled={Boolean(row.sash_price_id)}
             value={row[column.key]}
             aria-label={column.key === "width_mm" ? "가로 mm" : "세로 mm"}
             onChange={(event) => {
@@ -905,7 +1063,7 @@ export default function SashCatalogGrid({
       if (!hasExplicitWindowType) {
         return <span className="sash-catalog-grid__readonly" aria-readonly="true">미확정</span>;
       }
-      const amount = getSashCatalogEntryAmount(row);
+      const amount = getSashCatalogEntryAmount({ ...row, unit_price: displayedUnitPrice });
       if (amount === null) {
         return <span className="sash-catalog-grid__readonly" aria-readonly="true">미지정</span>;
       }
@@ -915,20 +1073,75 @@ export default function SashCatalogGrid({
         </span>
       );
     }
-    if (column.key === "unit_price" || column.key === "cost_price" || column.key === "amount") {
-      const fieldKey = column.key === "amount" ? "unit_price" : column.key;
+    const isUnitPriceInput = (
+      column.key === "unit_price" && usesAreaPricing
+    ) || (
+      column.key === "amount" && !usesAreaPricing
+    );
+    if (isUnitPriceInput) {
+      return (
+        <div className="sash-catalog-grid__number-input sash-catalog-grid__price-input">
+          <input
+            className="ui-table__input"
+            type="text"
+            inputMode="numeric"
+            disabled={isLocalSashCatalogEntry(row) || isSaving}
+            value={formatSashMoneyInputValue(displayedUnitPrice)}
+            aria-label={column.key === "unit_price" ? "단가" : "기존 고정 금액"}
+            onFocus={() => priceInputStartRef.current.set(row.id, displayedUnitPrice)}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              stageUnitPrice(
+                row.id,
+                /^[\d,.]*$/.test(nextValue) ? nextValue.replaceAll(",", "") : nextValue
+              );
+            }}
+            onBlur={() => {
+              if (priceBlurSuppressedIdsRef.current.delete(row.id)) return;
+              const previousValue = priceInputStartRef.current.get(row.id) ?? row.unit_price;
+              priceInputStartRef.current.delete(row.id);
+              if (String(previousValue ?? "") !== String(displayedUnitPrice ?? "")) {
+                void openPriceDialog({ ...row, unit_price: displayedUnitPrice }, previousValue);
+              }
+            }}
+          />
+          {row.sash_price_id ? (
+            <button
+              type="button"
+              className={`sash-catalog-grid__shared-price${sharedPriceReviewIds.has(row.id) ? " needs-review" : ""}`}
+              aria-label={sharedPriceReviewIds.has(row.id) ? "공유 단가 확인 필요" : "공유 단가 확인"}
+              title={sharedPriceReviewIds.has(row.id) ? "사양 변경 후 공유 단가 확인 필요" : "공유 단가 확인"}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                if (event.currentTarget.parentElement?.querySelector("input") === document.activeElement) {
+                  priceBlurSuppressedIdsRef.current.add(row.id);
+                }
+              }}
+              onClick={() => void openPriceDialog(
+                { ...row, unit_price: displayedUnitPrice },
+                priceInputStartRef.current.get(row.id) ?? displayedUnitPrice
+              )}
+            >
+              <Link2 size={13} strokeWidth={1.5} />
+              {sharedPriceReviewIds.has(row.id) ? "확인" : "공유"}
+            </button>
+          ) : <span>원</span>}
+        </div>
+      );
+    }
+    if (column.key === "cost_price") {
       return (
         <div className="sash-catalog-grid__number-input">
           <input
             className="ui-table__input"
             type="text"
             inputMode="numeric"
-            value={formatSashMoneyInputValue(row[fieldKey])}
-            aria-label={column.key === "unit_price" ? "단가" : column.key === "amount" ? "기존 고정 금액" : "원가"}
+            value={formatSashMoneyInputValue(row.cost_price)}
+            aria-label="원가"
             onChange={(event) => {
               const nextValue = event.target.value;
               patchEntry(row.id, {
-                [fieldKey]: /^[\d,.]*$/.test(nextValue)
+                cost_price: /^[\d,.]*$/.test(nextValue)
                   ? nextValue.replaceAll(",", "")
                   : nextValue,
               });
@@ -1050,6 +1263,19 @@ export default function SashCatalogGrid({
           <Plus size={16} strokeWidth={1.5} />
           규격 추가
         </button>
+      )}
+
+      {priceDialog && (
+        <SashPriceImpactDialog
+          error={priceDialog.error}
+          impact={priceDialog.impact}
+          loading={priceDialog.loading}
+          nextUnitPrice={priceDialog.nextUnitPrice}
+          processing={priceDialog.processing}
+          onClose={() => closePriceDialog()}
+          onConfirm={confirmSharedPrice}
+          onDetach={detachCurrentSharedPrice}
+        />
       )}
     </section>
   );
